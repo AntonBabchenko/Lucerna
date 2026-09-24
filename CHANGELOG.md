@@ -23,6 +23,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **A Privacy & network page says what Lucerna contacts.** Settings lists the
+  connections that are yours to allow — saved-server status, AI translation and
+  the update check at startup — with what each one sends, where, and whether it
+  is on. Change takes you to the setting itself, with the keyboard focus on it,
+  and the page names what it does not cover and links the privacy policy for
+  it. About points to the page from its data section.
 - **Choose what the launcher does when a game starts: stay open, minimise, or
   hide to the tray.** The old checkbox becomes three choices under Settings →
   Game, and an existing setting carries over. The note about a missing system

@@ -3009,12 +3009,13 @@
       "intro": "Each line says what goes where and whether you've allowed it. Change takes you to the setting itself.",
       "serverPing": {
         "name": "Saved-server status",
-        "body": "Contacts the servers in your saved list to show whether they are online. Each server sees your IP address."
+        "body": "Asks the servers in your instances' Servers lists for their player count and version, only while that list is open. Each server sees your IP address."
       },
       "ai": {
         "name": "AI translation",
         "bodyLocal": "Runs on this computer — nothing is sent out.",
-        "bodyHosted": "Sends the text being translated to {provider}."
+        "bodyHosted": "Sends the text being translated to {provider}.",
+        "bodyUnknown": "Sends the text being translated to the model you chose — on this computer or a hosted service."
       },
       "updates": {
         "name": "Update check on startup",

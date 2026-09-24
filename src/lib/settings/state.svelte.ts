@@ -48,19 +48,21 @@ export async function openSettingsAt(anchor: SettingsAnchor): Promise<void> {
 }
 
 /**
- * The anchor whose next flash should also take keyboard focus. Set by a jump
- * from INSIDE the modal (a Change link on the Privacy page): the link unmounts
- * with its panel, so without this focus would drop to <body>.
+ * A jump asked for from INSIDE the open Settings modal (a Change on the Privacy
+ * page, the About pointer). SettingsModal answers it like a search result — tab,
+ * flash, "Jumped to …" — and the anchor's SettingsField also takes keyboard
+ * focus: the link that asked unmounts with its panel, so focus would otherwise
+ * drop to <body>. Consumed on delivery; dropped by a tab change, a search jump
+ * and close.
  */
 export const settingsJumpFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
 
 /**
- * Jump to a setting from inside the open Settings modal: the same tab switch,
- * flash and "Jumped to" announcement as a search result, and focus on the
- * control. `openSettingsAt` is for callers outside the modal.
+ * Jump to a setting from inside the open Settings modal. `openSettingsAt` is
+ * for callers outside it (they have no focus to lose).
  */
-export function jumpInSettings(_anchor: SettingsAnchor): void {
-  // STUB (red).
+export function jumpInSettings(anchor: SettingsAnchor): void {
+  settingsJumpFocus.value = anchor;
 }
 
 /**
@@ -69,6 +71,7 @@ export function jumpInSettings(_anchor: SettingsAnchor): void {
  */
 export function closeSettings(): void {
   settingsSearchFocus.value = null;
+  settingsJumpFocus.value = null;
   settingsOpen.value = null;
 }
 

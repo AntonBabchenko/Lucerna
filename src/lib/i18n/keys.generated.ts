@@ -2719,6 +2719,7 @@ export type TranslationKey =
   | 'settings.help.support.title'
   | 'settings.privacy.ai.bodyHosted'
   | 'settings.privacy.ai.bodyLocal'
+  | 'settings.privacy.ai.bodyUnknown'
   | 'settings.privacy.ai.name'
   | 'settings.privacy.change'
   | 'settings.privacy.footer'

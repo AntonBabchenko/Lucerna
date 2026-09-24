@@ -177,7 +177,7 @@ describe('SettingsModal', () => {
     const wrapper = document.querySelector('[data-search-anchor="game.serverPing"]');
     expect(wrapper?.classList.contains('field-flash')).toBe(true);
     const live = document.querySelector('.sr-only[role="status"]');
-    expect(live?.textContent).toContain('Jumped to');
+    expect(live?.textContent).toContain('Opened setting: Saved server status, Game');
     // Delivered ⇒ consumed: the next flash of any field stays a plain flash.
     expect(settingsJumpFocus.value).toBe(null);
   });

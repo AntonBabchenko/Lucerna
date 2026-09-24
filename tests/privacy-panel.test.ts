@@ -77,7 +77,7 @@ describe('Privacy & network', () => {
     first.unmount();
     await load({ ...GENERAL, allow_ai_translation: true, ai_provider: 'gemini' });
     render(PrivacyPanel);
-    expect(row('ai').textContent).toContain('to Gemini');
+    expect(row('ai').textContent).toContain('to Google Gemini');
   });
 
   it('claims nothing while the settings are being read', async () => {
