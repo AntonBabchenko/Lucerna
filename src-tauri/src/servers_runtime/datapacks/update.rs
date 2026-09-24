@@ -134,15 +134,17 @@ pub async fn update_one(
     let was_enabled = {
         let _guard = level_dat_lock().lock().await;
         if !level_dat_present(world_dir)? {
-            // A never-booted world: no level.dat, and it must not be given
-            // one. A level.dat holding nothing but Data.DataPacks is not a
-            // world — the server refuses to load it. With no level.dat
-            // neither pack can be listed (the toggle refuses), so both are
-            // present and unlisted, and generation enables the new one on its
-            // own once (e) has removed the old.
-            true
+            // No level.dat — normally a world the server has never
+            // generated — and it must not be given one: a level.dat holding
+            // nothing but Data.DataPacks is not a world, and the server
+            // refuses to load it. There is no list to carry a state in, so
+            // the new file is left present and unlisted, like any fresh
+            // install, and the state is not claimed (`None`): this path
+            // reads no list, and server.properties' initial-disabled-packs,
+            // which the game applies at generation, is not consulted here.
+            None
         } else {
-            carry_state(world_dir, old_filename, new_filename).await?
+            Some(carry_state(world_dir, old_filename, new_filename).await?)
         }
     };
 
@@ -173,7 +175,7 @@ pub async fn update_one(
 
     Ok(ServerDatapackUpdateOutcome {
         record,
-        was_enabled: Some(was_enabled),
+        was_enabled,
         old_removed: true,
         completed: true,
     })
@@ -405,9 +407,8 @@ mod tests {
         );
         assert!(out.completed && out.old_removed);
         assert_eq!(
-            out.was_enabled,
-            Some(true),
-            "with no level.dat a pack cannot be disabled; the game enables it at generation"
+            out.was_enabled, None,
+            "no level.dat was read, so no state may be claimed"
         );
         assert!(td.path().join("datapacks").join("vm-2.0.zip").exists());
         assert!(!td.path().join("datapacks").join("vm-1.0.zip").exists());

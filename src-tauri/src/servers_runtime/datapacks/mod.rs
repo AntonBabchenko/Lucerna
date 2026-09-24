@@ -34,12 +34,16 @@ pub(super) fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
 
 /// Whether the world's `level.dat` exists — `Err` when that cannot be told.
 ///
-/// Absent is a real state: a server that has never started has not generated
-/// its world, and every caller acts on it (the update and the removal leave
-/// `level.dat` alone, the toggle refuses). `Path::exists` folds a failed stat
-/// into "absent", which would let those callers act on a guess — the toggle
+/// Absent is a real state — normally a world the server has never
+/// generated — and every caller acts on it: the update and the removal leave
+/// `level.dat` alone, the toggle refuses. `Path::exists` folds a failed stat
+/// into "absent", which would let those callers act on a guess: the toggle
 /// would say the world was never created, and an update would skip carrying a
 /// disabled pack's state, so the game would switch the new file back on.
+///
+/// Not distinguished yet: a generated world whose `level.dat` was lost while
+/// `level.dat_old` survives (the game recovers from the latter). It reads as
+/// absent here.
 pub(super) fn level_dat_present(world_dir: &Path) -> Result<bool> {
     let path = world_dir.join("level.dat");
     match std::fs::symlink_metadata(&path) {
@@ -141,9 +145,9 @@ pub struct ServerDatapackUpdateOutcome {
     /// would tell the admin a disabled pack had been switched on. (Exactly why
     /// the client's `WorldMigration::Refreshed` carries no `was_enabled`.)
     ///
-    /// `Some(true)` for a renamed update before the world's first boot: with
-    /// no `level.dat` nothing can be listed disabled, so both the old and the
-    /// new pack are present-and-unlisted — enabled when the world generates.
+    /// Also `None` for a renamed update on a world with no `level.dat`
+    /// (normally one the server has never generated): there is no list to
+    /// read or carry, so the state is not known here either.
     pub was_enabled: Option<bool>,
     /// Whether the old file was removed. `update_one` verifies the old file's
     /// identity against its sidecar row *before* writing anything (a
