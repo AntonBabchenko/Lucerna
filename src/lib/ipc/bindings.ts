@@ -3404,11 +3404,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
 /**
- *  A client data-pack change was asked for in a `saves/` folder that has
- *  neither `level.dat` nor `level.dat_old`. Minecraft does not treat that
- *  folder as a world and loads no data packs from it. This is also the
- *  backstop `level_dat::write_at` returns instead of ever creating a
- *  `level.dat`.
+ *  A client data-pack change (add, remove or switch, from a world's tab)
+ *  was asked for in a `saves/` folder that has neither `level.dat` nor
+ *  `level.dat_old`. Minecraft does not treat that folder as a world and
+ *  loads no data packs from it. Returned before anything is written, which
+ *  is what the copy promises; `level_dat::write_at`'s own backstop for a
+ *  vanished `level.dat` is a plain I/O error instead.
  */
 { kind: "world_level_dat_missing"; folder_name: string } | 
 /**
@@ -8018,11 +8019,25 @@ export type WorldDatapack = {
  */
 export type WorldMigration = 
 /**
- *  Relinked, and level.dat rewritten preserving the pack's enabled state.
- *  Produced only by `world_link::migrate_placements`, which actually read
- *  that state.
+ *  Relinked in a world whose `level.dat` was read, carrying the pack's
+ *  enabled state across the rename. Produced only by
+ *  `world_link::migrate_placements`, which actually read that state.
+ * 
+ *  level.dat is rewritten only when an entry had to move. A world with no
+ *  `DataPacks` compound is left unchanged: the game reads the missing
+ *  compound as its default and enables the present, unlisted pack itself
+ *  (spec §0.5 A15), which is what `was_enabled: true` reports there.
  */
 { kind: "migrated"; world: string; was_enabled: boolean } | 
+/**
+ *  The file was relinked in a `saves/` folder that has neither
+ *  `level.dat` nor `level.dat_old` (spec §0.5 A3). Minecraft does not
+ *  treat that folder as a world and loads nothing from it, so no level
+ *  file was read or written and no enabled/disabled state is claimed. A
+ *  separate variant from [`WorldMigration::Migrated`] for the same reason
+ *  as [`WorldMigration::Refreshed`]: this path does not know the state.
+ */
+{ kind: "relinked"; world: string } | 
 /**
  *  A same-name refresh: the world's file now holds the new bytes, and
  *  level.dat was deliberately never touched — each world's own

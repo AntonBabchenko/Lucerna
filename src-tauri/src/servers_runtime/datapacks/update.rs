@@ -28,6 +28,10 @@ pub async fn update_one(
             filename: old_filename.to_string(),
         });
     }
+    // The new name and bytes get the same input checks `install_bytes` runs,
+    // here and not only inside it: they come before the world-state refusal
+    // below (spec §0.5 A7), so a bad name is never reported as a world problem.
+    mutate::validate_install_input(new_filename, bytes)?;
     // D2 for both branches, before either one's `sidecar::reconcile` (which
     // persists) and before any file is placed. A world that lost its level.dat
     // and kept level.dat_old is left for the next start to restore. A
@@ -699,6 +703,49 @@ mod tests {
             new_row.version_id.as_deref(),
             Some("v2"),
             "the sidecar must carry the TARGET's version, not None from the orphan adoption"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_only_old_world_reports_a_bad_new_name_as_the_input_error() {
+        // §0.5 A7: input validation comes before the level.dat presence check,
+        // for the new name as well as the old one.
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(td.path().join("datapacks")).unwrap();
+        level_dat::test_support::seed_old(td.path(), &[], &[]);
+
+        let unsafe_name = update_one(
+            td.path(),
+            "vm-1.0.zip",
+            "../evil.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(unsafe_name, Error::ModsUnsafeFilename { .. }),
+            "got {unsafe_name:?}"
+        );
+
+        let not_a_zip = update_one(
+            td.path(),
+            "vm-1.0.zip",
+            "vm-2.0.jar",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(
+                not_a_zip,
+                Error::DatapackInvalid {
+                    reason: crate::error::DatapackRejection::NotAZip,
+                    ..
+                }
+            ),
+            "got {not_a_zip:?}"
         );
     }
 

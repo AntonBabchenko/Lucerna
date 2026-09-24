@@ -71,10 +71,13 @@ pub(crate) async fn migrate_placements(
         )
         .await
         {
-            Ok(was_enabled) => report.push(WorldMigration::Migrated {
+            Ok(Some(was_enabled)) => report.push(WorldMigration::Migrated {
                 world: p.world,
                 was_enabled,
             }),
+            // A folder with no level file: the file moved, and no state was
+            // read, so none is claimed.
+            Ok(None) => report.push(WorldMigration::Relinked { world: p.world }),
             Err(e) => report.push(WorldMigration::Failed {
                 world: p.world,
                 details: e.to_string(),
@@ -100,6 +103,10 @@ pub(crate) async fn migrate_placements(
 /// unlisted, which Minecraft auto-enables), but that state is REPORTED as
 /// Failed and converges on retry — the opposite trade of silent permanent
 /// loss.
+///
+/// Returns the enabled state it carried across, read from the world's
+/// `level.dat`, or `None` for a folder with no level file, where nothing was
+/// read and no state is claimed.
 async fn migrate_one(
     instance_root: &Path,
     src: &Path,
@@ -107,7 +114,7 @@ async fn migrate_one(
     placement: &WorldPlacement,
     old_filename: &str,
     new_filename: &str,
-) -> Result<bool> {
+) -> Result<Option<bool>> {
     let (world_dir, dp_dir) = world_dirs_checked(instance_root, &placement.world)?;
 
     // D2 first (spec §3 L.4). Nothing below may run in a world waiting to be
@@ -139,32 +146,30 @@ async fn migrate_one(
     // old-file removal. Deriving from the old entry on that retry would read
     // "in neither list" = enabled and flip a disabled pack back on — the exact
     // reversal this whole function exists to prevent.
-    let was_enabled = match &level {
-        Some((root, _)) => {
-            let (enabled, disabled) = level_dat::lists(root);
-            if contains_ci(&disabled, &new_entry) {
+    let (was_enabled, edit) = match level {
+        Some((mut root, framing)) => {
+            let (enabled, disabled) = level_dat::lists(&root);
+            let was_enabled = if contains_ci(&disabled, &new_entry) {
                 false
             } else if contains_ci(&enabled, &new_entry) {
                 true
             } else {
                 !contains_ci(&disabled, &old_entry)
-            }
-        }
-        // No list to read. This is `state::derive`'s answer for a present,
-        // unlisted pack, and what this path always reported here.
-        None => true,
-    };
-    // Apply the level.dat edit in memory now, so a malformed DataPacks refuses
-    // before the new file is linked. `forget_ci`, not `forget`: the old entry
-    // is known only by the library's filename, and level.dat may hold a
-    // different case for the same file.
-    let edit = match level {
-        Some((mut root, framing)) => {
+            };
+            // Apply the level.dat edit in memory now, so a malformed DataPacks
+            // refuses before the new file is linked. `forget_ci`, not
+            // `forget`: the old entry is known only by the library's filename,
+            // and level.dat may hold a different case for the same file.
             let changed_forget = level_dat::forget_ci(&mut root, &old_entry)?;
             let changed_set = level_dat::set_enabled(&mut root, &new_entry, was_enabled)?;
-            (changed_forget || changed_set).then_some((root, framing))
+            (
+                Some(was_enabled),
+                (changed_forget || changed_set).then_some((root, framing)),
+            )
         }
-        None => None,
+        // No level file: nothing to read, nothing to rewrite, and no state is
+        // claimed. The caller reports `WorldMigration::Relinked`.
+        None => (None, None),
     };
 
     tokio::fs::create_dir_all(&dp_dir)

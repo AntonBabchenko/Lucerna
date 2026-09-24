@@ -438,10 +438,10 @@ mod tests {
         assert!(out.completed, "got {:?}", out.migrations);
         assert_eq!(
             out.migrations,
-            vec![WorldMigration::Migrated {
+            vec![WorldMigration::Relinked {
                 world: "Loose".into(),
-                was_enabled: true,
-            }]
+            }],
+            "no level file was read, so no enabled state may be claimed"
         );
         assert_eq!(
             std::fs::read(loose.join("datapacks/vm-2.zip")).unwrap(),

@@ -397,11 +397,12 @@ pub enum Error {
     #[error("World '{folder_name}' is currently in use — quit Minecraft and try again")]
     WorldInUse { folder_name: String },
 
-    /// A client data-pack change was asked for in a `saves/` folder that has
-    /// neither `level.dat` nor `level.dat_old`. Minecraft does not treat that
-    /// folder as a world and loads no data packs from it. This is also the
-    /// backstop `level_dat::write_at` returns instead of ever creating a
-    /// `level.dat`.
+    /// A client data-pack change (add, remove or switch, from a world's tab)
+    /// was asked for in a `saves/` folder that has neither `level.dat` nor
+    /// `level.dat_old`. Minecraft does not treat that folder as a world and
+    /// loads no data packs from it. Returned before anything is written, which
+    /// is what the copy promises; `level_dat::write_at`'s own backstop for a
+    /// vanished `level.dat` is a plain I/O error instead.
     #[error("world '{folder_name}' has no level.dat; not creating one")]
     WorldLevelDatMissing { folder_name: String },
 

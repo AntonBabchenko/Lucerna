@@ -98,6 +98,10 @@ pub async fn server_install_datapack_version(
     let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     let world = world_dir_of(&app, &id)?;
+    // D2 before the download: a world that lost its level.dat and kept
+    // level.dat_old gets no data-pack change, so fetching the pack first is
+    // wasted work. `install_bytes` repeats the check as the backstop.
+    datapacks::refuse_only_old(&world)?;
     let dd = super::data_dir(&app)?;
     let bytes = super::fetch_datapack_bytes(&dd, &version).await?;
     mutate::install_bytes(
@@ -193,6 +197,10 @@ pub async fn server_update_datapack_one(
     } else {
         None
     };
+    // D2 before the download or the Vanilla Tweaks build, and after the
+    // version check above (spec §0.5 A7). `update_one` repeats the check as
+    // the backstop.
+    datapacks::refuse_only_old(&world)?;
     crate::network::throttle::with_interactive(async move {
         let (filename, bytes) = match vt_family {
             Some(family) => {

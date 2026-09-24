@@ -132,28 +132,7 @@ pub async fn install_bytes(
     bytes: &[u8],
     provenance: Option<&DatapackProvenance>,
 ) -> Result<ServerInstalledRecord> {
-    if !crate::pathsafe::is_safe_filename(filename) {
-        return Err(Error::ModsUnsafeFilename {
-            filename: filename.to_string(),
-        });
-    }
-    // Minecraft's pack scanner loads directories and `*.zip` only, and a
-    // non-zip name written here is worse than one that never loads: the
-    // sidecar reconcile adopts only `.zip`, so the row is dropped on the next
-    // listing while the file stays on disk — invisible and unremovable.
-    if !filename.to_ascii_lowercase().ends_with(".zip") {
-        return Err(Error::DatapackInvalid {
-            filename: filename.to_string(),
-            reason: DatapackRejection::NotAZip,
-        });
-    }
-    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
-        return Err(Error::DatapackTooLarge {
-            filename: filename.to_string(),
-            size_bytes: bytes.len() as f64,
-            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
-        });
-    }
+    validate_install_input(filename, bytes)?;
     // D2: a world that lost its level.dat but kept level.dat_old gets no
     // data-pack change; the next start restores level.dat from the backup.
     // This comes after the input validation above (§0.5 A7) and before the
@@ -258,6 +237,36 @@ pub async fn install_bytes(
     };
     super::sidecar::upsert_by_filename(world_dir, record.clone())?;
     Ok(record)
+}
+
+/// The input checks every server pack placement runs first (spec §0.5 A7,
+/// step 1): a safe filename, a `.zip` name and the size cap. Shared by
+/// [`install_bytes`] and `update::update_one`, which must report a bad new
+/// name ahead of any world-state refusal.
+pub(super) fn validate_install_input(filename: &str, bytes: &[u8]) -> Result<()> {
+    if !crate::pathsafe::is_safe_filename(filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: filename.to_string(),
+        });
+    }
+    // Minecraft's pack scanner loads directories and `*.zip` only, and a
+    // non-zip name written here is worse than one that never loads: the
+    // sidecar reconcile adopts only `.zip`, so the row is dropped on the next
+    // listing while the file stays on disk — invisible and unremovable.
+    if !filename.to_ascii_lowercase().ends_with(".zip") {
+        return Err(Error::DatapackInvalid {
+            filename: filename.to_string(),
+            reason: DatapackRejection::NotAZip,
+        });
+    }
+    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
+        return Err(Error::DatapackTooLarge {
+            filename: filename.to_string(),
+            size_bytes: bytes.len() as f64,
+            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

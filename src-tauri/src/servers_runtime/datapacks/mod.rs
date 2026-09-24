@@ -37,15 +37,16 @@ pub(super) fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
 /// world that lost its `level.dat` and kept `level.dat_old` is refused with
 /// [`Error::ServerWorldOnlyOld`]: the next start restores `level.dat` from
 /// the backup, and a file written here first would switch that recovery off.
-/// The other two states come back for the caller to act on. `Err` means the
-/// state could not be told, and the writers refuse on it too.
+/// `Present` and `Absent` pass; a caller that needs to tell them apart
+/// reads `presence::of` itself, under the lock. `Err` from `presence::of`
+/// means the state could not be told, and it is refused too.
 ///
-/// `pub(crate)`: `commands::vanillatweaks::vt_install_to_server` checks it
-/// once, before downloading anything.
-pub(crate) fn refuse_only_old(world_dir: &Path) -> Result<LevelDatPresence> {
+/// `pub(crate)`: the server datapack commands and
+/// `commands::vanillatweaks::vt_install_to_server` check it once, before
+/// downloading anything.
+pub(crate) fn refuse_only_old(world_dir: &Path) -> Result<()> {
     match presence::of(world_dir)? {
-        LevelDatPresence::Present => Ok(LevelDatPresence::Present),
-        LevelDatPresence::Absent => Ok(LevelDatPresence::Absent),
+        LevelDatPresence::Present | LevelDatPresence::Absent => Ok(()),
         LevelDatPresence::OnlyOld => Err(Error::ServerWorldOnlyOld),
     }
 }

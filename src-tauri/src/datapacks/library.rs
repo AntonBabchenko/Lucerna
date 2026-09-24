@@ -481,13 +481,34 @@ async fn worlds_naming(instance_root: &Path, filename: &str) -> Vec<String> {
         // list. "Could not tell" is skipped like an unreadable file, which is
         // the listing's degradation policy: one locked world must not block
         // the sweep.
-        let Ok(crate::datapacks::presence::LevelDatPresence::Present) =
-            crate::datapacks::presence::of(&e.path())
-        else {
-            continue;
-        };
-        let Ok((root, _framing)) = crate::datapacks::level_dat::read_at(&e.path()) else {
-            continue;
+        match crate::datapacks::presence::of(&e.path()) {
+            Ok(crate::datapacks::presence::LevelDatPresence::Present) => {}
+            // No level file: no list to name the pack, and the game loads
+            // nothing from this folder.
+            Ok(crate::datapacks::presence::LevelDatPresence::Absent) => continue,
+            Ok(crate::datapacks::presence::LevelDatPresence::OnlyOld) => {
+                crate::diag!(
+                    "datapacks: removal sweep skips world {world}: only level.dat_old survives, \
+                     so any {entry} name in it stays until the world is restored"
+                );
+                continue;
+            }
+            Err(err) => {
+                crate::diag!(
+                    "datapacks: removal sweep skips world {world}: could not tell whether it \
+                     has a level.dat: {err}"
+                );
+                continue;
+            }
+        }
+        let (root, _framing) = match crate::datapacks::level_dat::read_at(&e.path()) {
+            Ok(read) => read,
+            Err(err) => {
+                crate::diag!(
+                    "datapacks: removal sweep skips world {world}: level.dat could not be read: {err}"
+                );
+                continue;
+            }
         };
         let (enabled, disabled) = crate::datapacks::level_dat::lists(&root);
         if crate::datapacks::world_link::contains_ci(&enabled, &entry)

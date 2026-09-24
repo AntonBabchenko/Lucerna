@@ -496,12 +496,16 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
         // a folder that is not a world, or a world that lost its level.dat and
         // kept level.dat_old, where a new file would stop Minecraft's own
         // restore from the backup. Every caller checks `presence::of` first;
-        // this is the backstop for one that forgets. It runs after the
-        // serialize/reparse above and before any disk write.
+        // this is the backstop for one that forgets, or for a level.dat that
+        // vanished since. It runs after the serialize/reparse above and before
+        // any disk write of its own, but a caller may already have linked or
+        // deleted a pack file, so it is a plain I/O error and not
+        // `WorldLevelDatMissing`, whose copy says nothing was changed.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(Error::WorldLevelDatMissing {
-                folder_name: folder_name_of(world_dir),
-            });
+            return Err(Error::io(
+                path.display().to_string(),
+                "level.dat disappeared before it could be rewritten; not creating one",
+            ));
         }
         // The file exists and we could not read it to back it up. Never
         // overwrite what we could not preserve.
@@ -1209,10 +1213,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(
-            matches!(&err, Error::WorldLevelDatMissing { folder_name } if folder_name == "Survival"),
-            "got {err:?}"
-        );
+        // The backstop fires only after a writer has already linked or deleted
+        // a file, so it must not claim "data packs were not changed" the way
+        // the pre-write `WorldLevelDatMissing` refusal does.
+        assert!(is_backstop_refusal(&err, &world), "got {err:?}");
         assert!(!world.join("level.dat").exists());
         assert!(!world.join("level.dat_lucerna.bak").exists());
     }
@@ -1231,12 +1235,16 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(
-            matches!(err, Error::WorldLevelDatMissing { .. }),
-            "got {err:?}"
-        );
+        assert!(is_backstop_refusal(&err, td.path()), "got {err:?}");
         assert!(!td.path().join("level.dat").exists());
         assert_eq!(std::fs::read(td.path().join("level.dat_old")).unwrap(), old);
+    }
+
+    /// `write_at`'s NotFound backstop: an I/O error naming the level.dat path.
+    fn is_backstop_refusal(err: &Error, world: &Path) -> bool {
+        let want = world.join("level.dat").display().to_string();
+        matches!(err, Error::Io { path, details }
+            if *path == want && details.contains("not creating one"))
     }
 
     #[test]

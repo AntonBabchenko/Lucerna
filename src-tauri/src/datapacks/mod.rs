@@ -183,12 +183,26 @@ pub struct LibraryInstall {
 #[derive(Debug, Clone, Serialize, Type, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorldMigration {
-    /// Relinked, and level.dat rewritten preserving the pack's enabled state.
-    /// Produced only by `world_link::migrate_placements`, which actually read
-    /// that state.
+    /// Relinked in a world whose `level.dat` was read, carrying the pack's
+    /// enabled state across the rename. Produced only by
+    /// `world_link::migrate_placements`, which actually read that state.
+    ///
+    /// level.dat is rewritten only when an entry had to move. A world with no
+    /// `DataPacks` compound is left unchanged: the game reads the missing
+    /// compound as its default and enables the present, unlisted pack itself
+    /// (spec §0.5 A15), which is what `was_enabled: true` reports there.
     Migrated {
         world: String,
         was_enabled: bool,
+    },
+    /// The file was relinked in a `saves/` folder that has neither
+    /// `level.dat` nor `level.dat_old` (spec §0.5 A3). Minecraft does not
+    /// treat that folder as a world and loads nothing from it, so no level
+    /// file was read or written and no enabled/disabled state is claimed. A
+    /// separate variant from [`WorldMigration::Migrated`] for the same reason
+    /// as [`WorldMigration::Refreshed`]: this path does not know the state.
+    Relinked {
+        world: String,
     },
     /// A same-name refresh: the world's file now holds the new bytes, and
     /// level.dat was deliberately never touched — each world's own

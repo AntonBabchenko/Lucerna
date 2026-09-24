@@ -775,6 +775,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let wd = world_dir(td.path(), "Restoring");
         level_dat::test_support::seed_old(&wd, &["file/vm.zip"], &[]);
+        let old_before = std::fs::read(wd.join("level.dat_old")).unwrap();
         std::fs::create_dir_all(wd.join("datapacks")).unwrap();
         std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
 
@@ -791,6 +792,11 @@ mod tests {
             "the pack stays until the world is restored"
         );
         assert!(!wd.join("level.dat").exists());
+        assert_eq!(
+            std::fs::read(wd.join("level.dat_old")).unwrap(),
+            old_before,
+            "Minecraft's backup must be byte-identical"
+        );
     }
 
     #[tokio::test]
@@ -868,6 +874,10 @@ mod tests {
         assert!(
             !wd.join("datapacks/vm.zip").exists(),
             "no pack may be linked when level.dat cannot follow"
+        );
+        assert!(
+            !wd.join("datapacks").exists(),
+            "level.dat is read before datapacks/ is created"
         );
     }
 
