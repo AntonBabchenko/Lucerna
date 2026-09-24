@@ -85,6 +85,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **No more stray gaps under settings.** An empty line reserved for a status or
+  error message took up room even when there was nothing to say, so some rows
+  sat twice as far apart as their neighbours — for example between "Add
+  account" and "Manage" in the sidebar button list. It affected most Settings
+  pages, the data-move dialogs and the server wizards. The message still
+  appears, and is still read out by screen readers, the moment there is one.
 - **Closing the window while a game or server runs asks first.** The window's
   close button, Alt+F4 and the taskbar's close used to end Lucerna and
   force-close every running game and server with it, without a word. Now

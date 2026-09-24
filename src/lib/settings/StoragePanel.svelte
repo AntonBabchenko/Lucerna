@@ -728,9 +728,11 @@
         {$t('settings.general.modMetadataCache.title')}
       </h3>
       <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.description')}</p>
-      <div data-testid="save-failure-mod_metadata_ttl_days">
-        <StatusMessage message={ttlError} tone="danger" />
-      </div>
+      <StatusMessage
+        dataTestid="save-failure-mod_metadata_ttl_days"
+        message={ttlError}
+        tone="danger"
+      />
       <div class="flex flex-wrap items-start gap-4">
         <NumberField
           label={$t('settings.general.modMetadataCache.ttlLabel')}
@@ -769,9 +771,11 @@
           </button>
         </div>
       {/if}
-      <div data-testid="save-failure-log_retention">
-        <StatusMessage message={retentionError} tone="danger" />
-      </div>
+      <StatusMessage
+        dataTestid="save-failure-log_retention"
+        message={retentionError}
+        tone="danger"
+      />
       <div class="flex flex-col gap-1">
         <label class="flex items-start gap-2 cursor-pointer">
           <input

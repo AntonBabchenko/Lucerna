@@ -31,7 +31,6 @@
     /** The live region element, for a caller that scrolls it into view. */
     element?: HTMLElement | null;
   } = $props();
-  // STUB (red): dataTestid / element are not wired yet.
 
   const effectiveLive = $derived(live ?? (tone === 'danger' ? 'assertive' : 'polite'));
   const toneClass = $derived(
@@ -50,11 +49,18 @@
   announce when text appears (role=alert/status + aria-atomic). The visible
   styled message is the INNER element, rendered only when there is a message, so
   callers can pass box styling via `class` without an empty box in the idle state.
+  While idle the region is `absolute`: out of flow, so it takes no flex/grid gap
+  slot, but still in the accessibility tree — never hidden, which would stop the
+  next message from being announced. The same node goes back into flow when a
+  message arrives. `reserveSpace` keeps the idle line in flow on purpose. A test
+  hook goes on the region (`dataTestid`): a wrapper would be an empty box again.
 -->
 <div
+  bind:this={element}
   role={effectiveLive === 'assertive' ? 'alert' : 'status'}
   aria-atomic="true"
-  class={reserveSpace ? 'min-h-4' : undefined}
+  data-testid={dataTestid}
+  class={reserveSpace ? 'min-h-4' : message ? undefined : 'absolute'}
 >
   {#if message}
     <p class="text-xs {toneClass} {className}">

@@ -119,24 +119,25 @@ describe('UpdatesPanel — the check result is a live region', () => {
 
     await fireEvent.click(btn);
     await vi.waitFor(() => {
-      const box = screen.getByTestId('update-status');
-      expect(box.querySelector('[role="status"]')?.textContent).toContain('latest version');
-      expect(box.querySelector('[role="alert"]')).toBeNull();
+      const region = screen.getByTestId('update-status');
+      expect(region.getAttribute('role')).toBe('status');
+      expect(region.textContent).toContain('latest version');
     });
 
     updateCheck.mockRejectedValueOnce(new Error('ipc channel closed'));
     await fireEvent.click(btn);
     await vi.waitFor(() => {
-      const box = screen.getByTestId('update-status');
-      expect(box.querySelector('[role="alert"]')?.textContent).toContain('ipc channel closed');
+      const region = screen.getByTestId('update-status');
+      expect(region.getAttribute('role')).toBe('alert');
+      expect(region.textContent).toContain('ipc channel closed');
     });
 
     updateCheck.mockResolvedValueOnce(AVAILABLE);
     await fireEvent.click(btn);
     await vi.waitFor(() => {
-      const box = screen.getByTestId('update-status');
-      expect(box.querySelector('[role="status"]')?.textContent).toContain('0.10.0');
-      expect(box.querySelector('[role="alert"]')).toBeNull();
+      const region = screen.getByTestId('update-status');
+      expect(region.getAttribute('role')).toBe('status');
+      expect(region.textContent).toContain('0.10.0');
     });
   });
 
