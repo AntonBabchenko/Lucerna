@@ -40,12 +40,15 @@ pub(crate) async fn migrate_placements(
 
     let src = library_dir_at(instance_root).join(new_filename);
     // The NEW library file's hash, for the foreign-under-the-new-name check in
-    // `migrate_one`. Unreadable ⟹ nothing can migrate anyway — every
-    // materialize would fail — so report nothing rather than guessing.
-    let src_sha = match tokio::fs::read(&src).await {
-        Ok(bytes) => crate::datapacks::library::sha1_hex(&bytes),
-        Err(_) => return Vec::new(),
-    };
+    // `migrate_one`. Unreadable ⟹ no world can migrate, and every world that
+    // holds our old file is reported Failed below. An empty report would read
+    // as "nothing to migrate": `datapacks::update` would call the update
+    // complete and delete the OLD library file, and the worlds' copies would
+    // stop counting as ours (Fallback discipline Q1). Failed keeps the old
+    // library copy, so a retry converges.
+    let src_sha = tokio::fs::read(&src)
+        .await
+        .map(|bytes| crate::datapacks::library::sha1_hex(&bytes));
 
     let _guard = level_dat_lock().lock().await;
 
@@ -62,16 +65,17 @@ pub(crate) async fn migrate_placements(
             report.push(WorldMigration::SkippedNotOurs { world: p.world });
             continue;
         }
-        match migrate_one(
-            instance_root,
-            &src,
-            &src_sha,
-            &p,
-            old_filename,
-            new_filename,
-        )
-        .await
-        {
+        let src_sha = match &src_sha {
+            Ok(sha) => sha,
+            Err(e) => {
+                report.push(WorldMigration::Failed {
+                    world: p.world,
+                    details: Error::io(src.display().to_string(), e).to_string(),
+                });
+                continue;
+            }
+        };
+        match migrate_one(instance_root, &src, src_sha, &p, old_filename, new_filename).await {
             Ok(Some(was_enabled)) => report.push(WorldMigration::Migrated {
                 world: p.world,
                 was_enabled,
@@ -400,6 +404,53 @@ mod tests {
         assert!(!wd.join("datapacks/vm-2.zip").exists());
         assert!(!wd.join("level.dat").exists());
         assert_eq!(std::fs::read(wd.join("level.dat_old")).unwrap(), old_before);
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_new_library_file_fails_every_placement_and_keeps_the_old_file() {
+        // Fallback discipline Q1: "the new file could not be read" is not
+        // "nothing to migrate". An empty report let `datapacks::update` call
+        // the update complete and delete the OLD library file, after which the
+        // worlds' copies no longer count as ours and no later update reaches
+        // them.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        game_world(td.path(), "Alpha");
+        add_to_world_at(td.path(), "Alpha", "vm-1.zip")
+            .await
+            .unwrap();
+        // A same-named pack that is not ours stays reported as not ours.
+        let foreign = world_dir(td.path(), "Gamma").join("datapacks");
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(foreign.join("vm-1.zip"), datapack_zip(57)).unwrap();
+        // A directory where the new library file should be: it cannot be read.
+        std::fs::create_dir_all(library_dir_at(td.path()).join("vm-2.zip")).unwrap();
+        let wd = world_dir(td.path(), "Alpha");
+        let level_before = std::fs::read(wd.join("level.dat")).unwrap();
+
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+
+        assert_eq!(report.len(), 2, "got {report:?}");
+        assert!(
+            report.iter().any(|m| matches!(
+                m,
+                crate::datapacks::WorldMigration::Failed { world, .. } if world == "Alpha"
+            )),
+            "got {report:?}"
+        );
+        assert!(
+            report.contains(&crate::datapacks::WorldMigration::SkippedNotOurs {
+                world: "Gamma".into()
+            }),
+            "got {report:?}"
+        );
+        assert!(
+            wd.join("datapacks/vm-1.zip").exists(),
+            "the old world file stays"
+        );
+        assert!(!wd.join("datapacks/vm-2.zip").exists());
+        assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), level_before);
     }
 
     #[tokio::test]
