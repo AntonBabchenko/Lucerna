@@ -373,6 +373,18 @@ pub fn read_at(world_dir: &Path) -> Result<(Value, Framing)> {
     parse(&bytes)
 }
 
+/// Read `<world_dir>/level.dat_old`, Minecraft's own backup, which the game
+/// reads (and restores `level.dat` from) when `level.dat` is missing. Same
+/// error mapping and parsing as [`read_at`].
+///
+/// Read-only: it hands back no [`Framing`] to pass to [`write_at`], and
+/// nothing in Lucerna ever writes `level.dat_old` (see `write_at`'s doc).
+pub fn read_old_at(world_dir: &Path) -> Result<Value> {
+    let path = world_dir.join("level.dat_old");
+    let bytes = std::fs::read(&path).map_err(|e| map_read_err(&path, e, world_dir))?;
+    parse(&bytes).map(|(root, _framing)| root)
+}
+
 /// Rewrite `<world_dir>/level.dat`, keeping the pre-edit bytes in
 /// `level.dat_lucerna.bak`.
 ///
@@ -1161,6 +1173,30 @@ mod tests {
             std::fs::read(world.join("level.dat_old")).unwrap(),
             old_recovery
         );
+    }
+
+    #[test]
+    fn read_old_at_reads_the_backup_copy() {
+        let td = tempfile::tempdir().unwrap();
+        test_support::seed_old(td.path(), &[], &["file/vm.zip"]);
+        let root = read_old_at(td.path()).unwrap();
+        assert_eq!(
+            lists(&root),
+            (vec!["vanilla".to_string()], vec!["file/vm.zip".to_string()])
+        );
+        assert!(
+            !td.path().join("level.dat").exists(),
+            "reading the backup creates nothing"
+        );
+    }
+
+    #[test]
+    fn read_old_at_reports_a_missing_backup_as_an_io_error() {
+        let td = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            read_old_at(td.path()),
+            Err(crate::error::Error::Io { .. })
+        ));
     }
 
     #[test]

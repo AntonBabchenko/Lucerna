@@ -27,6 +27,7 @@ pub mod level_dat;
 pub mod library;
 pub mod overview;
 pub mod pack_meta;
+pub mod presence;
 pub mod registry;
 pub mod state;
 pub mod update;
