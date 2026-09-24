@@ -88,6 +88,9 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
             LevelDatPresence::Absent => None,
         };
 
+        // Accepted: a folder pack's `remove_dir_all` runs under the global
+        // server lock, because server folder packs are small and the removal
+        // must stay inside the same critical section as its level.dat edit.
         match std::fs::metadata(&path) {
             Ok(m) if m.is_dir() => std::fs::remove_dir_all(&path)
                 .map_err(|e| Error::io(path.display().to_string(), e))?,

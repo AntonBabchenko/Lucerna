@@ -363,8 +363,9 @@ pub async fn list_at(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
 /// `world_link::remove_for_cascade_at`, which is the world tab's removal
 /// except in a folder with no level file at all, where it only unlinks (spec
 /// §0.5 A3). A world with only `level.dat_old` is refused, reports `Failed`,
-/// and so keeps the library copy. That entry point takes `level_dat_lock` itself; the calls here are
-/// sequential, never nested under it, so this cannot deadlock. A same-named
+/// and so keeps the library copy. That entry point takes `level_dat_lock`
+/// itself; the calls here are sequential, never nested under it, so this
+/// cannot deadlock. A same-named
 /// file that is not ours is left alone either way. A per-world failure does
 /// not abort the others, but it does keep the library copy and registry row —
 /// see [`crate::datapacks::LibraryRemoval::removed_from_library`].
@@ -414,7 +415,7 @@ pub async fn remove_from_library_at(
     // the user deleted the file by hand — was invisible above. A cascade must
     // clear those names too: leaving one puts the world on Minecraft's "data
     // packs are no longer present" screen after a removal whose purpose was
-    // preventing exactly that prompt. `remove_from_world_at` is already the
+    // preventing exactly that prompt. `remove_for_cascade_at` is the
     // documented orphan-repair path (a missing file is Ok; the name is still
     // cleared).
     if cascade {
@@ -505,7 +506,8 @@ async fn worlds_naming(instance_root: &Path, filename: &str) -> Vec<String> {
             Ok(read) => read,
             Err(err) => {
                 crate::diag!(
-                    "datapacks: removal sweep skips world {world}: level.dat could not be read: {err}"
+                    "datapacks: removal sweep skips world {world}: level.dat could not be \
+                     read: {err}"
                 );
                 continue;
             }

@@ -20,8 +20,9 @@ use super::{contains_ci, level_dat_lock, map_removal_err, only_old, world_dirs_c
 /// side.
 ///
 /// **It lives here, and takes [`level_dat_lock`] itself, for a reason.** The
-/// lock is a non-reentrant `tokio::sync::Mutex` and all three public entry
-/// points above take it internally, so a caller outside this module cannot
+/// lock is a non-reentrant `tokio::sync::Mutex` and all four locked entry
+/// points in `mutate` (add, remove, toggle and the library cascade's
+/// removal) take it internally, so a caller outside this module cannot
 /// compose them into a read → unlink → relink → rewrite sequence: doing so
 /// deadlocks with no error, no timeout and no log line. The lock is taken ONCE
 /// here, around every world, and the module-private helpers are called
@@ -89,7 +90,7 @@ pub(crate) async fn migrate_placements(
 
 /// One world's half of [`migrate_placements`]. Assumes `level_dat_lock` is
 /// ALREADY held by the caller — it takes no lock of its own, and must never
-/// call the three public entry points above.
+/// call the four locked entry points in `mutate`.
 ///
 /// Step order is link-new → rewrite-level.dat → delete-old-LAST, and the
 /// order is load-bearing for retry convergence. The retry finds a world by

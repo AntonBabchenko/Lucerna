@@ -1,6 +1,7 @@
 //! The locked single-world entry points (add / remove / toggle, plus the
-//! cascade's removal) and their conflict gate. Each takes `level_dat_lock` itself — see the parent
-//! module doc for why they must never be composed under it.
+//! cascade's removal) and their conflict gate. Each takes `level_dat_lock`
+//! itself — see the parent module doc for why they must never be composed
+//! under it.
 
 use std::path::Path;
 
@@ -113,6 +114,13 @@ async fn conflicting_world_entry(src: &Path, dest: &Path) -> Result<Option<Error
 
 /// Link a library pack into a world's `datapacks/` folder and mark it
 /// enabled in level.dat.
+///
+/// Refuses before any write (D2): a world with only `level.dat_old`
+/// ([`Error::WorldLevelDatOnlyOld`]), a folder with neither level file
+/// ([`Error::WorldLevelDatMissing`]), and a `level.dat` that cannot be read
+/// or edited. A world with no `DataPacks` compound keeps its `level.dat`
+/// unchanged: the game adds the pack itself, after `vanilla` and the mod
+/// packs (spec §0.5 A15).
 pub async fn add_to_world_at(
     instance_root: &Path,
     world: &str,
@@ -321,6 +329,13 @@ async fn remove_in_world(
 
 /// Toggle a datapack's enabled/disabled state for one world. level.dat only —
 /// the file itself is never touched.
+///
+/// Refuses (D2) a world with only `level.dat_old`
+/// ([`Error::WorldLevelDatOnlyOld`]) and a folder with neither level file
+/// ([`Error::WorldLevelDatMissing`]). In a world with no `DataPacks`
+/// compound, enabling leaves `level.dat` unchanged (the game enables a
+/// present, unlisted pack itself), and disabling seeds the engine default
+/// with this entry switched off (spec §0.5 A15).
 pub async fn set_enabled_in_world_at(
     instance_root: &Path,
     world: &str,
@@ -735,7 +750,10 @@ mod tests {
             .unwrap_err();
 
         assert!(
-            matches!(&err, Error::WorldLevelDatOnlyOld { folder_name } if folder_name == "Restoring"),
+            matches!(
+                &err,
+                Error::WorldLevelDatOnlyOld { folder_name } if folder_name == "Restoring"
+            ),
             "got {err:?}"
         );
         assert!(
@@ -763,7 +781,10 @@ mod tests {
             .unwrap_err();
 
         assert!(
-            matches!(&err, Error::WorldLevelDatMissing { folder_name } if folder_name == "NotAWorld"),
+            matches!(
+                &err,
+                Error::WorldLevelDatMissing { folder_name } if folder_name == "NotAWorld"
+            ),
             "got {err:?}"
         );
         assert!(!wd.join("datapacks").exists());

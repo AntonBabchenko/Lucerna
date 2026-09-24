@@ -296,9 +296,11 @@ fn push_unique(list: &mut Vec<Value>, entry: &str) -> bool {
 }
 
 /// Put `entry` (a `file/<filename>` value) in exactly one of the two lists.
-/// Idempotent. Returns whether the root actually changed, so a caller that
-/// reconciles state on every refresh can skip `write_at` (and skip rolling
-/// the backup forward) on a call that changed nothing.
+/// Idempotent. Returns whether the entry moved, so a caller that reconciles
+/// state on every refresh can skip `write_at` (and skip rolling the backup
+/// forward) on a call that moved nothing. `false` does not promise an
+/// identical root: `list_mut` may add a missing, empty `Enabled` /
+/// `Disabled` list without reporting it, which reads back the same.
 ///
 /// For a world with no `DataPacks` compound yet (spec §0.5 A15):
 ///   * an ENABLE changes nothing and returns `false`. The file is placed, and
@@ -473,8 +475,8 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
         ));
     }
 
-    // Never overwrite level.dat unless the pre-edit bytes are either safely
-    // copied to the backup, or provably absent. `if let Ok(old) = read(..)`
+    // Never overwrite level.dat unless the pre-edit bytes are safely copied to
+    // the backup; a missing level.dat is refused below. `if let Ok(old) = read(..)`
     // would treat every non-`NotFound` read failure — permission denied, a
     // lock, a bad sector — the same as "no file yet" and overwrite anyway: on
     // POSIX, `rename(2)` needs write+execute on the *directory* and no

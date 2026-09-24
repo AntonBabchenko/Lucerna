@@ -33,8 +33,10 @@ pub enum LevelDatPresence {
     Absent,
 }
 
-/// `Err` means Lucerna could not tell. Every writer refuses on it, and
-/// listings show the state as unknown.
+/// `Err` means Lucerna could not tell. Every writer refuses on it. The
+/// client world listing fails with it, as it does on an unreadable
+/// `level.dat`; the library overview and the server listing show the state
+/// as unknown.
 ///
 /// `std::fs::metadata` follows symlinks, as the game's `Files.exists` /
 /// `isRegularFile` do, so a dangling `level.dat` link reads as missing here,
