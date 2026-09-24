@@ -6,7 +6,7 @@ use crate::datapacks::{level_dat, level_dat_entry, pack_meta, DatapackProvenance
 use crate::error::{DatapackRejection, Error, Result};
 use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 
-use super::level_dat_lock;
+use super::{level_dat_lock, level_dat_present};
 
 /// Enable or disable one pack in the world's `level.dat`. The file itself is
 /// never touched — this is the game's own mechanism, so what the launcher
@@ -22,7 +22,7 @@ pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Res
         });
     }
     let _guard = level_dat_lock().lock().await;
-    if !world_dir.join("level.dat").exists() {
+    if !level_dat_present(world_dir)? {
         return Err(Error::ServerWorldNotCreated);
     }
     let (mut root, framing) = level_dat::read_at(world_dir)?;
@@ -75,7 +75,7 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
 
     {
         let _guard = level_dat_lock().lock().await;
-        if world_dir.join("level.dat").exists() {
+        if level_dat_present(world_dir)? {
             let (mut root, framing) = level_dat::read_at(world_dir)?;
             if level_dat::forget_ci(&mut root, &level_dat_entry(filename))? {
                 level_dat::write_at(world_dir, &root, framing).await?;

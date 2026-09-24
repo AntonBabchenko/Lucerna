@@ -6,7 +6,7 @@ use crate::datapacks::{level_dat, level_dat_entry, world_link, DatapackProvenanc
 use crate::error::{Error, Result};
 use crate::servers_runtime::installed;
 
-use super::{level_dat_lock, mutate, sidecar, ServerDatapackUpdateOutcome};
+use super::{level_dat_lock, level_dat_present, mutate, sidecar, ServerDatapackUpdateOutcome};
 
 /// Apply one resolved update. `bytes` is the target's verified content; the
 /// caller owns download, size caps and verification.
@@ -133,33 +133,17 @@ pub async fn update_one(
 
     let was_enabled = {
         let _guard = level_dat_lock().lock().await;
-        // (d) Read level.dat once. An already-listed NEW entry's state takes
-        // precedence: a retried migration must not have its state re-derived
-        // from a stale old entry and flip a disabled pack on.
-        let (mut root, framing) = world_link::read_level_dat_or_empty(world_dir)?;
-        let (enabled_raw, disabled_raw) = level_dat::lists(&root);
-        let strip = |v: &[String]| -> Vec<String> {
-            v.iter()
-                .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
-                .collect()
-        };
-        let (enabled, disabled) = (strip(&enabled_raw), strip(&disabled_raw));
-        let new_listed = world_link::contains_ci(&enabled, new_filename)
-            || world_link::contains_ci(&disabled, new_filename);
-        // The three-case rule: in neither list means ENABLED (Minecraft
-        // auto-enables a present, unlisted pack). Reading it as two cases
-        // silently disables a pack that was on.
-        let was_enabled = if new_listed {
-            !world_link::contains_ci(&disabled, new_filename)
+        if !level_dat_present(world_dir)? {
+            // A never-booted world: no level.dat, and it must not be given
+            // one. A level.dat holding nothing but Data.DataPacks is not a
+            // world — the server refuses to load it. With no level.dat
+            // neither pack can be listed (the toggle refuses), so both are
+            // present and unlisted, and generation enables the new one on its
+            // own once (e) has removed the old.
+            true
         } else {
-            !world_link::contains_ci(&disabled, old_filename)
-        };
-        let mut changed = level_dat::forget_ci(&mut root, &level_dat_entry(old_filename))?;
-        changed |= level_dat::set_enabled(&mut root, &level_dat_entry(new_filename), was_enabled)?;
-        if changed {
-            level_dat::write_at(world_dir, &root, framing).await?;
+            carry_state(world_dir, old_filename, new_filename).await?
         }
-        was_enabled
     };
 
     // (e) Delete the old file, LAST. A failure at any earlier step leaves
@@ -193,6 +177,40 @@ pub async fn update_one(
         old_removed: true,
         completed: true,
     })
+}
+
+/// Step (d) of a renamed update on a world that HAS a `level.dat`: carry the
+/// old name's enabled state to the new name and return it. The caller holds
+/// `level_dat_lock` — this must not take it (the lock is not reentrant).
+///
+/// Read level.dat once. An already-listed NEW entry's state takes precedence:
+/// a retried migration must not have its state re-derived from a stale old
+/// entry and flip a disabled pack on.
+async fn carry_state(world_dir: &Path, old_filename: &str, new_filename: &str) -> Result<bool> {
+    let (mut root, framing) = level_dat::read_at(world_dir)?;
+    let (enabled_raw, disabled_raw) = level_dat::lists(&root);
+    let strip = |v: &[String]| -> Vec<String> {
+        v.iter()
+            .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
+            .collect()
+    };
+    let (enabled, disabled) = (strip(&enabled_raw), strip(&disabled_raw));
+    let new_listed = world_link::contains_ci(&enabled, new_filename)
+        || world_link::contains_ci(&disabled, new_filename);
+    // The three-case rule: in neither list means ENABLED (Minecraft
+    // auto-enables a present, unlisted pack). Reading it as two cases
+    // silently disables a pack that was on.
+    let was_enabled = if new_listed {
+        !world_link::contains_ci(&disabled, new_filename)
+    } else {
+        !world_link::contains_ci(&disabled, old_filename)
+    };
+    let mut changed = level_dat::forget_ci(&mut root, &level_dat_entry(old_filename))?;
+    changed |= level_dat::set_enabled(&mut root, &level_dat_entry(new_filename), was_enabled)?;
+    if changed {
+        level_dat::write_at(world_dir, &root, framing).await?;
+    }
+    Ok(was_enabled)
 }
 
 #[cfg(test)]
@@ -351,6 +369,57 @@ mod tests {
             state_of(td.path(), "vm-2.0.zip"),
             Some(WorldPackState::Enabled)
         );
+    }
+
+    #[tokio::test]
+    async fn a_renamed_update_before_the_first_boot_never_creates_level_dat() {
+        // A server that has never started has not generated its world: there
+        // is only the datapacks/ folder the admin filled. Writing a level.dat
+        // holding nothing but Data.DataPacks made the server refuse to load
+        // the world ("Failed to load world data"), so the update must leave
+        // level.dat absent and let generation pick up the new file.
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(td.path().join("datapacks")).unwrap();
+        crate::servers_runtime::datapacks::mutate::install_bytes(
+            td.path(),
+            "vm-1.0.zip",
+            &datapack_zip(b"v1"),
+            Some(&prov("v1")),
+        )
+        .await
+        .unwrap();
+
+        let out = update_one(
+            td.path(),
+            "vm-1.0.zip",
+            "vm-2.0.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            !td.path().join("level.dat").exists(),
+            "a never-booted world must not be given a level.dat"
+        );
+        assert!(out.completed && out.old_removed);
+        assert_eq!(
+            out.was_enabled,
+            Some(true),
+            "with no level.dat a pack cannot be disabled; the game enables it at generation"
+        );
+        assert!(td.path().join("datapacks").join("vm-2.0.zip").exists());
+        assert!(!td.path().join("datapacks").join("vm-1.0.zip").exists());
+        assert_eq!(
+            state_of(td.path(), "vm-2.0.zip"),
+            Some(WorldPackState::Enabled)
+        );
+        let rows = crate::servers_runtime::installed::lock(td.path())
+            .load()
+            .unwrap();
+        assert_eq!(rows.len(), 1, "the old sidecar row is dropped");
+        assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
     }
 
     #[tokio::test]

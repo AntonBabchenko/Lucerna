@@ -32,6 +32,23 @@ pub(super) fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
+/// Whether the world's `level.dat` exists — `Err` when that cannot be told.
+///
+/// Absent is a real state: a server that has never started has not generated
+/// its world, and every caller acts on it (the update and the removal leave
+/// `level.dat` alone, the toggle refuses). `Path::exists` folds a failed stat
+/// into "absent", which would let those callers act on a guess — the toggle
+/// would say the world was never created, and an update would skip carrying a
+/// disabled pack's state, so the game would switch the new file back on.
+pub(super) fn level_dat_present(world_dir: &Path) -> Result<bool> {
+    let path = world_dir.join("level.dat");
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(Error::io(path.display().to_string(), e)),
+    }
+}
+
 /// `level-name` from raw `server.properties` text, defaulting to `world` when
 /// the key is absent or blank (matches the vanilla server default).
 pub fn level_name(props_raw: &str) -> String {
@@ -123,6 +140,10 @@ pub struct ServerDatapackUpdateOutcome {
     /// or writes `level.dat`, so it does not KNOW the state — reporting `true`
     /// would tell the admin a disabled pack had been switched on. (Exactly why
     /// the client's `WorldMigration::Refreshed` carries no `was_enabled`.)
+    ///
+    /// `Some(true)` for a renamed update before the world's first boot: with
+    /// no `level.dat` nothing can be listed disabled, so both the old and the
+    /// new pack are present-and-unlisted — enabled when the world generates.
     pub was_enabled: Option<bool>,
     /// Whether the old file was removed. `update_one` verifies the old file's
     /// identity against its sidecar row *before* writing anything (a

@@ -7071,6 +7071,10 @@ export type ServerDatapackUpdateOutcome = {
 	 *  or writes `level.dat`, so it does not KNOW the state — reporting `true`
 	 *  would tell the admin a disabled pack had been switched on. (Exactly why
 	 *  the client's `WorldMigration::Refreshed` carries no `was_enabled`.)
+	 * 
+	 *  `Some(true)` for a renamed update before the world's first boot: with
+	 *  no `level.dat` nothing can be listed disabled, so both the old and the
+	 *  new pack are present-and-unlisted — enabled when the world generates.
 	 */
 	was_enabled: boolean | null,
 	/**
