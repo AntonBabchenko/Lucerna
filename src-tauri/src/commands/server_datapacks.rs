@@ -20,7 +20,7 @@ use tauri::AppHandle;
 use crate::error::{Error, Result};
 use crate::mods::platform::{AssetUpdateCheck, AssetUpdateState, ModVersion};
 use crate::servers_runtime::datapacks::{
-    self, guard, listing, mutate, update, ServerDatapackEntry, ServerDatapackUpdateOutcome,
+    self, guard, listing, mutate, update, ServerDatapackListing, ServerDatapackUpdateOutcome,
 };
 
 /// `runtime/<level>/` for a server, resolved from its live `server.properties`.
@@ -34,10 +34,11 @@ fn world_dir_of(app: &AppHandle, id: &str) -> Result<std::path::PathBuf> {
 }
 
 /// Every datapack this server's world knows about, with its real enabled
-/// state read from `level.dat`.
+/// state — read from `level.dat`, or from `level.dat_old` when only the
+/// backup is left — plus the world's `level.dat` presence.
 #[tauri::command]
 #[specta::specta]
-pub async fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<ServerDatapackEntry>> {
+pub async fn server_list_datapacks(app: AppHandle, id: String) -> Result<ServerDatapackListing> {
     let world = world_dir_of(&app, &id)?;
     // Off the main thread: the listing reconciles the world's sidecar, which
     // hashes every unadopted zip and waits on the sidecar lock while another
@@ -45,7 +46,7 @@ pub async fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<Ser
     // `tests/structural_no_heavy_sync_command.rs`.
     tokio::task::spawn_blocking(move || listing::entries(&world))
         .await
-        .map_err(|e| Error::io("<datapack-listing>", e))
+        .map_err(|e| Error::io("<datapack-listing>", e))?
 }
 
 /// Install a datapack `.zip` chosen from disk. Records a provenance-less

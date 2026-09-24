@@ -321,6 +321,8 @@ mod tests {
 
     fn state_of(world_dir: &std::path::Path, name: &str) -> Option<WorldPackState> {
         super::super::listing::entries(world_dir)
+            .unwrap()
+            .entries
             .into_iter()
             .find(|e| e.record.filename == name)
             .and_then(|e| e.state)
@@ -469,7 +471,10 @@ mod tests {
         );
         remove(td.path(), "ghost-off.zip").await.unwrap();
 
-        assert!(super::super::listing::entries(td.path()).is_empty());
+        assert!(super::super::listing::entries(td.path())
+            .unwrap()
+            .entries
+            .is_empty());
     }
 
     #[tokio::test]

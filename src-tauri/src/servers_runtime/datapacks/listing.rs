@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::datapacks::presence::{self, LevelDatPresence};
-use crate::datapacks::{level_dat, state, world_link};
+use crate::datapacks::{state, world_link};
 use crate::servers_runtime::installed::ServerInstalledRecord;
 
-use super::{sidecar, ServerDatapackEntry};
+use crate::error::Result;
+
+use super::{sidecar, ServerDatapackEntry, ServerDatapackListing};
 
 /// What Minecraft's own `datapacks/` scanner would load: any directory,
 /// regardless of name, plus any file ending `.zip`. Returned as
@@ -56,31 +58,35 @@ fn union_names(level_dat_names: &[String], sidecar: &[String], on_disk: &[String
 /// entries, the provenance sidecar and the `level.dat` name lists, each row
 /// with its derived state.
 ///
+/// The lists are the ones the server would load: `level.dat`'s,
+/// `level.dat_old`'s when only the backup is left, or two empty lists for a
+/// world not generated yet. `Result` so that a folder scan that fails can
+/// become the pane's load error (§0.5 A4); a `level.dat` problem never fails
+/// it — it degrades the states to unknown and sets `level_dat: None` when
+/// the presence itself could not be told.
+///
 /// `world_dir` is `runtime/<level>/`; its `datapacks/` child holds the packs.
 ///
 /// **Not read-only:** this reconciles the provenance sidecar against disk and
 /// persists the result (best-effort) via [`sidecar::reconcile`], adopting a
 /// hand-dropped `.zip` and pruning a row whose file is gone. The client's
 /// `datapacks::registry::list` is deliberately the same shape.
-pub fn entries(world_dir: &Path) -> Vec<ServerDatapackEntry> {
+pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
     let dp_dir = world_dir.join("datapacks");
     let on_disk = on_disk_entries(&dp_dir);
     let records = sidecar::reconcile(world_dir);
 
-    // ABSENT means empty lists: a real answer, because a never-booted world
-    // holds no enabled/disabled state. ONLY-OLD means the lists level.dat_old
-    // holds, which is what the server loads when it restores from that copy.
-    // A read failure, or a presence that could not be told, means `None`
-    // states with the listing intact.
-    let lists = match presence::of(world_dir) {
-        Ok(LevelDatPresence::Present) => level_dat::read_at(world_dir)
-            .ok()
-            .map(|(root, _)| level_dat::lists(&root)),
-        Ok(LevelDatPresence::OnlyOld) => level_dat::read_old_at(world_dir)
-            .ok()
-            .map(|root| level_dat::lists(&root)),
-        Ok(LevelDatPresence::Absent) => Some((Vec::new(), Vec::new())),
-        Err(_) => None,
+    // What the server would load. Present ⇒ `level.dat`; OnlyOld ⇒
+    // `level.dat_old`, which it boots from and restores `level.dat` out of.
+    // Absent — a world not generated yet — holds no enabled/disabled state:
+    // two empty lists are a real answer (the first boot enables every present
+    // pack). A presence that cannot be told, or a file that does not parse,
+    // degrades every state to unknown with the listing intact (§0.2 I2).
+    let level_dat = presence::of(world_dir).ok();
+    let lists = match level_dat {
+        Some(LevelDatPresence::Absent) => Some((Vec::new(), Vec::new())),
+        Some(p) => presence::lists_of(world_dir, p).ok().flatten(),
+        None => None,
     };
     // `file/` is stripped with `filter_map`, which DROPS every entry lacking
     // the prefix — `vanilla` and the feature-flag packs every world carries.
@@ -122,9 +128,10 @@ pub fn entries(world_dir: &Path) -> Vec<ServerDatapackEntry> {
                         version_number: None,
                         enrich_attempted: false,
                     });
-                // `Some` only when level.dat was actually readable — an
-                // unreadable one degrades every state to unknown rather than
-                // guessing. (An ABSENT one is `Some` with empty lists.)
+                // `Some` only when the lists were actually read — an unreadable
+                // file, or a presence that could not be told, degrades every
+                // state to unknown rather than guessing. (An ABSENT one — never
+                // generated — is `Some` with empty lists.)
                 let st = lists.is_some().then(|| {
                     state::derive(
                         present,
@@ -146,12 +153,16 @@ pub fn entries(world_dir: &Path) -> Vec<ServerDatapackEntry> {
             .to_lowercase()
             .cmp(&b.record.filename.to_lowercase())
     });
-    out
+    Ok(ServerDatapackListing {
+        level_dat,
+        entries: out,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::presence::LevelDatPresence;
     use crate::datapacks::{level_dat, level_dat_entry, WorldPackState};
     use std::io::Write;
 
@@ -195,11 +206,15 @@ mod tests {
             .unwrap_or_else(|| panic!("no row named {name} in {rows:?}"))
     }
 
+    fn rows(world_dir: &std::path::Path) -> Vec<ServerDatapackEntry> {
+        entries(world_dir).unwrap().entries
+    }
+
     #[tokio::test]
     async fn a_present_and_unlisted_pack_reports_enabled() {
         let td = world(&["fresh.zip"]);
         seed_level_dat(td.path(), &[], &[]).await;
-        let rows = entries(td.path());
+        let rows = rows(td.path());
         assert_eq!(
             find(&rows, "fresh.zip").state,
             Some(WorldPackState::Enabled)
@@ -211,7 +226,7 @@ mod tests {
         let td = world(&["off.zip"]);
         seed_level_dat(td.path(), &[], &["off.zip"]).await;
         assert_eq!(
-            find(&entries(td.path()), "off.zip").state,
+            find(&rows(td.path()), "off.zip").state,
             Some(WorldPackState::Disabled)
         );
     }
@@ -226,7 +241,7 @@ mod tests {
         let td = world(&[]);
         std::fs::create_dir_all(td.path().join("datapacks").join("FolderPack")).unwrap();
         seed_level_dat(td.path(), &[], &["FolderPack"]).await;
-        let row = find(&entries(td.path()), "FolderPack").clone();
+        let row = find(&rows(td.path()), "FolderPack").clone();
         assert_eq!(row.state, Some(WorldPackState::Disabled));
         assert!(row.present && row.is_folder);
     }
@@ -239,7 +254,7 @@ mod tests {
         // the name, so both must be rows the UI can render and clear.
         let td = world(&[]);
         seed_level_dat(td.path(), &["ghost-on.zip"], &["ghost-off.zip"]).await;
-        let rows = entries(td.path());
+        let rows = rows(td.path());
         assert_eq!(
             find(&rows, "ghost-on.zip").state,
             Some(WorldPackState::Orphaned)
@@ -258,20 +273,41 @@ mod tests {
         // out — a refuted audit claim, pinned so nobody "fixes" it back in.
         let td = world(&[]);
         level_dat::test_support::seed(td.path(), &[], &[]);
-        assert!(entries(td.path()).is_empty());
+        assert!(rows(td.path()).is_empty());
     }
 
+    /// §3 L.6: a server boots an only-old world from `level.dat_old` and
+    /// restores `level.dat` from it, so the rows carry the backup's states.
     #[test]
     fn an_only_old_world_reports_level_dat_old_states() {
-        // The next start restores level.dat from this copy, so its lists are
-        // what the server will load.
         let td = world(&["vm.zip"]);
         level_dat::test_support::seed_old(td.path(), &[], &["file/vm.zip"]);
+
+        let listing = entries(td.path()).unwrap();
+
+        assert_eq!(listing.level_dat, Some(LevelDatPresence::OnlyOld));
         assert_eq!(
-            find(&entries(td.path()), "vm.zip").state,
-            Some(WorldPackState::Disabled)
+            find(&listing.entries, "vm.zip").state,
+            Some(WorldPackState::Disabled),
+            "the server boots from level.dat_old, where the pack is disabled"
         );
         assert!(!td.path().join("level.dat").exists());
+    }
+
+    /// §0.5 A13 / §0.2 I2: a `level.dat` the server cannot read either (a
+    /// directory) is "could not tell": `level_dat: None`, unknown states, the
+    /// listing intact.
+    #[test]
+    fn a_level_dat_that_is_a_directory_gives_unknown_level_dat_and_states() {
+        let td = world(&["p.zip"]);
+        std::fs::create_dir(td.path().join("level.dat")).unwrap();
+
+        let listing = entries(td.path()).unwrap();
+
+        assert_eq!(listing.level_dat, None, "could not tell is not absent");
+        assert_eq!(listing.entries.len(), 1, "the listing still returns");
+        assert_eq!(listing.entries[0].state, None);
+        assert!(listing.entries[0].present);
     }
 
     #[test]
@@ -282,8 +318,10 @@ mod tests {
         // state to unknown.
         let td = world(&["pre-boot.zip"]);
         assert!(!td.path().join("level.dat").exists());
+        let listing = entries(td.path()).unwrap();
+        assert_eq!(listing.level_dat, Some(LevelDatPresence::Absent));
         assert_eq!(
-            find(&entries(td.path()), "pre-boot.zip").state,
+            find(&listing.entries, "pre-boot.zip").state,
             Some(WorldPackState::Enabled)
         );
     }
@@ -292,10 +330,15 @@ mod tests {
     fn an_unreadable_level_dat_degrades_states_to_unknown_without_failing() {
         let td = world(&["p.zip"]);
         std::fs::write(td.path().join("level.dat"), b"not nbt at all").unwrap();
-        let rows = entries(td.path());
-        assert_eq!(rows.len(), 1, "the listing still returns");
-        assert_eq!(rows[0].state, None);
-        assert!(rows[0].present, "presence is still known");
+        let listing = entries(td.path()).unwrap();
+        assert_eq!(
+            listing.level_dat,
+            Some(LevelDatPresence::Present),
+            "the file is there; only its contents are unknown"
+        );
+        assert_eq!(listing.entries.len(), 1, "the listing still returns");
+        assert_eq!(listing.entries[0].state, None);
+        assert!(listing.entries[0].present, "presence is still known");
     }
 
     #[tokio::test]
@@ -306,7 +349,7 @@ mod tests {
         // "repair" clears a live entry.
         let td = world(&["veinminer.zip"]);
         seed_level_dat(td.path(), &["VeinMiner.zip"], &[]).await;
-        let rows = entries(td.path());
+        let rows = rows(td.path());
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].record.filename, "veinminer.zip");
         assert_eq!(rows[0].state, Some(WorldPackState::Enabled));

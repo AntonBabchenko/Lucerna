@@ -116,12 +116,12 @@ pub struct ServerDatapackEntry {
     /// ghost whose file is gone. Two of the three carry an empty `sha1` —
     /// which is why the UI keys rows on the filename.
     pub record: crate::servers_runtime::installed::ServerInstalledRecord,
-    /// `None` ⟹ enabled-ness is genuinely unknown rather than guessed:
-    /// `level.dat` (or, when only Minecraft's backup survives,
-    /// `level.dat_old`) exists but could not be read, or whether either
-    /// exists could not be told. An ABSENT `level.dat` (a world that has
-    /// never booted) is NOT this case: it reads as two empty lists, which is
-    /// a real answer.
+    /// `None` ⟹ the lists could not be read — the `level.dat` presence could
+    /// not be told, or `level.dat` (for an only-old world, `level.dat_old`)
+    /// did not parse — so enabled-ness is genuinely unknown rather than
+    /// guessed. A world the server has not generated yet is NOT this case:
+    /// it reads as two empty lists, a real answer (see
+    /// [`ServerDatapackListing::level_dat`]).
     pub state: Option<crate::datapacks::WorldPackState>,
     /// Something is on disk under this name. Independent of `state`, which
     /// can be `None` for a pack that is plainly present.
@@ -131,6 +131,21 @@ pub struct ServerDatapackEntry {
     /// and removable — but they carry no sha1 and no provenance, so the UI
     /// offers them no update or catalog affordance.
     pub is_folder: bool,
+}
+
+/// What `server_list_datapacks` returns: the world's `level.dat` presence,
+/// and its rows.
+#[derive(Debug, Clone, serde::Serialize, specta::Type, PartialEq)]
+pub struct ServerDatapackListing {
+    /// `Present`: rows carry `level.dat`'s states. `OnlyOld`: rows carry
+    /// `level.dat_old`'s — the copy the server boots from, restoring
+    /// `level.dat` on its next start — and every change is refused until
+    /// then. `Absent`: a world the server has not generated yet; a present
+    /// pack is `Enabled`, because the first boot enables it. `None`: the
+    /// presence could not be told, so every `state` is `None` and the
+    /// listing is otherwise intact (§0.2 I2).
+    pub level_dat: Option<crate::datapacks::presence::LevelDatPresence>,
+    pub entries: Vec<ServerDatapackEntry>,
 }
 
 /// The result of one server datapack update.
@@ -241,6 +256,8 @@ mod tests {
         assert_eq!(name, "CoolPack.zip");
         assert!(world.join("datapacks").join("CoolPack.zip").exists());
         let names: Vec<String> = listing::entries(&world)
+            .unwrap()
+            .entries
             .into_iter()
             .map(|e| e.record.filename)
             .collect();

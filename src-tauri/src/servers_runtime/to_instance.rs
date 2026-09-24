@@ -231,7 +231,19 @@ pub(crate) async fn copy_server_datapacks(
     let world = crate::servers_runtime::datapacks::world_dir(runtime, &props);
     let dp_dir = world.join("datapacks");
 
-    for entry in crate::servers_runtime::datapacks::listing::entries(&world) {
+    // A listing error means the server's world could not be read: carry
+    // nothing rather than a partial guess, and say so — the instance is
+    // already usable from the mandatory mod copy (§0.5 A4).
+    let listing = match crate::servers_runtime::datapacks::listing::entries(&world) {
+        Ok(listing) => listing,
+        Err(e) => {
+            crate::diag!(
+                "instance-from-server: server world datapacks unreadable — datapack carry skipped: {e}"
+            );
+            return;
+        }
+    };
+    for entry in listing.entries {
         // A `level.dat` name whose file is gone has nothing to install. This
         // is for the LOG, not for correctness: without it the install below
         // fails on the missing file and writes no row either way, but every

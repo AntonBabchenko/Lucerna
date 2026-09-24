@@ -278,6 +278,8 @@ mod tests {
 
     fn state_of(world_dir: &std::path::Path, name: &str) -> Option<WorldPackState> {
         crate::servers_runtime::datapacks::listing::entries(world_dir)
+            .unwrap()
+            .entries
             .into_iter()
             .find(|e| e.record.filename == name)
             .and_then(|e| e.state)
