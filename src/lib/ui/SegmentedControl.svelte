@@ -90,7 +90,7 @@
         ? // One weight for every segment, so a new choice never shifts widths. The
           // hover tint is half a thumb: it can never look chosen. focus-visible:z-10
           // lifts the global focus ring over the neighbouring thumb.
-          `relative inline-flex h-7 items-center justify-center rounded border text-sm font-medium transition-colors focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50 ${option.icon ? 'px-2' : 'px-3'} ${active ? 'cursor-default border-border-emphasis bg-control-thumb text-primary' : 'border-transparent text-secondary enabled:hover:bg-control-thumb/50 enabled:hover:text-primary'}`
+          `relative inline-flex h-7 items-center justify-center rounded border pb-0.5 text-sm font-medium transition-colors focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50 ${option.icon ? 'px-2' : 'px-3'} ${active ? 'cursor-default border-border-emphasis bg-control-thumb text-primary' : 'border-transparent text-secondary enabled:hover:bg-control-thumb/50 enabled:hover:text-primary'}`
         : `px-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
       use:tooltip={option.icon ? (option.label ?? ariaLabel) : null}
       onclick={() => onChange(option.value)}
@@ -102,7 +102,7 @@
         <span
           data-segment-mark
           aria-hidden="true"
-          class="pointer-events-none absolute bottom-0.5 left-1/2 h-[3px] w-4 -translate-x-1/2 rounded-full bg-current text-accent"
+          class="pointer-events-none absolute bottom-0 left-1/2 h-[3px] w-4 -translate-x-1/2 rounded-full bg-current text-accent"
         ></span>
       {/if}
     </button>

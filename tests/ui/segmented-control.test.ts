@@ -85,6 +85,19 @@ describe('SegmentedControl', () => {
     expect(inactive.classList.contains('text-secondary')).toBe(true);
   });
 
+  // Rendered with the compiled CSS: a mark 2 px above the thumb's edge ran into
+  // the descenders of real labels ("Days", «Свернуть», «Продвинутый»). It sits on
+  // the thumb's bottom edge, and every segment lifts its label by the same 1 px
+  // (pb-0.5 in all of them, so a new choice does not move the text).
+  it('the mark sits on the thumb edge, below the descenders of the label', () => {
+    setup({ value: 'grid' });
+    const mark = screen.getByTestId('layout-grid').querySelector('[data-segment-mark]');
+    expect(mark?.classList.contains('bottom-0')).toBe(true);
+    for (const id of ['layout-grid', 'layout-list']) {
+      expect(screen.getByTestId(id).classList.contains('pb-0.5')).toBe(true);
+    }
+  });
+
   it('with no value nothing is drawn as chosen', () => {
     setup({ value: null });
     expect(document.querySelector('[data-segment-mark]')).toBeNull();
