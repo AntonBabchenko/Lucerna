@@ -33,6 +33,9 @@ enum EntryKind {
     /// Over the per-file cap — recorded as skipped and NOT read into
     /// memory (so a zip-bomb's declared size never forces an allocation).
     Oversized(u64),
+    /// Belongs to a world the instance already has — see
+    /// [`protected_worlds`]. Nothing is read or written.
+    KeptWorld,
 }
 
 /// A file the extractor placed under a tracked directory (`mods/`,
@@ -68,6 +71,52 @@ fn is_tracked_bundled_path(rel: &str) -> bool {
         }
     }
     false
+}
+
+/// `saves/<world>` of a world-scoped override path (`saves/<world>/…`, or the
+/// world entry itself), `None` otherwise. The first segment matches ASCII
+/// case-insensitively: Windows and macOS resolve `Saves/` to the game's
+/// `saves/` folder.
+fn world_key(rel: &str) -> Option<&str> {
+    let (first, rest) = rel.split_once('/')?;
+    if !first.eq_ignore_ascii_case("saves") {
+        return None;
+    }
+    let world = rest.split('/').next().filter(|w| !w.is_empty())?;
+    Some(&rel[..first.len() + 1 + world.len()])
+}
+
+/// The worlds among `rels` that already exist under `mc_dir`, keyed by
+/// [`world_key`]. A played world is the player's, not the pack's: writing the
+/// pack's `level.dat` and regions over it reverts part of it and leaves a
+/// mixed world, so such a world is skipped whole. Decided once, BEFORE
+/// anything is written — a per-file check would find the folder this
+/// extraction just created and drop the rest of a shipped world. "Could not
+/// tell" keeps the world untouched (the restrictive answer) and is logged.
+fn protected_worlds<'a>(
+    mc_dir: &Path,
+    rels: impl Iterator<Item = &'a str>,
+) -> std::collections::HashSet<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut protected = std::collections::HashSet::new();
+    for key in rels.filter_map(world_key) {
+        if !seen.insert(key) {
+            continue;
+        }
+        match std::fs::symlink_metadata(mc_dir.join(key)) {
+            Ok(_) => {
+                protected.insert(key.to_string());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                crate::diag!(
+                    "[modpack::overrides] could not tell whether {key} exists ({e}); leaving it untouched"
+                );
+                protected.insert(key.to_string());
+            }
+        }
+    }
+    protected
 }
 
 pub async fn extract<F: FnMut(u32, u32)>(
@@ -119,6 +168,16 @@ pub async fn extract<F: FnMut(u32, u32)>(
     }
     work.extend(overrides_work);
 
+    let protected = protected_worlds(&mc_dir, work.iter().map(|(_, rel)| rel.as_str()));
+    if !protected.is_empty() {
+        let mut names: Vec<&str> = protected.iter().map(String::as_str).collect();
+        names.sort_unstable();
+        crate::diag!(
+            "[modpack::overrides] kept existing world(s) as they are: {}",
+            names.join(", ")
+        );
+    }
+
     let total = work.len() as u32;
     on_progress(0, total);
     let mut aggregate: u64 = 0;
@@ -148,7 +207,9 @@ pub async fn extract<F: FnMut(u32, u32)>(
                 return Err(Error::ModpackOverridesPathEscape { entry: rel });
             }
 
-            if entry.is_dir() {
+            if world_key(&rel).is_some_and(|k| protected.contains(k)) {
+                EntryKind::KeptWorld
+            } else if entry.is_dir() {
                 EntryKind::Dir
             } else {
                 // The declared `entry.size()` is attacker-controlled (central
@@ -201,6 +262,9 @@ pub async fn extract<F: FnMut(u32, u32)>(
 
         let target = mc_dir.join(&rel);
         match kind {
+            // Nothing written: the world is the player's — see
+            // `protected_worlds`.
+            EntryKind::KeptWorld => {}
             EntryKind::Oversized(size) => {
                 // Nothing written. Record it so the import surfaces a
                 // non-fatal "skipped" note instead of failing.
@@ -436,6 +500,58 @@ mod tests {
         assert!(
             !inst.path().join(".minecraft/mods/mods.rar").exists(),
             "oversized override must not be written"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_existing_world_is_never_written() {
+        // "Re-import pack files" extracts into an instance the user has
+        // played. A pack shipping saves/W/ used to overwrite the player's
+        // level.dat and the regions it shipped, reverting part of the world.
+        let inst = TempDir::new().unwrap();
+        let world = inst.path().join(".minecraft/saves/W");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("level.dat"), b"USER").unwrap();
+        let zip = make_zip(&[
+            ("overrides/saves/W/level.dat", b"PACK" as &[u8]),
+            (
+                "overrides/saves/W/region/r.0.0.mca",
+                b"PACK-REGION" as &[u8],
+            ),
+            ("overrides/config/a.toml", b"k=v" as &[u8]),
+        ]);
+        extract(&zip, inst.path(), |_, _| {}).await.unwrap();
+        assert_eq!(std::fs::read(world.join("level.dat")).unwrap(), b"USER");
+        assert!(
+            !world.join("region").exists(),
+            "no part of the shipped world may be mixed into the player's"
+        );
+        assert_eq!(
+            std::fs::read(inst.path().join(".minecraft/config/a.toml")).unwrap(),
+            b"k=v",
+            "files outside saves/ are still restored"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_world_is_restored_whole() {
+        // The existence check is taken once, before anything is written: a
+        // per-file check would see the folder this extraction just created
+        // and drop the rest of the shipped world.
+        let inst = TempDir::new().unwrap();
+        let zip = make_zip(&[
+            ("overrides/saves/N/level.dat", b"PACK" as &[u8]),
+            (
+                "overrides/saves/N/region/r.0.0.mca",
+                b"PACK-REGION" as &[u8],
+            ),
+        ]);
+        extract(&zip, inst.path(), |_, _| {}).await.unwrap();
+        let world = inst.path().join(".minecraft/saves/N");
+        assert_eq!(std::fs::read(world.join("level.dat")).unwrap(), b"PACK");
+        assert_eq!(
+            std::fs::read(world.join("region/r.0.0.mca")).unwrap(),
+            b"PACK-REGION"
         );
     }
 }
