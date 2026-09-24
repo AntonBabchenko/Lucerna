@@ -10,6 +10,9 @@ module.exports = {
         surface: 'rgb(var(--bg-surface) / <alpha-value>)',
         subtle: 'rgb(var(--bg-subtle) / <alpha-value>)',
         muted: 'rgb(var(--bg-muted) / <alpha-value>)',
+        // Segmented control track and chosen-segment thumb (DESIGN.md §6).
+        'control-track': 'rgb(var(--control-track) / <alpha-value>)',
+        'control-thumb': 'rgb(var(--control-thumb) / <alpha-value>)',
         // Borders
         'border-subtle': 'rgb(var(--border-subtle) / <alpha-value>)',
         'border-emphasis': 'rgb(var(--border-emphasis) / <alpha-value>)',

@@ -93,17 +93,21 @@
       <SegmentedControl
         variant="boxed"
         ariaLabel={$t('settings.general.appearance.theme')}
-        describedby="appearance-theme-hint"
+        describedby={themeState.pref === 'system' ? 'appearance-theme-hint' : undefined}
         options={themeOptions}
         value={themeState.pref}
         onChange={(v) => void setThemePref(v as ThemePreference)}
       />
-      <p id="appearance-theme-hint" class="text-xs text-muted">
-        {$t('settings.general.appearance.themeHint')}
-        {#if themeResolvedSuffix}{themeResolvedSuffix}{/if}
-      </p>
       <!-- A refused save snaps the pick back; this line says why, here. -->
       <StatusMessage dataTestid="save-failure-theme" message={saveFailure('theme')} tone="danger" />
+      <!-- Like the Game and Help pickers, the hint explains the chosen option:
+           System needs saying what it follows; Light and Dark say it by name. -->
+      {#if themeState.pref === 'system'}
+        <p id="appearance-theme-hint" class="text-xs text-muted">
+          {$t('settings.general.appearance.themeHint')}
+          {#if themeResolvedSuffix}{themeResolvedSuffix}{/if}
+        </p>
+      {/if}
     </div>
   </SettingsField>
 
