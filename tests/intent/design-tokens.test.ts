@@ -177,3 +177,34 @@ describe('DESIGN.md §9 documents the CountPill that ships', () => {
     expect(countPillClass('md')).toContain('18px');
   });
 });
+
+// SegmentedControl's boxed variant: a recessed track, a neutral thumb, and a
+// small accent mark on the chosen segment. The mark is drawn in the accent TEXT
+// tier: plain --accent in the dark theme is 2.8:1 on the thumb, under the 3:1
+// WCAG 1.4.11 floor for a non-text indicator.
+describe('segmented control tokens', () => {
+  it('are Tailwind colours that follow the theme tokens', () => {
+    const tw = withoutComments(tailwindConfig);
+    expect(tw).toMatch(/'control-track':\s*'rgb\(var\(--control-track\) \/ <alpha-value>\)'/);
+    expect(tw).toMatch(/'control-thumb':\s*'rgb\(var\(--control-thumb\) \/ <alpha-value>\)'/);
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    it(`the chosen mark clears 3:1 against the thumb in the ${theme} theme`, () => {
+      const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
+      const ratio = contrastRatio(
+        token(block, 'accent-text', theme),
+        token(block, 'control-thumb', theme),
+      );
+      expect(ratio).toBeGreaterThanOrEqual(3);
+    });
+
+    it(`the thumb stands off the track in the ${theme} theme`, () => {
+      const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
+      const thumb = token(block, 'control-thumb', theme);
+      const track = token(block, 'control-track', theme);
+      // Lighter than the track in both themes: the thumb is raised, not sunk.
+      expect(thumb[0]).toBeGreaterThan(track[0]);
+    });
+  }
+});

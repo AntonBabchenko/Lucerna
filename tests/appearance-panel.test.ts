@@ -46,11 +46,23 @@ describe('AppearancePanel', () => {
   });
 
   it('describes the theme group with the hint under it', () => {
+    themeState.pref = 'system';
     render(AppearancePanel);
     const group = screen.getByRole('group', { name: 'Theme' });
     const id = group.getAttribute('aria-describedby');
     expect(id).toBeTruthy();
     expect(document.getElementById(id as string)?.textContent).toContain('operating system');
+  });
+
+  // Like the Game and Help pickers, the hint explains the option that is
+  // chosen: "System" needs saying what it follows; Light and Dark say it in
+  // their own name, and a line about System under "Dark" read as the wrong one.
+  it('on Light or Dark there is no hint, and the group points at nothing', () => {
+    themeState.pref = 'dark';
+    render(AppearancePanel);
+    const group = screen.getByRole('group', { name: 'Theme' });
+    expect(document.getElementById('appearance-theme-hint')).toBeNull();
+    expect(group.getAttribute('aria-describedby')).toBeNull();
   });
 
   it('opens the theme block with a heading, so the search label word is on the page', () => {
