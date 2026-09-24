@@ -158,7 +158,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "vm.zip", 48).await;
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Ours")).unwrap();
+        game_world(td.path(), "Ours");
         std::fs::create_dir_all(saves.join("Theirs").join("datapacks")).unwrap();
         add_to_world_at(td.path(), "Ours", "vm.zip").await.unwrap();
         // Same NAME, different content — a pack the user dropped in by hand.

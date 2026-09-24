@@ -209,13 +209,8 @@ mod tests {
     }
 
     fn make_world(root: &Path, world: &str) {
-        std::fs::create_dir_all(
-            root.join(".minecraft")
-                .join("saves")
-                .join(world)
-                .join("datapacks"),
-        )
-        .unwrap();
+        let wd = crate::datapacks::world_link::test_util::game_world(root, world);
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
     }
 
     fn entry_for<'a>(view: &'a DatapackLibraryView, filename: &str) -> &'a DatapackLibraryEntry {

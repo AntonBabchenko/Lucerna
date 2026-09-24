@@ -243,7 +243,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "vm-1.zip", 48).await;
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        game_world(td.path(), "Alpha");
         add_to_world_at(td.path(), "Alpha", "vm-1.zip")
             .await
             .unwrap();
@@ -294,9 +294,10 @@ mod tests {
         seed_library(td.path(), "vm-1.zip", 48).await;
         let saves = td.path().join(".minecraft").join("saves");
         let dp = saves.join("Beta").join("datapacks");
+        game_world(td.path(), "Beta");
         std::fs::create_dir_all(&dp).unwrap();
-        // Copy the library bytes so identity matches, but write NO level.dat:
-        // both lists are absent.
+        // Copy the library bytes so identity matches; the world's real
+        // level.dat names the pack in neither list.
         std::fs::write(dp.join("vm-1.zip"), datapack_zip(48)).unwrap();
         seed_library(td.path(), "vm-2.zip", 57).await;
 

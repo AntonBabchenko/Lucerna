@@ -294,8 +294,6 @@ mod tests {
     use crate::datapacks::level_dat;
     use crate::datapacks::world_link::test_util::*;
     use crate::mods::store::Placement;
-    use fastnbt::Value;
-    use std::collections::HashMap;
 
     #[tokio::test]
     async fn add_to_world_refuses_a_different_same_named_file() {
@@ -304,6 +302,7 @@ mod tests {
         seed_library(td.path(), "vm.zip", 48).await;
         let saves = td.path().join(".minecraft").join("saves");
         let dp = saves.join("Alpha").join("datapacks");
+        game_world(td.path(), "Alpha");
         std::fs::create_dir_all(&dp).unwrap();
         let theirs = datapack_zip(57);
         std::fs::write(dp.join("vm.zip"), &theirs).unwrap();
@@ -332,8 +331,7 @@ mod tests {
         let _lock = hardlink_lock();
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "vm.zip", 48).await;
-        let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        game_world(td.path(), "Alpha");
         add_to_world_at(td.path(), "Alpha", "vm.zip").await.unwrap();
         set_enabled_in_world_at(td.path(), "Alpha", "vm.zip", false)
             .await
@@ -360,6 +358,7 @@ mod tests {
         seed_library(td.path(), "vm.zip", 48).await;
         let saves = td.path().join(".minecraft").join("saves");
         let dp = saves.join("Alpha").join("datapacks");
+        game_world(td.path(), "Alpha");
         std::fs::create_dir_all(dp.join("vm.zip").join("data")).unwrap();
 
         let err = add_to_world_at(td.path(), "Alpha", "vm.zip")
@@ -381,7 +380,7 @@ mod tests {
         let _lock = hardlink_lock();
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "vm.zip", 48).await;
-        std::fs::create_dir_all(world_dir(td.path(), "Survival")).unwrap();
+        game_world(td.path(), "Survival");
 
         let placement = add_to_world_at(td.path(), "Survival", "vm.zip")
             .await
@@ -392,7 +391,10 @@ mod tests {
         assert!(wd.join("datapacks/vm.zip").exists());
         let (root, _framing) = level_dat::read_at(&wd).unwrap();
         let (enabled, disabled) = level_dat::lists(&root);
-        assert_eq!(enabled, vec!["file/vm.zip".to_string()]);
+        assert_eq!(
+            enabled,
+            vec!["vanilla".to_string(), "file/vm.zip".to_string()]
+        );
         assert!(disabled.is_empty());
     }
 
@@ -401,7 +403,7 @@ mod tests {
         let _lock = hardlink_lock();
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "vm.zip", 48).await;
-        std::fs::create_dir_all(world_dir(td.path(), "Survival")).unwrap();
+        game_world(td.path(), "Survival");
         add_to_world_at(td.path(), "Survival", "vm.zip")
             .await
             .unwrap();
@@ -414,7 +416,7 @@ mod tests {
         assert!(!wd.join("datapacks/vm.zip").exists());
         let (root, _framing) = level_dat::read_at(&wd).unwrap();
         let (enabled, disabled) = level_dat::lists(&root);
-        assert!(enabled.is_empty());
+        assert_eq!(enabled, vec!["vanilla".to_string()]);
         assert!(disabled.is_empty());
     }
 
@@ -430,7 +432,7 @@ mod tests {
         let _lock = hardlink_lock();
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "VeinMiner.zip", 48).await;
-        std::fs::create_dir_all(world_dir(td.path(), "Survival")).unwrap();
+        game_world(td.path(), "Survival");
         add_to_world_at(td.path(), "Survival", "VeinMiner.zip")
             .await
             .unwrap();
@@ -444,8 +446,9 @@ mod tests {
         // name must be gone from the lists on every platform.
         let (root, _framing) = level_dat::read_at(&world_dir(td.path(), "Survival")).unwrap();
         let (enabled, disabled) = level_dat::lists(&root);
-        assert!(
-            enabled.is_empty(),
+        assert_eq!(
+            enabled,
+            vec!["vanilla".to_string()],
             "level.dat still names the pack: {enabled:?}"
         );
         assert!(disabled.is_empty());
@@ -455,12 +458,7 @@ mod tests {
     async fn remove_clears_an_orphan_with_no_file() {
         let td = tempfile::tempdir().unwrap();
         let wd = world_dir(td.path(), "Survival");
-        std::fs::create_dir_all(&wd).unwrap();
-        let mut root = Value::Compound(HashMap::new());
-        level_dat::set_enabled(&mut root, "file/ghost.zip", true).unwrap();
-        level_dat::write_at(&wd, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(&wd, &["file/ghost.zip"], &[]);
         assert!(!wd.join("datapacks/ghost.zip").exists());
 
         remove_from_world_at(td.path(), "Survival", "ghost.zip")
@@ -469,7 +467,7 @@ mod tests {
 
         let (after, _framing) = level_dat::read_at(&wd).unwrap();
         let (enabled, disabled) = level_dat::lists(&after);
-        assert!(enabled.is_empty());
+        assert_eq!(enabled, vec!["vanilla".to_string()]);
         assert!(disabled.is_empty());
     }
 
@@ -478,7 +476,7 @@ mod tests {
         let _lock = hardlink_lock();
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "vm.zip", 48).await;
-        std::fs::create_dir_all(world_dir(td.path(), "Survival")).unwrap();
+        game_world(td.path(), "Survival");
         add_to_world_at(td.path(), "Survival", "vm.zip")
             .await
             .unwrap();
@@ -494,7 +492,7 @@ mod tests {
         );
         let (root, _framing) = level_dat::read_at(&wd).unwrap();
         let (enabled, disabled) = level_dat::lists(&root);
-        assert!(enabled.is_empty());
+        assert_eq!(enabled, vec!["vanilla".to_string()]);
         assert_eq!(disabled, vec!["file/vm.zip".to_string()]);
     }
 
@@ -512,11 +510,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let wd = world_dir(td.path(), "Survival");
         std::fs::create_dir_all(wd.join("datapacks/MyFolderPack/data")).unwrap();
-        let mut root = Value::Compound(HashMap::new());
-        level_dat::set_enabled(&mut root, "file/MyFolderPack", true).unwrap();
-        level_dat::write_at(&wd, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(&wd, &["file/MyFolderPack"], &[]);
 
         // Before the fix this called `remove_file` on a directory, which
         // fails with OS error 5 on Windows — mapped to a false `WorldInUse`
@@ -531,7 +525,7 @@ mod tests {
         );
         let (after, _framing) = level_dat::read_at(&wd).unwrap();
         let (enabled, disabled) = level_dat::lists(&after);
-        assert!(enabled.is_empty());
+        assert_eq!(enabled, vec!["vanilla".to_string()]);
         assert!(disabled.is_empty());
     }
 
@@ -554,7 +548,7 @@ mod tests {
     #[tokio::test]
     async fn add_to_world_at_names_the_missing_library_file() {
         let td = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(world_dir(td.path(), "Survival")).unwrap();
+        game_world(td.path(), "Survival");
         // No `seed_library` call: "vm.zip" was never installed into the
         // library, so `materialize` would otherwise fail against the
         // DESTINATION path with a misleading message.
@@ -587,7 +581,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         seed_library(td.path(), "a.zip", 48).await;
         seed_library(td.path(), "b.zip", 48).await;
-        std::fs::create_dir_all(world_dir(td.path(), "Survival")).unwrap();
+        game_world(td.path(), "Survival");
         add_to_world_at(td.path(), "Survival", "a.zip")
             .await
             .unwrap();

@@ -724,8 +724,8 @@ mod tests {
 
         // `add_to_world_at` requires a real, pre-existing world directory.
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
-        std::fs::create_dir_all(saves.join("Beta")).unwrap();
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Alpha");
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Beta");
         crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
             .await
             .unwrap();
@@ -770,7 +770,7 @@ mod tests {
             .await
             .unwrap();
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Ours")).unwrap();
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Ours");
         crate::datapacks::world_link::add_to_world_at(td.path(), "Ours", "vm.zip")
             .await
             .unwrap();
@@ -824,7 +824,7 @@ mod tests {
             .await
             .unwrap();
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Alpha");
         crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
             .await
             .unwrap();
@@ -844,7 +844,7 @@ mod tests {
         let (root, _) = crate::datapacks::level_dat::read_at(&saves.join("Alpha")).unwrap();
         let (enabled, disabled) = crate::datapacks::level_dat::lists(&root);
         assert!(
-            enabled.is_empty() && disabled.is_empty(),
+            enabled == vec!["vanilla".to_string()] && disabled.is_empty(),
             "the orphaned name must be cleared: {enabled:?} {disabled:?}"
         );
     }
@@ -971,8 +971,8 @@ mod tests {
             .await
             .unwrap();
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
-        std::fs::create_dir_all(saves.join("Beta")).unwrap();
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Alpha");
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Beta");
         crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
             .await
             .unwrap();
@@ -1009,7 +1009,7 @@ mod tests {
             let (root, _) = crate::datapacks::level_dat::read_at(&wd).unwrap();
             let (enabled, disabled) = crate::datapacks::level_dat::lists(&root);
             assert!(
-                enabled.is_empty() && disabled.is_empty(),
+                enabled == vec!["vanilla".to_string()] && disabled.is_empty(),
                 "{w}'s level.dat must not name the pack: {enabled:?} {disabled:?}"
             );
         }
@@ -1023,7 +1023,7 @@ mod tests {
             .await
             .unwrap();
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Alpha");
         crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
             .await
             .unwrap();
@@ -1098,7 +1098,7 @@ mod tests {
             .await
             .unwrap();
         let saves = td.path().join(".minecraft").join("saves");
-        std::fs::create_dir_all(saves.join("Alpha")).unwrap();
+        crate::datapacks::world_link::test_util::game_world(td.path(), "Alpha");
         crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
             .await
             .unwrap();

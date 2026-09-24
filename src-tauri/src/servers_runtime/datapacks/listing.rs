@@ -167,18 +167,15 @@ mod tests {
         td
     }
 
-    /// Write a level.dat listing `enabled` / `disabled` by bare filename.
+    /// A played world's level.dat (`Enabled` starts with `vanilla`) listing
+    /// `enabled` / `disabled` by bare filename.
     async fn seed_level_dat(world_dir: &std::path::Path, enabled: &[&str], disabled: &[&str]) {
-        let mut root = fastnbt::Value::Compound(std::collections::HashMap::new());
-        for n in enabled {
-            level_dat::set_enabled(&mut root, &level_dat_entry(n), true).unwrap();
-        }
-        for n in disabled {
-            level_dat::set_enabled(&mut root, &level_dat_entry(n), false).unwrap();
-        }
-        level_dat::write_at(world_dir, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        let owned =
+            |names: &[&str]| -> Vec<String> { names.iter().map(|n| level_dat_entry(n)).collect() };
+        let (en_owned, dis_owned) = (owned(enabled), owned(disabled));
+        let en: Vec<&str> = en_owned.iter().map(String::as_str).collect();
+        let dis: Vec<&str> = dis_owned.iter().map(String::as_str).collect();
+        level_dat::test_support::seed(world_dir, &en, &dis);
     }
 
     fn find<'a>(rows: &'a [ServerDatapackEntry], name: &str) -> &'a ServerDatapackEntry {
@@ -249,11 +246,7 @@ mod tests {
         // without the `file/` prefix. The strip is a filter_map, so they drop
         // out — a refuted audit claim, pinned so nobody "fixes" it back in.
         let td = world(&[]);
-        let mut root = fastnbt::Value::Compound(std::collections::HashMap::new());
-        level_dat::set_enabled(&mut root, "vanilla", true).unwrap();
-        level_dat::write_at(td.path(), &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(td.path(), &[], &[]);
         assert!(entries(td.path()).is_empty());
     }
 

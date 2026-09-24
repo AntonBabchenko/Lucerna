@@ -261,24 +261,22 @@ mod tests {
         td
     }
 
-    /// What a first boot leaves behind: a level.dat carrying unmodelled tags
-    /// this module must preserve byte-for-byte across its edits.
+    /// What a first boot leaves behind: a played world's level.dat, plus
+    /// unmodelled tags this module must preserve across its edits.
     async fn boot_world(world_dir: &std::path::Path) {
-        let mut data = std::collections::HashMap::new();
+        let mut root = level_dat::test_support::game_root(&[], &[]);
+        let fastnbt::Value::Compound(top) = &mut root else {
+            panic!("game_root is a compound")
+        };
+        let Some(fastnbt::Value::Compound(data)) = top.get_mut("Data") else {
+            panic!("game_root has a Data compound")
+        };
         data.insert(
             "LevelName".to_string(),
             fastnbt::Value::String("srv".into()),
         );
         data.insert("RandomSeed".to_string(), fastnbt::Value::Long(4242));
-        let mut root = std::collections::HashMap::new();
-        root.insert("Data".to_string(), fastnbt::Value::Compound(data));
-        level_dat::write_at(
-            world_dir,
-            &fastnbt::Value::Compound(root),
-            level_dat::Framing::Gzip,
-        )
-        .await
-        .unwrap();
+        level_dat::test_support::seed_root(world_dir, &root);
     }
 
     fn state_of(world_dir: &std::path::Path, name: &str) -> Option<WorldPackState> {
@@ -385,7 +383,7 @@ mod tests {
         let (root, _) = level_dat::read_at(td.path()).unwrap();
         let (en, dis) = level_dat::lists(&root);
         assert!(
-            en.is_empty() && dis.is_empty(),
+            en == vec!["vanilla".to_string()] && dis.is_empty(),
             "the name must be gone from BOTH lists"
         );
         assert!(crate::servers_runtime::installed::lock(td.path())
@@ -405,7 +403,7 @@ mod tests {
         let (root, _) = level_dat::read_at(td.path()).unwrap();
         let (en, dis) = level_dat::lists(&root);
         assert!(
-            en.is_empty() && dis.is_empty(),
+            en == vec!["vanilla".to_string()] && dis.is_empty(),
             "forget_ci must fold the case"
         );
     }

@@ -216,6 +216,20 @@ pub(crate) mod test_util {
             .to_path_buf()
     }
 
+    /// `saves/<world>/` of a world Minecraft has played, with a real
+    /// `level.dat` (`Enabled:["vanilla"]`, nothing else listed). Returns the
+    /// world directory.
+    ///
+    /// It writes through `level_dat::test_support::seed` and never with a
+    /// write primitive of its own. This module is `pub(crate) mod`, which
+    /// `structural_no_inplace_mods_write` does NOT mask as a test region
+    /// (spec §0.5 A17).
+    pub(crate) fn game_world(root: &Path, world: &str) -> PathBuf {
+        let wd = world_dir(root, world);
+        crate::datapacks::level_dat::test_support::seed(&wd, &[], &[]);
+        wd
+    }
+
     /// Every test that exercises a real hardlink must hold this — a sibling
     /// test's `LUCERNA_TEST_FORCE_LINK_FAILURE` seam is process-global. See
     /// `mods::store`'s own test module for the full explanation of why a test

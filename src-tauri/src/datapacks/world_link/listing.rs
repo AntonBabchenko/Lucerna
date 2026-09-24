@@ -167,19 +167,12 @@ mod tests {
     use super::*;
     use crate::datapacks::world_link::test_util::*;
     use crate::datapacks::{level_dat, WorldPackState};
-    use fastnbt::Value;
-    use std::collections::HashMap;
 
     #[tokio::test]
     async fn list_reports_orphaned_for_a_level_dat_name_with_no_file() {
         let td = tempfile::tempdir().unwrap();
         let wd = world_dir(td.path(), "Survival");
-        std::fs::create_dir_all(&wd).unwrap();
-        let mut root = Value::Compound(HashMap::new());
-        level_dat::set_enabled(&mut root, "file/ghost.zip", true).unwrap();
-        level_dat::write_at(&wd, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(&wd, &["file/ghost.zip"], &[]);
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
@@ -194,6 +187,7 @@ mod tests {
     #[tokio::test]
     async fn list_reports_not_added_for_a_library_pack_not_in_the_world() {
         let td = tempfile::tempdir().unwrap();
+        game_world(td.path(), "Survival");
         seed_library(td.path(), "vm.zip", 48).await;
 
         let listed = list_for_world_at(td.path(), "Survival", None)
@@ -218,11 +212,7 @@ mod tests {
         let wd = world_dir(td.path(), "Survival");
         std::fs::create_dir_all(wd.join("datapacks")).unwrap();
         std::fs::write(wd.join("datapacks/veinminer.zip"), b"stub").unwrap();
-        let mut root = Value::Compound(HashMap::new());
-        level_dat::set_enabled(&mut root, "file/VeinMiner.zip", true).unwrap();
-        level_dat::write_at(&wd, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(&wd, &["file/VeinMiner.zip"], &[]);
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
@@ -249,11 +239,7 @@ mod tests {
         let wd = world_dir(td.path(), "Survival");
         std::fs::create_dir_all(wd.join("datapacks")).unwrap();
         std::fs::write(wd.join("datapacks/veinminer.zip"), b"stub").unwrap();
-        let mut root = Value::Compound(HashMap::new());
-        level_dat::set_enabled(&mut root, "file/VeinMiner.zip", false).unwrap();
-        level_dat::write_at(&wd, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(&wd, &[], &["file/VeinMiner.zip"]);
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
@@ -289,6 +275,7 @@ mod tests {
     #[tokio::test]
     async fn a_mismatched_pack_format_reports_mismatch() {
         let td = tempfile::tempdir().unwrap();
+        game_world(td.path(), "Survival");
         seed_library(td.path(), "vm.zip", 48).await;
 
         let listed = list_for_world_at(td.path(), "Survival", Some(10))
@@ -320,7 +307,7 @@ mod tests {
     #[tokio::test]
     async fn a_folder_datapack_is_reported_enabled_not_orphaned() {
         let td = tempfile::tempdir().unwrap();
-        let wd = world_dir(td.path(), "Survival");
+        let wd = game_world(td.path(), "Survival");
         // A hand-installed FOLDER datapack, not a `.zip` — Minecraft's own
         // datapacks/ scanner loads directories under any name, and so must
         // this listing. Before the fix this reported `file_present: false`

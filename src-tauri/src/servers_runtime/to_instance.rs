@@ -507,11 +507,7 @@ mod tests {
         let inst = d.path().join("instance");
         let world = server_world(&runtime, "world");
         // level.dat names a pack whose file was deleted by hand.
-        let mut root = fastnbt::Value::Compound(std::collections::HashMap::new());
-        level_dat::set_enabled(&mut root, &level_dat_entry("gone.zip"), true).unwrap();
-        level_dat::write_at(&world, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(&world, &[level_dat_entry("gone.zip").as_str()], &[]);
         // …plus a real one, so the test proves selectivity rather than
         // "nothing was carried at all".
         std::fs::write(world.join("datapacks/real.zip"), datapack_zip()).unwrap();

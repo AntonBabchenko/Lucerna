@@ -148,7 +148,7 @@ mod tests {
     }
 
     async fn seed_world(root: &Path, world: &str, filename: &str) {
-        std::fs::create_dir_all(world_dir(root, world)).unwrap();
+        world_link::test_util::game_world(root, world);
         world_link::add_to_world_at(root, world, filename)
             .await
             .unwrap();

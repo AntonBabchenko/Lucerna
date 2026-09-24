@@ -246,20 +246,7 @@ mod tests {
     async fn booted_world_with(old: &str, body: &[u8]) -> tempfile::TempDir {
         let td = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(td.path().join("datapacks")).unwrap();
-        let mut data = std::collections::HashMap::new();
-        data.insert(
-            "LevelName".to_string(),
-            fastnbt::Value::String("srv".into()),
-        );
-        let mut root = std::collections::HashMap::new();
-        root.insert("Data".to_string(), fastnbt::Value::Compound(data));
-        level_dat::write_at(
-            td.path(),
-            &fastnbt::Value::Compound(root),
-            level_dat::Framing::Gzip,
-        )
-        .await
-        .unwrap();
+        level_dat::test_support::seed(td.path(), &[], &[]);
         crate::servers_runtime::datapacks::mutate::install_bytes(
             td.path(),
             old,
@@ -343,7 +330,13 @@ mod tests {
         assert!(!td.path().join("datapacks").join("vm-1.0.zip").exists());
         let (root, _) = level_dat::read_at(td.path()).unwrap();
         let (en, dis) = level_dat::lists(&root);
-        assert_eq!(en.len() + dis.len(), 1, "exactly one entry, not both names");
+        let packs = en
+            .iter()
+            .chain(dis.iter())
+            .filter(|e| e.starts_with("file/"))
+            .count();
+        assert_eq!(packs, 1, "exactly one pack entry, not both names");
+        assert_eq!(en, vec!["vanilla".to_string()], "vanilla stays enabled");
         assert!(dis.contains(&level_dat_entry("vm-2.0.zip")));
         let rows = crate::servers_runtime::installed::lock(td.path())
             .load()
