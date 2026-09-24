@@ -164,7 +164,7 @@
           </div>
         {/if}
       </div>
-      <div class="flex-1 overflow-y-auto p-4">
+      <div class="flex-1 overflow-y-auto p-4" data-testid="settings-panel">
         {#if active === 'appearance'}
           <AppearancePanel />
         {:else if active === 'game'}

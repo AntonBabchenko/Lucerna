@@ -8,6 +8,8 @@
     withIcon = false,
     reserveSpace = false,
     class: className = '',
+    dataTestid,
+    element = $bindable(null),
   }: {
     /**
      * The message to announce. When null the live region stays present but
@@ -24,7 +26,12 @@
     reserveSpace?: boolean;
     /** Extra classes applied to the visible message element (e.g. box styling). */
     class?: string;
+    /** Test hook on the live region itself — never wrap the component for one. */
+    dataTestid?: string;
+    /** The live region element, for a caller that scrolls it into view. */
+    element?: HTMLElement | null;
   } = $props();
+  // STUB (red): dataTestid / element are not wired yet.
 
   const effectiveLive = $derived(live ?? (tone === 'danger' ? 'assertive' : 'polite'));
   const toneClass = $derived(
