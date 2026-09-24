@@ -313,6 +313,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn migrate_in_a_world_without_a_datapacks_compound_creates_no_compound() {
+        // `forget_ci`, then `set_enabled(.., true)`. If the forget created an
+        // empty compound, the enable would write `[file/vm-2.zip]` with no
+        // vanilla below it: the order bug §0.5 A15 removes.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        let wd = world_dir(td.path(), "Old");
+        level_dat::test_support::seed_root(
+            &wd,
+            &level_dat::test_support::game_root_without_datapacks(),
+        );
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm-1.zip"), datapack_zip(48)).unwrap();
+        let before = std::fs::read(wd.join("level.dat")).unwrap();
+        seed_library(td.path(), "vm-2.zip", 57).await;
+
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+
+        assert_eq!(
+            report,
+            vec![crate::datapacks::WorldMigration::Migrated {
+                world: "Old".to_string(),
+                was_enabled: true,
+            }]
+        );
+        assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), before);
+        assert!(wd.join("datapacks/vm-2.zip").exists());
+        assert!(!wd.join("datapacks/vm-1.zip").exists());
+    }
+
+    #[tokio::test]
     async fn migrate_leaves_a_foreign_same_named_file_alone() {
         let _lock = hardlink_lock();
         let td = tempfile::tempdir().unwrap();

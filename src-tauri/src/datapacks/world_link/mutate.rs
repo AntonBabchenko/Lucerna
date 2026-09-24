@@ -497,6 +497,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn add_to_a_world_without_a_datapacks_compound_creates_no_compound() {
+        // §0.5 A15. An old world moved to a newer Minecraft has no DataPacks
+        // compound until the game opens it; the game then adds the pack after
+        // vanilla and every mod pack itself.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let wd = world_dir(td.path(), "Old");
+        level_dat::test_support::seed_root(
+            &wd,
+            &level_dat::test_support::game_root_without_datapacks(),
+        );
+        let before = std::fs::read(wd.join("level.dat")).unwrap();
+
+        add_to_world_at(td.path(), "Old", "vm.zip").await.unwrap();
+
+        assert!(wd.join("datapacks/vm.zip").exists());
+        assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), before);
+        assert!(
+            !wd.join("level.dat_lucerna.bak").exists(),
+            "nothing was written, so nothing was backed up"
+        );
+    }
+
+    #[tokio::test]
+    async fn enabling_without_a_datapacks_compound_writes_nothing_and_lists_enabled() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Old");
+        level_dat::test_support::seed_root(
+            &wd,
+            &level_dat::test_support::game_root_without_datapacks(),
+        );
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+        let before = std::fs::read(wd.join("level.dat")).unwrap();
+
+        set_enabled_in_world_at(td.path(), "Old", "vm.zip", true)
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), before);
+        let listed = crate::datapacks::world_link::list_for_world_at(td.path(), "Old", None)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            listed[0].state,
+            crate::datapacks::WorldPackState::Enabled,
+            "present and unlisted: the game loads it"
+        );
+    }
+
+    #[tokio::test]
     async fn a_world_segment_with_a_path_separator_is_rejected() {
         let td = tempfile::tempdir().unwrap();
         let err = add_to_world_at(td.path(), "../evil", "vm.zip")

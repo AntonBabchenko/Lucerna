@@ -347,8 +347,11 @@ async fn a_disable_survives_a_level_dat_round_trip_alongside_unmodelled_tags() {
         Some(&Value::IntArray(fastnbt::IntArray::new(vec![10, 64, -10])))
     );
 
+    // This seed has no DataPacks compound. The add wrote nothing (the game adds
+    // the pack itself), and the disable seeded the engine default with the
+    // pack switched off, so vanilla stays enabled (spec §0.5 A15).
     let (enabled, disabled) = level_dat::lists(&after);
-    assert!(enabled.is_empty());
+    assert_eq!(enabled, vec!["vanilla".to_string()]);
     assert_eq!(disabled, vec!["file/vm.zip".to_string()]);
 }
 
