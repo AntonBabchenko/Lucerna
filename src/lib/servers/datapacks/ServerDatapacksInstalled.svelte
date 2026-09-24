@@ -106,7 +106,7 @@
     loadError = null;
     const res = await commands.serverListDatapacks(serverId);
     if (my !== gen) return; // superseded by a newer serverId/reloadToken change
-    if (res.status === 'ok') rows = res.data;
+    if (res.status === 'ok') rows = res.data.entries;
     else loadError = formatError(res.error);
     loading = false;
   }

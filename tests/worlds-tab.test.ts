@@ -39,8 +39,13 @@ vi.mock('$lib/ipc/bindings', () => ({
     // datapacksListForWorld on mount (and would on any test that switches
     // tabs, since TabBar activation follows focus). Resolved so it never
     // throws even in tests that never touch that tab.
-    datapacksListForWorld: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    datapacksListLibrary: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksListForWorld: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { level_dat: 'present', packs: [] } }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { expected_pack_format: null, entries: [], worlds: [] },
+    }),
     datapacksInstallFromFile: vi.fn(),
     datapacksAddToWorld: vi.fn(),
     datapacksRemoveFromWorld: vi.fn(),

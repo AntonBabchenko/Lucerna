@@ -1728,9 +1728,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	serverInstallLocal: (id: string, jarPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_local", { id, jarPath })),
 	/**
 	 *  Every datapack this server's world knows about, with its real enabled
-	 *  state read from `level.dat`.
+	 *  state — read from `level.dat`, or from `level.dat_old` when only the
+	 *  backup is left — plus the world's `level.dat` presence.
 	 */
-	serverListDatapacks: (id: string) => typedError<ServerDatapackEntry[], Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
+	serverListDatapacks: (id: string) => typedError<ServerDatapackListing, Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
 	/**
 	 *  Install a datapack `.zip` chosen from disk. Records a provenance-less
 	 *  sidecar row so the pack lists with real state.
@@ -1984,7 +1985,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  The instance-level library view: every datapack Lucerna knows about —
 	 *  the registry UNION the packs still linked in worlds — each with its state
-	 *  in every world and one per-instance compat verdict. Unguarded — read-only.
+	 *  in every world and one per-instance compat verdict, plus every world
+	 *  folder with its `level.dat` presence. Unguarded — read-only.
 	 */
 	datapacksListLibrary: (instanceId: string) => typedError<DatapackLibraryView, Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
 	/**
@@ -2003,10 +2005,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
 	 *  names), with each entry's enabled/disabled/orphaned state and pack_format
-	 *  compatibility against the instance's installed Minecraft. Unguarded —
-	 *  read-only.
+	 *  compatibility against the instance's installed Minecraft, plus the
+	 *  world's `level.dat` presence: a world with only `level.dat_old` lists the
+	 *  backup's states, and a folder with neither file lists nothing.
+	 *  Unguarded — read-only.
 	 */
-	datapacksListForWorld: (instanceId: string, world: string) => typedError<WorldDatapack[], Error>(__TAURI_INVOKE("datapacks_list_for_world", { instanceId, world })),
+	datapacksListForWorld: (instanceId: string, world: string) => typedError<WorldDatapackListing, Error>(__TAURI_INVOKE("datapacks_list_for_world", { instanceId, world })),
 	/**
 	 *  Link a library datapack into a world's `datapacks/` folder and enable it
 	 *  in level.dat.
@@ -3095,6 +3099,11 @@ export type DatapackLibraryView = {
 	 */
 	expected_pack_format: number | null,
 	entries: DatapackLibraryEntry[],
+	/**
+	 *  Every folder under `saves/`, sorted case-insensitively, each with
+	 *  its `level.dat` presence — including worlds no pack is in.
+	 */
+	worlds: DatapackWorldView[],
 };
 
 export type DatapackMigration = {
@@ -3106,13 +3115,18 @@ export type DatapackMigration = {
 export type DatapackPlacementView = {
 	world: string,
 	/**
-	 *  `None` when this world has no state to report: its `level.dat` (or,
-	 *  when only the backup survives, `level.dat_old`) could not be read,
-	 *  whether either exists could not be told, or the folder has neither.
-	 *  Minecraft does not treat such a folder as a world and loads nothing
-	 *  from it. Never guessed.
+	 *  The state the game would load: from `level.dat`, or from
+	 *  `level.dat_old` when only the backup is left. `None` when those
+	 *  lists could not be read, or when the folder holds neither file (see
+	 *  `level_dat`) — unknown, or no world to hold a state, rather than
+	 *  guessed.
 	 */
 	state: WorldPackState | null,
+	/**
+	 *  This world's `level.dat` presence; `None` when it could not be told.
+	 *  Anything but `Some(Present)` means Lucerna changes nothing there.
+	 */
+	level_dat: LevelDatPresence | null,
 };
 
 /**
@@ -3159,6 +3173,16 @@ export type DatapackUpdateOutcome = {
 	 *  holds the old filename (§8.5: no rollback by design).
 	 */
 	completed: boolean,
+};
+
+/**
+ *  One world folder the library view saw, whether or not it holds any
+ *  pack — the world picker needs the worlds a pack is NOT in yet.
+ */
+export type DatapackWorldView = {
+	world: string,
+	/**  `None` when the presence could not be told. */
+	level_dat: LevelDatPresence | null,
 };
 
 /**
@@ -4878,6 +4902,20 @@ export type LauncherImportOutcome = {
 
 /**  Why a world datapack stayed a plain copy instead of a library link (§5). */
 export type LeftReason = { kind: "name_held_by_different_pack" } | { kind: "not_a_datapack"; reason: DatapackRejection } | { kind: "too_large" } | { kind: "link_failed" } | { kind: "unreadable" } | { kind: "io" };
+
+export type LevelDatPresence = 
+/**  `level.dat` is a regular file. This is the only state Lucerna edits. */
+"present" | 
+/**
+ *  No `level.dat`, and `level.dat_old` is a regular file. The game reads the
+ *  copy and restores `level.dat` from it; Lucerna must not pre-empt that.
+ */
+"only_old" | 
+/**
+ *  Neither file. Client: the game does not list this folder as a world.
+ *  Server: a world the server has not generated yet.
+ */
+"absent";
 
 /**
  *  The result of a library install: the registry row, plus what the same-name
@@ -7064,12 +7102,12 @@ export type ServerDatapackEntry = {
 	 */
 	record: ServerInstalledRecord,
 	/**
-	 *  `None` ⟹ enabled-ness is genuinely unknown rather than guessed:
-	 *  `level.dat` (or, when only Minecraft's backup survives,
-	 *  `level.dat_old`) exists but could not be read, or whether either
-	 *  exists could not be told. An ABSENT `level.dat` (a world that has
-	 *  never booted) is NOT this case: it reads as two empty lists, which is
-	 *  a real answer.
+	 *  `None` ⟹ the lists could not be read — the `level.dat` presence could
+	 *  not be told, or `level.dat` (for an only-old world, `level.dat_old`)
+	 *  did not parse — so enabled-ness is genuinely unknown rather than
+	 *  guessed. A world the server has not generated yet is NOT this case:
+	 *  it reads as two empty lists, a real answer (see
+	 *  [`ServerDatapackListing::level_dat`]).
 	 */
 	state: WorldPackState | null,
 	/**
@@ -7084,6 +7122,24 @@ export type ServerDatapackEntry = {
 	 *  offers them no update or catalog affordance.
 	 */
 	is_folder: boolean,
+};
+
+/**
+ *  What `server_list_datapacks` returns: the world's `level.dat` presence,
+ *  and its rows.
+ */
+export type ServerDatapackListing = {
+	/**
+	 *  `Present`: rows carry `level.dat`'s states. `OnlyOld`: rows carry
+	 *  `level.dat_old`'s — the copy the server boots from, restoring
+	 *  `level.dat` on its next start — and every change is refused until
+	 *  then. `Absent`: a world the server has not generated yet; a present
+	 *  pack is `Enabled`, because the first boot enables it. `None`: the
+	 *  presence could not be told, so every `state` is `None` and the
+	 *  listing is otherwise intact (§0.2 I2).
+	 */
+	level_dat: LevelDatPresence | null,
+	entries: ServerDatapackEntry[],
 };
 
 /**  The result of one server datapack update. */
@@ -8006,6 +8062,22 @@ export type WorldDatapack = {
 	 */
 	in_library: boolean,
 	compat: PackCompat,
+};
+
+/**
+ *  What `datapacks_list_for_world` returns: the world's `level.dat`
+ *  presence, and the rows the game would load (§3 L.6).
+ */
+export type WorldDatapackListing = {
+	/**
+	 *  `Present` is the only state Lucerna edits. `OnlyOld`: `packs` shows
+	 *  what `level.dat_old` holds — the copy the game opens the world from
+	 *  and restores `level.dat` out of — and every change is refused until
+	 *  `level.dat` is back. `Absent`: the game does not list the folder as a
+	 *  world and loads nothing from it, so `packs` is empty.
+	 */
+	level_dat: LevelDatPresence,
+	packs: WorldDatapack[],
 };
 
 /**

@@ -48,7 +48,7 @@
     const res = await commands.datapacksListForWorld(reqInstanceId, reqWorld);
     if (instanceId !== reqInstanceId || world !== reqWorld) return;
     if (res.status === 'ok') {
-      packs = res.data;
+      packs = res.data.packs;
     } else {
       // Clear the list on failure too: an error and a stale, still-interactive
       // row list must never render together (see the template's mutually

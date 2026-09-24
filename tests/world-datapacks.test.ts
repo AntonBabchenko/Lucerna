@@ -12,13 +12,18 @@
 
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorldDatapack } from '$lib/ipc/bindings';
+import type { LevelDatPresence, WorldDatapack, WorldDatapackListing } from '$lib/ipc/bindings';
 import WorldDatapacks from '$lib/worlds/WorldDatapacks.svelte';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    datapacksListForWorld: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    datapacksListLibrary: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksListForWorld: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { level_dat: 'present', packs: [] } }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { expected_pack_format: null, entries: [], worlds: [] },
+    }),
     datapacksInstallFromFile: vi.fn(),
     datapacksAddToWorld: vi.fn().mockResolvedValue({ status: 'ok', data: 'linked' }),
     datapacksRemoveFromWorld: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -37,6 +42,14 @@ function makePack(over: Partial<WorldDatapack> = {}): WorldDatapack {
     compat: { kind: 'compatible' },
     ...over,
   };
+}
+
+/** The `datapacksListForWorld` payload: the rows plus the world's level.dat presence. */
+function listing(
+  packs: WorldDatapack[],
+  level_dat: LevelDatPresence = 'present',
+): WorldDatapackListing {
+  return { level_dat, packs };
 }
 
 // The explainer is the shared DatapackConceptHelp component; its copy and
@@ -64,7 +77,7 @@ describe('WorldDatapacks — toggling an enabled pack', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'enabled-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'enabled-pack.zip', state: 'enabled' })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     const toggleBtn = await screen.findByRole('button', { name: /^disable in this world$/i });
@@ -83,7 +96,7 @@ describe('WorldDatapacks — orphaned row', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'gone-pack.zip', state: 'orphaned' })],
+      data: listing([makePack({ filename: 'gone-pack.zip', state: 'orphaned' })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     await screen.findByText(/Minecraft will ask about this pack/i);
@@ -106,7 +119,7 @@ describe('WorldDatapacks — not_added row', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'library-pack.zip', state: 'not_added' })],
+      data: listing([makePack({ filename: 'library-pack.zip', state: 'not_added' })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     // The header's own "Add datapack" (library-install) button now has its
@@ -128,13 +141,13 @@ describe('WorldDatapacks — format mismatch', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [
+      data: listing([
         makePack({
           filename: 'mismatch-pack.zip',
           state: 'enabled',
           compat: { kind: 'mismatch', pack_format: 5, expected: 6 },
         }),
-      ],
+      ]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     const warning = await screen.findByText(/Made for data pack format 5/i);
@@ -148,7 +161,7 @@ describe('WorldDatapacks — running disables mutating controls', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'running-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'running-pack.zip', state: 'enabled' })]),
     });
     render(WorldDatapacks, {
       props: { instanceId: 'inst-1', world: 'MyWorld', running: true },
@@ -169,7 +182,7 @@ describe('WorldDatapacks — disabled controls stay keyboard-reachable for their
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'gate-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'gate-pack.zip', state: 'enabled' })]),
     });
     const { rerender } = render(WorldDatapacks, {
       props: { instanceId: 'inst-1', world: 'MyWorld', running: true },
@@ -195,7 +208,7 @@ describe('WorldDatapacks — command error surfaces', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'err-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'err-pack.zip', state: 'enabled' })]),
     });
     vi.mocked(commands.datapacksSetEnabledInWorld).mockResolvedValueOnce({
       status: 'error',
@@ -222,7 +235,7 @@ describe('WorldDatapacks — a reload that fails after a successful action', () 
     vi.mocked(commands.datapacksListForWorld)
       .mockResolvedValueOnce({
         status: 'ok',
-        data: [makePack({ filename: 'flaky-pack.zip', state: 'enabled' })],
+        data: listing([makePack({ filename: 'flaky-pack.zip', state: 'enabled' })]),
       })
       .mockResolvedValueOnce({
         status: 'error',
@@ -251,13 +264,13 @@ describe('WorldDatapacks — unknown compatibility', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [
+      data: listing([
         makePack({
           filename: 'unknown-compat.zip',
           state: 'enabled',
           compat: { kind: 'unknown' },
         }),
-      ],
+      ]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     await screen.findByText('unknown-compat.zip');
@@ -291,7 +304,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('enabled-mix.zip');
@@ -323,7 +336,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('enabled-mix.zip');
@@ -341,7 +354,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('disabled-mix.zip');
@@ -359,7 +372,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('notadded-mix.zip');
@@ -376,7 +389,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('orphaned-mix.zip');
@@ -387,5 +400,20 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
       'MixedWorld',
       'orphaned-mix.zip',
     );
+  });
+});
+
+// §3 L.8: an only-old world's rows stay visible (they keep their state
+// badges); what changes is which controls are live, which G5 gates.
+describe('WorldDatapacks — listing envelope', () => {
+  it('renders the rows of any listing, whatever its level.dat presence', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([makePack({ filename: 'backup-pack.zip', state: 'disabled' })], 'only_old'),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(await screen.findByText('backup-pack.zip')).toBeTruthy();
+    expect(screen.queryByText(/No datapacks yet/i)).toBeNull();
   });
 });

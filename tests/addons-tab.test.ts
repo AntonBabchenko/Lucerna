@@ -64,9 +64,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     // Datapack kind: the 1.13+ gate + the library listing (Browse badges and
     // the Installed-datapacks view read the same command).
     instanceSupportsDatapacks: vi.fn().mockResolvedValue({ status: 'ok', data: true }),
-    datapacksListLibrary: vi
-      .fn()
-      .mockResolvedValue({ status: 'ok', data: { expected_pack_format: null, entries: [] } }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { expected_pack_format: null, entries: [], worlds: [] },
+    }),
     datapacksCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     datapacksInstallFromFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     listWorldNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),

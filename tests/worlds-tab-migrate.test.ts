@@ -26,8 +26,13 @@ vi.mock('$lib/ipc/bindings', () => ({
     deleteBackup: vi.fn(),
     openSavesFolder: vi.fn(),
     openBackupsFolder: vi.fn(),
-    datapacksListForWorld: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    datapacksListLibrary: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksListForWorld: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { level_dat: 'present', packs: [] } }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { expected_pack_format: null, entries: [], worlds: [] },
+    }),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },

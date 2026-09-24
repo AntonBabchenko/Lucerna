@@ -257,7 +257,7 @@
     const res = await commands.serverListDatapacks(serverId);
     if (res.status !== 'ok') return; // best-effort; leave the map as-is
     const m = new Map<string, ServerDatapackEntry>();
-    for (const e of res.data) {
+    for (const e of res.data.entries) {
       // A ghost (level.dat names it, the file is gone) is not installed — the
       // installed pane deliberately offers it no toggle either. Rendering it
       // as "Installed" here would draw a live enable/disable control that,
