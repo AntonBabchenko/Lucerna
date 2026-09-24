@@ -1,10 +1,14 @@
-/** How long the accent ring stays on a flashed field. */
-export const FLASH_MS = 2000;
+/**
+ * How long the accent highlight stays on a flashed field. Also the length of its
+ * fade-in / blink / fade-out animation: the action hands this value to the CSS
+ * as `--field-flash-duration`, so the two cannot drift.
+ */
+export const FLASH_MS = 2800;
 
 /**
  * Anything a user can tab to. Used to find the control inside the wrapper the
  * action is applied to — the action wraps a label + control pair, not the bare
- * control, so the ring encloses both.
+ * control, so the highlight covers both.
  */
 const FOCUSABLE = 'button, input, textarea, [href], [tabindex]:not([tabindex="-1"])';
 
@@ -17,7 +21,7 @@ export type FieldFlashParams = {
    */
   focus?: boolean;
   /**
-   * Called once the flash has been delivered (scroll, ring, focus arranged) —
+   * Called once the flash has been delivered (scroll, highlight, focus arranged) —
    * in a microtask, never inside the action's own call, so a wrapper that
    * mounts already active still records the edge it just took.
    */
@@ -76,7 +80,7 @@ function focusTargetIn(node: HTMLElement): HTMLElement | null {
  * its scrollport aligns to its start, so a long block shows its heading, not
  * its middle), paints `.field-flash` for FLASH_MS, and — only when asked —
  * focuses the target, waiting for a disabled one to enable. Deactivation lets
- * a running ring finish; only destroy cuts it short.
+ * a running highlight finish; only destroy cuts it short.
  */
 export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -126,9 +130,12 @@ export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
     const target = p.focus ? focusTargetIn(node) : null;
     // Open first: the height below is only right once the disclosure is.
     if (target) openDisclosures(target, node);
+    // This layout read also flushes clear()'s class removal, so a re-flash
+    // while a highlight still runs restarts its animation instead of continuing it.
     const taller = node.getBoundingClientRect().height > scrollParentOf(node).clientHeight;
     // happy-dom has no layout, so scrollIntoView is absent there.
     node.scrollIntoView?.({ block: taller ? 'start' : 'center' });
+    node.style.setProperty('--field-flash-duration', `${FLASH_MS}ms`);
     node.classList.add('field-flash');
     timer = setTimeout(() => {
       timer = null;
@@ -140,7 +147,7 @@ export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
   }
 
   function apply(p: FieldFlashParams) {
-    // Only the false → true edge flashes; deactivation lets a running ring end.
+    // Only the false → true edge flashes; deactivation lets a running highlight end.
     if (p.active && !wasActive) flash(p);
     wasActive = p.active;
   }

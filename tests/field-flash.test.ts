@@ -38,6 +38,12 @@ describe('fieldFlash', () => {
     expect(host.classList.contains('field-flash')).toBe(false);
   });
 
+  it('times the highlight animation by the same window that clears the mark', () => {
+    const { host } = mountHost();
+    fieldFlash(host, { active: true });
+    expect(host.style.getPropertyValue('--field-flash-duration')).toBe(`${FLASH_MS}ms`);
+  });
+
   it('moves focus into the node when focus is requested', () => {
     const { host, input } = mountHost();
     fieldFlash(host, { active: true, focus: true });
@@ -105,7 +111,7 @@ describe('fieldFlash', () => {
     expect(host.classList.contains('field-flash')).toBe(true);
   });
 
-  it('deactivating does not cut a running ring short', () => {
+  it('deactivating does not cut a running highlight short', () => {
     const { host } = mountHost();
     const a = fieldFlash(host, { active: true });
     a.update({ active: false });

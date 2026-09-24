@@ -1,6 +1,6 @@
 <script lang="ts">
   // Wraps a searchable settings control (label + control together, so the flash
-  // ring encloses both — the contract field-flash.ts documents). Stamps a stable
+  // highlight covers both — the contract field-flash.ts documents). Stamps a stable
   // data-search-anchor for tests/selectors and flashes when the shared
   // settingsSearchFocus rune points at this anchor. The rune is consumed once
   // the flash has been delivered: a re-mount of this field (returning to the
@@ -20,7 +20,7 @@
 </script>
 
 <!-- scroll-mt-4: a block taller than the column aligns to its start, and the
-     ring's outline-offset would sit on the scrollport edge without it. -->
+     highlight's top edge would sit on the scrollport edge without it. -->
 <div
   class="scroll-mt-4"
   data-search-anchor={anchor}
