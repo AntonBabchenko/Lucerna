@@ -61,6 +61,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Changed
 
+- **Pickers show the chosen option as a state, not as a button.** The theme,
+  "When a game starts", the detail level, the grid/list switch and the
+  screenshot grouping and sorting now sit on a grey track, with the chosen
+  option as a raised tile marked by a small blue line — instead of a solid
+  blue block that looked like a button to press. The track no longer stretches
+  past its last option, the keyboard focus ring shows in full, and the note
+  about System appears only while System is chosen.
 - **The Updates page remembers an update and makes skipping it a choice.** An
   update found at startup is waiting on the Updates page without a second
   check, next to the version you have, a link to its release notes and a line
@@ -85,6 +92,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **No more stray gaps under settings.** An empty line reserved for a status or
+  error message took up room even when there was nothing to say, so some rows
+  sat twice as far apart as their neighbours — for example between "Add
+  account" and "Manage" in the sidebar button list. It affected most Settings
+  pages, the data-move dialogs and the server wizards. The message still
+  appears, and is still read out by screen readers, the moment there is one.
 - **Closing the window while a game or server runs asks first.** The window's
   close button, Alt+F4 and the taskbar's close used to end Lucerna and
   force-close every running game and server with it, without a word. Now

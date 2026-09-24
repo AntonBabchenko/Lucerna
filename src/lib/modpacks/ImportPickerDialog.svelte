@@ -299,7 +299,13 @@
     because it hardcodes the warning glyph and a plain `<p>`, neither of which
     fits the info-tone notice or the bordered warning box.
   -->
-  <div role="status" aria-atomic="true">
+  <!-- Out of flow while it has nothing to say: an empty in-flow box takes a
+       layout slot. Never hidden — the next notice must still be announced. -->
+  <div
+    role="status"
+    aria-atomic="true"
+    class:absolute={requiredByCategory.mods === 0 && requiredByCategory.other === 0}
+  >
     {#if requiredByCategory.mods > 0}
       <div
         class="mx-4 mb-2 p-2 bg-warning-bg border border-warning-text/30 rounded text-xs text-warning-text flex items-start gap-1.5"

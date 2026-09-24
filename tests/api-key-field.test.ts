@@ -94,15 +94,16 @@ describe('ApiKeyField', () => {
     const { unmount } = render(ApiKeyField, {
       props: base({ result: { tone: 'danger', text: 'Rejected' }, resultTestId: 'ai-key-error' }),
     });
-    const box = screen.getByTestId('ai-key-error');
-    expect(box.querySelector('[role="alert"]')?.textContent).toContain('Rejected');
+    const region = screen.getByTestId('ai-key-error');
+    expect(region.getAttribute('role')).toBe('alert');
+    expect(region.textContent).toContain('Rejected');
     unmount();
     render(ApiKeyField, {
       props: base({ result: { tone: 'info', text: 'Saved' }, resultTestId: 'ai-key-error' }),
     });
-    expect(
-      screen.getByTestId('ai-key-error').querySelector('[role="status"]')?.textContent,
-    ).toContain('Saved');
+    const saved = screen.getByTestId('ai-key-error');
+    expect(saved.getAttribute('role')).toBe('status');
+    expect(saved.textContent).toContain('Saved');
   });
 
   it('the input never autocompletes or spell-checks a secret', () => {

@@ -67,9 +67,11 @@
           value={explanationState.level}
           onChange={(v) => void setExplanationLevel(v as ExplanationLevel)}
         />
-        <div data-testid="save-failure-explanation_level">
-          <StatusMessage message={saveFailure('explanation_level')} tone="danger" />
-        </div>
+        <StatusMessage
+          dataTestid="save-failure-explanation_level"
+          message={saveFailure('explanation_level')}
+          tone="danger"
+        />
         <p id="help-tips-hint" class="text-xs text-muted">{tipsHint}</p>
       </div>
     </div>

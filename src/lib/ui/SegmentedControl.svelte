@@ -1,7 +1,10 @@
 <script lang="ts">
-  // A small two-variant segment control used by the browse-layout toggle
-  // (variant="boxed") and the page-size picker (variant="inline"). Each option
-  // is a <button> with aria-pressed; roving arrow-key focus mirrors TabBar.
+  // A small two-variant segment control used by the browse-layout toggle and the
+  // screenshot toggles (variant="boxed") and the page-size picker
+  // (variant="inline"). Each option is a <button> with aria-pressed; roving
+  // arrow-key focus mirrors TabBar. Boxed: a recessed track whose chosen segment
+  // is a neutral raised thumb with a small accent mark — a chosen option is a
+  // state, so no btn-* purpose class (a CTA fill read as "press me").
   // An option's `label` is rendered as visible text only when it has no `icon`;
   // icon-only options use `label` (falling back to the group ariaLabel) as their
   // accessible name + tooltip, so they stay compact but remain labelled.
@@ -68,7 +71,9 @@
   data-testid={dataTestid}
   onkeydown={onKeydown}
   class={variant === 'boxed'
-    ? 'inline-flex border border-border-subtle rounded overflow-hidden'
+    ? // w-fit: in a flex column an inline-flex root is stretched to the column's
+      // width. No overflow-hidden: it clipped the focus ring to a sliver.
+      'inline-flex w-fit max-w-full gap-0.5 rounded-md bg-control-track p-0.5'
     : 'inline-flex items-center gap-2 text-sm'}
 >
   {#each options as option, i (option.value)}
@@ -82,16 +87,24 @@
       {disabled}
       data-testid={option.testId}
       class={variant === 'boxed'
-        ? // Swap btn-primary/btn-ghost conditionally: two btn-* purpose classes
-          // must never be stacked on one element — the later app.css rule
-          // (.btn-secondary) wins the equal-specificity cascade and kills the
-          // active fill.
-          `${active ? 'btn-primary' : 'btn-ghost'} btn-sm rounded-none`
+        ? // One weight for every segment, so a new choice never shifts widths. The
+          // hover tint is half a thumb: it can never look chosen. focus-visible:z-10
+          // lifts the global focus ring over the neighbouring thumb.
+          `relative inline-flex h-7 items-center justify-center rounded border pb-0.5 text-sm font-medium transition-colors focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50 ${option.icon ? 'px-2' : 'px-3'} ${active ? 'cursor-default border-border-emphasis bg-control-thumb text-primary' : 'border-transparent text-secondary enabled:hover:bg-control-thumb/50 enabled:hover:text-primary'}`
         : `px-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
       use:tooltip={option.icon ? (option.label ?? ariaLabel) : null}
       onclick={() => onChange(option.value)}
     >
       {#if option.icon}<Icon name={option.icon} />{/if}{#if !option.icon}{option.label ?? ''}{/if}
+      {#if variant === 'boxed' && active}
+        <!-- The chosen mark: the accent TEXT tier (bg-current + text-accent), which
+             clears 3:1 on the thumb in both themes; plain --accent does not in dark. -->
+        <span
+          data-segment-mark
+          aria-hidden="true"
+          class="pointer-events-none absolute bottom-0 left-1/2 h-[3px] w-4 -translate-x-1/2 rounded-full bg-current text-accent"
+        ></span>
+      {/if}
     </button>
   {/each}
 </div>

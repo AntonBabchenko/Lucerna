@@ -61,25 +61,58 @@ describe('SegmentedControl', () => {
     expect(onChange).toHaveBeenLastCalledWith('list');
   });
 
-  it('boxed active option is btn-primary — never stacked with another btn-* purpose class', () => {
+  // A chosen option is a state, not an action. The CTA fill (.btn-primary) made
+  // the pressed segment read as the button to press next to two bare labels;
+  // the boxed variant is a recessed track with a neutral thumb and a small
+  // accent mark instead (DESIGN.md §6, SegmentedControl).
+  it('boxed segments carry no btn-* purpose class', () => {
     setup({ value: 'grid' });
-    const active = screen.getByTestId('layout-grid');
-    expect(active).toHaveBtnVariant('primary');
-    // Two btn-* purpose classes must never be stacked on one element: at equal
-    // specificity the later app.css rule (.btn-secondary / .btn-ghost) wins the
-    // cascade and kills the active fill.
-    expect(active).not.toHaveBtnVariant('secondary');
-    expect(active).not.toHaveBtnVariant('ghost');
-    expect(active).toHaveBtnSize('sm');
+    for (const id of ['layout-grid', 'layout-list']) {
+      expect(screen.getByTestId(id).className).not.toMatch(/(^|\s)btn-/);
+    }
   });
 
-  it('boxed inactive option is btn-ghost, not btn-primary or btn-secondary', () => {
+  it('the pressed segment is the thumb with one accent mark; the others are plain', () => {
     setup({ value: 'grid' });
+    const active = screen.getByTestId('layout-grid');
     const inactive = screen.getByTestId('layout-list');
-    expect(inactive).toHaveBtnVariant('ghost');
-    expect(inactive).not.toHaveBtnVariant('primary');
-    expect(inactive).not.toHaveBtnVariant('secondary');
-    expect(inactive).toHaveBtnSize('sm');
+    expect(active.classList.contains('bg-control-thumb')).toBe(true);
+    const marks = active.querySelectorAll('[data-segment-mark]');
+    expect(marks).toHaveLength(1);
+    expect(marks[0].getAttribute('aria-hidden')).toBe('true');
+    expect(inactive.classList.contains('bg-control-thumb')).toBe(false);
+    expect(inactive.querySelector('[data-segment-mark]')).toBeNull();
+    expect(inactive.classList.contains('text-secondary')).toBe(true);
+  });
+
+  // Rendered with the compiled CSS: a mark 2 px above the thumb's edge ran into
+  // the descenders of real labels ("Days", «Свернуть», «Продвинутый»). It sits on
+  // the thumb's bottom edge, and every segment lifts its label by the same 1 px
+  // (pb-0.5 in all of them, so a new choice does not move the text).
+  it('the mark sits on the thumb edge, below the descenders of the label', () => {
+    setup({ value: 'grid' });
+    const mark = screen.getByTestId('layout-grid').querySelector('[data-segment-mark]');
+    expect(mark?.classList.contains('bottom-0')).toBe(true);
+    for (const id of ['layout-grid', 'layout-list']) {
+      expect(screen.getByTestId(id).classList.contains('pb-0.5')).toBe(true);
+    }
+  });
+
+  it('with no value nothing is drawn as chosen', () => {
+    setup({ value: null });
+    expect(document.querySelector('[data-segment-mark]')).toBeNull();
+    expect(document.querySelector('.bg-control-thumb')).toBeNull();
+  });
+
+  it('the track hugs its segments and does not clip the focus ring', () => {
+    setup();
+    const group = screen.getByRole('group', { name: 'Layout' });
+    // w-fit: inside a flex column an inline-flex root is stretched to the
+    // column's width, drawing an empty track tail past the last segment.
+    expect(group.classList.contains('w-fit')).toBe(true);
+    expect(group.classList.contains('bg-control-track')).toBe(true);
+    // overflow-hidden cut the 2 px outline-offset focus ring to a sliver.
+    expect(group.classList.contains('overflow-hidden')).toBe(false);
   });
 
   it('renders text labels and roving works in the inline variant', async () => {

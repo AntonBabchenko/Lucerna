@@ -166,12 +166,11 @@
   {:else}
     {@render body()}
   {/if}
-  <div data-testid={resultTestId}>
-    <StatusMessage
-      message={result?.text ?? null}
-      tone={result?.tone ?? 'info'}
-      live={result && result.tone !== 'info' ? 'assertive' : undefined}
-    />
-  </div>
+  <StatusMessage
+    dataTestid={resultTestId}
+    message={result?.text ?? null}
+    tone={result?.tone ?? 'info'}
+    live={result && result.tone !== 'info' ? 'assertive' : undefined}
+  />
   <p class="text-xs text-muted">{note}</p>
 </div>

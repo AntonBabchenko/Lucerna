@@ -93,19 +93,21 @@
       <SegmentedControl
         variant="boxed"
         ariaLabel={$t('settings.general.appearance.theme')}
-        describedby="appearance-theme-hint"
+        describedby={themeState.pref === 'system' ? 'appearance-theme-hint' : undefined}
         options={themeOptions}
         value={themeState.pref}
         onChange={(v) => void setThemePref(v as ThemePreference)}
       />
-      <p id="appearance-theme-hint" class="text-xs text-muted">
-        {$t('settings.general.appearance.themeHint')}
-        {#if themeResolvedSuffix}{themeResolvedSuffix}{/if}
-      </p>
       <!-- A refused save snaps the pick back; this line says why, here. -->
-      <div data-testid="save-failure-theme">
-        <StatusMessage message={saveFailure('theme')} tone="danger" />
-      </div>
+      <StatusMessage dataTestid="save-failure-theme" message={saveFailure('theme')} tone="danger" />
+      <!-- Like the Game and Help pickers, the hint explains the chosen option:
+           System needs saying what it follows; Light and Dark say it by name. -->
+      {#if themeState.pref === 'system'}
+        <p id="appearance-theme-hint" class="text-xs text-muted">
+          {$t('settings.general.appearance.themeHint')}
+          {#if themeResolvedSuffix}{themeResolvedSuffix}{/if}
+        </p>
+      {/if}
     </div>
   </SettingsField>
 
@@ -120,9 +122,11 @@
         options={languageOptions}
         onChange={(v) => void setLocalePref(String(v))}
       />
-      <div data-testid="save-failure-language">
-        <StatusMessage message={saveFailure('language')} tone="danger" />
-      </div>
+      <StatusMessage
+        dataTestid="save-failure-language"
+        message={saveFailure('language')}
+        tone="danger"
+      />
     </div>
   </SettingsField>
 
@@ -197,12 +201,11 @@
         {#if b.id === 'account_actions'}
           <!-- The live region is always mounted, so the reason is announced
                when it appears rather than missed. -->
-          <div class="pl-6">
-            <StatusMessage
-              message={accountsKnown === 'empty' ? $t('sidebar.accountRequired.body') : null}
-              tone="info"
-            />
-          </div>
+          <StatusMessage
+            class="pl-6"
+            message={accountsKnown === 'empty' ? $t('sidebar.accountRequired.body') : null}
+            tone="info"
+          />
         {/if}
       {/each}
     </fieldset>
