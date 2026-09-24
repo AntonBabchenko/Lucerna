@@ -1,14 +1,18 @@
-//! The three locked single-world entry points (add / remove / toggle) and
-//! their conflict gate. Each takes `level_dat_lock` itself — see the parent
+//! The locked single-world entry points (add / remove / toggle, plus the
+//! cascade's removal) and their conflict gate. Each takes `level_dat_lock` itself — see the parent
 //! module doc for why they must never be composed under it.
 
 use std::path::Path;
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{level_dat, level_dat_entry, library_dir_at};
 use crate::error::{Error, Result};
 use crate::mods::store::{materialize, LinkPolicy, Placement};
 
-use super::{level_dat_lock, map_removal_err, read_level_dat_or_empty, world_dirs_checked};
+use super::{
+    level_dat_lock, level_dat_missing, map_removal_err, only_old, require_level_dat,
+    world_dirs_checked,
+};
 
 /// `Some(err)` when `dest` already holds something that is NOT the library
 /// file at `src`, so placing over it would destroy a pack Lucerna did not put
@@ -145,6 +149,18 @@ pub async fn add_to_world_at(
 
     let _guard = level_dat_lock().lock().await;
 
+    // D2 (spec §3 L.4): only a world whose level.dat is a regular file. This
+    // comes after the input checks above (§0.5 A7) and before this call's
+    // first write.
+    require_level_dat(&world_dir, world)?;
+    // Read and edit level.dat in memory BEFORE touching the folder, so an
+    // unreadable or malformed level.dat refuses here instead of after the pack
+    // is linked. Write only when the toggle actually changed something:
+    // `write_at` rolls the pre-edit backup forward on every call. A world with
+    // no DataPacks compound reports no change; the game adds the pack itself.
+    let (mut root, framing) = level_dat::read_at(&world_dir)?;
+    let changed = level_dat::set_enabled(&mut root, &level_dat_entry(filename), true)?;
+
     tokio::fs::create_dir_all(&dp_dir)
         .await
         .map_err(|e| Error::ModsInstancePath {
@@ -187,24 +203,52 @@ pub async fn add_to_world_at(
             details: e.details(),
         })?;
 
-    let (mut root, framing) = read_level_dat_or_empty(&world_dir)?;
-    let entry = level_dat_entry(filename);
-    // Write only when the toggle actually changed something: `write_at` rolls
-    // the pre-edit backup forward on every call, so a redundant write would
-    // replace the last pristine copy with a copy of the state we're already
-    // in.
-    if level_dat::set_enabled(&mut root, &entry, true)? {
+    if changed {
         level_dat::write_at(&world_dir, &root, framing).await?;
     }
-
     Ok(placement)
 }
 
 /// Unlink a datapack from a world and drop its level.dat entry from both
-/// lists. Idempotent: a missing file is `Ok`, and this doubles as the repair
-/// path for an `Orphaned` row — a level.dat name with no file — since it
-/// still clears the name even when there is nothing to unlink.
+/// lists. Idempotent: a missing file is `Ok`. This doubles as the repair path
+/// for an `Orphaned` row (a level.dat name with no file), because it still
+/// clears the name when there is nothing to unlink.
+///
+/// Refuses, before touching anything, a world with only `level.dat_old` and
+/// a folder with neither file (D2). The library cascade uses
+/// [`remove_for_cascade_at`] instead, which unlinks the file in the latter.
 pub async fn remove_from_world_at(instance_root: &Path, world: &str, filename: &str) -> Result<()> {
+    remove_in_world(instance_root, world, filename, OnAbsent::Refuse).await
+}
+
+/// [`remove_from_world_at`] for the library's cascade removal (spec §0.5
+/// A3). In a folder with neither `level.dat` nor `level.dat_old`, it unlinks
+/// the file and neither reads nor writes a level.dat: the game loads nothing
+/// from such a folder, and refusing there would leave the library row
+/// impossible to remove. A world with only `level.dat_old` is still refused.
+pub(crate) async fn remove_for_cascade_at(
+    instance_root: &Path,
+    world: &str,
+    filename: &str,
+) -> Result<()> {
+    remove_in_world(instance_root, world, filename, OnAbsent::UnlinkOnly).await
+}
+
+/// What a removal does in a folder with neither level file.
+#[derive(Clone, Copy)]
+enum OnAbsent {
+    /// The world tab. D2 makes no change at all.
+    Refuse,
+    /// The library cascade: the file only (§0.5 A3).
+    UnlinkOnly,
+}
+
+async fn remove_in_world(
+    instance_root: &Path,
+    world: &str,
+    filename: &str,
+    on_absent: OnAbsent,
+) -> Result<()> {
     if !crate::pathsafe::is_safe_filename(filename) {
         return Err(Error::ModsUnsafeFilename {
             filename: filename.to_string(),
@@ -213,6 +257,26 @@ pub async fn remove_from_world_at(instance_root: &Path, world: &str, filename: &
     let (world_dir, dp_dir) = world_dirs_checked(instance_root, world)?;
 
     let _guard = level_dat_lock().lock().await;
+
+    // D2, and the level.dat edit, both before the removal. An only-old world,
+    // a refused folder and an unreadable level.dat all leave the file where
+    // it is.
+    let edit = match presence::of(&world_dir)? {
+        LevelDatPresence::Present => {
+            let (mut root, framing) = level_dat::read_at(&world_dir)?;
+            // `forget_ci`, not `forget`: the name arrives from a UI row or, on
+            // the cascade path, from the library registry, and level.dat may
+            // spell the same file with different case (see `contains_ci`). An
+            // exact match would delete the file but keep the name.
+            let changed = level_dat::forget_ci(&mut root, &level_dat_entry(filename))?;
+            changed.then_some((root, framing))
+        }
+        LevelDatPresence::OnlyOld => return Err(only_old(world)),
+        LevelDatPresence::Absent => match on_absent {
+            OnAbsent::Refuse => return Err(level_dat_missing(world)),
+            OnAbsent::UnlinkOnly => None,
+        },
+    };
 
     // `filename` was already validated above by `is_safe_filename`, which
     // requires exactly one `Normal` path component — no separator, no `..`,
@@ -249,15 +313,7 @@ pub async fn remove_from_world_at(instance_root: &Path, world: &str, filename: &
         }
     }
 
-    let (mut root, framing) = read_level_dat_or_empty(&world_dir)?;
-    let entry = level_dat_entry(filename);
-    // `forget_ci`, not `forget`: the name arrives from a UI row or — on the
-    // cascade path — from the library registry, and level.dat may spell the
-    // same file with different case (NTFS is case-insensitive; the drift is
-    // documented and encountered — see `contains_ci`). An exact match would
-    // delete the file but keep the name: a permanent Orphaned row and
-    // Minecraft's "data packs are no longer present" screen.
-    if level_dat::forget_ci(&mut root, &entry)? {
+    if let Some((root, framing)) = edit {
         level_dat::write_at(&world_dir, &root, framing).await?;
     }
     Ok(())
@@ -280,9 +336,9 @@ pub async fn set_enabled_in_world_at(
 
     let _guard = level_dat_lock().lock().await;
 
-    let (mut root, framing) = read_level_dat_or_empty(&world_dir)?;
-    let entry = level_dat_entry(filename);
-    if level_dat::set_enabled(&mut root, &entry, enabled)? {
+    require_level_dat(&world_dir, world)?;
+    let (mut root, framing) = level_dat::read_at(&world_dir)?;
+    if level_dat::set_enabled(&mut root, &level_dat_entry(filename), enabled)? {
         level_dat::write_at(&world_dir, &root, framing).await?;
     }
     Ok(())
@@ -660,6 +716,206 @@ mod tests {
             enabled.contains(&"file/b.zip".to_string()),
             "b.zip's enable must survive a concurrent disable of a.zip"
         );
+    }
+
+    #[tokio::test]
+    async fn add_refuses_a_world_with_only_level_dat_old_and_writes_nothing() {
+        // The game restores level.dat from level.dat_old when it opens this
+        // world. A level.dat written first parses cleanly and switches that
+        // recovery off (spec §3 L.1).
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let wd = world_dir(td.path(), "Restoring");
+        level_dat::test_support::seed_old(&wd, &[], &[]);
+        let old_before = std::fs::read(wd.join("level.dat_old")).unwrap();
+
+        let err = add_to_world_at(td.path(), "Restoring", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&err, Error::WorldLevelDatOnlyOld { folder_name } if folder_name == "Restoring"),
+            "got {err:?}"
+        );
+        assert!(
+            !wd.join("datapacks").exists(),
+            "no datapacks/ may be created"
+        );
+        assert!(
+            !wd.join("level.dat").exists(),
+            "no level.dat may be created"
+        );
+        assert_eq!(std::fs::read(wd.join("level.dat_old")).unwrap(), old_before);
+    }
+
+    #[tokio::test]
+    async fn add_refuses_a_folder_without_level_dat_and_writes_nothing() {
+        // Neither file: the game does not list this folder as a world.
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let wd = world_dir(td.path(), "NotAWorld");
+        std::fs::create_dir_all(&wd).unwrap();
+
+        let err = add_to_world_at(td.path(), "NotAWorld", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&err, Error::WorldLevelDatMissing { folder_name } if folder_name == "NotAWorld"),
+            "got {err:?}"
+        );
+        assert!(!wd.join("datapacks").exists());
+        assert!(!wd.join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn remove_refuses_a_world_with_only_level_dat_old_and_keeps_the_file() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Restoring");
+        level_dat::test_support::seed_old(&wd, &["file/vm.zip"], &[]);
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+
+        let err = remove_from_world_at(td.path(), "Restoring", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, Error::WorldLevelDatOnlyOld { .. }),
+            "got {err:?}"
+        );
+        assert!(
+            wd.join("datapacks/vm.zip").exists(),
+            "the pack stays until the world is restored"
+        );
+        assert!(!wd.join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn remove_refuses_a_folder_without_level_dat_and_keeps_the_file() {
+        // The world tab's removal. The library cascade uses
+        // `remove_for_cascade_at`, which unlinks here (§0.5 A3).
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "NotAWorld");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+
+        let err = remove_from_world_at(td.path(), "NotAWorld", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, Error::WorldLevelDatMissing { .. }),
+            "got {err:?}"
+        );
+        assert!(wd.join("datapacks/vm.zip").exists());
+        assert!(!wd.join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn toggle_refuses_a_world_with_only_level_dat_old() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Restoring");
+        level_dat::test_support::seed_old(&wd, &[], &[]);
+
+        let err = set_enabled_in_world_at(td.path(), "Restoring", "vm.zip", false)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, Error::WorldLevelDatOnlyOld { .. }),
+            "got {err:?}"
+        );
+        assert!(
+            !wd.join("level.dat").exists(),
+            "a stub would switch off the game's restore"
+        );
+    }
+
+    #[tokio::test]
+    async fn toggle_refuses_a_folder_without_level_dat() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "NotAWorld");
+        std::fs::create_dir_all(&wd).unwrap();
+
+        let err = set_enabled_in_world_at(td.path(), "NotAWorld", "vm.zip", false)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(err, Error::WorldLevelDatMissing { .. }),
+            "got {err:?}"
+        );
+        assert!(!wd.join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn add_with_an_unreadable_level_dat_links_nothing() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let wd = world_dir(td.path(), "Survival");
+        std::fs::create_dir_all(&wd).unwrap();
+        std::fs::write(wd.join("level.dat"), b"not nbt at all").unwrap();
+
+        let err = add_to_world_at(td.path(), "Survival", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::LevelDatParse { .. }), "got {err:?}");
+        assert!(
+            !wd.join("datapacks/vm.zip").exists(),
+            "no pack may be linked when level.dat cannot follow"
+        );
+    }
+
+    #[tokio::test]
+    async fn remove_with_an_unreadable_level_dat_keeps_the_file() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), datapack_zip(48)).unwrap();
+        std::fs::write(wd.join("level.dat"), b"not nbt at all").unwrap();
+
+        let err = remove_from_world_at(td.path(), "Survival", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::LevelDatParse { .. }), "got {err:?}");
+        assert!(wd.join("datapacks/vm.zip").exists());
+    }
+
+    #[tokio::test]
+    async fn a_toggle_on_a_world_whose_level_dat_is_a_directory_is_not_world_in_use() {
+        // `Path::exists` called this "present", the read failed with Windows
+        // error 5, and `map_read_err` told the user to quit Minecraft while
+        // Minecraft was closed. RED on Windows only: on POSIX, reading a
+        // directory was already a plain I/O error.
+        let td = tempfile::tempdir().unwrap();
+        let wd = world_dir(td.path(), "Odd");
+        std::fs::create_dir_all(wd.join("level.dat")).unwrap();
+
+        let err = set_enabled_in_world_at(td.path(), "Odd", "vm.zip", false)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::Io { .. }), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn add_names_a_missing_library_file_before_the_level_dat_state() {
+        // §0.5 A7: input validation, library membership included, comes before
+        // the level.dat presence check.
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(world_dir(td.path(), "NotAWorld")).unwrap();
+
+        let err = add_to_world_at(td.path(), "NotAWorld", "vm.zip")
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::ModsInstancePath { .. }), "got {err:?}");
     }
 
     /// Windows: '<' cannot appear in a filename, so the opening stat fails

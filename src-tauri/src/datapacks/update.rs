@@ -418,6 +418,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_update_is_not_blocked_by_a_folder_without_level_dat() {
+        // §0.5 A3: a folder under saves/ with neither level file is not a world
+        // to the game. The update moves the FILE there and never reads or
+        // writes a level.dat; otherwise the library row could never be updated.
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        let loose = world_dir(td.path(), "Loose");
+        std::fs::create_dir_all(loose.join("datapacks")).unwrap();
+        std::fs::write(loose.join("datapacks/vm-1.zip"), v1_zip()).unwrap();
+
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.zip", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+
+        assert!(out.completed, "got {:?}", out.migrations);
+        assert_eq!(
+            out.migrations,
+            vec![WorldMigration::Migrated {
+                world: "Loose".into(),
+                was_enabled: true,
+            }]
+        );
+        assert_eq!(
+            std::fs::read(loose.join("datapacks/vm-2.zip")).unwrap(),
+            v2_zip()
+        );
+        assert!(!loose.join("datapacks/vm-1.zip").exists());
+        assert!(
+            !loose.join("level.dat").exists(),
+            "the folder must not be made into a world"
+        );
+        assert!(!td.path().join("datapacks/vm-1.zip").exists());
+    }
+
+    #[tokio::test]
     async fn an_unsafe_old_filename_is_rejected_at_the_boundary() {
         let td = tempfile::tempdir().unwrap();
         let err = update_at(td.path(), "../escape.zip", "vm.zip", &v2_zip(), &prov("v2"))

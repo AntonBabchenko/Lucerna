@@ -12,7 +12,8 @@
 //!
 //! Split by responsibility — the public paths (`world_link::X`) are unchanged,
 //! re-exported below:
-//!   * [`mutate`] — the three locked single-world entry points;
+//!   * [`mutate`] — the locked single-world entry points (add / remove /
+//!     toggle, plus the library cascade's removal);
 //!   * [`migrate`] — the update's cross-filename world migration;
 //!   * [`placements`] — identity-verified placement enumeration + the
 //!     same-name refresh fan-out;
@@ -30,6 +31,7 @@ mod placements;
 pub use listing::list_for_world_at;
 pub(crate) use listing::list_on_disk_entries;
 pub(crate) use migrate::migrate_placements;
+pub(crate) use mutate::remove_for_cascade_at;
 pub use mutate::{add_to_world_at, remove_from_world_at, set_enabled_in_world_at};
 pub(crate) use placements::{placements_of, refresh_placements};
 
@@ -40,6 +42,7 @@ use std::sync::OnceLock;
 use fastnbt::Value;
 
 use crate::datapacks::level_dat;
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::error::{Error, Result};
 
 /// Resolve a world's own directory and its `datapacks/` subdirectory,
@@ -77,6 +80,31 @@ fn world_dirs_checked(instance_root: &Path, world: &str) -> Result<(PathBuf, Pat
     let world_dir = crate::worlds::world_dir_at(&saves_dir, world)?;
     let dp_dir = world_dir.join("datapacks");
     Ok((world_dir, dp_dir))
+}
+
+/// D2 (spec §0.1): only a world whose `level.dat` is a regular file gets a
+/// data-pack change. `OnlyOld` is a world the game restores from
+/// `level.dat_old`, and a `level.dat` written first switches that recovery off.
+/// `Absent` is a folder the game does not treat as a world. `Err` means the
+/// state could not be told, and the change is refused.
+fn require_level_dat(world_dir: &Path, world: &str) -> Result<()> {
+    match presence::of(world_dir)? {
+        LevelDatPresence::Present => Ok(()),
+        LevelDatPresence::OnlyOld => Err(only_old(world)),
+        LevelDatPresence::Absent => Err(level_dat_missing(world)),
+    }
+}
+
+fn only_old(world: &str) -> Error {
+    Error::WorldLevelDatOnlyOld {
+        folder_name: world.to_string(),
+    }
+}
+
+fn level_dat_missing(world: &str) -> Error {
+    Error::WorldLevelDatMissing {
+        folder_name: world.to_string(),
+    }
 }
 
 /// Serializes the three level.dat mutations below against each other and

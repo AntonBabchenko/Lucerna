@@ -4,14 +4,13 @@
 
 use std::path::Path;
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{level_dat, level_dat_entry, library_dir_at};
 use crate::error::{Error, Result};
 use crate::mods::store::{materialize, LinkPolicy};
 
 use super::placements::{placements_of, WorldPlacement};
-use super::{
-    contains_ci, level_dat_lock, map_removal_err, read_level_dat_or_empty, world_dirs_checked,
-};
+use super::{contains_ci, level_dat_lock, map_removal_err, only_old, world_dirs_checked};
 
 /// Move every world holding `old_filename` onto `new_filename`, preserving each
 /// world's own enabled/disabled choice.
@@ -111,6 +110,21 @@ async fn migrate_one(
 ) -> Result<bool> {
     let (world_dir, dp_dir) = world_dirs_checked(instance_root, &placement.world)?;
 
+    // D2 first (spec §3 L.4). Nothing below may run in a world waiting to be
+    // restored from level.dat_old: it reports Failed, `datapacks::update`
+    // keeps the old library copy, and a retry converges once the world has
+    // been opened. A folder with neither file is not a world to the game,
+    // which loads nothing from it. The update still moves the FILE there so
+    // the library row can be updated at all (§0.5 A3), and it neither reads
+    // nor writes a level.dat.
+    let level = match presence::of(&world_dir)? {
+        LevelDatPresence::Present => Some(level_dat::read_at(&world_dir)?),
+        LevelDatPresence::OnlyOld => return Err(only_old(&placement.world)),
+        LevelDatPresence::Absent => None,
+    };
+
+    let old_entry = level_dat_entry(old_filename);
+    let new_entry = level_dat_entry(new_filename);
     // Read the CURRENT state before changing anything.
     //
     // Enabled-ness is `!in_disabled`, NOT `in_enabled`. A pack present on disk
@@ -125,16 +139,32 @@ async fn migrate_one(
     // old-file removal. Deriving from the old entry on that retry would read
     // "in neither list" = enabled and flip a disabled pack back on — the exact
     // reversal this whole function exists to prevent.
-    let (mut root, framing) = read_level_dat_or_empty(&world_dir)?;
-    let (enabled, disabled) = level_dat::lists(&root);
-    let old_entry = level_dat_entry(old_filename);
-    let new_entry = level_dat_entry(new_filename);
-    let was_enabled = if contains_ci(&disabled, &new_entry) {
-        false
-    } else if contains_ci(&enabled, &new_entry) {
-        true
-    } else {
-        !contains_ci(&disabled, &old_entry)
+    let was_enabled = match &level {
+        Some((root, _)) => {
+            let (enabled, disabled) = level_dat::lists(root);
+            if contains_ci(&disabled, &new_entry) {
+                false
+            } else if contains_ci(&enabled, &new_entry) {
+                true
+            } else {
+                !contains_ci(&disabled, &old_entry)
+            }
+        }
+        // No list to read. This is `state::derive`'s answer for a present,
+        // unlisted pack, and what this path always reported here.
+        None => true,
+    };
+    // Apply the level.dat edit in memory now, so a malformed DataPacks refuses
+    // before the new file is linked. `forget_ci`, not `forget`: the old entry
+    // is known only by the library's filename, and level.dat may hold a
+    // different case for the same file.
+    let edit = match level {
+        Some((mut root, framing)) => {
+            let changed_forget = level_dat::forget_ci(&mut root, &old_entry)?;
+            let changed_set = level_dat::set_enabled(&mut root, &new_entry, was_enabled)?;
+            (changed_forget || changed_set).then_some((root, framing))
+        }
+        None => None,
     };
 
     tokio::fs::create_dir_all(&dp_dir)
@@ -191,12 +221,7 @@ async fn migrate_one(
             details: e.details(),
         })?;
 
-    // `forget_ci`, not `forget`: the old entry is known to us only by the
-    // library's filename, and level.dat may hold a different case for the same
-    // file. An exact match would remove nothing and leave a permanent orphan.
-    let changed_forget = level_dat::forget_ci(&mut root, &old_entry)?;
-    let changed_set = level_dat::set_enabled(&mut root, &new_entry, was_enabled)?;
-    if changed_forget || changed_set {
+    if let Some((root, framing)) = edit {
         level_dat::write_at(&world_dir, &root, framing).await?;
     }
 
@@ -342,6 +367,33 @@ mod tests {
         assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), before);
         assert!(wd.join("datapacks/vm-2.zip").exists());
         assert!(!wd.join("datapacks/vm-1.zip").exists());
+    }
+
+    #[tokio::test]
+    async fn migrate_reports_failed_for_an_only_old_world_and_touches_nothing() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        let wd = world_dir(td.path(), "Restoring");
+        level_dat::test_support::seed_old(&wd, &[], &["file/vm-1.zip"]);
+        let old_before = std::fs::read(wd.join("level.dat_old")).unwrap();
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm-1.zip"), datapack_zip(48)).unwrap();
+        seed_library(td.path(), "vm-2.zip", 57).await;
+
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+
+        assert!(
+            matches!(
+                report.as_slice(),
+                [crate::datapacks::WorldMigration::Failed { world, .. }] if world == "Restoring"
+            ),
+            "got {report:?}"
+        );
+        assert!(wd.join("datapacks/vm-1.zip").exists());
+        assert!(!wd.join("datapacks/vm-2.zip").exists());
+        assert!(!wd.join("level.dat").exists());
+        assert_eq!(std::fs::read(wd.join("level.dat_old")).unwrap(), old_before);
     }
 
     #[tokio::test]
