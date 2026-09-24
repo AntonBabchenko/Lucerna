@@ -12,6 +12,7 @@
     CompatVerdict,
     ContentKind,
     DatapackPlacementView,
+    DatapackWorldView,
     InstalledMod,
     ModSource,
   } from '$lib/ipc/bindings';
@@ -408,6 +409,7 @@
     filename: string;
     packName: string;
     placements: DatapackPlacementView[];
+    worlds: DatapackWorldView[];
   } | null>(null);
 
   // Local datapack zips (file picker + drag-drop) go into the instance's
@@ -444,7 +446,11 @@
           lib.status === 'ok'
             ? lib.data.entries.find((e) => e.pack.filename === last.filename)
             : undefined;
-        datapackPickerTarget = { ...last, placements: entry?.placements ?? [] };
+        datapackPickerTarget = {
+          ...last,
+          placements: entry?.placements ?? [],
+          worlds: lib.status === 'ok' ? lib.data.worlds : [],
+        };
       }
     }
   }
@@ -740,6 +746,7 @@
     filename={datapackPickerTarget.filename}
     packName={datapackPickerTarget.packName}
     placements={datapackPickerTarget.placements}
+    worlds={datapackPickerTarget.worlds}
     onClose={() => (datapackPickerTarget = null)}
     onApplied={() => {
       datapacksChanged.value++;

@@ -25,6 +25,7 @@ const baseProps = {
   filename: 'terralith.zip',
   packName: 'Terralith',
   placements: [],
+  worlds: [],
   onClose: () => {},
   onApplied: () => {},
 };
@@ -55,7 +56,7 @@ describe('DatapackWorldPicker', () => {
     render(DatapackWorldPicker, {
       props: {
         ...baseProps,
-        placements: [{ world: 'Alpha', state: 'disabled' as const }],
+        placements: [{ world: 'Alpha', state: 'disabled' as const, level_dat: 'present' as const }],
       },
     });
     const box = await screen.findByTestId('datapack-picker-world');
@@ -101,12 +102,41 @@ describe('DatapackWorldPicker', () => {
     render(DatapackWorldPicker, {
       props: {
         ...baseProps,
-        placements: [{ world: 'Gamma', state: 'enabled' as const }],
+        placements: [{ world: 'Gamma', state: 'enabled' as const, level_dat: 'present' as const }],
       },
     });
     const box = (await screen.findByTestId('datapack-picker-world')) as HTMLInputElement;
     expect(box.checked).toBe(true);
     expect(box.disabled).toBe(true);
     expect((screen.getByTestId('datapack-picker-apply') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("each row carries its world's level.dat presence from the library view", async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({
+      status: 'ok',
+      data: [world('Alpha'), world('Beta'), world('Gamma')],
+    });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [
+          { world: 'Alpha', level_dat: 'present' as const },
+          { world: 'Beta', level_dat: 'only_old' as const },
+        ],
+        // A world only the placements know about (the quick listing missed
+        // it) still carries the presence its placement reports.
+        placements: [{ world: 'Delta', state: 'disabled' as const, level_dat: 'absent' as const }],
+      },
+    });
+    const boxes = await screen.findAllByTestId('datapack-picker-world');
+    const byWorld = Object.fromEntries(
+      boxes.map((b) => [b.getAttribute('data-world'), b.getAttribute('data-level-dat')]),
+    );
+    expect(byWorld).toEqual({
+      Alpha: 'present',
+      Beta: 'only_old',
+      Delta: 'absent',
+      Gamma: 'unknown',
+    });
   });
 });

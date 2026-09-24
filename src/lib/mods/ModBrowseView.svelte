@@ -3,6 +3,7 @@
     commands,
     events,
     type DatapackLibraryEntry,
+    type DatapackWorldView,
     type Error as IpcError,
     type InstalledAsset,
     type InstalledMod,
@@ -279,20 +280,26 @@
   // The datapack twin of `installedAssets`: library entries (registry ∪
   // worlds-only packs), matched to cards by source + project_id below.
   let installedDatapacks = $state<DatapackLibraryEntry[]>([]);
+  // Every world folder the same listing saw, with its level.dat presence —
+  // the world picker needs the worlds a pack is not in yet.
+  let installedDatapackWorlds = $state<DatapackWorldView[]>([]);
 
   async function refreshInstalledDatapacks() {
     if (!isDatapack) {
       installedDatapacks = [];
+      installedDatapackWorlds = [];
       return;
     }
     const reqId = instanceId;
     if (!reqId) {
       installedDatapacks = [];
+      installedDatapackWorlds = [];
       return;
     }
     const r = await commands.datapacksListLibrary(reqId);
     if (instanceId !== reqId || r.status !== 'ok') return;
     installedDatapacks = r.data.entries;
+    installedDatapackWorlds = r.data.worlds;
   }
 
   async function refreshInstalled() {
@@ -854,6 +861,7 @@
     filename: string;
     packName: string;
     placements: DatapackLibraryEntry['placements'];
+    worlds: DatapackWorldView[];
   } | null>(null);
   let removeDialogFor = $state<DatapackLibraryEntry | null>(null);
 
@@ -951,6 +959,7 @@
         filename: installed.data.pack.filename,
         packName: installed.data.pack.name,
         placements: entry?.placements ?? [],
+        worlds: installedDatapackWorlds,
       };
     } finally {
       installingProjectIds.delete(card.project_id);
@@ -1438,6 +1447,7 @@
       filename={pickerTarget.filename}
       packName={pickerTarget.packName}
       placements={pickerTarget.placements}
+      worlds={pickerTarget.worlds}
       onClose={() => (pickerTarget = null)}
       onApplied={() => {
         void refreshInstalledDatapacks();

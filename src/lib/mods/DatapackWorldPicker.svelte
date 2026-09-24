@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { commands, type DatapackPlacementView, type WorldPackState } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type DatapackPlacementView,
+    type DatapackWorldView,
+    type LevelDatPresence,
+    type WorldPackState,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
@@ -28,6 +34,7 @@
     filename,
     packName,
     placements,
+    worlds,
     onClose,
     onApplied,
   }: {
@@ -37,6 +44,13 @@
     packName: string;
     /** The pack's current per-world placements from the library listing. */
     placements: DatapackPlacementView[];
+    /**
+     * Every world folder the library listing saw, with its level.dat presence
+     * (`DatapackLibraryView.worlds`). Required: a world the pack is not in yet
+     * has no placement, and only this says whether Lucerna may change anything
+     * there (§3 L.6/L.8).
+     */
+    worlds: DatapackWorldView[];
     onClose: () => void;
     /** Called after any world was changed, so the owner refreshes its view. */
     onApplied: () => void;
@@ -48,6 +62,12 @@
     state: WorldPackState | null;
     /** The world's level.dat was unreadable — no safe action exists. */
     unknown: boolean;
+    /**
+     * The world's level.dat presence; null when it could not be told or the
+     * library listing did not see the folder. Anything but 'present' means
+     * Lucerna changes nothing there — the tick gate reads this (G5).
+     */
+    levelDat: LevelDatPresence | null;
   };
 
   let rows = $state<Row[] | null>(null);
@@ -66,6 +86,9 @@
         return;
       }
       const byWorld = new Map(placements.map((p) => [p.world.toLowerCase(), p]));
+      const presence = new Map(worlds.map((w) => [w.world.toLowerCase(), w.level_dat]));
+      const levelDatOf = (name: string, p: DatapackPlacementView | undefined) =>
+        presence.get(name.toLowerCase()) ?? p?.level_dat ?? null;
       const seen = new Set<string>();
       const out: Row[] = [];
       for (const w of res.data) {
@@ -75,13 +98,19 @@
           world: w.folder_name,
           state: p ? p.state : null,
           unknown: p !== undefined && p.state === null,
+          levelDat: levelDatOf(w.folder_name, p),
         });
       }
       // A placement can name a world the quick listing missed (e.g. its
       // level.dat is locked); it still deserves a row rather than vanishing.
       for (const p of placements) {
         if (!seen.has(p.world.toLowerCase())) {
-          out.push({ world: p.world, state: p.state, unknown: p.state === null });
+          out.push({
+            world: p.world,
+            state: p.state,
+            unknown: p.state === null,
+            levelDat: levelDatOf(p.world, p),
+          });
         }
       }
       out.sort((a, b) => a.world.localeCompare(b.world));
@@ -177,6 +206,7 @@
               type="checkbox"
               data-testid="datapack-picker-world"
               data-world={row.world}
+              data-level-dat={row.levelDat ?? 'unknown'}
               checked={row.state === 'enabled' || ticked.has(row.world)}
               disabled={!selectable(row) || busy}
               onchange={(e) => {

@@ -716,6 +716,7 @@
       filename={pickerFor.pack.filename}
       packName={pickerFor.pack.name}
       placements={pickerFor.placements}
+      worlds={view?.worlds ?? []}
       onClose={() => (pickerFor = null)}
       onApplied={() => {
         void refresh();
