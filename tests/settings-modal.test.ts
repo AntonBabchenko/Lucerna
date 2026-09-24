@@ -198,6 +198,26 @@ describe('SettingsModal', () => {
     );
   });
 
+  it('a tab picked before an in-modal jump is answered wins, and nothing takes focus', async () => {
+    __resetAppSettingsForTest();
+    await loadAppSettings();
+    settingsOpen.value = { tab: 'privacy' };
+    render(SettingsModal);
+    const change = within(screen.getByTestId('privacy-row-serverPing')).getByRole('button', {
+      name: 'Change',
+    });
+    // Both clicks land before Svelte flushes: the jump has not been answered yet.
+    change.click();
+    screen.getByRole('tab', { name: 'Appearance' }).click();
+    await microtask();
+    await frame();
+    expect(screen.getByRole('tab', { name: 'Appearance' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(settingsJumpFocus.value).toBe(null);
+    expect(settingsSearchFocus.value).toBe(null);
+  });
+
   it('closing Settings drops an in-modal jump that was never delivered', () => {
     settingsJumpFocus.value = 'game.serverPing';
     closeSettings();

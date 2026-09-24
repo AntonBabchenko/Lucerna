@@ -50,7 +50,7 @@
   // section, wait for that panel to mount, then point the rune at the anchor so
   // its SettingsField flashes. The null→anchor edge re-fires even when the same
   // result is picked twice.
-  async function jumpTo(entry: SettingsSearchEntry) {
+  async function selectResult(entry: SettingsSearchEntry) {
     settingsSearchFocus.value = null;
     active = entry.tab;
     await tick();
@@ -58,24 +58,17 @@
     announce = `${$t('settings.search.jumpedTo')} ${$t(entry.labelKey)}, ${$t(`settings.sections.${entry.tab}` as TranslationKey)}`;
   }
 
-  // A search result leaves focus in the search box: an in-modal jump still
-  // waiting to be delivered must not hand it focus.
-  async function selectResult(entry: SettingsSearchEntry) {
-    settingsJumpFocus.value = null;
-    await jumpTo(entry);
-  }
-
   // A jump asked for from inside the modal (jumpInSettings) takes the same
   // path; its rune stays set until the target field has taken focus.
   $effect(() => {
     const anchor = settingsJumpFocus.value;
     if (anchor === null) return;
-    untrack(() => void jumpTo(SETTINGS_SEARCH[anchor]));
+    untrack(() => void selectResult(SETTINGS_SEARCH[anchor]));
   });
 
   // A tab change by the user drops a jump that was never delivered (its tab
-  // never mounted): the user has moved on. jumpTo and openSettingsAt set the
-  // rune only AFTER their own tab switch, so this never eats theirs.
+  // never mounted): the user has moved on. selectResult and openSettingsAt
+  // set the rune only AFTER their own tab switch, so this never eats theirs.
   function selectTab(id: SettingsTab) {
     settingsSearchFocus.value = null;
     settingsJumpFocus.value = null;

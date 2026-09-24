@@ -52,8 +52,7 @@ export async function openSettingsAt(anchor: SettingsAnchor): Promise<void> {
  * page, the About pointer). SettingsModal answers it like a search result — tab,
  * flash, "Jumped to …" — and the anchor's SettingsField also takes keyboard
  * focus: the link that asked unmounts with its panel, so focus would otherwise
- * drop to <body>. Consumed on delivery; dropped by a tab change, a search jump
- * and close.
+ * drop to <body>. Consumed on delivery; dropped by a tab change and by close.
  */
 export const settingsJumpFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
 

@@ -90,6 +90,9 @@ describe('Privacy & network', () => {
       expect(row(id).textContent).toContain('Checking…');
       expect(row(id).textContent).not.toMatch(/Allowed|Not allowed|\bOn\b|\bOff\b/);
     }
+    // Where the text would go depends on a provider nobody has read yet.
+    expect(row('ai').textContent).not.toContain('Runs on this computer');
+    expect(row('ai').textContent).not.toContain('Gemini');
   });
 
   it("says when the settings couldn't be read", async () => {
@@ -108,6 +111,13 @@ describe('Privacy & network', () => {
     await load(GENERAL, true);
     render(PrivacyPanel);
     expect(row('updates').textContent).toContain('Paused in this temporary session');
+  });
+
+  it('says nothing about pausing a check that is off', async () => {
+    await load({ ...GENERAL, check_updates_on_startup: false }, true);
+    render(PrivacyPanel);
+    expect(row('updates').textContent).toContain('Off');
+    expect(row('updates').textContent).not.toContain('Paused');
   });
 
   it('each Change goes to the setting itself', async () => {
