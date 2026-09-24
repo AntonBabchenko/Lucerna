@@ -139,4 +139,43 @@ describe('DatapackWorldPicker', () => {
       Gamma: 'unknown',
     });
   });
+  // Fallback Q2: the library listing SAW this folder and could not tell
+  // whether it holds a level.dat. A placement's older answer must not
+  // overwrite that — "could not tell" stays unknown.
+  it('a world the library could not tell stays unknown, whatever its placement says', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({ status: 'ok', data: [world('X')] });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [{ world: 'X', level_dat: null }],
+        placements: [{ world: 'X', state: 'disabled' as const, level_dat: 'present' as const }],
+      },
+    });
+    const box = await screen.findByTestId('datapack-picker-world');
+    expect(box.getAttribute('data-level-dat')).toBe('unknown');
+  });
+
+  // Both names come from the same read_dir, so the presence is matched on the
+  // exact folder name: on a case-sensitive filesystem 'Alpha' and 'alpha'
+  // are two worlds, each with its own level.dat.
+  it('two folders differing only in case each keep their own presence', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({
+      status: 'ok',
+      data: [world('Alpha'), world('alpha')],
+    });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [
+          { world: 'Alpha', level_dat: 'present' as const },
+          { world: 'alpha', level_dat: 'only_old' as const },
+        ],
+      },
+    });
+    const boxes = await screen.findAllByTestId('datapack-picker-world');
+    const byWorld = Object.fromEntries(
+      boxes.map((b) => [b.getAttribute('data-world'), b.getAttribute('data-level-dat')]),
+    );
+    expect(byWorld).toEqual({ Alpha: 'present', alpha: 'only_old' });
+  });
 });

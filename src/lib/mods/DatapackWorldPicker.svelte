@@ -60,12 +60,15 @@
     world: string;
     /** null ⟹ the world does not reference the pack at all (addable). */
     state: WorldPackState | null;
-    /** The world's level.dat was unreadable — no safe action exists. */
+    /**
+     * The world's placement has no state: its lists could not be read, or the
+     * folder has no level file (see `levelDat`) — no safe action exists.
+     */
     unknown: boolean;
     /**
      * The world's level.dat presence; null when it could not be told or the
      * library listing did not see the folder. Anything but 'present' means
-     * Lucerna changes nothing there — the tick gate reads this (G5).
+     * the backend refuses the picker's add and toggle there.
      */
     levelDat: LevelDatPresence | null;
   };
@@ -86,9 +89,14 @@
         return;
       }
       const byWorld = new Map(placements.map((p) => [p.world.toLowerCase(), p]));
-      const presence = new Map(worlds.map((w) => [w.world.toLowerCase(), w.level_dat]));
+      // Keyed by the EXACT folder name: `folder_name` and `DatapackWorldView.world`
+      // both come from a read_dir of saves/, and on a case-sensitive filesystem two
+      // names differing in case are two worlds. A world the library saw wins
+      // over its placement, including its null ("seen, could not tell"): a
+      // placement's answer must never turn "could not tell" into a known state.
+      const presence = new Map(worlds.map((w) => [w.world, w.level_dat]));
       const levelDatOf = (name: string, p: DatapackPlacementView | undefined) =>
-        presence.get(name.toLowerCase()) ?? p?.level_dat ?? null;
+        presence.has(name) ? (presence.get(name) ?? null) : (p?.level_dat ?? null);
       const seen = new Set<string>();
       const out: Row[] = [];
       for (const w of res.data) {

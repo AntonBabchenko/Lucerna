@@ -404,7 +404,8 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
 });
 
 // §3 L.8: an only-old world's rows stay visible (they keep their state
-// badges); what changes is which controls are live, which G5 gates.
+// badges). Which controls stay live there is a separate concern, not pinned
+// here.
 describe('WorldDatapacks — listing envelope', () => {
   it('renders the rows of any listing, whatever its level.dat presence', async () => {
     const { commands } = await import('$lib/ipc/bindings');
