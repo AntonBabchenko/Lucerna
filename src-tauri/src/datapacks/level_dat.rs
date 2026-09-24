@@ -447,8 +447,8 @@ pub fn read_old_at(world_dir: &Path) -> Result<Value> {
 /// Deliberately NOT `level.dat_old` — that is Minecraft's own recovery copy
 /// and overwriting it would trade away the user's fallback.
 ///
-/// Refuses with `WorldLevelDatMissing` when no `level.dat` exists: this
-/// function edits a world and never creates one.
+/// Refuses with an I/O error when no `level.dat` exists: this function edits
+/// a world and never creates one.
 ///
 /// Both writes go through `store::place_bytes` (temp + rename), so a
 /// *process* crash can never leave a half-written level.dat. `place_bytes`
@@ -506,7 +506,7 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(Error::io(
                 path.display().to_string(),
-                "level.dat disappeared before it could be rewritten; not creating one",
+                "level.dat is missing; not creating one",
             ));
         }
         // The file exists and we could not read it to back it up. Never

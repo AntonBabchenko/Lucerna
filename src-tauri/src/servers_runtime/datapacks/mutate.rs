@@ -243,10 +243,26 @@ pub async fn install_bytes(
 }
 
 /// The input checks every server pack placement runs first (spec §0.5 A7,
-/// step 1): a safe filename, a `.zip` name and the size cap. Shared by
-/// [`install_bytes`] and `update::update_one`, which must report a bad new
-/// name ahead of any world-state refusal.
+/// step 1): the name checks of [`validate_install_name`], then the size cap.
+/// Shared by [`install_bytes`] and `update::update_one`, which must report a
+/// bad new name ahead of any world-state refusal.
 pub(super) fn validate_install_input(filename: &str, bytes: &[u8]) -> Result<()> {
+    validate_install_name(filename)?;
+    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
+        return Err(Error::DatapackTooLarge {
+            filename: filename.to_string(),
+            size_bytes: bytes.len() as f64,
+            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
+        });
+    }
+    Ok(())
+}
+
+/// The name half of [`validate_install_input`]: a safe filename with a `.zip`
+/// name. It needs no bytes, so the server datapack commands run it before
+/// their level.dat_old refusal and before downloading anything (spec §0.5
+/// A7, step 1). The one copy of the rule.
+pub(crate) fn validate_install_name(filename: &str) -> Result<()> {
     if !crate::pathsafe::is_safe_filename(filename) {
         return Err(Error::ModsUnsafeFilename {
             filename: filename.to_string(),
@@ -262,13 +278,6 @@ pub(super) fn validate_install_input(filename: &str, bytes: &[u8]) -> Result<()>
             reason: DatapackRejection::NotAZip,
         });
     }
-    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
-        return Err(Error::DatapackTooLarge {
-            filename: filename.to_string(),
-            size_bytes: bytes.len() as f64,
-            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
-        });
-    }
     Ok(())
 }
 
@@ -277,6 +286,24 @@ mod tests {
     use super::*;
     use crate::datapacks::{level_dat, WorldPackState};
     use std::io::Write;
+
+    #[test]
+    fn the_name_check_refuses_an_unsafe_name_and_a_non_zip_before_any_bytes() {
+        // The commands run this before their only-old refusal and before the
+        // download, so it must not need the bytes (spec §0.5 A7, step 1).
+        assert!(matches!(
+            validate_install_name("../evil.zip"),
+            Err(Error::ModsUnsafeFilename { .. })
+        ));
+        assert!(matches!(
+            validate_install_name("pack.jar"),
+            Err(Error::DatapackInvalid {
+                reason: DatapackRejection::NotAZip,
+                ..
+            })
+        ));
+        assert!(validate_install_name("Pack v1.ZIP").is_ok());
+    }
 
     fn datapack_zip(body: &[u8]) -> Vec<u8> {
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));

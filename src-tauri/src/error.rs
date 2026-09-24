@@ -402,7 +402,7 @@ pub enum Error {
     /// `level.dat_old`. Minecraft does not treat that folder as a world and
     /// loads no data packs from it. Returned before anything is written, which
     /// is what the copy promises; `level_dat::write_at`'s own backstop for a
-    /// vanished `level.dat` is a plain I/O error instead.
+    /// missing `level.dat` is a plain I/O error instead.
     #[error("world '{folder_name}' has no level.dat; not creating one")]
     WorldLevelDatMissing { folder_name: String },
 

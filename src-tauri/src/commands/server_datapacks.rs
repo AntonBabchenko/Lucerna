@@ -96,12 +96,17 @@ pub async fn server_install_datapack_version(
     id: String,
     version: ModVersion,
 ) -> Result<crate::servers_runtime::installed::ServerInstalledRecord> {
+    // Spec §0.5 A7 order: the name checks come first, so a bad catalog name is
+    // never reported as a world problem; then the gates; then D2, before the
+    // download. `install_bytes` repeats both checks as the backstop, and adds
+    // the size cap once the bytes exist.
+    mutate::validate_install_name(&version.primary_file.filename)?;
     let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     let world = world_dir_of(&app, &id)?;
     // D2 before the download: a world that lost its level.dat and kept
     // level.dat_old gets no data-pack change, so fetching the pack first is
-    // wasted work. `install_bytes` repeats the check as the backstop.
+    // wasted work.
     datapacks::refuse_only_old(&world)?;
     let dd = super::data_dir(&app)?;
     let bytes = super::fetch_datapack_bytes(&dd, &version).await?;
@@ -176,6 +181,14 @@ pub async fn server_update_datapack_one(
     old_filename: String,
     target: ModVersion,
 ) -> Result<ServerDatapackUpdateOutcome> {
+    // Spec §0.5 A7 order: the name checks come first, so a bad name is never
+    // reported as a world problem. A Vanilla Tweaks target's real filename is
+    // known only after the build (its `primary_file` name is never written),
+    // so `update_one` checks that one; it repeats every check as the backstop.
+    mutate::validate_install_name(&old_filename)?;
+    if target.source != crate::mods::platform::ModSource::VanillaTweaks {
+        mutate::validate_install_name(&target.primary_file.filename)?;
+    }
     let _claim = guard::UpdateGuard::acquire(&id).ok_or(Error::ServerContentStale)?;
     let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
@@ -198,9 +211,8 @@ pub async fn server_update_datapack_one(
     } else {
         None
     };
-    // D2 before the download or the Vanilla Tweaks build, and after the
-    // version check above (spec §0.5 A7). `update_one` repeats the check as
-    // the backstop.
+    // D2 after the name checks, the gates and the version check above (spec
+    // §0.5 A7), and before the download or the Vanilla Tweaks build.
     datapacks::refuse_only_old(&world)?;
     crate::network::throttle::with_interactive(async move {
         let (filename, bytes) = match vt_family {

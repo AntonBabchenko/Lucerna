@@ -365,10 +365,10 @@ pub async fn list_at(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
 /// §0.5 A3). A world with only `level.dat_old` is refused, reports `Failed`,
 /// and so keeps the library copy. That entry point takes `level_dat_lock`
 /// itself; the calls here are sequential, never nested under it, so this
-/// cannot deadlock. A same-named
-/// file that is not ours is left alone either way. A per-world failure does
-/// not abort the others, but it does keep the library copy and registry row —
-/// see [`crate::datapacks::LibraryRemoval::removed_from_library`].
+/// cannot deadlock. A same-named file that is not ours is left alone either
+/// way. A per-world failure does not abort the others, but it does keep the
+/// library copy and registry row — see
+/// [`crate::datapacks::LibraryRemoval::removed_from_library`].
 pub async fn remove_from_library_at(
     instance_root: &Path,
     filename: &str,
@@ -462,12 +462,40 @@ pub async fn remove_from_library_at(
 async fn worlds_naming(instance_root: &Path, filename: &str) -> Vec<String> {
     let entry = crate::datapacks::level_dat_entry(filename);
     let saves_dir = instance_root.join(".minecraft").join("saves");
-    let Ok(rd) = std::fs::read_dir(&saves_dir) else {
-        return Vec::new();
+    let rd = match std::fs::read_dir(&saves_dir) {
+        Ok(rd) => rd,
+        // No saves/ at all: no world can name the pack.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(err) => {
+            crate::diag!(
+                "datapacks: removal sweep skipped: could not list {}: {err}",
+                saves_dir.display()
+            );
+            return Vec::new();
+        }
     };
     let mut out = Vec::new();
-    for e in rd.flatten() {
-        let Ok(meta) = e.metadata() else { continue };
+    for e in rd {
+        let e = match e {
+            Ok(e) => e,
+            Err(err) => {
+                crate::diag!(
+                    "datapacks: removal sweep skips an entry of {}: {err}",
+                    saves_dir.display()
+                );
+                continue;
+            }
+        };
+        let meta = match e.metadata() {
+            Ok(meta) => meta,
+            Err(err) => {
+                crate::diag!(
+                    "datapacks: removal sweep skips {}: could not read its metadata: {err}",
+                    e.path().display()
+                );
+                continue;
+            }
+        };
         if !meta.is_dir() {
             continue;
         }
