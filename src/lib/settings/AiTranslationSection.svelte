@@ -327,9 +327,11 @@
     </p>
   </div>
 
-  <div data-testid="save-failure-allow_ai_translation">
-    <StatusMessage message={consentFailure} tone="danger" />
-  </div>
+  <StatusMessage
+    dataTestid="save-failure-allow_ai_translation"
+    message={consentFailure}
+    tone="danger"
+  />
 
   {#if !allowed}
     <p id={GATED_NOTE_ID} class="text-xs text-muted" data-testid="ai-gated-note">
@@ -429,9 +431,11 @@
         {$t('settings.aiTranslation.testButton')}
       </BusyButton>
       {#if testOk}
-        <div data-testid="ai-test-ok">
-          <StatusMessage message={$t('settings.aiTranslation.testOk')} tone="success" />
-        </div>
+        <StatusMessage
+          dataTestid="ai-test-ok"
+          message={$t('settings.aiTranslation.testOk')}
+          tone="success"
+        />
       {/if}
     </div>
     <!-- A disabled control has to say why. Without the permission the button
@@ -441,9 +445,7 @@
       {$t(allowed ? 'settings.aiTranslation.testHint' : 'settings.aiTranslation.testHintDisabled')}
     </span>
     {#if testError}
-      <div data-testid="ai-test-error">
-        <StatusMessage message={testError} tone="danger" />
-      </div>
+      <StatusMessage dataTestid="ai-test-error" message={testError} tone="danger" />
     {/if}
   </div>
 

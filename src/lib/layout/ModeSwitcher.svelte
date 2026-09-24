@@ -10,7 +10,9 @@
   import RunningServersPopover from '$lib/layout/RunningServersPopover.svelte';
 
   // Top-level launcher mode switch (Client | Servers). Two aria-pressed
-  // buttons styled like SegmentedControl's boxed variant — a dedicated
+  // buttons on a recessed track with a neutral sliding pill — the idea of
+  // SegmentedControl's boxed variant without its accent mark (navigation
+  // chrome whose icons already carry the colour) — a dedicated
   // component (not SegmentedControl) because BOTH segments carry live status
   // content (coloured/pulsing icon; the servers segment also has wrench/upload
   // badges) that the shared primitive's string-only options cannot express.
