@@ -1094,7 +1094,7 @@
 
                   <!-- The flash zone spans label + control + the snapshots toggle
                because they read as one field; the no-versions notice stays
-               outside so an empty-list warning is never ringed as "the thing
+               outside so an empty-list warning is never highlighted as "the thing
                you asked for". -->
                   <div
                     data-focus-field="mc"

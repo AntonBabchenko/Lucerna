@@ -89,6 +89,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   with the data folder, a cache size that could not be measured says so instead
   of showing the one measured before, and links open through one helper that
   says when a link was refused or the browser could not be opened.
+- **The highlight on the field you were sent to fades in and out.** When an
+  Overview card or a Settings search result takes you to a setting, its
+  highlight now fades in quickly, blinks once and fades out slowly instead of
+  switching on and off. With reduced motion turned on in the system, it stays
+  a steady highlight.
 
 ### Fixed
 

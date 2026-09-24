@@ -28,8 +28,8 @@
   --accent: 37 99 235; /* blue-600 */
   --accent-soft: 239 246 255; /* blue-50 */
   /* Text-facing accent, split from --accent the way --danger-text is split
-     from --danger: --accent is a FILL (.btn-primary, the focus ring, the
-     field-flash outline, border-accent) and only text-accent utilities move.
+     from --danger: --accent is a FILL (.btn-primary, the focus ring,
+     border-accent) and only text-accent utilities move.
      Light is unchanged. Dark lifts to blue-300 because the dark fill tier is
      2.8:1 on --accent-soft (the info toast title) and ~4.1:1 on --bg-surface —
      both below AA for normal text. Measured by tests/toast-contrast.test.ts. */
@@ -671,13 +671,46 @@ button:focus-visible .icon-rainbow-hover {
   }
 }
 
-/* Transient "this is the field you asked for" marker, applied for ~2s by the
-   fieldFlash action (src/lib/ui/field-flash.ts) when an Overview card sends the
-   user into the Manage modal aimed at one specific control. A static end state
-   that simply disappears, not an animation — nothing to gate on
-   prefers-reduced-motion beyond the global transition reset. */
+/* Transient "this is the field you asked for" marker, applied for FLASH_MS by
+   the fieldFlash action (src/lib/ui/field-flash.ts) when an Overview card or a
+   Settings search result sends the user to one specific control. A soft accent
+   fill, no outline: it fades in quickly, blinks once slowly and fades out
+   slowly. Only its colour animates (§12) — the node's own opacity would fade
+   the control with it — and same-RGB endpoints keep the fade free of a grey
+   fringe. The duration comes from the action as --field-flash-duration, so the
+   animation and the timer that removes the class are one number; without it
+   the declaration is invalid and the static fill below shows instead. `both`
+   holds the transparent last frame until the class goes, rather than snapping
+   back to the full fill. */
 .field-flash {
-  @apply rounded-md bg-accent-soft outline outline-2 outline-accent outline-offset-2;
+  @apply rounded-md bg-accent-soft;
+  animation: field-flash var(--field-flash-duration) ease-in-out both;
+}
+@keyframes field-flash {
+  0% {
+    background-color: rgb(var(--accent-soft) / 0);
+    animation-timing-function: ease-out;
+  }
+  7%,
+  21%,
+  57%,
+  64% {
+    background-color: rgb(var(--accent-soft));
+  }
+  39% {
+    background-color: rgb(var(--accent-soft) / 0.25);
+  }
+  100% {
+    background-color: rgb(var(--accent-soft) / 0);
+  }
+}
+/* The global reduced-motion block shortens this to 0.01ms, and `both` would
+   then hold the transparent last frame for the whole window — the marker would
+   never be seen. Reduced-motion users get the static fill for FLASH_MS instead. */
+@media (prefers-reduced-motion: reduce) {
+  .field-flash {
+    animation: none;
+  }
 }
 
 /* A clickable zone inside an otherwise read-only card. Overview's Configuration
