@@ -3401,7 +3401,22 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  what differs and ask before installing it anyway — the fields are typed,
  *  never pre-formatted, so the sentence is built in the user's language.
  */
-{ kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | 
+{ kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
+/**
+ *  A client data-pack change was asked for in a `saves/` folder that has
+ *  neither `level.dat` nor `level.dat_old`. Minecraft does not treat that
+ *  folder as a world and loads no data packs from it. This is also the
+ *  backstop `level_dat::write_at` returns instead of ever creating a
+ *  `level.dat`.
+ */
+{ kind: "world_level_dat_missing"; folder_name: string } | 
+/**
+ *  The world lost its `level.dat` but kept Minecraft's backup
+ *  `level.dat_old`. The game offers to restore from it ("Attempt to
+ *  Restore" on 1.20.6+). A `level.dat` written here first would parse
+ *  cleanly and switch that recovery off, so no data-pack change is made.
+ */
+{ kind: "world_level_dat_only_old"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | 
 /**
  *  A restore failed AND the rollback could not put the world back. The world
  *  is intact in a dot-prefixed sibling directory that every listing filters
@@ -3546,12 +3561,19 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_content_stale" } | 
 /**
  *  A datapack toggle was asked for on a server whose world does not exist
- *  yet (no `level.dat`). Enabled/disabled state lives in `level.dat`, and
- *  Minecraft writes its own when it generates the world — a stub written
- *  here would not survive generation, and would hand the generator a file
- *  claiming a world exists with no version, seed or generator settings.
+ *  yet (neither `level.dat` nor `level.dat_old`). Enabled/disabled state
+ *  lives in `level.dat`, and Minecraft writes its own when it generates
+ *  the world. A stub written here would not be replaced: with `level.dat`
+ *  present the server treats the world as existing, generation never
+ *  runs, and 1.21.1 / 26.2 refuse to start (`Unknown data version: 0`).
  */
-{ kind: "server_world_not_created" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+{ kind: "server_world_not_created" } | 
+/**
+ *  The server world lost its `level.dat` but kept `level.dat_old`. The
+ *  next server start reads the backup and restores `level.dat` from it;
+ *  a file written here first would switch that recovery off.
+ */
+{ kind: "server_world_only_old" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
 /**  Server SFTP upload is not configured (no `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Could not establish the SSH/SFTP connection to the user's server. */

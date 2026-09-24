@@ -178,6 +178,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   modpack_cf_distribution_disabled: 'clean',
   world_not_found: 'clean',
   world_in_use: 'clean',
+  world_level_dat_missing: 'clean',
+  world_level_dat_only_old: 'clean',
   world_path_invalid: 'clean',
   world_name_unresolvable: 'clean',
   // `clean`, not `opaque`: the whole value of this variant is a fully
@@ -221,6 +223,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_core_unsupported: 'clean',
   server_content_stale: 'clean',
   server_world_not_created: 'clean',
+  server_world_only_old: 'clean',
   server_name_invalid: 'clean',
   upload_not_configured: 'clean',
   sftp_auth_failed: 'clean',
@@ -679,6 +682,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.worldNotFound', { folderName: e.folder_name });
     case 'world_in_use':
       return translate('errors.worldInUse', { folderName: e.folder_name });
+    case 'world_level_dat_missing':
+      return translate('errors.worldLevelDatMissing', { folderName: e.folder_name });
+    case 'world_level_dat_only_old':
+      return translate('errors.worldLevelDatOnlyOld', { folderName: e.folder_name });
     case 'world_path_invalid':
       return translate('errors.worldPathInvalid', { name: e.name, reason: e.reason });
     case 'world_name_unresolvable':
@@ -824,6 +831,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverContentStale');
     case 'server_world_not_created':
       return translate('errors.serverWorldNotCreated');
+    case 'server_world_only_old':
+      return translate('errors.serverWorldOnlyOld');
     case 'server_import_unsupported_source':
       return translate('errors.serverImportUnsupportedSource');
     case 'server_import_invalid_archive':

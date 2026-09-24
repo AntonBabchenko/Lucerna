@@ -397,6 +397,21 @@ pub enum Error {
     #[error("World '{folder_name}' is currently in use — quit Minecraft and try again")]
     WorldInUse { folder_name: String },
 
+    /// A client data-pack change was asked for in a `saves/` folder that has
+    /// neither `level.dat` nor `level.dat_old`. Minecraft does not treat that
+    /// folder as a world and loads no data packs from it. This is also the
+    /// backstop `level_dat::write_at` returns instead of ever creating a
+    /// `level.dat`.
+    #[error("world '{folder_name}' has no level.dat; not creating one")]
+    WorldLevelDatMissing { folder_name: String },
+
+    /// The world lost its `level.dat` but kept Minecraft's backup
+    /// `level.dat_old`. The game offers to restore from it ("Attempt to
+    /// Restore" on 1.20.6+). A `level.dat` written here first would parse
+    /// cleanly and switch that recovery off, so no data-pack change is made.
+    #[error("world '{folder_name}' has only level.dat_old; open it in Minecraft and restore it from the backup")]
+    WorldLevelDatOnlyOld { folder_name: String },
+
     #[error("Invalid world or backup name '{name}': {reason}")]
     WorldPathInvalid { name: String, reason: String },
 
@@ -646,12 +661,19 @@ pub enum Error {
     ServerContentStale,
 
     /// A datapack toggle was asked for on a server whose world does not exist
-    /// yet (no `level.dat`). Enabled/disabled state lives in `level.dat`, and
-    /// Minecraft writes its own when it generates the world — a stub written
-    /// here would not survive generation, and would hand the generator a file
-    /// claiming a world exists with no version, seed or generator settings.
+    /// yet (neither `level.dat` nor `level.dat_old`). Enabled/disabled state
+    /// lives in `level.dat`, and Minecraft writes its own when it generates
+    /// the world. A stub written here would not be replaced: with `level.dat`
+    /// present the server treats the world as existing, generation never
+    /// runs, and 1.21.1 / 26.2 refuse to start (`Unknown data version: 0`).
     #[error("this server's world has not been created yet — start the server once")]
     ServerWorldNotCreated,
+
+    /// The server world lost its `level.dat` but kept `level.dat_old`. The
+    /// next server start reads the backup and restores `level.dat` from it;
+    /// a file written here first would switch that recovery off.
+    #[error("this server's world has only level.dat_old — start the server once")]
+    ServerWorldOnlyOld,
 
     #[error("Import source is not a .zip file or a folder")]
     ServerImportUnsupportedSource,
