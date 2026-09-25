@@ -52,20 +52,24 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
         }
     };
 
-    let files: Vec<String> = match std::fs::read_dir(&dp_dir) {
-        Ok(rd) => rd
-            .flatten()
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect(),
+    let files: Vec<String> = match std::fs::read_dir(&dp_dir).and_then(|rd| {
+        regular_file_names(rd.map(|e| {
+            e.map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                (name, e.file_type().map(|ft| ft.is_file()))
+            })
+        }))
+    }) {
+        Ok(files) => files,
         // A world that has never had a pack added really does hold none, so
         // retaining against an empty list is the right answer.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         // Anything else — permission denied, a relocated data root caught
-        // mid-move, a path that is a file — is NOT proof the dir is empty.
-        // Treating it as one would retain every row away and persist that,
-        // permanently losing provenance over a problem that was never about
-        // the packs. Skip reconciling entirely.
+        // mid-move, a path that is a file, one entry (or its type) that could
+        // not be read — is NOT proof the files are gone. Treating it as one
+        // would retain rows away and persist that, permanently losing
+        // provenance over a problem that was never about the packs. Skip
+        // reconciling entirely.
         Err(e) => {
             crate::diag!(
                 "server datapacks: reconcile skipped, could not read {}: {e}",
@@ -76,13 +80,22 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
     };
 
     // R2 (N.3): the on-disk file each row names. A row whose name could not
-    // be resolved is kept: a pruned row is provenance lost for good.
+    // be resolved is kept: a pruned row is provenance lost for good. A row
+    // that names its file in another case takes the on-disk spelling, which is
+    // the pack's id — the listing, the pane's row key and a client made from
+    // this server then all see the name the game loads.
     let mut claimed: Vec<String> = Vec::new();
+    let mut renamed = false;
     let before = records.len();
-    records.retain(
+    records.retain_mut(
         |r| match crate::datapacks::detect::resolve(&dp_dir, &r.filename, &files) {
-            crate::datapacks::detect::Resolved::Exact(n)
-            | crate::datapacks::detect::Resolved::Folded(n) => {
+            crate::datapacks::detect::Resolved::Exact(n) => {
+                claimed.push(n);
+                true
+            }
+            crate::datapacks::detect::Resolved::Folded(n) => {
+                r.filename = n.clone();
+                renamed = true;
                 claimed.push(n);
                 true
             }
@@ -96,7 +109,7 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
             }
         },
     );
-    let mut changed = records.len() != before;
+    let mut changed = renamed || records.len() != before;
 
     for name in files {
         // D1: adopt only what the game loads: exact `.zip` with a root pack.mcmeta.
@@ -142,6 +155,23 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
         }
     }
     records
+}
+
+/// The regular files among `dp_dir`'s entries, from `(name, is_file)`
+/// pairs. Any entry, or its type, that could not be read is an `Err`: the
+/// caller must not prune rows against a partial list (Fallback discipline Q2).
+fn regular_file_names<I>(entries: I) -> std::io::Result<Vec<String>>
+where
+    I: IntoIterator<Item = std::io::Result<(String, std::io::Result<bool>)>>,
+{
+    let mut out = Vec::new();
+    for entry in entries {
+        let (name, is_file) = entry?;
+        if is_file? {
+            out.push(name);
+        }
+    }
+    Ok(out)
 }
 
 /// Insert or replace the row for `record.filename`. A row is replaced when it
@@ -349,6 +379,14 @@ mod tests {
                 Some("terralith"),
                 "the drifted-spelling row keeps its provenance"
             );
+            // The row takes the on-disk spelling, which is the pack's id, so
+            // the listing, the pane's row key and a client made from this
+            // server all see the name the game loads — and it is saved.
+            assert_eq!(rows[0].filename, "terralith.zip");
+            let saved = crate::servers_runtime::installed::lock(td.path())
+                .load()
+                .unwrap();
+            assert_eq!(saved[0].filename, "terralith.zip");
         } else {
             assert_eq!(rows[0].project_id, None);
             assert_eq!(rows[0].filename, "terralith.zip");
@@ -378,9 +416,12 @@ mod tests {
         );
     }
 
+    /// R2 (N.3) with the file present: NTFS/APFS fold Cyrillic, so `Пак.zip`
+    /// and `пак.zip` are one file and one row. On a case-sensitive file
+    /// system the new spelling is a different pack, and both rows stay.
     #[test]
     fn upsert_by_filename_replaces_the_row_for_that_name_case_insensitively() {
-        let td = world_with(&[]);
+        let td = world_with(&[("Пак.zip", b"a")]);
         crate::servers_runtime::installed::lock(td.path())
             .save(&[row("Пак.zip", "aa")])
             .unwrap();
@@ -390,8 +431,12 @@ mod tests {
         let rows = crate::servers_runtime::installed::lock(td.path())
             .load()
             .unwrap();
-        assert_eq!(rows.len(), 1, "NTFS folds Cyrillic — one file, one row");
-        assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
+        if crate::datapacks::detect::test_support::fs_folds_case(td.path()) {
+            assert_eq!(rows.len(), 1, "one file, one row");
+            assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
+        } else {
+            assert_eq!(rows.len(), 2, "two spellings are two packs here");
+        }
     }
 
     /// The datapack browser installs several catalog packs at once (a per-card
@@ -489,6 +534,35 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+    }
+
+    /// Fallback Q2: an entry of `datapacks/` that cannot be read (or whose
+    /// type cannot) is not "no such file". Pruning against a partial list
+    /// would drop that pack's row and its provenance for good, so the pass is
+    /// skipped instead.
+    #[test]
+    fn an_entry_that_cannot_be_read_fails_the_file_list() {
+        let entries: Vec<std::io::Result<(String, std::io::Result<bool>)>> = vec![
+            Ok(("a.zip".into(), Ok(true))),
+            Ok((
+                "b.zip".into(),
+                Err(std::io::Error::other("type unreadable")),
+            )),
+        ];
+        assert!(regular_file_names(entries).is_err());
+        let entries: Vec<std::io::Result<(String, std::io::Result<bool>)>> = vec![
+            Ok(("a.zip".into(), Ok(true))),
+            Err(std::io::Error::other("entry unreadable")),
+        ];
+        assert!(regular_file_names(entries).is_err());
+        let entries: Vec<std::io::Result<(String, std::io::Result<bool>)>> = vec![
+            Ok(("a.zip".into(), Ok(true))),
+            Ok(("dir".into(), Ok(false))),
+        ];
+        assert_eq!(
+            regular_file_names(entries).unwrap(),
+            vec!["a.zip".to_string()]
         );
     }
 }

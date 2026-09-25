@@ -121,17 +121,29 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
     let lib = library_dir_at(instance_root);
     let mut on_disk: Vec<String> = Vec::new();
     match fs::read_dir(&lib).await {
-        Ok(mut rd) => {
-            while let Ok(Some(e)) = rd.next_entry().await {
-                let name = e.file_name().to_string_lossy().to_string();
-                // Case-folded on purpose (spec §2 N.3): the game never scans the
-                // library dir, and N.4/N.5 enforce exactness where a file enters
-                // a world.
-                if name.to_ascii_lowercase().ends_with(".zip") {
-                    on_disk.push(name);
+        Ok(mut rd) => loop {
+            let e = match rd.next_entry().await {
+                Ok(Some(e)) => e,
+                Ok(None) => break,
+                // An entry that cannot be read is not proof its file is gone:
+                // retaining against a partial list would drop that pack's row
+                // and its provenance for good. Skip reconciling, as below.
+                Err(e) => {
+                    crate::diag!(
+                        "datapacks: registry reconcile skipped, could not read an entry of {}: {e}",
+                        lib.display()
+                    );
+                    return false;
                 }
+            };
+            let name = e.file_name().to_string_lossy().to_string();
+            // Case-folded on purpose (spec §2 N.3): the game never scans the
+            // library dir, and N.4/N.5 enforce exactness where a file enters a
+            // world.
+            if name.to_ascii_lowercase().ends_with(".zip") {
+                on_disk.push(name);
             }
-        }
+        },
         // A fresh instance with no datapacks/ dir yet: every entry really is
         // gone, so retaining against an empty on_disk list is correct.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
