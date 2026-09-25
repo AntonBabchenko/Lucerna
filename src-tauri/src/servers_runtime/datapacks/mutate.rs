@@ -636,6 +636,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_server_install_names_a_rich_text_pack_by_its_plain_text() {
+        // §1 C2: a rich-text description used to be dropped, so the row fell
+        // back to the filename stem. New installs only; old rows keep theirs.
+        use crate::datapacks::format::samples::{zip_with_mcmeta, TECTONIC};
+        let td = world(&[]);
+        let rec = install_bytes(td.path(), "tectonic.zip", &zip_with_mcmeta(TECTONIC), None)
+            .await
+            .unwrap();
+        assert_eq!(rec.name.as_deref(), Some("Made with <3 by Apollo"));
+    }
+
+    #[tokio::test]
     async fn a_catalog_install_will_not_clobber_a_hand_installed_pack_of_the_same_name() {
         let td = world(&[]);
         install_bytes(td.path(), "t.zip", &datapack_zip(b"mine"), None)

@@ -350,7 +350,7 @@ pub async fn install_named_at(
         filename: filename.to_string(),
         sha1,
         size_bytes: bytes.len() as f64,
-        pack_format: meta.pack_format,
+        pack_format: meta.mcmeta.declared_pack_format(),
         name: meta
             .description
             .unwrap_or_else(|| filename.trim_end_matches(".zip").to_string()),

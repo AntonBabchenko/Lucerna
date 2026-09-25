@@ -192,7 +192,7 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
             name: meta
                 .description
                 .unwrap_or_else(|| name.trim_end_matches(".zip").to_string()),
-            pack_format: meta.pack_format,
+            pack_format: meta.mcmeta.declared_pack_format(),
             size_bytes: bytes.len() as f64,
             sha1: crate::datapacks::library::sha1_hex(&bytes),
             filename: name,
