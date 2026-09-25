@@ -107,6 +107,73 @@ behaviour is worth knowing, it is stated as a property of the feature under
   write the pack's copies over yours and revert parts of them. A world you
   already have is now left exactly as it is; only a shipped world that is
   missing is restored.
+- **Data pack compatibility now matches what Minecraft itself reports.** A pack
+  made for another version shows the range it was made for and says the game
+  still loads it, where Lucerna used to warn that it might stop the world from
+  loading. Compatibility is no longer "unknown" on 1.17–1.21.8 or for packs
+  that declare a range of versions. Library packs that this version of the game
+  skips entirely are marked as such and aren't offered for adding to a world.
+- **A data pack listed as both enabled and disabled now shows as enabled.** That
+  is how Minecraft loads it. A pack disabled under a differently capitalised
+  name also shows as enabled, and its switch works again. On case-sensitive
+  file systems, two packs whose names differ only in capitalisation are listed
+  separately, and changing one no longer touches the other.
+- **Entries that Minecraft ignores are labelled with the reason.** The
+  labelled entries are a folder without a `pack.mcmeta` directly inside it, a
+  file ending in `.ZIP`, and a zip without `pack.mcmeta` at its top level.
+  They used to show as enabled packs; the library no longer lists them among
+  packs found only in worlds. A data pack file ending in `.ZIP` is saved as
+  `.zip` on install.
+- **A folder with no `level.dat`, or a world that only has `level.dat_old`
+  left, is no longer changed.** Minecraft does not treat the first as a world.
+  It offers to restore the second from the backup when you open it, and a
+  server restores it on its next start. Lucerna used to write its own
+  `level.dat` into both, which could stop that restore. Their data packs are
+  now read-only, and the page says what to do. A server that has never started
+  shows why its packs can't be switched on or off yet.
+- **Enabling a pack in a world with no data pack list no longer puts vanilla
+  above the pack.** Lucerna used to write a list with vanilla above the pack.
+  Now it writes nothing, and the game places the pack itself, after vanilla
+  and any mod data.
+- **Removing a data pack from a world asks first and says what happens to the
+  file.** The trash button in a world's data pack list, and beside each world
+  in the instance's library, removed the pack at once. For a pack that wasn't
+  the library's copy, that deleted the only copy, folders included. Both now
+  ask first. A library pack leaves this world and stays in the library;
+  anything else is named as deleted permanently.
+- **Updating or removing a library data pack no longer skips worlds it couldn't
+  check.** A world whose data pack folder or world file couldn't be read used
+  to count as not holding the pack. An update then deleted the old library
+  copy while the world still used it, and removing a pack from the library
+  could leave a world naming a pack that no longer existed. Such a world is now
+  reported as not updated, the removal dialog lists it separately, and the
+  library keeps its copy for another try. An update whose new file can't be
+  read keeps the old copy too.
+- **If an instance's data pack library can't be read, the world picker no
+  longer opens as if the pack were in no world.** It used to show every world
+  without the pack. A warning now says the library couldn't be read, and the
+  picker stays closed.
+- **Worlds in an instance running Minecraft older than 1.13 no longer show a
+  data pack tab.** A pack added there showed as enabled, although the game read
+  none of it. Lucerna no longer adds data packs to such worlds.
+- **A data pack whose file is gone is no longer shown as a problem.** Lucerna,
+  and the notes for 0.22.0, said Minecraft would ask about such a pack. It
+  doesn't: the game skips the pack and forgets it the next time the world is
+  saved. The entry is now marked as a missing file, and clearing it only tidies
+  the list sooner. A disabled entry whose file is gone now offers to clear it,
+  instead of an add that always failed.
+- **The server's data pack list no longer claims to match `/datapack list`.** It
+  shows the packs in the world's folder. The game's list also includes built-in
+  packs and packs provided by mods.
+- **The log hint for a world whose data packs fail to load now appears.** It
+  used to look for the text of the game's error screen, which never reaches the
+  log. It now recognises the lines the game writes, on clients and servers. Its
+  advice is corrected too. A pack's format number never blocks a world. The
+  broken file is named in the error lines just above. A world saved in Safe
+  Mode forgets which packs were switched off.
+- **Data pack names come from the pack's own description, even when it is
+  formatted text.** Colour codes are stripped. Names of packs already installed
+  update the next time the library is opened.
 - **No more stray gaps under settings.** An empty line reserved for a status or
   error message took up room even when there was nothing to say, so some rows
   sat twice as far apart as their neighbours — for example between "Add
