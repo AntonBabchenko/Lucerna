@@ -2,6 +2,7 @@
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { commands, type WorldDatapack, type WorldPackState } from '$lib/ipc/bindings';
   import { ignoredHintKey, ignoredLabelKey } from '$lib/worlds/datapack-state';
+  import { compatLine, type CompatLine } from '$lib/worlds/datapack-compat';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
@@ -104,15 +105,23 @@
     }
   }
 
-  // Orphaned (file gone) outranks a format mismatch for the row's accent —
-  // there is nothing to read a pack_format from once the file is missing.
+  // The verdict's own sentence for this row, or null. An ignored row speaks
+  // through its reason hint (a not-loadable one names the same cause), and a
+  // ghost whose file is gone has nothing left to judge.
+  function rowCompatLine(pack: WorldDatapack): CompatLine | null {
+    if (pack.state === 'ignored' || pack.state === 'orphaned') return null;
+    return compatLine(pack.compat);
+  }
+
+  // Orphaned (file gone) outranks a compatibility warning for the row's
+  // accent — there is nothing left to judge once the file is missing.
   // A merely-disabled pack ranks below both: it follows the shared
   // disabled/muted convention from card-status.ts (see rowDim below), but a
   // real compatibility problem is more important information than "it's off".
   function rowAccent(pack: WorldDatapack): CardAccent {
     if (pack.state === 'orphaned') return 'danger';
     if (pack.state === 'ignored') return 'warning';
-    if (pack.compat.kind === 'mismatch') return 'warning';
+    if (rowCompatLine(pack) !== null) return 'warning';
     if (pack.state === 'disabled') return 'muted';
     return 'none';
   }
@@ -276,6 +285,7 @@
   {:else}
     <div class="overflow-hidden rounded-lg border border-border-subtle">
       {#each packs as pack (pack.filename)}
+        {@const compatWarn = rowCompatLine(pack)}
         <CardShell variant="compact-row" accent={rowAccent(pack)} dim={rowDim(pack)}>
           <CardMedia placeholder="package" size="sm" />
           <div class="min-w-0 flex-1">
@@ -301,12 +311,9 @@
                 <StatusBadge variant="neutral">{$t('worlds.datapacks.external')}</StatusBadge>
               {/if}
             </div>
-            {#if pack.state !== 'ignored' && pack.compat.kind === 'mismatch'}
-              <p class="mt-0.5 text-xs text-warning-text">
-                {$t('worlds.datapacks.formatMismatch', {
-                  packFormat: pack.compat.pack_format,
-                  expected: pack.compat.expected,
-                })}
+            {#if compatWarn}
+              <p class="mt-0.5 text-xs text-warning-text" data-testid="world-datapack-compat">
+                {$t(compatWarn.key, compatWarn.args)}
               </p>
             {/if}
             {#if pack.state === 'orphaned'}

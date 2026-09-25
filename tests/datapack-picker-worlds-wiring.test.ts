@@ -103,7 +103,6 @@ const pack: InstalledDatapack = {
 /** A library in which 'Beta' is known ONLY through `worlds`: the pack is in no
  *  world, so no placement can carry Beta's presence. */
 const library: DatapackLibraryView = {
-  expected_pack_format: null,
   entries: [{ pack, in_library: true, compat: { kind: 'unknown' }, placements: [] }],
   worlds: [{ world: 'Beta', level_dat: 'only_old' }],
 };

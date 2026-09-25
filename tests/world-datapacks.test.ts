@@ -1,6 +1,6 @@
 // WorldDatapacks panel — unit coverage for the empty state, each WorldPackState
 // row shape (enabled/disabled toggle, orphaned removal, not_added add), the
-// format-mismatch warning, the unknown-compatibility indicator, the
+// game's compatibility verdicts, the unknown-compatibility indicator, the
 // running-instance gate, error surfacing (including a reload that fails AFTER
 // a successful action — the stale-row bug), and a mixed-state list rendering
 // all four states at once.
@@ -12,7 +12,12 @@
 
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { LevelDatPresence, WorldDatapack, WorldDatapackListing } from '$lib/ipc/bindings';
+import type {
+  LevelDatPresence,
+  PackCompat,
+  WorldDatapack,
+  WorldDatapackListing,
+} from '$lib/ipc/bindings';
 import WorldDatapacks from '$lib/worlds/WorldDatapacks.svelte';
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -22,7 +27,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockResolvedValue({ status: 'ok', data: { level_dat: 'present', packs: [] } }),
     datapacksListLibrary: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { expected_pack_format: null, entries: [], worlds: [] },
+      data: { entries: [], worlds: [] },
     }),
     datapacksInstallFromFile: vi.fn(),
     datapacksAddToWorld: vi.fn().mockResolvedValue({ status: 'ok', data: 'linked' }),
@@ -102,7 +107,7 @@ describe('WorldDatapacks — orphaned row', () => {
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     await screen.findByText(/Minecraft will ask about this pack/i);
     // Orphaned rows offer removal only — no enable/disable toggle (there is
-    // nothing to read a pack_format from once the file is gone).
+    // nothing left to judge once the file is gone).
     expect(screen.queryByRole('button', { name: /^enable in this world$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^disable in this world$/i })).toBeNull();
     const removeBtn = screen.getByTestId('world-datapack-remove-orphaned');
@@ -137,23 +142,44 @@ describe('WorldDatapacks — not_added row', () => {
   });
 });
 
-describe('WorldDatapacks — format mismatch', () => {
-  it('renders the format-mismatch warning for a mismatched compat kind', async () => {
+describe('WorldDatapacks — compatibility is the game’s own verdict (§1 C5)', () => {
+  async function renderWith(compat: PackCompat, state: WorldDatapack['state'] = 'enabled') {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: listing([
-        makePack({
-          filename: 'mismatch-pack.zip',
-          state: 'enabled',
-          compat: { kind: 'mismatch', pack_format: 5, expected: 6 },
-        }),
-      ]),
+      data: listing([makePack({ filename: 'p.zip', state, compat })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
-    const warning = await screen.findByText(/Made for data pack format 5/i);
-    expect(warning.textContent).toContain('6');
-    expect(warning.className).toContain('text-warning-text');
+    return screen.findByTestId('world-datapack-compat');
+  }
+
+  it('too_old says the game still loads it', async () => {
+    const line = await renderWith({ kind: 'too_old', made_for: '15', game: '48' });
+    expect(line.textContent).toMatch(/older version of Minecraft/);
+    expect(line.textContent).toMatch(/data pack format 15; this version uses 48/);
+    expect(line.textContent).toMatch(/still loads/);
+    expect(line.className).toContain('text-warning-text');
+    expect(screen.queryByText(/stop the world from loading/)).toBeNull();
+    const row = line.closest('[data-card-shell]');
+    expect(row?.querySelector('[data-card-accent]')?.className).toContain('bg-warning-text');
+  });
+
+  it('too_new says the game still loads it', async () => {
+    const line = await renderWith({ kind: 'too_new', made_for: '107.1', game: '94.1' });
+    expect(line.textContent).toMatch(/newer version of Minecraft/);
+    expect(line.textContent).toMatch(/still loads/);
+    expect(screen.queryByText(/stop the world from loading/)).toBeNull();
+  });
+
+  it('broken uses the game’s own label and says it still loads', async () => {
+    const line = await renderWith({ kind: 'broken' });
+    expect(line.textContent).toMatch(/Broken or incompatible/);
+    expect(line.textContent).toMatch(/still loads/);
+  });
+
+  it('a library pack not in this world that the game skips says why', async () => {
+    const line = await renderWith({ kind: 'wont_load', reason: 'no_pack_format' }, 'not_added');
+    expect(line.textContent).toMatch(/This version of Minecraft skips this pack/);
   });
 });
 

@@ -46,7 +46,7 @@ const TRIGGER = /what are data packs\?/i;
 beforeEach(() => {
   datapacksListLibrary.mockResolvedValue({
     status: 'ok',
-    data: { expected_pack_format: null, entries: [], worlds: [] },
+    data: { entries: [], worlds: [] },
   });
   runningInstances.mockResolvedValue([]);
   serverListDatapacks.mockResolvedValue({

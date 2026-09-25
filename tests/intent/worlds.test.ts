@@ -80,7 +80,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockResolvedValue({ status: 'ok', data: { level_dat: 'present', packs: [] } }),
     datapacksListLibrary: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { expected_pack_format: null, entries: [], worlds: [] },
+      data: { entries: [], worlds: [] },
     }),
     datapacksInstallFromFile: vi.fn(),
     datapacksAddToWorld: vi.fn(),

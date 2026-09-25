@@ -7,7 +7,7 @@
   //   * The row leads with WORLD STATE («Включён в 2 из 3 мирах»); «Ни в
   //     одном мире» is an accent state, not an absent value — it is the state
   //     this screen exists to surface.
-  //   * pack_format compatibility renders ONCE on the collapsed row — the
+  //   * the compatibility verdict renders ONCE on the collapsed row — the
   //     verdict is per-instance, so a per-world copy would print N duplicates.
   //   * Removal routes through the shared cascade dialog, never a direct call.
   //   * No filters and no sorting, by design (§7.4).
@@ -29,6 +29,7 @@
   import { datapacksChanged } from '$lib/settings/state.svelte';
   import { datapackWorldSummary, datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
   import { ignoredLabelKey } from '$lib/worlds/datapack-state';
+  import { compatLine } from '$lib/worlds/datapack-compat';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import { get } from 'svelte/store';
@@ -512,10 +513,11 @@
         {@const summary = datapackWorldSummary(entry.placements)}
         {@const failReason = checkFailedReason(entry.pack.filename)}
         {@const isOpen = expanded.has(entry.pack.filename)}
+        {@const compatWarn = compatLine(entry.compat)}
         <div class="border-b border-border-subtle last:border-b-0">
           <CardShell
             variant="compact-row"
-            accent={entry.compat.kind === 'mismatch' ? 'warning' : latest ? 'warning' : 'none'}
+            accent={compatWarn !== null || latest ? 'warning' : 'none'}
           >
             <button
               type="button"
@@ -580,19 +582,15 @@
                 {$t('addons.datapacks.onlyInWorlds')}
               </StatusBadge>
             {/if}
-            {#if entry.compat.kind === 'mismatch'}
+            {#if compatWarn}
               <!-- Once, on the collapsed row: the verdict is per-instance. -->
+              {@const compatText = $t(compatWarn.key, compatWarn.args)}
               <span
                 class="text-warning-text text-xs flex-shrink-0"
-                use:tooltip={$t('worlds.datapacks.formatMismatch', {
-                  packFormat: entry.compat.pack_format,
-                  expected: entry.compat.expected,
-                })}
-                aria-label={$t('worlds.datapacks.formatMismatch', {
-                  packFormat: entry.compat.pack_format,
-                  expected: entry.compat.expected,
-                })}
+                use:tooltip={compatText}
+                aria-label={compatText}
                 role="img"
+                data-testid="datapack-compat-warning"
               >
                 <Icon name="warning" size={15} />
               </span>
