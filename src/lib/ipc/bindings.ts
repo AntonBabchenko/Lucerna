@@ -2004,8 +2004,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	datapacksRemoveFromLibrary: (instanceId: string, filename: string, cascade: boolean) => typedError<LibraryRemoval, Error>(__TAURI_INVOKE("datapacks_remove_from_library", { instanceId, filename, cascade })),
 	/**
 	 *  List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
-	 *  names), with each entry's enabled/disabled/orphaned state and pack_format
-	 *  compatibility against the instance's installed Minecraft, plus the
+	 *  names), with each entry's enabled/disabled/orphaned state and the game's
+	 *  own compatibility verdict for the instance's installed Minecraft, plus the
 	 *  world's `level.dat` presence: a world with only `level.dat_old` lists the
 	 *  backup's states, and a folder with neither file lists nothing.
 	 *  Unguarded — read-only.
@@ -3082,9 +3082,9 @@ export type DatapackLibraryEntry = {
 	 */
 	in_library: boolean,
 	/**
-	 *  Per-INSTANCE, not per-world: the verdict compares the pack's own
-	 *  `pack_format` against the instance's Minecraft, and no world is an
-	 *  input, so rendering it per world would print N identical copies.
+	 *  Per-INSTANCE, not per-world: the game's verdict on the pack's declared
+	 *  formats for the instance's Minecraft. No world is an input, so
+	 *  rendering it per world would print N identical copies.
 	 */
 	compat: PackCompat,
 	/**  Empty ⟺ "in no world" — the state the library screen exists to surface. */
@@ -3093,11 +3093,6 @@ export type DatapackLibraryEntry = {
 
 /**  Everything the library screen renders, in one read. */
 export type DatapackLibraryView = {
-	/**
-	 *  The instance's expected `pack_format`. Exposed here because nothing else
-	 *  does, and the frontend cannot compute it.
-	 */
-	expected_pack_format: number | null,
 	entries: DatapackLibraryEntry[],
 	/**
 	 *  Every world folder the listing accepts under `saves/`, sorted
@@ -6340,11 +6335,6 @@ export type PackCompat =
 /**  This version skips the pack entirely. */
 { kind: "wont_load"; reason: WontLoadReason } | 
 /**
- *  Transitional: the strict comparison the listings still make until the
- *  verdict replaces it.
- */
-{ kind: "mismatch"; pack_format: number; expected: number } | 
-/**
  *  Not decidable: no recorded declaration, a field this build cannot
  *  parse, or no readable game format.
  */
@@ -8149,6 +8139,11 @@ export type WorldDatapack = {
 	 *  unavailable for it.
 	 */
 	in_library: boolean,
+	/**
+	 *  The game's own verdict for this instance's Minecraft. `Unknown` for
+	 *  an entry that is not the library's own copy — hand-dropped, a folder,
+	 *  or a same-named zip with other bytes (§0.5 A1).
+	 */
 	compat: PackCompat,
 };
 

@@ -27,22 +27,23 @@ fn guard(instance_id: &str) -> Result<(), crate::error::Error> {
     crate::instances::maintenance::write_allowed(instance_id)
 }
 
-/// Best-effort expected pack_format for `instance_id`'s installed Minecraft,
-/// read from the client jar's own bundled `version.json`. `None` for any
-/// failure along the way — no instance, no `mc_version` yet, no versions
-/// dir, no client jar, an unreadable jar — this must never fail the world
-/// listing it feeds. `compat::game_data_format` is sync (the `zip` crate
+/// The data-pack format `instance_id`'s Minecraft reports, from its client
+/// jar's own `version.json`. `None` for any failure along the way — no
+/// instance, no `mc_version` yet, no versions dir, no client jar, an
+/// unreadable jar — every verdict is then `Unknown`, the restrictive answer;
+/// this must never fail the listing it feeds. `compat::game_data_format` is sync (the `zip` crate
 /// is sync), so it runs in `spawn_blocking` off the IPC thread.
-async fn expected_pack_format(app: &tauri::AppHandle, instance_id: &str) -> Option<u32> {
+async fn game_data_format(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Option<crate::datapacks::format::FormatVersion> {
     let versions_dir = crate::paths::versions_dir(app).ok()?;
     let instance = crate::instances::read_instance(app, instance_id).ok()?;
     if instance.mc_version.is_empty() {
         return None;
     }
     tokio::task::spawn_blocking(move || {
-        // Transitional: the strict compat_of still compares majors until the verdict replaces it.
         crate::datapacks::compat::game_data_format(&versions_dir, &instance.mc_version)
-            .map(|f| f.major)
     })
     .await
     .ok()
@@ -59,12 +60,9 @@ pub async fn datapacks_list_library(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::datapacks::DatapackLibraryView, crate::error::Error> {
-    let expected = expected_pack_format(&app, &instance_id).await;
-    crate::datapacks::overview::list_at(
-        &crate::datapacks::instance_root(&app, &instance_id)?,
-        expected,
-    )
-    .await
+    let game = game_data_format(&app, &instance_id).await;
+    crate::datapacks::overview::list_at(&crate::datapacks::instance_root(&app, &instance_id)?, game)
+        .await
 }
 
 /// Install a `.zip` file or folder datapack from `src_path` (a file-picker
@@ -107,8 +105,8 @@ pub async fn datapacks_remove_from_library(
 }
 
 /// List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
-/// names), with each entry's enabled/disabled/orphaned state and pack_format
-/// compatibility against the instance's installed Minecraft, plus the
+/// names), with each entry's enabled/disabled/orphaned state and the game's
+/// own compatibility verdict for the instance's installed Minecraft, plus the
 /// world's `level.dat` presence: a world with only `level.dat_old` lists the
 /// backup's states, and a folder with neither file lists nothing.
 /// Unguarded — read-only.
@@ -119,11 +117,11 @@ pub async fn datapacks_list_for_world(
     instance_id: String,
     world: String,
 ) -> Result<crate::datapacks::WorldDatapackListing, crate::error::Error> {
-    let expected = expected_pack_format(&app, &instance_id).await;
+    let game = game_data_format(&app, &instance_id).await;
     crate::datapacks::world_link::list_for_world_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,
-        expected,
+        game,
     )
     .await
 }

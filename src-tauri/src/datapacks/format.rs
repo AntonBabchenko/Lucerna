@@ -87,22 +87,6 @@ pub enum PackMcmeta {
     Read(PackDeclaration),
 }
 
-impl PackMcmeta {
-    /// Transitional: `pack.pack_format` when it is a readable integer, for
-    /// the strict `compat_of` until the verdict replaces it. Deleted when
-    /// `PackCompat::Mismatch` goes.
-    #[must_use]
-    pub fn declared_pack_format(&self) -> Option<u32> {
-        match self {
-            PackMcmeta::Read(PackDeclaration {
-                pack_format: Fact::Present(n),
-                ..
-            }) => Some(*n),
-            _ => None,
-        }
-    }
-}
-
 /// One read of a `pack.mcmeta` body: the declaration, and the pack's display
 /// name — the plain text of its description, `None` when absent or empty.
 #[derive(Debug, Clone, PartialEq, Eq)]

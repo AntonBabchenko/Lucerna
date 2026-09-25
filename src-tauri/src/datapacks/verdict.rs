@@ -91,6 +91,24 @@ pub fn verdict(m: Option<&PackMcmeta>, game: Option<FormatVersion>) -> PackCompa
     }
 }
 
+/// Whose recorded `pack.mcmeta` speaks for a row (§0.5 A1): the library's
+/// declaration describes the library's own bytes, so it applies to a row
+/// whose name is not on the world's disk at all (the library copy IS the
+/// pack), or to a world entry the scan vouched as the library's bytes.
+/// `on_disk` is `None` when the world holds no entry of this name, else
+/// `Some(vouched)`. A hand-dropped, folder, or differing entry gets `None`
+/// — its verdict is Unknown until a world-entry probe exists (deferred, A1).
+#[must_use]
+pub fn library_declaration(
+    on_disk: Option<bool>,
+    recorded: Option<&PackMcmeta>,
+) -> Option<&PackMcmeta> {
+    match on_disk {
+        None | Some(true) => recorded,
+        Some(false) => None,
+    }
+}
+
 fn wont(reason: WontLoadReason) -> PackCompat {
     PackCompat::WontLoad { reason }
 }
@@ -599,6 +617,27 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn only_the_library_s_own_bytes_carry_its_declaration() {
+        let m = mcmeta(DAGGER);
+        assert_eq!(
+            library_declaration(None, Some(&m)),
+            Some(&m),
+            "not in the world: the library copy is the pack"
+        );
+        assert_eq!(
+            library_declaration(Some(true), Some(&m)),
+            Some(&m),
+            "a vouched link is the library's bytes"
+        );
+        assert_eq!(
+            library_declaration(Some(false), Some(&m)),
+            None,
+            "a hand-dropped or differing copy is not"
+        );
+        assert_eq!(library_declaration(None, None), None);
     }
 
     #[test]

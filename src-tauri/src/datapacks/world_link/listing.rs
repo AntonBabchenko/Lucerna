@@ -5,10 +5,11 @@
 use std::path::Path;
 
 use crate::datapacks::detect;
-use crate::datapacks::format::PackMcmeta;
+use crate::datapacks::format::FormatVersion;
+use crate::datapacks::verdict;
 use crate::datapacks::{
-    level_dat_entry, library_dir_at, presence, registry, state, InstalledDatapack, PackCompat,
-    WorldDatapack, WorldDatapackListing,
+    level_dat_entry, library_dir_at, presence, registry, state, InstalledDatapack, WorldDatapack,
+    WorldDatapackListing,
 };
 use crate::error::{Error, Result};
 
@@ -37,15 +38,18 @@ use super::world_dirs_checked;
 /// reporting it `Absent` would call a world that is simply gone "not a
 /// world".
 ///
-/// `compat` is computed from the pack_format the REGISTRY recorded at
-/// install time. Library-vouched zips cost no zip read; any other zip costs
-/// one central-directory read (N.1 Cost). A world file with no registry
-/// entry (e.g. hand-dropped straight into the world folder, or imported with
-/// a world) reports `Unknown` compat deliberately.
+/// `compat` is the game's own verdict (`verdict::verdict`) from the
+/// declaration the REGISTRY recorded, and only for the library's own bytes: a
+/// row not in this world, or a world zip the scan vouched for. Anything else
+/// (hand-dropped, a folder, a same-named zip with other bytes) is `Unknown` —
+/// no zip is opened for a verdict here. Library-vouched zips cost no zip read;
+/// any other zip costs one central-directory read for detection (N.1 Cost).
+/// `game` is the data-pack format the instance's client jar reports,
+/// resolved by the caller.
 pub async fn list_for_world_at(
     instance_root: &Path,
     world: &str,
-    expected: Option<u32>,
+    game: Option<FormatVersion>,
 ) -> Result<WorldDatapackListing> {
     let (world_dir, dp_dir) = world_dirs_checked(instance_root, world)?;
 
@@ -73,7 +77,7 @@ pub async fn list_for_world_at(
             &stored,
             &enabled,
             &disabled,
-            expected,
+            game,
         )
     })
     .await
@@ -91,7 +95,7 @@ fn build_rows(
     stored: &[registry::StoredRow],
     enabled: &[String],
     disabled: &[String],
-    expected: Option<u32>,
+    game: Option<FormatVersion>,
 ) -> std::io::Result<Vec<WorldDatapack>> {
     let vouch = |name: &str, world_path: &Path| {
         vouched_by_library(registry_entries, lib_dir, name, world_path)
@@ -125,16 +129,19 @@ fn build_rows(
                 disabled.contains(&id),
                 state::loadable_of(reg, entry),
             );
+            // §0.5 A1: the registry's declaration speaks only for the library's
+            // own bytes — a row not in this world, or a vouched link.
+            let recorded = reg.and_then(|r| registry::mcmeta_of(stored, &r.filename));
+            let compat = verdict::verdict(
+                verdict::library_declaration(entry.map(|e| e.vouched), recorded),
+                game,
+            );
             WorldDatapack {
                 filename: row.filename,
                 state: pack_state,
                 ignored_reason,
                 in_library: reg.is_some(),
-                compat: compat_of(
-                    reg.and_then(|r| registry::mcmeta_of(stored, &r.filename))
-                        .and_then(PackMcmeta::declared_pack_format),
-                    expected,
-                ),
+                compat,
             }
         })
         .collect())
@@ -168,24 +175,6 @@ pub(crate) fn vouched_by_library(
     }
 }
 
-/// Compare a pack's own `pack_format` against what the instance's Minecraft
-/// expects. `Unknown` when either side is unavailable — an unreadable pack,
-/// or (see `compat` module) a client jar that hasn't been installed yet.
-///
-/// Private: the only call site is [`build_rows`] above, in this same
-/// file; nothing else in the crate needs it.
-#[must_use]
-fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
-    match (pack_format, expected) {
-        (Some(p), Some(e)) if p == e => PackCompat::Compatible,
-        (Some(p), Some(e)) => PackCompat::Mismatch {
-            pack_format: p,
-            expected: e,
-        },
-        _ => PackCompat::Unknown,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,11 +182,13 @@ mod tests {
         test_support::{pack_zip, zip_of},
         IgnoredReason,
     };
+    use crate::datapacks::format::samples;
     use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::presence::LevelDatPresence;
     use crate::datapacks::world_link::set_enabled_in_world_at;
     use crate::datapacks::world_link::test_util::*;
     use crate::datapacks::{level_dat, WorldPackState};
+    use crate::datapacks::{PackCompat, WontLoadReason};
 
     #[tokio::test]
     async fn list_reports_orphaned_for_a_level_dat_name_with_no_file() {
@@ -286,12 +277,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_mismatched_pack_format_reports_mismatch() {
+    async fn a_pack_made_for_a_newer_format_reports_too_new() {
+        // Was `a_mismatched_pack_format_reports_mismatch`: the game labels a
+        // format above its own "made for a newer version" and still loads it
+        // (era A, 1.20.1 jar).
         let td = tempfile::tempdir().unwrap();
         game_world(td.path(), "Survival");
         seed_library(td.path(), "vm.zip", 48).await;
 
-        let listed = list_for_world_at(td.path(), "Survival", Some(10))
+        let listed = list_for_world_at(td.path(), "Survival", Some(FormatVersion::new(10, 0)))
             .await
             .unwrap()
             .packs;
@@ -299,23 +293,77 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(
             listed[0].compat,
-            PackCompat::Mismatch {
-                pack_format: 48,
-                expected: 10
+            PackCompat::TooNew {
+                made_for: "48".into(),
+                game: "10".into()
             }
         );
     }
 
-    #[test]
-    fn compat_of_matches_reports_compatible() {
-        assert_eq!(compat_of(Some(48), Some(48)), PackCompat::Compatible);
+    #[tokio::test]
+    async fn a_min_max_format_pack_is_compatible_on_26_2() {
+        // Nullscape declares only min/max_format [107,1]; 26.2 (107.1) is inside.
+        let td = tempfile::tempdir().unwrap();
+        seed_library_with_mcmeta(td.path(), "nullscape.zip", samples::NULLSCAPE).await;
+        game_world(td.path(), "Survival");
+        let listed = list_for_world_at(td.path(), "Survival", Some(FormatVersion::new(107, 1)))
+            .await
+            .unwrap();
+        let row = listed
+            .packs
+            .iter()
+            .find(|r| r.filename == "nullscape.zip")
+            .unwrap();
+        assert_eq!(row.compat, PackCompat::Compatible);
     }
 
-    #[test]
-    fn compat_of_missing_either_side_is_unknown() {
-        assert_eq!(compat_of(None, Some(48)), PackCompat::Unknown);
-        assert_eq!(compat_of(Some(48), None), PackCompat::Unknown);
-        assert_eq!(compat_of(None, None), PackCompat::Unknown);
+    #[tokio::test]
+    async fn a_pack_the_game_cannot_read_on_this_version_is_wont_load() {
+        // 1.21.1 (data 48) requires pack_format, which Nullscape does not
+        // declare: the game skips it (verified on the 1.21.1 jar, §1).
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library_with_mcmeta(td.path(), "nullscape.zip", samples::NULLSCAPE).await;
+        game_world(td.path(), "Survival");
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Survival", "nullscape.zip")
+            .await
+            .unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", Some(FormatVersion::new(48, 0)))
+            .await
+            .unwrap();
+        let row = listed
+            .packs
+            .iter()
+            .find(|r| r.filename == "nullscape.zip")
+            .unwrap();
+        assert_eq!(
+            row.compat,
+            PackCompat::WontLoad {
+                reason: WontLoadReason::NoPackFormat
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hand_dropped_copy_under_a_library_name_has_no_verdict() {
+        // §0.5 A1: the registry's declaration describes the LIBRARY's bytes.
+        // A same-named world zip with other bytes is not vouched, so nothing
+        // recorded speaks for it — Unknown, never the library's verdict.
+        let td = tempfile::tempdir().unwrap();
+        seed_library_with_mcmeta(td.path(), "vm.zip", samples::COBBLEMARKS).await;
+        game_world(td.path(), "Survival");
+        let dp = crate::datapacks::world_datapacks_dir_at(td.path(), "Survival").unwrap();
+        std::fs::create_dir_all(&dp).unwrap();
+        std::fs::write(dp.join("vm.zip"), samples::zip_with_mcmeta(samples::DAGGER)).unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", Some(FormatVersion::new(41, 0)))
+            .await
+            .unwrap();
+        let row = listed
+            .packs
+            .iter()
+            .find(|r| r.filename == "vm.zip")
+            .unwrap();
+        assert_eq!(row.compat, PackCompat::Unknown);
     }
 
     /// D2 / §3 L.1: the game lists a `saves/` folder as a world only if it

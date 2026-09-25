@@ -15,11 +15,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::datapacks::detect::{self, OnDiskEntry, Presence, Resolved};
-use crate::datapacks::format::PackMcmeta;
+use crate::datapacks::format::FormatVersion;
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
-    level_dat_entry, library_dir_at, registry, state, world_link, DatapackLibraryEntry,
-    DatapackLibraryView, DatapackPlacementView, DatapackWorldView, InstalledDatapack, PackCompat,
+    level_dat_entry, library_dir_at, registry, state, verdict, world_link, DatapackLibraryEntry,
+    DatapackLibraryView, DatapackPlacementView, DatapackWorldView, InstalledDatapack,
 };
 use crate::error::{Error, Result};
 
@@ -194,9 +194,14 @@ fn gather(instance_root: &Path, rows: &[InstalledDatapack]) -> Vec<WorldFacts> {
 
 /// Every datapack this instance knows about, with its state in every world.
 ///
-/// `expected` is the instance's expected `pack_format`, resolved by the caller
-/// (the command layer owns the `AppHandle` needed to find the client jar).
-pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<DatapackLibraryView> {
+/// `game` is the data-pack format the instance's client jar reports,
+/// resolved by the caller (the command layer owns the `AppHandle` needed to
+/// find the client jar). Each entry's `compat` is the game's verdict on the
+/// library copy's recorded declaration.
+pub async fn list_at(
+    instance_root: &Path,
+    game: Option<FormatVersion>,
+) -> Result<DatapackLibraryView> {
     let stored = registry::list_rows(instance_root).await?;
     let rows: Vec<InstalledDatapack> = stored.iter().map(|s| s.pack.clone()).collect();
     let root = instance_root.to_path_buf();
@@ -242,10 +247,11 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
                 .collect();
             DatapackLibraryEntry {
                 in_library: row.is_some(),
-                compat: compat_of(
-                    row.and_then(|r| registry::mcmeta_of(&stored, &r.filename))
-                        .and_then(PackMcmeta::declared_pack_format),
-                    expected,
+                // The library row IS the library copy: its recorded
+                // declaration speaks for it (§0.5 A1).
+                compat: verdict::verdict(
+                    row.and_then(|r| registry::mcmeta_of(&stored, &r.filename)),
+                    game,
                 ),
                 pack: row.cloned().unwrap_or_else(|| unlisted(&filename)),
                 placements,
@@ -254,7 +260,6 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
         .collect();
 
     Ok(DatapackLibraryView {
-        expected_pack_format: expected,
         entries,
         worlds: worlds
             .iter()
@@ -341,25 +346,13 @@ fn unlisted(filename: &str) -> InstalledDatapack {
     }
 }
 
-/// Same rule as `world_link`'s own compat check: `Unknown` unless both the
-/// pack's format and the instance's expectation are known.
-fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
-    match (pack_format, expected) {
-        (Some(p), Some(e)) if p == e => PackCompat::Compatible,
-        (Some(p), Some(e)) => PackCompat::Mismatch {
-            pack_format: p,
-            expected: e,
-        },
-        _ => PackCompat::Unknown,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::datapacks::detect::{test_support::zip_of, IgnoredReason};
-    use crate::datapacks::world_link::test_util::game_world;
-    use crate::datapacks::{library, world_link, WorldPackState};
+    use crate::datapacks::format::samples;
+    use crate::datapacks::world_link::test_util::{game_world, seed_library_with_mcmeta};
+    use crate::datapacks::{library, world_link, PackCompat, WorldPackState};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
@@ -414,7 +407,9 @@ mod tests {
             .unwrap();
         // Gamma never receives it.
 
-        let view = list_at(td.path(), Some(48)).await.unwrap();
+        let view = list_at(td.path(), Some(FormatVersion::new(48, 0)))
+            .await
+            .unwrap();
         let e = entry_for(&view, "vm.zip");
 
         assert!(e.in_library);
@@ -623,20 +618,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_mismatched_pack_format_is_reported_once_on_the_row() {
+    async fn a_pack_made_for_an_older_format_is_reported_once_on_the_row() {
+        // Was `a_mismatched_pack_format_is_reported_once_on_the_row`: the game
+        // labels a format below its own "made for an older version" and still
+        // loads it (era B).
         let td = tempfile::tempdir().unwrap();
         seed(td.path(), "vm.zip", 48).await;
 
-        let view = list_at(td.path(), Some(57)).await.unwrap();
+        let view = list_at(td.path(), Some(FormatVersion::new(57, 0)))
+            .await
+            .unwrap();
 
         assert_eq!(
             entry_for(&view, "vm.zip").compat,
-            PackCompat::Mismatch {
-                pack_format: 48,
-                expected: 57
+            PackCompat::TooOld {
+                made_for: "48".into(),
+                game: "57".into()
             }
         );
-        assert_eq!(view.expected_pack_format, Some(57));
+    }
+
+    #[tokio::test]
+    async fn a_supported_formats_range_covering_the_game_is_compatible() {
+        // bettercaps: pack_format 48, supported_formats 34–48. On 1.20.6
+        // (data 41) the game takes the range — compatible (§1 C3 era B).
+        let td = tempfile::tempdir().unwrap();
+        seed_library_with_mcmeta(td.path(), "bettercaps.zip", samples::BETTERCAPS).await;
+        let view = list_at(td.path(), Some(FormatVersion::new(41, 0)))
+            .await
+            .unwrap();
+        assert_eq!(
+            entry_for(&view, "bettercaps.zip").compat,
+            PackCompat::Compatible
+        );
     }
 
     #[tokio::test]

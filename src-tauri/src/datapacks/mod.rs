@@ -99,9 +99,6 @@ pub enum PackCompat {
     Broken,
     /// This version skips the pack entirely.
     WontLoad { reason: WontLoadReason },
-    /// Transitional: the strict comparison the listings still make until the
-    /// verdict replaces it.
-    Mismatch { pack_format: u32, expected: u32 },
     /// Not decidable: no recorded declaration, a field this build cannot
     /// parse, or no readable game format.
     Unknown,
@@ -133,6 +130,9 @@ pub struct WorldDatapack {
     /// directly. Supported, not an error — only "remove from library" is
     /// unavailable for it.
     pub in_library: bool,
+    /// The game's own verdict for this instance's Minecraft. `Unknown` for
+    /// an entry that is not the library's own copy — hand-dropped, a folder,
+    /// or a same-named zip with other bytes (§0.5 A1).
     pub compat: PackCompat,
 }
 
@@ -191,9 +191,9 @@ pub struct DatapackLibraryEntry {
     /// therefore the UNION of the registry and the on-disk world entries, never
     /// the registry alone.
     pub in_library: bool,
-    /// Per-INSTANCE, not per-world: the verdict compares the pack's own
-    /// `pack_format` against the instance's Minecraft, and no world is an
-    /// input, so rendering it per world would print N identical copies.
+    /// Per-INSTANCE, not per-world: the game's verdict on the pack's declared
+    /// formats for the instance's Minecraft. No world is an input, so
+    /// rendering it per world would print N identical copies.
     pub compat: PackCompat,
     /// Empty ⟺ "in no world" — the state the library screen exists to surface.
     pub placements: Vec<DatapackPlacementView>,
@@ -202,9 +202,6 @@ pub struct DatapackLibraryEntry {
 /// Everything the library screen renders, in one read.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct DatapackLibraryView {
-    /// The instance's expected `pack_format`. Exposed here because nothing else
-    /// does, and the frontend cannot compute it.
-    pub expected_pack_format: Option<u32>,
     pub entries: Vec<DatapackLibraryEntry>,
     /// Every world folder the listing accepts under `saves/`, sorted
     /// case-insensitively, each with its `level.dat` presence — including

@@ -265,6 +265,21 @@ pub(crate) mod test_util {
             .unwrap();
     }
 
+    /// A library pack whose `pack.mcmeta` is exactly `mcmeta` (see
+    /// `datapacks::format::samples`). In memory, then through
+    /// `install_named_at` — this module is scanned by the in-place-write
+    /// guard (it is `pub(crate) mod`), so it never writes a file itself.
+    pub(crate) async fn seed_library_with_mcmeta(root: &Path, filename: &str, mcmeta: &str) {
+        library::install_named_at(
+            root,
+            filename,
+            &crate::datapacks::format::samples::zip_with_mcmeta(mcmeta),
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
     pub(crate) fn world_dir(root: &Path, world: &str) -> PathBuf {
         crate::datapacks::world_datapacks_dir_at(root, world)
             .unwrap()
