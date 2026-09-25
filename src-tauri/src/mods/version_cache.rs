@@ -65,6 +65,30 @@ pub fn put(
         );
 }
 
+/// Cached lookup that fetches on a miss. Concurrent callers of one key share
+/// one fetch: the second waits for the first and then reads the cache
+/// (2026-09-21 spec, D8). A failed fetch caches nothing; a waiter behind a
+/// failed leader fetches for itself.
+pub async fn get_or_fetch<F, Fut>(
+    source: ModSource,
+    project_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+    fetch: F,
+) -> crate::error::Result<Vec<ModVersion>>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = crate::error::Result<Vec<ModVersion>>>,
+{
+    // stub: red round — cached, not yet coalesced.
+    if let Some(hit) = get(source, project_id, mc, loader) {
+        return Ok(hit);
+    }
+    let v = fetch().await?;
+    put(source, project_id, mc, loader, v.clone());
+    Ok(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +131,118 @@ mod tests {
         // After TTL = miss.
         tokio::time::advance(Duration::from_secs(5 * 60 + 1)).await;
         assert!(get(ModSource::Modrinth, "balm", "1.21.1", LoaderKind::NeoForge).is_none());
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn offline() -> crate::error::Error {
+        crate::error::Error::ModsNetwork {
+            url: "u".into(),
+            details: "offline".into(),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_callers_of_one_key_share_one_fetch() {
+        let calls = AtomicUsize::new(0);
+        let fetch = || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(vec![mv("vc-coalesce")])
+        };
+        let (a, b) = tokio::join!(
+            get_or_fetch(
+                ModSource::Modrinth,
+                "vc-coalesce",
+                "1.21.1",
+                LoaderKind::NeoForge,
+                fetch
+            ),
+            get_or_fetch(
+                ModSource::Modrinth,
+                "vc-coalesce",
+                "1.21.1",
+                LoaderKind::NeoForge,
+                fetch
+            ),
+        );
+        assert!(a.is_ok() && b.is_ok());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the second caller must join the first fetch"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_fetch_is_not_cached_and_the_next_caller_asks_again() {
+        // (pin under the stub)
+        let calls = AtomicUsize::new(0);
+        let first = get_or_fetch(
+            ModSource::Modrinth,
+            "vc-fail-once",
+            "1.21.1",
+            LoaderKind::NeoForge,
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err(offline())
+            },
+        )
+        .await;
+        assert!(first.is_err());
+        assert!(get(
+            ModSource::Modrinth,
+            "vc-fail-once",
+            "1.21.1",
+            LoaderKind::NeoForge
+        )
+        .is_none());
+        let second = get_or_fetch(
+            ModSource::Modrinth,
+            "vc-fail-once",
+            "1.21.1",
+            LoaderKind::NeoForge,
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![mv("vc-fail-once")])
+            },
+        )
+        .await;
+        assert!(second.is_ok());
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn when_the_leader_fails_a_waiter_fetches_for_itself() {
+        // (pin under the stub)
+        let calls = AtomicUsize::new(0);
+        let failing = || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Err(offline())
+        };
+        let working = || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![mv("vc-leader-fails")])
+        };
+        let (a, b) = tokio::join!(
+            get_or_fetch(
+                ModSource::Modrinth,
+                "vc-leader-fails",
+                "1.21.1",
+                LoaderKind::NeoForge,
+                failing
+            ),
+            get_or_fetch(
+                ModSource::Modrinth,
+                "vc-leader-fails",
+                "1.21.1",
+                LoaderKind::NeoForge,
+                working
+            ),
+        );
+        assert!(a.is_err());
+        assert!(b.is_ok(), "a failure must not be handed to the waiter");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 }
