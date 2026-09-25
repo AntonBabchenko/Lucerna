@@ -34,6 +34,7 @@ pub mod registry;
 pub mod state;
 pub mod update;
 pub mod vanillatweaks;
+pub mod verdict;
 pub mod world_link;
 
 /// One datapack in an instance's library. Mirrors `mods::platform::InstalledAsset`;
@@ -80,12 +81,45 @@ pub enum WorldPackState {
     Ignored,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+/// Minecraft's own verdict on a pack's declared formats for this instance's
+/// version (`PackCompatibility`, §1 C3). Every kind except `WontLoad` is a
+/// pack the game LOADS. `made_for`/`game` are display labels ("34–48",
+/// "107.1") from `verdict`'s one formatter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PackCompat {
+    /// The declared range covers this version.
     Compatible,
+    /// "Made for an older version of Minecraft" — still loads.
+    TooOld { made_for: String, game: String },
+    /// "Made for a newer version of Minecraft" — still loads.
+    TooNew { made_for: String, game: String },
+    /// The version fields fail this version's own validation: the game marks
+    /// the pack "(Broken or incompatible)" and still loads it.
+    Broken,
+    /// This version skips the pack entirely.
+    WontLoad { reason: WontLoadReason },
+    /// Transitional: the strict comparison the listings still make until the
+    /// verdict replaces it.
     Mismatch { pack_format: u32, expected: u32 },
+    /// Not decidable: no recorded declaration, a field this build cannot
+    /// parse, or no readable game format.
     Unknown,
+}
+
+/// Why this version of the game skips a pack (it logs "Failed to read pack
+/// metadata" and loads nothing from it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WontLoadReason {
+    /// No `pack.mcmeta` at the zip's top level.
+    NoPackMcmeta,
+    /// `pack.mcmeta` has no `pack` object.
+    NoPackSection,
+    /// `pack` has no `description`, which every era requires.
+    NoDescription,
+    /// No `pack_format`, which versions before 1.21.9 require.
+    NoPackFormat,
 }
 
 /// One datapack as it appears for a single world.

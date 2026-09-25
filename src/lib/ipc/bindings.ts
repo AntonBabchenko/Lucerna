@@ -6319,7 +6319,36 @@ export type OrphanedBackupSet = {
 	newest_unix_ms: number | null,
 };
 
-export type PackCompat = { kind: "compatible" } | { kind: "mismatch"; pack_format: number; expected: number } | { kind: "unknown" };
+/**
+ *  Minecraft's own verdict on a pack's declared formats for this instance's
+ *  version (`PackCompatibility`, §1 C3). Every kind except `WontLoad` is a
+ *  pack the game LOADS. `made_for`/`game` are display labels ("34–48",
+ *  "107.1") from `verdict`'s one formatter.
+ */
+export type PackCompat = 
+/**  The declared range covers this version. */
+{ kind: "compatible" } | 
+/**  "Made for an older version of Minecraft" — still loads. */
+{ kind: "too_old"; made_for: string; game: string } | 
+/**  "Made for a newer version of Minecraft" — still loads. */
+{ kind: "too_new"; made_for: string; game: string } | 
+/**
+ *  The version fields fail this version's own validation: the game marks
+ *  the pack "(Broken or incompatible)" and still loads it.
+ */
+{ kind: "broken" } | 
+/**  This version skips the pack entirely. */
+{ kind: "wont_load"; reason: WontLoadReason } | 
+/**
+ *  Transitional: the strict comparison the listings still make until the
+ *  verdict replaces it.
+ */
+{ kind: "mismatch"; pack_format: number; expected: number } | 
+/**
+ *  Not decidable: no recorded declaration, a field this build cannot
+ *  parse, or no readable game format.
+ */
+{ kind: "unknown" };
 
 export type PackCompletion = {
 	/**  Entries the manifest declares in total. */
@@ -8082,6 +8111,20 @@ export type WhitelistEntry = {
 	uuid: string,
 	name: string,
 };
+
+/**
+ *  Why this version of the game skips a pack (it logs "Failed to read pack
+ *  metadata" and loads nothing from it).
+ */
+export type WontLoadReason = 
+/**  No `pack.mcmeta` at the zip's top level. */
+"no_pack_mcmeta" | 
+/**  `pack.mcmeta` has no `pack` object. */
+"no_pack_section" | 
+/**  `pack` has no `description`, which every era requires. */
+"no_description" | 
+/**  No `pack_format`, which versions before 1.21.9 require. */
+"no_pack_format";
 
 /**
  *  A singleplayer world inside an instance, surfaced to the UI.
