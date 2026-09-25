@@ -120,6 +120,9 @@
     }
   }
   let removeFor = $state<DatapackLibraryEntry | null>(null);
+  // One pack out of one world — through the this-world confirmation (U1): the
+  // sub-row of an "only in worlds" pack holds the ONLY copy.
+  let removeFromWorldFor = $state<{ entry: DatapackLibraryEntry; world: string } | null>(null);
   let changelogReq = $state<{
     source: ModSource;
     projectId: string;
@@ -352,22 +355,6 @@
       );
       if (res.status === 'error') error = formatError(res.error);
       await refresh();
-    } finally {
-      busy = false;
-    }
-  }
-
-  // Also the repair path for an orphaned sub-row: the backend clears the
-  // level.dat name even when the file is already gone.
-  async function removeFromWorld(entry: DatapackLibraryEntry, world: string) {
-    if (instanceId === null) return;
-    busy = true;
-    error = null;
-    try {
-      const res = await commands.datapacksRemoveFromWorld(instanceId, world, entry.pack.filename);
-      if (res.status === 'error') error = formatError(res.error);
-      await refresh();
-      datapacksChanged.value++;
     } finally {
       busy = false;
     }
@@ -669,6 +656,7 @@
                         use:tooltip={p.state === 'enabled'
                           ? $t('worlds.datapacks.disable')
                           : $t('worlds.datapacks.enable')}
+                        data-testid="datapack-placement-toggle"
                         onclick={() => toggleInWorld(entry, p.world, p.state as WorldPackState)}
                       >
                         {#if busy}<Spinner size="sm" />{:else}<Icon name="power" size={15} />{/if}
@@ -681,7 +669,8 @@
                         disabled={gated}
                         aria-label={$t('worlds.datapacks.removeFromWorld')}
                         use:tooltip={$t('worlds.datapacks.removeFromWorld')}
-                        onclick={() => removeFromWorld(entry, p.world)}
+                        data-testid="datapack-placement-remove"
+                        onclick={() => (removeFromWorldFor = { entry, world: p.world })}
                       >
                         <Icon name="trash" size={15} />
                       </button>
@@ -733,9 +722,25 @@
       {instanceId}
       filename={removeFor.pack.filename}
       packName={removeFor.pack.name}
-      placements={removeFor.placements}
-      inLibrary={removeFor.in_library}
+      mode={{
+        kind: removeFor.in_library ? 'library' : 'worlds-only',
+        placements: removeFor.placements,
+      }}
       onClose={() => (removeFor = null)}
+      onRemoved={() => {
+        void refresh();
+        datapacksChanged.value++;
+      }}
+    />
+  {/if}
+
+  {#if removeFromWorldFor && instanceId}
+    <DatapackRemoveDialog
+      {instanceId}
+      filename={removeFromWorldFor.entry.pack.filename}
+      packName={removeFromWorldFor.entry.pack.name}
+      mode={{ kind: 'this-world', world: removeFromWorldFor.world }}
+      onClose={() => (removeFromWorldFor = null)}
       onRemoved={() => {
         void refresh();
         datapacksChanged.value++;

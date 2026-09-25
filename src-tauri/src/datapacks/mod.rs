@@ -81,6 +81,28 @@ pub enum WorldPackState {
     Ignored,
 }
 
+/// What removing one entry from one world would do to it — the answer the
+/// "remove from this world" confirmation words itself by (spec 2026-09-24
+/// §4 U1). Computed by `world_link::world_entry_kind_at`, which resolves the
+/// name exactly as the removal does (R2) and judges it with the same identity
+/// rule the library's placement scan uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorldEntryKind {
+    /// A file byte-identical to the library's copy: removing it leaves the
+    /// pack in the library.
+    LibraryCopy,
+    /// A file that is not the library's copy (or no library copy exists):
+    /// removing it deletes the only copy.
+    OwnFile,
+    /// A folder pack. Library entries are zips, so a folder is never the
+    /// library's copy: removing deletes the folder.
+    OwnFolder,
+    /// Nothing on disk under this name: removing only clears the level.dat
+    /// entry.
+    Missing,
+}
+
 /// Minecraft's own verdict on a pack's declared formats for this instance's
 /// version (`PackCompatibility`, §1 C3). Every kind except `WontLoad` is a
 /// pack the game LOADS. `made_for`/`game` are display labels ("34–48",

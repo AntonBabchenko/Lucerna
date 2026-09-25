@@ -33,7 +33,7 @@ pub(crate) use listing::vouched_by_library;
 pub(crate) use migrate::migrate_placements;
 pub use mutate::{add_to_world_at, remove_from_world_at, set_enabled_in_world_at};
 pub(crate) use mutate::{forget_for_cascade_at, remove_for_cascade_at};
-pub(crate) use placements::{placements_of, refresh_placements};
+pub(crate) use placements::{placements_of, refresh_placements, world_entry_kind_at};
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;

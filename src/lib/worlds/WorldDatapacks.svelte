@@ -16,6 +16,7 @@
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import type { CardAccent, BadgeVariant } from '$lib/ui/cards/card-status';
   import { datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
+  import DatapackRemoveDialog from '$lib/mods/DatapackRemoveDialog.svelte';
 
   // Per-world datapack manager. Library ∪ on-disk ∪ level.dat names, each row
   // carrying its own enabled/disabled/not_added/orphaned/ignored state —
@@ -36,6 +37,10 @@
   let busy = $state(false);
   let busyAdd = $state(false);
   let busyRow = $state<string | null>(null);
+  // The entry the this-world removal confirmation is open for (U1): every
+  // trash that can delete a file asks first. Only the ghost's "remove"
+  // (`world-datapack-remove-orphaned`) deletes nothing and stays one click.
+  let removeTarget = $state<string | null>(null);
 
   const disabledKey = $derived(datapacksDisabledKey({ running, busy }));
   const disabledReason = $derived.by(() => {
@@ -72,6 +77,7 @@
     // loadError fix above, just triggered by a prop change instead of a
     // failed reload.
     actionError = null;
+    removeTarget = null;
     void reload();
   });
 
@@ -394,7 +400,7 @@
                   data-testid="world-datapack-remove-world"
                   disabled={disabledKey !== null || busyRow === pack.filename}
                   aria-label={$t('worlds.datapacks.removeFromWorld')}
-                  onclick={() => void removeFromWorld(pack.filename)}
+                  onclick={() => (removeTarget = pack.filename)}
                 >
                   {#if busyRow === pack.filename}
                     <Spinner size="sm" />
@@ -449,7 +455,7 @@
                   data-testid="world-datapack-remove-world"
                   disabled={disabledKey !== null || busyRow === pack.filename}
                   aria-label={$t('worlds.datapacks.removeFromWorld')}
-                  onclick={() => void removeFromWorld(pack.filename)}
+                  onclick={() => (removeTarget = pack.filename)}
                 >
                   {#if busyRow === pack.filename}
                     <Spinner size="sm" />
@@ -463,5 +469,16 @@
         </CardShell>
       {/each}
     </div>
+  {/if}
+
+  {#if removeTarget !== null}
+    <DatapackRemoveDialog
+      {instanceId}
+      filename={removeTarget}
+      packName={removeTarget}
+      mode={{ kind: 'this-world', world }}
+      onClose={() => (removeTarget = null)}
+      onRemoved={() => void reload()}
+    />
   {/if}
 </div>

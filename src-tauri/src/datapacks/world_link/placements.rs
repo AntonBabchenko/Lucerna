@@ -5,11 +5,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::datapacks::detect::Resolved;
-use crate::datapacks::library_dir_at;
+use crate::datapacks::{library_dir_at, WorldEntryKind};
 use crate::error::{Error, Result};
 use crate::mods::store::{materialize, LinkPolicy};
 
-use super::level_dat_lock;
+use super::{level_dat_lock, world_dirs_checked};
 
 /// One world holding an entry by a given name, and whether that entry is
 /// provably the library's own content.
@@ -35,6 +35,21 @@ pub(crate) struct Placements {
     /// not hold it" (Fallback discipline Q1): every caller reports these as a
     /// failure, which keeps the library copy so a retry converges.
     pub unchecked: Vec<(String, String)>,
+}
+
+/// THE rule for "is this world entry the library's own copy" — shared by
+/// the placement scan (every mutating caller) and the removal confirmation
+/// ([`world_entry_kind_at`]), so the dialog can never promise "stays in the
+/// library" for an entry a cascade would call foreign. A directory is never
+/// the library's copy (library entries are zip files; a folder has no file
+/// sha1). A file is iff its sha1 equals the library file's. An unknown side
+/// (`None`) never matches — the restrictive answer.
+pub(crate) fn is_library_copy(
+    entry_is_dir: bool,
+    entry_sha: Option<&str>,
+    lib_sha: Option<&str>,
+) -> bool {
+    !entry_is_dir && matches!((entry_sha, lib_sha), (Some(e), Some(l)) if e == l)
 }
 
 /// Every world whose `datapacks/` folder holds an entry named `filename`, with
@@ -153,12 +168,13 @@ async fn placements_against(
                 continue;
             }
         };
-        let is_ours = match (cand_meta.is_dir(), lib_sha) {
-            // A folder is never the library's zip, and with no library copy
-            // nothing can be proven ours.
-            (true, _) | (false, None) => false,
-            (false, Some(lib)) => match tokio::fs::read(&candidate).await {
-                Ok(bytes) => crate::datapacks::library::sha1_hex(&bytes) == lib,
+        // A folder is never the library's zip, and with no library copy
+        // nothing can be proven ours: neither needs the entry's bytes.
+        let entry_sha = if cand_meta.is_dir() || lib_sha.is_none() {
+            None
+        } else {
+            match tokio::fs::read(&candidate).await {
+                Ok(bytes) => Some(crate::datapacks::library::sha1_hex(&bytes)),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 // Could not compare: not "not ours", which a caller would
                 // leave alone and then report the job done.
@@ -169,8 +185,9 @@ async fn placements_against(
                     ));
                     continue;
                 }
-            },
+            }
         };
+        let is_ours = is_library_copy(cand_meta.is_dir(), entry_sha.as_deref(), lib_sha);
         out.found.push(WorldPlacement {
             world,
             path: candidate,
@@ -179,6 +196,91 @@ async fn placements_against(
         });
     }
     Ok(out)
+}
+
+/// What removing `filename` from `world` would do, for the "remove from this
+/// world" confirmation (spec 2026-09-24 §4 U1, A20). Read-only. The name is
+/// resolved exactly as `remove_from_world_at` resolves it (R2), so the answer
+/// is about the entry the removal would delete:
+/// - nothing on disk under that name → `Missing` (only the level.dat entry goes);
+/// - a directory → `OwnFolder`;
+/// - a file → [`is_library_copy`] against `library/<filename>`: `LibraryCopy`,
+///   else `OwnFile`; no library file at all is `OwnFile`.
+///
+/// Fallback discipline: every listing, stat or read failure other than a
+/// named NotFound is `Err` ("could not tell"). It is never guessed into
+/// `LibraryCopy`, the one answer that promises nothing is lost; the dialog
+/// words an `Err` as "couldn't check — if it isn't the library's copy it is
+/// deleted permanently". Nothing is written, so there is no recovery path.
+/// Both reads and the hashes run in ONE `spawn_blocking`.
+pub(crate) async fn world_entry_kind_at(
+    instance_root: &Path,
+    world: &str,
+    filename: &str,
+) -> Result<WorldEntryKind> {
+    if !crate::pathsafe::is_safe_filename(filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: filename.to_string(),
+        });
+    }
+    let (_world_dir, dp_dir) = world_dirs_checked(instance_root, world)?;
+    // R2, as the removal does: on a case-sensitive file system a case
+    // variant is a different pack, and nothing of it would be deleted.
+    let (_names, resolved) = super::resolve_on_disk(&dp_dir, filename)
+        .await
+        .map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+    let entry_name = match resolved {
+        Resolved::Exact(n) | Resolved::Folded(n) => n,
+        Resolved::Absent => return Ok(WorldEntryKind::Missing),
+        Resolved::Unknown(e) => {
+            return Err(Error::io(dp_dir.join(filename).display().to_string(), e))
+        }
+    };
+    let entry = dp_dir.join(&entry_name);
+    // Followed, as `remove_entry` follows it to pick its removal call.
+    let entry_meta = match tokio::fs::metadata(&entry).await {
+        Ok(meta) => meta,
+        // Gone since the listing: the removal would delete nothing either.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(WorldEntryKind::Missing),
+        Err(e) => return Err(Error::io(entry.display().to_string(), e)),
+    };
+    if entry_meta.is_dir() {
+        return Ok(WorldEntryKind::OwnFolder);
+    }
+    let lib = library_dir_at(instance_root).join(filename);
+    let label = entry.display().to_string();
+    tokio::task::spawn_blocking(move || identify_world_file(&entry, entry_meta.len(), &lib))
+        .await
+        .map_err(|e| Error::io(label, format!("join: {e}")))?
+}
+
+/// [`world_entry_kind_at`]'s blocking half, for a world entry that is a
+/// regular file of `entry_len` bytes. Lengths are compared before hashing:
+/// different lengths cannot be the same bytes, so a large foreign file
+/// costs one stat, not two full reads.
+fn identify_world_file(entry: &Path, entry_len: u64, lib: &Path) -> Result<WorldEntryKind> {
+    let lib_len = match std::fs::metadata(lib) {
+        Ok(meta) => meta.len(),
+        // No library copy for this file to be: it is the only copy.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(WorldEntryKind::OwnFile),
+        Err(e) => return Err(Error::io(lib.display().to_string(), e)),
+    };
+    if lib_len != entry_len {
+        return Ok(WorldEntryKind::OwnFile);
+    }
+    let world_sha = std::fs::read(entry)
+        .map(|b| crate::datapacks::library::sha1_hex(&b))
+        .map_err(|e| Error::io(entry.display().to_string(), e))?;
+    let lib_sha = std::fs::read(lib)
+        .map(|b| crate::datapacks::library::sha1_hex(&b))
+        .map_err(|e| Error::io(lib.display().to_string(), e))?;
+    Ok(
+        if is_library_copy(false, Some(&world_sha), Some(&lib_sha)) {
+            WorldEntryKind::LibraryCopy
+        } else {
+            WorldEntryKind::OwnFile
+        },
+    )
 }
 
 /// The same-name reinstall fan-out: push the library's (already replaced)
@@ -294,5 +396,84 @@ mod tests {
             .find(|p| p.world == "Theirs")
             .expect("Theirs must still be listed, just not claimed");
         assert!(!theirs.is_ours);
+    }
+
+    use crate::datapacks::WorldEntryKind;
+
+    #[test]
+    fn the_identity_rule_never_matches_a_folder_or_an_unknown_side() {
+        assert!(is_library_copy(false, Some("a"), Some("a")));
+        assert!(!is_library_copy(true, Some("a"), Some("a")));
+        assert!(!is_library_copy(false, None, Some("a")));
+        assert!(!is_library_copy(false, Some("a"), None));
+        assert!(!is_library_copy(false, Some("a"), Some("b")));
+    }
+
+    #[tokio::test]
+    async fn a_same_named_world_file_with_other_bytes_is_own_file() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let dp = world_dir(td.path(), "W").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        // Same NAME and — two-digit formats — same LENGTH: only the hash can
+        // tell them apart, so a size-only shortcut would fail this test.
+        std::fs::write(dp.join("vm.zip"), datapack_zip(57)).unwrap();
+        assert_eq!(
+            world_entry_kind_at(td.path(), "W", "vm.zip").await.unwrap(),
+            WorldEntryKind::OwnFile
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hardlinked_library_copy_is_library_copy() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let dp = world_dir(td.path(), "W").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        std::fs::hard_link(library_dir_at(td.path()).join("vm.zip"), dp.join("vm.zip")).unwrap();
+        assert_eq!(
+            world_entry_kind_at(td.path(), "W", "vm.zip").await.unwrap(),
+            WorldEntryKind::LibraryCopy
+        );
+    }
+
+    #[tokio::test]
+    async fn a_folder_is_own_folder() {
+        let td = tempfile::tempdir().unwrap();
+        let pack = world_dir(td.path(), "W").join("datapacks").join("MyPack");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("pack.mcmeta"),
+            br#"{"pack":{"pack_format":48,"description":"x"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            world_entry_kind_at(td.path(), "W", "MyPack").await.unwrap(),
+            WorldEntryKind::OwnFolder
+        );
+    }
+
+    #[tokio::test]
+    async fn absent_is_missing() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(world_dir(td.path(), "W")).unwrap();
+        assert_eq!(
+            world_entry_kind_at(td.path(), "W", "vm.zip").await.unwrap(),
+            WorldEntryKind::Missing
+        );
+    }
+
+    #[tokio::test]
+    async fn a_world_file_with_no_library_copy_is_own_file() {
+        let td = tempfile::tempdir().unwrap();
+        let dp = world_dir(td.path(), "W").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        std::fs::write(dp.join("vm.zip"), datapack_zip(48)).unwrap();
+        assert_eq!(
+            world_entry_kind_at(td.path(), "W", "vm.zip").await.unwrap(),
+            WorldEntryKind::OwnFile
+        );
     }
 }

@@ -10,7 +10,9 @@
 //! cannot race or corrupt anything Minecraft touches. Every command that
 //! writes to `level.dat` or the library dir's *content* opens with [`guard`]
 //! — see `datapacks::guard`'s module doc for why this feature needs a hard
-//! gate the mods commands don't.
+//! gate the mods commands don't. `world_entry_kind` is read-only in the
+//! strict sense: it reads one world entry and the library copy and persists
+//! nothing.
 
 /// The gate every datapack writer in this file opens with — a one-line
 /// delegate to `instances::maintenance::write_allowed`, the single definition
@@ -176,6 +178,26 @@ pub async fn datapacks_remove_from_world(
 ) -> Result<(), crate::error::Error> {
     guard(&instance_id)?;
     crate::datapacks::world_link::remove_from_world_at(
+        &crate::datapacks::instance_root(&app, &instance_id)?,
+        &world,
+        &filename,
+    )
+    .await
+}
+
+/// What "remove from this world" would do to one entry: the library's own
+/// copy, a file or folder only this world holds, or nothing on disk (spec
+/// 2026-09-24 §4 U1). Read-only and unguarded: it reads two files and writes
+/// nothing; the removal it words is guarded.
+#[tauri::command]
+#[specta::specta]
+pub async fn datapacks_world_entry_kind(
+    app: tauri::AppHandle,
+    instance_id: String,
+    world: String,
+    filename: String,
+) -> Result<crate::datapacks::WorldEntryKind, crate::error::Error> {
+    crate::datapacks::world_link::world_entry_kind_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,
         &filename,

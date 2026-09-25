@@ -2022,6 +2022,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	datapacksRemoveFromWorld: (instanceId: string, world: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("datapacks_remove_from_world", { instanceId, world, filename })),
 	/**
+	 *  What "remove from this world" would do to one entry: the library's own
+	 *  copy, a file or folder only this world holds, or nothing on disk (spec
+	 *  2026-09-24 §4 U1). Read-only and unguarded: it reads two files and writes
+	 *  nothing; the removal it words is guarded.
+	 */
+	datapacksWorldEntryKind: (instanceId: string, world: string, filename: string) => typedError<WorldEntryKind, Error>(__TAURI_INVOKE("datapacks_world_entry_kind", { instanceId, world, filename })),
+	/**
 	 *  Toggle a datapack's enabled/disabled state for one world. level.dat only —
 	 *  the file itself is never touched.
 	 */
@@ -8170,6 +8177,35 @@ export type WorldDatapackListing = {
 	level_dat: LevelDatPresence,
 	packs: WorldDatapack[],
 };
+
+/**
+ *  What removing one entry from one world would do to it — the answer the
+ *  "remove from this world" confirmation words itself by (spec 2026-09-24
+ *  §4 U1). Computed by `world_link::world_entry_kind_at`, which resolves the
+ *  name exactly as the removal does (R2) and judges it with the same identity
+ *  rule the library's placement scan uses.
+ */
+export type WorldEntryKind = 
+/**
+ *  A file byte-identical to the library's copy: removing it leaves the
+ *  pack in the library.
+ */
+{ kind: "library_copy" } | 
+/**
+ *  A file that is not the library's copy (or no library copy exists):
+ *  removing it deletes the only copy.
+ */
+{ kind: "own_file" } | 
+/**
+ *  A folder pack. Library entries are zips, so a folder is never the
+ *  library's copy: removing deletes the folder.
+ */
+{ kind: "own_folder" } | 
+/**
+ *  Nothing on disk under this name: removing only clears the level.dat
+ *  entry.
+ */
+{ kind: "missing" };
 
 /**
  *  What happened to one world when a library pack was replaced under it —

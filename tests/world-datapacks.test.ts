@@ -10,7 +10,7 @@
 // tests/worlds-tab.test.ts and tests/intent/worlds.test.ts, no
 // markSeen('worlds') call is needed here: the panel alone cannot trigger it.
 
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   LevelDatPresence,
@@ -32,6 +32,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     datapacksInstallFromFile: vi.fn(),
     datapacksAddToWorld: vi.fn().mockResolvedValue({ status: 'ok', data: 'linked' }),
     datapacksRemoveFromWorld: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // What the this-world removal confirmation asks before it offers its button (U1).
+    datapacksWorldEntryKind: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { kind: 'library_copy' } }),
     datapacksRemoveFromLibrary: vi.fn(),
     datapacksSetEnabledInWorld: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
@@ -511,7 +515,51 @@ describe('WorldDatapacks — a row the game ignores', () => {
     expect(screen.queryByTestId('world-datapack-toggle')).toBeNull();
     expect(screen.queryByTestId('world-datapack-add-world')).toBeNull();
     expect(screen.queryByText('Compatibility unknown')).toBeNull();
+    // The trash asks first (U1): a folder the library does not hold is the
+    // only copy, and removing it deletes it permanently.
+    vi.mocked(commands.datapacksWorldEntryKind).mockResolvedValueOnce({
+      status: 'ok',
+      data: { kind: 'own_folder' },
+    });
     await fireEvent.click(screen.getByTestId('world-datapack-remove-world'));
-    expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'Loose');
+    const dialog = await screen.findByTestId('datapack-remove-dialog');
+    expect(
+      await within(dialog).findByText(/the folder and everything in it permanently/i),
+    ).toBeTruthy();
+    expect(commands.datapacksRemoveFromWorld).not.toHaveBeenCalled();
+    const confirm = screen.getByTestId('datapack-remove-confirm') as HTMLButtonElement;
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    await fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'Loose'),
+    );
+  });
+});
+
+describe('WorldDatapacks — removing a pack from this world (U1)', () => {
+  it('the world-row trash opens the removal dialog and removes nothing until confirmed', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    // Once each: the first load, then the reload after the removal (the dialog's
+    // onRemoved). A persistent value would leak into every later test.
+    vi.mocked(commands.datapacksListForWorld)
+      .mockResolvedValueOnce({
+        status: 'ok',
+        data: listing([makePack({ filename: 'trash-me.zip', state: 'enabled' })]),
+      })
+      .mockResolvedValueOnce({ status: 'ok', data: listing([]) });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await fireEvent.click(await screen.findByTestId('world-datapack-remove-world'));
+    expect(await screen.findByTestId('datapack-remove-dialog')).toBeTruthy();
+    expect(commands.datapacksRemoveFromWorld).not.toHaveBeenCalled();
+    const confirm = screen.getByTestId('datapack-remove-confirm') as HTMLButtonElement;
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    await fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith(
+        'inst-1',
+        'MyWorld',
+        'trash-me.zip',
+      ),
+    );
   });
 });

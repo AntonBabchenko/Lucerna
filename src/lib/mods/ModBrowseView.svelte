@@ -1491,8 +1491,10 @@
       {instanceId}
       filename={removeDialogFor.pack.filename}
       packName={removeDialogFor.pack.name}
-      placements={removeDialogFor.placements}
-      inLibrary={removeDialogFor.in_library}
+      mode={{
+        kind: removeDialogFor.in_library ? 'library' : 'worlds-only',
+        placements: removeDialogFor.placements,
+      }}
       onClose={() => (removeDialogFor = null)}
       onRemoved={() => {
         void refreshInstalledDatapacks();

@@ -1054,16 +1054,27 @@
       },
       "remove": {
         "title": "Remove “{name}”?",
+        "titleThisWorld": "Remove “{name}” from this world?",
         "affectedWorlds": "{count, plural, one {It is used in # world:} other {It is used in # worlds:}}",
+        "uncheckedWorlds": "{count, plural, one {# world couldn't be checked:} other {# worlds couldn't be checked:}}",
+        "uncheckedKeepsLibrary": "If they still can't be checked when you remove the pack, they are left as they are and the pack stays in the library, so trying again later can finish the job.",
+        "uncheckedWorldsOnly": "Removing tries these worlds as well and tells you about any it couldn't change.",
         "cascade": "Also remove from worlds",
         "keepNote": "If unchecked, the worlds keep their copies and the pack keeps loading in game.",
         "bodyNoWorlds": "The pack is in no world; it will be removed from the library.",
+        "bodyLibraryCopy": "The pack is removed from this world only. Its copy in the instance's library stays, so you can add it back at any time.",
+        "bodyOwnFile": "This file isn't the library's copy, so removing it deletes it permanently. It can't be restored.",
+        "bodyOwnFolder": "This folder isn't in the library, so removing it deletes the folder and everything in it permanently. It can't be restored.",
+        "bodyMissing": "The file is already gone; removing clears its entry from this world's list.",
+        "bodyUnchecked": "Lucerna couldn't check whether this is the library's copy. If it isn't, removing it deletes it permanently.",
         "confirm": "Remove",
+        "confirmFromWorld": "Remove from world",
+        "confirmDelete": "Delete",
         "toastRemoved": "Removed {name}",
         "toastFailed": "Could not remove {name}",
         "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
         "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
-        "worldsOnlyNote": "The library copy is already gone; removing clears the pack from the listed worlds."
+        "worldsOnlyNote": "This pack isn't in the library, so removing it deletes it from the listed worlds permanently. It can't be restored."
       },
       "vt": {
         "open": "Vanilla Tweaks…",

@@ -441,6 +441,11 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
     ),
     (
         "commands/datapacks.rs",
+        "datapacks_world_entry_kind",
+        "reads one world entry and the library copy to word the removal confirmation; writes nothing",
+    ),
+    (
+        "commands/datapacks.rs",
         "datapacks_check_updates",
         "network query over the library listing; installs nothing",
     ),
