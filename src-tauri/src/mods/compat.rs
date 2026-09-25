@@ -79,7 +79,11 @@ pub struct ModLocalCompat {
 pub enum LiveAvailability {
     /// This exact file is one of the builds listed for (mc, probe loader).
     FileListed,
-    /// Builds are listed, this file is not among them.
+    /// Builds are listed; this file was not found among the builds examined.
+    /// For a `Fits` jar the batch may record this without examining the full
+    /// listing (the class cannot change); for an `Unknown` jar — the only
+    /// verdict whose copy claims «this exact file is not on the page» — the
+    /// full listing is always examined.
     OtherBuildsOnly,
     /// The platform answered with no build at all.
     NoBuilds,
@@ -279,8 +283,59 @@ pub fn batch_answer(
     own: Option<&ModVersion>,
     latest: &[ModVersion],
 ) -> BatchAnswer {
-    let _ = (file, project_id, mc, loader, own, latest);
-    BatchAnswer::Undecided // stub: red round
+    use crate::mods::platform::{listed_for, tagged_for};
+    // B0: nothing to ask by — `None` is «could not tell», never «no jar».
+    let Some(h) = file.on_disk_sha1 else {
+        return BatchAnswer::Undecided;
+    };
+    // B1: unknown bytes. B2: bytes filed under another project. Only after
+    // both is an absence in `latest` evidence about THIS project (S3).
+    let Some(own) = own.filter(|o| o.project_id == project_id) else {
+        return BatchAnswer::Undecided;
+    };
+    let Some(latest_p) = latest.iter().find(|v| v.project_id == project_id) else {
+        // B4: this very file is tagged for (mc, loader), yet the server named
+        // no build — a contradiction, and contradictions are asked, never
+        // resolved toward «no build». B3: otherwise the listing is empty too.
+        return if tagged_for(own, mc, loader) {
+            BatchAnswer::Undecided
+        } else {
+            BatchAnswer::Exact {
+                availability: LiveAvailability::NoBuilds,
+                newest: None,
+            }
+        };
+    };
+    // B5: the newest tagged build is one our filename rule drops; whether an
+    // older one survives is unknown.
+    if !listed_for(latest_p, mc, loader) {
+        return BatchAnswer::Undecided;
+    }
+    // B6: a listed candidate confirms the file by the same two routes as
+    // `live_availability` — (a) the PRIMARY file's digest, (b) the registry's
+    // version id while the record still describes the bytes on disk.
+    let record_describes_disk = h.eq_ignore_ascii_case(file.registry_sha1);
+    let confirms = |w: &ModVersion| {
+        listed_for(w, mc, loader)
+            && (w
+                .primary_file
+                .sha1
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case(h))
+                || (record_describes_disk
+                    && file
+                        .registry_version_id
+                        .is_some_and(|vid| w.version_id == vid)))
+    };
+    let newest = latest_p.version_number.clone();
+    if confirms(own) || confirms(latest_p) {
+        return BatchAnswer::Exact {
+            availability: LiveAvailability::FileListed,
+            newest: Some(newest),
+        };
+    }
+    // B7: builds are listed; this file is not settled (S1).
+    BatchAnswer::BuildsListed { newest }
 }
 
 /// §5.3: what a batch answer settles WITHOUT a listing, for a jar whose own
@@ -289,8 +344,19 @@ pub fn settle_without_listing(
     answer: &BatchAnswer,
     verdict_fits: bool,
 ) -> Option<(LiveAvailability, Option<String>)> {
-    let _ = (answer, verdict_fits);
-    None // stub: red round
+    match answer {
+        BatchAnswer::Exact {
+            availability,
+            newest,
+        } => Some((*availability, newest.clone())),
+        // `classify` reads only `NoBuilds` for a `Fits` jar, so «builds exist»
+        // is everything it needs. «This file was not examined» is recorded as
+        // `OtherBuildsOnly` — see its doc comment.
+        BatchAnswer::BuildsListed { newest } if verdict_fits => {
+            Some((LiveAvailability::OtherBuildsOnly, Some(newest.clone())))
+        }
+        BatchAnswer::BuildsListed { .. } | BatchAnswer::Undecided => None,
+    }
 }
 
 /// A tiny model of Modrinth for the equivalence property (spec §8): the
