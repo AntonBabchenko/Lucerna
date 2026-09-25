@@ -6,10 +6,27 @@
 
 use std::future::Future;
 
-use crate::mods::compat::LiveAvailability;
-use crate::mods::hash_probe::HashProbeCache;
+use futures_util::stream::{self, StreamExt};
+
+use crate::mods::compat::{
+    batch_answer, live_availability, settle_without_listing, InstalledFile, LiveAvailability,
+    ProbeAnswer,
+};
+use crate::mods::hash_probe::{BatchFailure, HashProbeCache};
 use crate::mods::modrinth::ModrinthClient;
 use crate::mods::platform::{LoaderKind, ModSource, ModVersion};
+
+/// Residue listings in flight at once — the bound the per-mod probe has always
+/// used: dozens of simultaneous requests intermittently trip per-IP limits.
+const LISTING_CONCURRENCY: usize = 6;
+
+fn file_of(a: &Ask) -> InstalledFile<'_> {
+    InstalledFile {
+        on_disk_sha1: a.on_disk_sha1.as_deref(),
+        registry_sha1: &a.registry_sha1,
+        registry_version_id: a.registry_version_id.as_deref(),
+    }
+}
 
 /// One existence question: is this installed file listed for (mc, `loader`)?
 #[derive(Debug, Clone)]
@@ -43,22 +60,127 @@ pub async fn resolve_asks<L, Fut, T>(
     client: &ModrinthClient,
     cache: &HashProbeCache,
     listing: L,
-    on_tick: T,
+    mut on_tick: T,
 ) -> Vec<Resolved>
 where
     L: Fn(ModSource, String, LoaderKind) -> Fut + Sync,
     Fut: Future<Output = crate::error::Result<Vec<ModVersion>>> + Send,
     T: FnMut(u32, u32) + Send,
 {
-    let _ = (mc, client, cache, &listing, on_tick);
-    // stub: red round
-    vec![
-        Resolved {
-            availability: LiveAvailability::Unreachable,
-            newest: None,
-        };
-        asks.len()
-    ]
+    // safe: an instance's mod list is nowhere near 2^32 entries.
+    let total = asks.len() as u32;
+    if total == 0 {
+        return Vec::new();
+    }
+    on_tick(0, total);
+    let mut out: Vec<Option<Resolved>> = vec![None; asks.len()];
+    let mut residue: Vec<usize> = Vec::new();
+
+    // 1. Modrinth asks with a known on-disk digest: one batch group per probe
+    //    loader. Everything else goes straight to the listing.
+    let mut groups: Vec<(LoaderKind, Vec<usize>)> = Vec::new();
+    for (i, a) in asks.iter().enumerate() {
+        if a.source != ModSource::Modrinth || a.on_disk_sha1.is_none() {
+            residue.push(i);
+            continue;
+        }
+        match groups.iter_mut().find(|(l, _)| *l == a.loader) {
+            Some((_, g)) => g.push(i),
+            None => groups.push((a.loader, vec![i])),
+        }
+    }
+    let mut done: u32 = 0;
+    for (loader, group) in groups {
+        let shas: Vec<String> = group
+            .iter()
+            .filter_map(|&i| asks[i].on_disk_sha1.clone())
+            .collect();
+        match cache.snapshot(client, &shas, mc, loader).await {
+            Ok(snap) => {
+                for &i in &group {
+                    let a = &asks[i];
+                    let key = a
+                        .on_disk_sha1
+                        .as_deref()
+                        .map(str::to_ascii_lowercase)
+                        .unwrap_or_default();
+                    // An asked hash missing from the snapshot declines — a
+                    // missing `latest` must never read as «nothing listed».
+                    let (Some(own), Some(latest)) = (snap.own.get(&key), snap.latest.get(&key))
+                    else {
+                        residue.push(i);
+                        continue;
+                    };
+                    let answer =
+                        batch_answer(&file_of(a), &a.project_id, mc, loader, own.as_ref(), latest);
+                    match settle_without_listing(&answer, a.verdict_fits) {
+                        Some((availability, newest)) => {
+                            out[i] = Some(Resolved {
+                                availability,
+                                newest,
+                            });
+                            done += 1;
+                        }
+                        None => residue.push(i),
+                    }
+                }
+            }
+            // Asked and failed: the whole group is `Unreachable` — never
+            // «no build», and asking per project would fail the same way.
+            Err(BatchFailure::Unavailable) => {
+                for &i in &group {
+                    out[i] = Some(Resolved {
+                        availability: LiveAvailability::Unreachable,
+                        newest: None,
+                    });
+                    done += 1;
+                }
+            }
+            // The platform refused the request's shape: today's path.
+            Err(BatchFailure::Unusable) => residue.extend(group.iter().copied()),
+        }
+    }
+    if done > 0 {
+        on_tick(done, total);
+    }
+
+    // 2. The residue: the per-project listing, as before this change.
+    let mut pending = std::pin::pin!(stream::iter(residue)
+        .map(|i| {
+            let a = &asks[i];
+            let fut = listing(a.source, a.project_id.clone(), a.loader);
+            async move {
+                let file = file_of(a);
+                let r = match fut.await {
+                    Ok(versions) => Resolved {
+                        availability: live_availability(&file, ProbeAnswer::Found(&versions)),
+                        newest: versions.first().map(|v| v.version_number.clone()),
+                    },
+                    // A failed query must never read as «no build».
+                    Err(_) => Resolved {
+                        availability: live_availability(&file, ProbeAnswer::Failed),
+                        newest: None,
+                    },
+                };
+                (i, r)
+            }
+        })
+        .buffer_unordered(LISTING_CONCURRENCY));
+    while let Some((i, r)) = pending.next().await {
+        out[i] = Some(r);
+        done += 1;
+        on_tick(done, total);
+    }
+    out.into_iter()
+        // Every index was filled above; «could not tell» is the safe reading
+        // if that ever stops being true.
+        .map(|r| {
+            r.unwrap_or(Resolved {
+                availability: LiveAvailability::Unreachable,
+                newest: None,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
