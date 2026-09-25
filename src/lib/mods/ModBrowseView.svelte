@@ -884,6 +884,7 @@
     packName: string;
     placements: DatapackLibraryEntry['placements'];
     worlds: DatapackWorldView[];
+    compat: DatapackLibraryEntry['compat'] | null;
   } | null>(null);
   let removeDialogFor = $state<DatapackLibraryEntry | null>(null);
 
@@ -986,6 +987,7 @@
         packName: installed.data.pack.name,
         placements: entry?.placements ?? [],
         worlds: installedDatapackWorlds,
+        compat: entry?.compat ?? null,
       };
     } finally {
       installingProjectIds.delete(card.project_id);
@@ -1476,6 +1478,7 @@
       packName={pickerTarget.packName}
       placements={pickerTarget.placements}
       worlds={pickerTarget.worlds}
+      compat={pickerTarget.compat}
       onClose={() => (pickerTarget = null)}
       onApplied={() => {
         void refreshInstalledDatapacks();

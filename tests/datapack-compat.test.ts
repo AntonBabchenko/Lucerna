@@ -2,6 +2,7 @@
 // library row (§1 C5), so they can never word the same verdict differently.
 import { describe, expect, it } from 'vitest';
 import { compatLine, wontLoadKey } from '$lib/worlds/datapack-compat';
+import { ignoredHintKey } from '$lib/worlds/datapack-state';
 
 describe('compatLine', () => {
   it('too_old and too_new carry both labels', () => {
@@ -32,5 +33,19 @@ describe('compatLine', () => {
   it('compatible and unknown say nothing (unknown keeps its own neutral badge)', () => {
     expect(compatLine({ kind: 'compatible' })).toBeNull();
     expect(compatLine({ kind: 'unknown' })).toBeNull();
+  });
+});
+
+describe('ignoredHintKey — not_loadable', () => {
+  it('names the row’s own wont_load reason (§0.5 A12)', () => {
+    expect(ignoredHintKey('not_loadable', { kind: 'wont_load', reason: 'no_description' })).toBe(
+      'worlds.datapacks.compatWontLoadNoDescription',
+    );
+  });
+  it('says only "unknown" without a wont_load verdict to name', () => {
+    expect(ignoredHintKey('not_loadable')).toBe('worlds.datapacks.compatUnknown');
+    expect(ignoredHintKey('not_loadable', { kind: 'unknown' })).toBe(
+      'worlds.datapacks.compatUnknown',
+    );
   });
 });

@@ -719,6 +719,7 @@
       packName={pickerFor.pack.name}
       placements={pickerFor.placements}
       worlds={view?.worlds ?? []}
+      compat={pickerFor.compat}
       onClose={() => (pickerFor = null)}
       onApplied={() => {
         void refresh();

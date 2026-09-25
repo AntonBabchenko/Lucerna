@@ -331,30 +331,33 @@
           </div>
           <div class="flex flex-shrink-0 items-center gap-1">
             {#if pack.state === 'not_added'}
-              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <span
-                class="inline-flex"
-                tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
-                use:tooltip={{
-                  text: disabledReason ?? $t('worlds.datapacks.addToWorld'),
-                  describe: false,
-                }}
-              >
-                <button
-                  type="button"
-                  class="btn-icon btn-icon-sm !text-accent"
-                  data-testid="world-datapack-add-world"
-                  disabled={disabledKey !== null || busyRow === pack.filename}
-                  aria-label={$t('worlds.datapacks.addToWorld')}
-                  onclick={() => void addToWorld(pack.filename)}
+              <!-- §0.5 I11: this version skips the pack; the engine would accept the file and load nothing, so no add is offered. -->
+              {#if pack.compat.kind !== 'wont_load'}
+                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+                <span
+                  class="inline-flex"
+                  tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
+                  use:tooltip={{
+                    text: disabledReason ?? $t('worlds.datapacks.addToWorld'),
+                    describe: false,
+                  }}
                 >
-                  {#if busyRow === pack.filename}
-                    <Spinner size="sm" />
-                  {:else}
-                    <Icon name="plus" size={15} />
-                  {/if}
-                </button>
-              </span>
+                  <button
+                    type="button"
+                    class="btn-icon btn-icon-sm !text-accent"
+                    data-testid="world-datapack-add-world"
+                    disabled={disabledKey !== null || busyRow === pack.filename}
+                    aria-label={$t('worlds.datapacks.addToWorld')}
+                    onclick={() => void addToWorld(pack.filename)}
+                  >
+                    {#if busyRow === pack.filename}
+                      <Spinner size="sm" />
+                    {:else}
+                      <Icon name="plus" size={15} />
+                    {/if}
+                  </button>
+                </span>
+              {/if}
             {:else if pack.state === 'orphaned'}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span

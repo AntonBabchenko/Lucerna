@@ -91,6 +91,23 @@ pub fn verdict(m: Option<&PackMcmeta>, game: Option<FormatVersion>) -> PackCompa
     }
 }
 
+/// Whether the game loads the pack at all, as `state::derive` takes it
+/// (§0.5 A1): `Some(false)` only for `WontLoad`; `None` when the verdict is
+/// unknown (never a guess either way); `Some(true)` otherwise — a too-old,
+/// too-new or broken pack still loads. No wildcard arm: a new verdict kind
+/// must be classified here, not silently counted as loadable.
+#[must_use]
+pub fn loadable(c: &PackCompat) -> Option<bool> {
+    match c {
+        PackCompat::WontLoad { .. } => Some(false),
+        PackCompat::Unknown => None,
+        PackCompat::Compatible
+        | PackCompat::TooOld { .. }
+        | PackCompat::TooNew { .. }
+        | PackCompat::Broken => Some(true),
+    }
+}
+
 /// Whose recorded `pack.mcmeta` speaks for a row (§0.5 A1): the library's
 /// declaration describes the library's own bytes, so it applies to a row
 /// whose name is not on the world's disk at all (the library copy IS the
@@ -616,6 +633,25 @@ mod tests {
                     reason: WontLoadReason::NoDescription
                 }
             );
+        }
+    }
+
+    #[test]
+    fn only_wont_load_is_not_loadable_and_unknown_is_no_answer() {
+        assert_eq!(
+            loadable(&PackCompat::WontLoad {
+                reason: WontLoadReason::NoPackFormat
+            }),
+            Some(false)
+        );
+        assert_eq!(loadable(&PackCompat::Unknown), None);
+        for c in [
+            PackCompat::Compatible,
+            PackCompat::Broken,
+            too_old("1", "2"),
+            too_new("2", "1"),
+        ] {
+            assert_eq!(loadable(&c), Some(true), "{c:?} still loads");
         }
     }
 

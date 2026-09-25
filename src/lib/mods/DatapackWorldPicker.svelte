@@ -5,9 +5,11 @@
     type DatapackWorldView,
     type IgnoredReason,
     type LevelDatPresence,
+    type PackCompat,
     type WorldPackState,
   } from '$lib/ipc/bindings';
   import { ignoredLabelKey } from '$lib/worlds/datapack-state';
+  import { compatLine } from '$lib/worlds/datapack-compat';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
@@ -37,6 +39,7 @@
     packName,
     placements,
     worlds,
+    compat,
     onClose,
     onApplied,
   }: {
@@ -53,6 +56,8 @@
      * there (§3 L.6/L.8).
      */
     worlds: DatapackWorldView[];
+    /** The pack's verdict from the library listing; null when it could not be read. */
+    compat: PackCompat | null;
     onClose: () => void;
     /** Called after any world was changed, so the owner refreshes its view. */
     onApplied: () => void;
@@ -76,6 +81,13 @@
     /** Why the game ignores this world's entry; set exactly when `state` is 'ignored'. */
     ignoredReason: IgnoredReason | null;
   };
+
+  // §0.5 I11: a pack this version skips is not offered for adding. The
+  // backend does not refuse it (the file is valid and the game only skips
+  // it), so the picker offers no world and says why.
+  const skipped = $derived(
+    compat !== null && compat.kind === 'wont_load' ? compatLine(compat) : null,
+  );
 
   let rows = $state<Row[] | null>(null);
   let loadError = $state<string | null>(null);
@@ -140,6 +152,8 @@
     // lives on the library row, not here. Unknown: acting blind on a world we
     // could not read would be a guess with a level.dat write attached.
     // Ignored: the game skips the entry; adding cannot fix it (§2 N.6).
+    // Skipped: this version skips the pack itself, so no world is offered.
+    if (skipped !== null) return false;
     return (
       !row.unknown && row.state !== 'enabled' && row.state !== 'orphaned' && row.state !== 'ignored'
     );
@@ -203,6 +217,12 @@
 
     {#if loadError}
       <p class="text-sm text-danger">{loadError}</p>
+    {/if}
+
+    {#if skipped}
+      <p class="text-sm text-warning-text" data-testid="datapack-picker-wont-load">
+        {$t(skipped.key, skipped.args)}
+      </p>
     {/if}
 
     {#if rows === null}

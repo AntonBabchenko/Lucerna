@@ -183,6 +183,50 @@ describe('WorldDatapacks — compatibility is the game’s own verdict (§1 C5)'
   });
 });
 
+describe('WorldDatapacks — packs this version skips (§0.5 A1, I11)', () => {
+  it.each([
+    ['no_pack_mcmeta', /no pack\.mcmeta at its top level/],
+    ['no_pack_section', /has no "pack" section/],
+    ['no_description', /has no "description"/],
+    ['no_pack_format', /has no "pack_format"/],
+  ] as const)('a not-loadable row (%s) shows the compat reason and no toggle', async (reason, text) => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([
+        makePack({
+          filename: 'skipped.zip',
+          state: 'ignored',
+          ignored_reason: 'not_loadable',
+          compat: { kind: 'wont_load', reason },
+        }),
+      ]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(await screen.findByText(text)).toBeTruthy();
+    expect(screen.queryByTestId('world-datapack-toggle')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^enable in this world$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^disable in this world$/i })).toBeNull();
+  });
+
+  it('an addable pack this version skips offers no add', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([
+        makePack({
+          filename: 'nullscape.zip',
+          state: 'not_added',
+          compat: { kind: 'wont_load', reason: 'no_pack_format' },
+        }),
+      ]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(await screen.findByText(/This version of Minecraft skips this pack/)).toBeTruthy();
+    expect(screen.queryByTestId('world-datapack-add-world')).toBeNull();
+  });
+});
+
 describe('WorldDatapacks — running disables mutating controls', () => {
   it('disables the add, toggle, and remove controls while the instance is running', async () => {
     const { commands } = await import('$lib/ipc/bindings');

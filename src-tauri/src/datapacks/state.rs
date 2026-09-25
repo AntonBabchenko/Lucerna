@@ -11,7 +11,7 @@
 //! off by the game whatever these cells say; feature flags are out of scope (§0.1).
 
 use crate::datapacks::detect::{IgnoredReason, OnDiskEntry, Presence};
-use crate::datapacks::{InstalledDatapack, WorldPackState};
+use crate::datapacks::{verdict, PackCompat, WorldPackState};
 
 /// [`derive`] for a world whose two lists are known. These two functions are
 /// the only code that pairs a state with an ignored reason, so
@@ -61,15 +61,24 @@ pub fn derive(
     }
 }
 
-/// SEAM(G4): whether the game can load this pack's `pack.mcmeta`. §0.5 A1:
-/// in batch 2 the input comes only from the registry row's recorded metadata,
-/// for library rows and for world entries the vouch rule ties to the library
-/// copy (`entry.vouched`). Every other entry is `None`. Until G4 lands the
-/// compat verdict, nothing is known and this is always `None`. G4 replaces the
-/// body (and adds the instance's format input) without changing any caller's shape.
+/// Whether the game loads the pack a row's on-disk `entry` holds, as
+/// [`derive`] takes it. `library` is the game's verdict on the LIBRARY copy's
+/// recorded `pack.mcmeta` (`verdict::verdict`) for this instance's
+/// Minecraft.
+///
+/// §0.5 A1: in batch 2 that verdict speaks only for the library's own bytes,
+/// so it decides here only for an entry the scan vouched as the library copy
+/// (exact registry name, `(len, modified)` agreeing). Any other on-disk entry
+/// — hand-dropped, a folder, a same-named zip with other bytes — is `None`:
+/// nothing recorded describes it, and it is never labelled NotLoadable. An
+/// absent entry answers from the library verdict, which [`derive`] ignores
+/// for a row with nothing on disk.
 #[must_use]
-pub fn loadable_of(_row: Option<&InstalledDatapack>, _entry: Option<&OnDiskEntry>) -> Option<bool> {
-    None
+pub fn loadable_of(library: &PackCompat, entry: Option<&OnDiskEntry>) -> Option<bool> {
+    match entry {
+        Some(e) if !e.vouched => None,
+        Some(_) | None => verdict::loadable(library),
+    }
 }
 
 #[cfg(test)]
@@ -167,6 +176,29 @@ mod tests {
             derive(None, Some((false, false)), Some(false)),
             (Some(WorldPackState::NotAdded), None)
         );
+    }
+
+    /// §0.5 A1: the library copy's verdict decides `loadable` only for a world
+    /// entry the scan vouched as the library's bytes. A hand-dropped or
+    /// differing copy is never labelled NotLoadable.
+    #[test]
+    fn a_library_verdict_speaks_only_for_a_vouched_entry() {
+        use crate::datapacks::{PackCompat, WontLoadReason};
+        let wont = PackCompat::WontLoad {
+            reason: WontLoadReason::NoPackFormat,
+        };
+        let entry = |vouched: bool| OnDiskEntry {
+            name: "p.zip".into(),
+            presence: PACK,
+            vouched,
+        };
+        assert_eq!(loadable_of(&wont, Some(&entry(true))), Some(false));
+        assert_eq!(loadable_of(&wont, Some(&entry(false))), None);
+        assert_eq!(
+            loadable_of(&PackCompat::Compatible, Some(&entry(true))),
+            Some(true)
+        );
+        assert_eq!(loadable_of(&PackCompat::Unknown, Some(&entry(true))), None);
     }
 
     /// §0.5 A4: detection does not depend on level.dat.

@@ -15,6 +15,7 @@
     DatapackWorldView,
     InstalledMod,
     ModSource,
+    PackCompat,
   } from '$lib/ipc/bindings';
   import {
     modBrowseOpenProject,
@@ -411,6 +412,7 @@
     packName: string;
     placements: DatapackPlacementView[];
     worlds: DatapackWorldView[];
+    compat: PackCompat | null;
   } | null>(null);
 
   // Local datapack zips (file picker + drag-drop) go into the instance's
@@ -461,6 +463,7 @@
           ...last,
           placements: entry?.placements ?? [],
           worlds: lib.data.worlds,
+          compat: entry?.compat ?? null,
         };
       }
     }
@@ -758,6 +761,7 @@
     packName={datapackPickerTarget.packName}
     placements={datapackPickerTarget.placements}
     worlds={datapackPickerTarget.worlds}
+    compat={datapackPickerTarget.compat}
     onClose={() => (datapackPickerTarget = null)}
     onApplied={() => {
       datapacksChanged.value++;

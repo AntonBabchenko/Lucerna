@@ -26,6 +26,7 @@ const baseProps = {
   packName: 'Terralith',
   placements: [],
   worlds: [],
+  compat: null,
   onClose: () => {},
   onApplied: () => {},
 };
@@ -36,6 +37,21 @@ describe('DatapackWorldPicker', () => {
   afterEach(() => {
     vi.mocked(commands.listWorldNames).mockResolvedValue({ status: 'ok', data: [] });
     vi.clearAllMocks();
+  });
+
+  it('a pack this version skips cannot be ticked (§0.5 I11)', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({ status: 'ok', data: [world('Alpha')] });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [{ world: 'Alpha', level_dat: 'present' as const }],
+        compat: { kind: 'wont_load' as const, reason: 'no_pack_format' as const },
+      },
+    });
+    const box = (await screen.findByTestId('datapack-picker-world')) as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(screen.getByTestId('datapack-picker-wont-load').textContent).toMatch(/skips this pack/);
+    expect((screen.getByTestId('datapack-picker-apply') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('zero worlds renders the explanation, not an empty list', async () => {

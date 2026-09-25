@@ -121,20 +121,20 @@ fn build_rows(
                 .joined
                 .as_deref()
                 .and_then(|n| registry_entries.iter().find(|e| e.filename == n));
-            // R1 (N.3): membership is exact, on the engine's id — `file/` + the row's own spelling.
-            let id = level_dat_entry(&row.filename);
-            let (pack_state, ignored_reason) = state::derive_listed(
-                entry.map(|e| &e.presence),
-                enabled.contains(&id),
-                disabled.contains(&id),
-                state::loadable_of(reg, entry),
-            );
             // §0.5 A1: the registry's declaration speaks only for the library's
             // own bytes — a row not in this world, or a vouched link.
             let recorded = reg.and_then(|r| registry::mcmeta_of(stored, &r.filename));
             let compat = verdict::verdict(
                 verdict::library_declaration(entry.map(|e| e.vouched), recorded),
                 game,
+            );
+            // R1 (N.3): membership is exact, on the engine's id — `file/` + the row's own spelling.
+            let id = level_dat_entry(&row.filename);
+            let (pack_state, ignored_reason) = state::derive_listed(
+                entry.map(|e| &e.presence),
+                enabled.contains(&id),
+                disabled.contains(&id),
+                state::loadable_of(&compat, entry),
             );
             WorldDatapack {
                 filename: row.filename,
@@ -342,20 +342,25 @@ mod tests {
                 reason: WontLoadReason::NoPackFormat
             }
         );
+        // §0.5 A1: a vouched library link the game skips is Ignored(NotLoadable).
+        assert_eq!(row.state, WorldPackState::Ignored);
+        assert_eq!(row.ignored_reason, Some(IgnoredReason::NotLoadable));
     }
 
     #[tokio::test]
     async fn a_hand_dropped_copy_under_a_library_name_has_no_verdict() {
         // §0.5 A1: the registry's declaration describes the LIBRARY's bytes.
         // A same-named world zip with other bytes is not vouched, so nothing
-        // recorded speaks for it — Unknown, never the library's verdict.
+        // recorded speaks for it — Unknown, never the library's verdict. The
+        // library copy is one 1.21.1 skips (WontLoad), so borrowing its
+        // verdict would also label the hand-dropped pack NotLoadable.
         let td = tempfile::tempdir().unwrap();
-        seed_library_with_mcmeta(td.path(), "vm.zip", samples::COBBLEMARKS).await;
+        seed_library_with_mcmeta(td.path(), "vm.zip", samples::NULLSCAPE).await;
         game_world(td.path(), "Survival");
         let dp = crate::datapacks::world_datapacks_dir_at(td.path(), "Survival").unwrap();
         std::fs::create_dir_all(&dp).unwrap();
         std::fs::write(dp.join("vm.zip"), samples::zip_with_mcmeta(samples::DAGGER)).unwrap();
-        let listed = list_for_world_at(td.path(), "Survival", Some(FormatVersion::new(41, 0)))
+        let listed = list_for_world_at(td.path(), "Survival", Some(FormatVersion::new(48, 0)))
             .await
             .unwrap();
         let row = listed
@@ -364,6 +369,12 @@ mod tests {
             .find(|r| r.filename == "vm.zip")
             .unwrap();
         assert_eq!(row.compat, PackCompat::Unknown);
+        assert_ne!(
+            row.state,
+            WorldPackState::Ignored,
+            "hand-dropped packs are never labelled NotLoadable (A1)"
+        );
+        assert_eq!(row.ignored_reason, None);
     }
 
     /// D2 / §3 L.1: the game lists a `saves/` folder as a world only if it

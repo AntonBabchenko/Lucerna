@@ -1,5 +1,6 @@
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import type { IgnoredReason, PackCompat } from '$lib/ipc/bindings';
+import { wontLoadKey } from './datapack-compat';
 
 /**
  * The badge label for a row whose state is `ignored`. `unreadable` is not a
@@ -53,11 +54,14 @@ export function ignoredHintKey(
 }
 
 /**
- * SEAM(G4): `not_loadable` has no key of its own (§0.2 I3). Its hint is the
- * compat verdict's `worlds.datapacks.compatWontLoad*` line, keyed by
- * `compat.reason` (§0.5 A12). The verdict shape lands with G4; until then
- * the backend never sends `not_loadable` (`state::loadable_of` is `None`).
+ * `not_loadable` has no key of its own (§0.2 I3). The backend derives it from
+ * the row's own `wont_load` verdict (`state::loadable_of`), so its hint is
+ * that verdict's `worlds.datapacks.compatWontLoad*` line, naming the exact
+ * missing field (§0.5 A12). Without a `wont_load` verdict to name, it says
+ * only that compatibility is unknown — never a guessed cause.
  */
-export function notLoadableHintKey(_compat: PackCompat | undefined): TranslationKey {
-  return 'worlds.datapacks.stateIgnored';
+export function notLoadableHintKey(compat: PackCompat | undefined): TranslationKey {
+  return compat?.kind === 'wont_load'
+    ? wontLoadKey(compat.reason)
+    : 'worlds.datapacks.compatUnknown';
 }

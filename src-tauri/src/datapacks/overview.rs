@@ -19,7 +19,7 @@ use crate::datapacks::format::FormatVersion;
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
     level_dat_entry, library_dir_at, registry, state, verdict, world_link, DatapackLibraryEntry,
-    DatapackLibraryView, DatapackPlacementView, DatapackWorldView, InstalledDatapack,
+    DatapackLibraryView, DatapackPlacementView, DatapackWorldView, InstalledDatapack, PackCompat,
 };
 use crate::error::{Error, Result};
 
@@ -241,18 +241,19 @@ pub async fn list_at(
             } else {
                 None
             };
+            // The library row IS the library copy: its recorded declaration
+            // speaks for it (§0.5 A1). A world-only pack has none: Unknown.
+            let compat = verdict::verdict(
+                row.and_then(|r| registry::mcmeta_of(&stored, &r.filename)),
+                game,
+            );
             let placements = worlds
                 .iter()
-                .filter_map(|f| placement_in(f, &filename, row))
+                .filter_map(|f| placement_in(f, &filename, row, &compat))
                 .collect();
             DatapackLibraryEntry {
                 in_library: row.is_some(),
-                // The library row IS the library copy: its recorded
-                // declaration speaks for it (§0.5 A1).
-                compat: verdict::verdict(
-                    row.and_then(|r| registry::mcmeta_of(&stored, &r.filename)),
-                    game,
-                ),
+                compat,
                 pack: row.cloned().unwrap_or_else(|| unlisted(&filename)),
                 placements,
             }
@@ -283,10 +284,15 @@ pub async fn list_at(
 /// a world whose `datapacks/` could not be read, but whose lists could, gives
 /// every pack an unknown placement (it may hold it unlisted, auto-enabled),
 /// and so does a registry name R2 could not resolve.
+///
+/// `library` is the library copy's verdict; it decides whether the game loads
+/// this world's entry only when the scan vouched that entry as the library's
+/// bytes (`state::loadable_of`, §0.5 A1).
 fn placement_in(
     f: &WorldFacts,
     filename: &str,
     row: Option<&InstalledDatapack>,
+    library: &PackCompat,
 ) -> Option<DatapackPlacementView> {
     let unknown = || DatapackPlacementView {
         world: f.world.clone(),
@@ -318,7 +324,7 @@ fn placement_in(
     let (state, ignored_reason) = state::derive(
         entry.map(|e| &e.presence),
         listed,
-        state::loadable_of(row, entry),
+        state::loadable_of(library, entry),
     );
     Some(DatapackPlacementView {
         world: f.world.clone(),
@@ -352,7 +358,7 @@ mod tests {
     use crate::datapacks::detect::{test_support::zip_of, IgnoredReason};
     use crate::datapacks::format::samples;
     use crate::datapacks::world_link::test_util::{game_world, seed_library_with_mcmeta};
-    use crate::datapacks::{library, world_link, PackCompat, WorldPackState};
+    use crate::datapacks::{library, world_link, WorldPackState};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
@@ -639,6 +645,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_wont_load_placement_is_ignored() {
+        // The library copy declares no pack_format; 1.21.1 skips it. Its
+        // vouched link in Alpha is therefore Ignored(NotLoadable) (§0.5 A1).
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library_with_mcmeta(td.path(), "nullscape.zip", samples::NULLSCAPE).await;
+        game_world(td.path(), "Alpha");
+        world_link::add_to_world_at(td.path(), "Alpha", "nullscape.zip")
+            .await
+            .unwrap();
+
+        let view = list_at(td.path(), Some(FormatVersion::new(48, 0)))
+            .await
+            .unwrap();
+        let e = entry_for(&view, "nullscape.zip");
+        assert_eq!(
+            e.compat,
+            PackCompat::WontLoad {
+                reason: crate::datapacks::WontLoadReason::NoPackFormat
+            }
+        );
+        let alpha = e.placements.iter().find(|p| p.world == "Alpha").unwrap();
+        assert_eq!(alpha.state, Some(WorldPackState::Ignored));
+        assert_eq!(alpha.ignored_reason, Some(IgnoredReason::NotLoadable));
+    }
+
+    #[tokio::test]
+    async fn a_hand_dropped_copy_is_never_labelled_not_loadable() {
+        // §0.5 A1: the library copy's WontLoad speaks only for the library's
+        // own bytes. A same-named world zip with other bytes is not vouched,
+        // so its placement keeps the state the game gives a loadable pack.
+        let td = tempfile::tempdir().unwrap();
+        seed_library_with_mcmeta(td.path(), "vm.zip", samples::NULLSCAPE).await;
+        let wd = game_world(td.path(), "Alpha");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(
+            wd.join("datapacks/vm.zip"),
+            samples::zip_with_mcmeta(samples::DAGGER),
+        )
+        .unwrap();
+
+        let view = list_at(td.path(), Some(FormatVersion::new(48, 0)))
+            .await
+            .unwrap();
+        let alpha = entry_for(&view, "vm.zip")
+            .placements
+            .iter()
+            .find(|p| p.world == "Alpha")
+            .unwrap()
+            .clone();
+        assert_eq!(alpha.state, Some(WorldPackState::Enabled));
+        assert_eq!(alpha.ignored_reason, None);
+    }
+
+    #[tokio::test]
     async fn a_supported_formats_range_covering_the_game_is_compatible() {
         // bettercaps: pack_format 48, supported_formats 34–48. On 1.20.6
         // (data 41) the game takes the range — compatible (§1 C3 era B).
@@ -778,7 +839,13 @@ mod tests {
             },
         )]);
         let facts = facts_with(resolved, vec![entry]);
-        let p = placement_in(&facts, "vm.zip", Some(&unlisted("vm.zip"))).unwrap();
+        let p = placement_in(
+            &facts,
+            "vm.zip",
+            Some(&unlisted("vm.zip")),
+            &PackCompat::Unknown,
+        )
+        .unwrap();
         assert_eq!((p.state, p.ignored_reason), (None, None));
         assert!(claimed_by_registry(&facts, "VM.zip"));
     }
