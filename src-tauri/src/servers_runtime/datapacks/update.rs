@@ -36,6 +36,18 @@ pub async fn update_one(
     // here and not only inside it: they come before the world-state refusal
     // below (spec §0.5 A7), so a bad name is never reported as a world problem.
     mutate::validate_install_input(new_filename, bytes)?;
+    // §0.5 A21, an input check too (A7 step 1, ahead of the world state and
+    // of any file read): a same-name update over a legacy `X.ZIP` would write
+    // `X.zip` (N.5) beside it, or on NTFS/APFS replace it under a name nobody
+    // recorded. The admin removes the legacy file first.
+    if new_filename.to_lowercase() == old_filename.to_lowercase()
+        && !detect::has_zip_suffix(old_filename)
+    {
+        return Err(Error::DatapackLegacyCaseName {
+            filename: new_filename.to_string(),
+            legacy: old_filename.to_string(),
+        });
+    }
     // D2 for both branches, before either one's `sidecar::reconcile` (which
     // persists) and before any file is placed. A world that lost its level.dat
     // and kept level.dat_old is left for the next start to restore. A
@@ -48,16 +60,6 @@ pub async fn update_one(
     // exactly as `VM.zip` → `vm.zip` does. Treating that as a rename would run
     // the migrate-and-delete path against the file just written.
     if new_filename.to_lowercase() == old_filename.to_lowercase() {
-        // §0.5 A21: the install writes `X.zip` (N.5), so over a legacy `X.ZIP`
-        // it would leave two spellings of one pack, or on NTFS/APFS replace the
-        // legacy file under a name nobody recorded. The admin removes the
-        // legacy file first. Input validation, ahead of any file read.
-        if !detect::has_zip_suffix(old_filename) {
-            return Err(Error::DatapackLegacyCaseName {
-                filename: new_filename.to_string(),
-                legacy: old_filename.to_string(),
-            });
-        }
         // Identity FIRST: the on-disk file must be the one the sidecar
         // describes. A mismatch (hand-replaced pack, or a fail-open-empty
         // sidecar) is reported, and nothing is touched.
@@ -86,7 +88,7 @@ pub async fn update_one(
         }
         // Install under the OLD (registered) spelling so the sidecar and the
         // directory entry stay consistent on every platform. It already ends
-        // in exact `.zip` (checked above), so the install keeps it as it is.
+        // in exact `.zip` (the A21 check above), so the install keeps it.
         let record =
             mutate::install_bytes(world_dir, old_filename, bytes, Some(provenance)).await?;
         return Ok(ServerDatapackUpdateOutcome {
@@ -938,5 +940,30 @@ mod tests {
             "got {err:?}"
         );
         assert_eq!(std::fs::read(dp.join("Old.ZIP")).unwrap(), legacy);
+    }
+
+    /// §0.5 A7: input checks come first. A same-name update over a legacy
+    /// `X.ZIP` names the legacy file even in a world that is waiting to be
+    /// restored from `level.dat_old`.
+    #[tokio::test]
+    async fn the_legacy_name_refusal_comes_before_the_level_dat_state() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(td.path().join("datapacks")).unwrap();
+        level_dat::test_support::seed_old(td.path(), &[], &[]);
+
+        let err = update_one(
+            td.path(),
+            "Old.ZIP",
+            "Old.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(&err, Error::DatapackLegacyCaseName { legacy, .. } if legacy == "Old.ZIP"),
+            "got {err:?}"
+        );
     }
 }

@@ -212,6 +212,14 @@ fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackP
 /// bytes (size cap, then `pack_meta::classify`, whose root rule is the
 /// game's own, §0.5 A24), rather than promising an adoption it may refuse.
 fn predict_adoption(world_file: &Path, name: &str) -> DatapackResult {
+    // The size cap first, from metadata: an oversized pack is never read whole.
+    match std::fs::metadata(world_file) {
+        Ok(meta) if meta.len() > crate::datapacks::MAX_DATAPACK_BYTES as u64 => {
+            return left_as_copy(LeftReason::TooLarge)
+        }
+        Ok(_) => {}
+        Err(e) => return unreadable(world_file, e),
+    }
     let bytes = match std::fs::read(world_file) {
         Ok(bytes) => bytes,
         Err(e) => return unreadable(world_file, e),
@@ -757,6 +765,42 @@ mod tests {
                     predicted: not_a_pack,
                 },
             ]
+        );
+    }
+
+    /// The size cap is checked from metadata before the file is read: an
+    /// oversized pack is predicted "too large" without reading hundreds of
+    /// megabytes, even when its bytes cannot be read at all (Windows: a
+    /// handle held with no sharing blocks reads, not attribute queries).
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn an_oversized_zip_is_predicted_too_large_from_its_size_alone() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let fx = fixture();
+        install_jar(&fx.versions_dir, "1.20.1", Some(3465));
+        let dp = fx.world.join("datapacks");
+        fs::create_dir_all(&dp).unwrap();
+        let big = dp.join("big.zip");
+        fs::File::create(&big)
+            .unwrap()
+            .set_len(crate::datapacks::MAX_DATAPACK_BYTES as u64 + 1)
+            .unwrap();
+        let _held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&big)
+            .unwrap();
+
+        let p = plan(&fx, "1.20.1").await.unwrap();
+
+        assert_eq!(
+            p.datapacks,
+            vec![DatapackPlan {
+                filename: "big.zip".into(),
+                predicted: DatapackResult::LeftAsCopy {
+                    reason: LeftReason::TooLarge
+                },
+            }]
         );
     }
 }
