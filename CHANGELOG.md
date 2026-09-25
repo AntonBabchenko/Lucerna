@@ -124,13 +124,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   They used to show as enabled packs; the library no longer lists them among
   packs found only in worlds. A data pack file ending in `.ZIP` is saved as
   `.zip` on install.
-- **A folder with no `level.dat`, or a world that only has `level.dat_old`
-  left, is no longer changed.** Minecraft does not treat the first as a world.
-  It offers to restore the second from the backup when you open it, and a
-  server restores it on its next start. Lucerna used to write its own
-  `level.dat` into both, which could stop that restore. Their data packs are
-  now read-only, and the page says what to do. A server that has never started
-  shows why its packs can't be switched on or off yet.
+- **Lucerna no longer writes a `level.dat` into a folder that has none, or
+  into a world that only has `level.dat_old` left.** Minecraft does not treat
+  the first as a world. It offers to restore the second from the backup when
+  you open it, and a server restores it on its next start. Lucerna used to
+  write its own `level.dat` into both, which could stop that restore. Data
+  packs there can no longer be added or switched on or off, and the page says
+  what to do. A server that has never started shows why its packs can't be
+  switched on or off yet.
 - **Enabling a pack in a world with no data pack list no longer puts vanilla
   above the pack.** Lucerna used to write a list with vanilla above the pack.
   Now it writes nothing, and the game places the pack itself, after vanilla
