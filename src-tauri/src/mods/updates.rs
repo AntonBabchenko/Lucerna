@@ -7,7 +7,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::mods::installed::PackOrigin;
-use crate::mods::platform::{AssetUpdateState, InstalledMod, ModSource, ModVersion};
+use crate::mods::platform::{AssetUpdateState, InstalledMod, LoaderKind, ModSource, ModVersion};
 
 /// One installed user-mod's update-check result. One per *eligible*
 /// mod — see [`eligible_identity`]; ineligible mods are absent.
@@ -72,6 +72,23 @@ pub fn classify_update(installed: &InstalledMod, versions: &[ModVersion]) -> Mod
     } else {
         ModUpdateState::Unknown
     }
+}
+
+/// §5.4 of the 2026-09-21 spec, rows U1–U6: the update state the batch answers
+/// settle for one Modrinth mod, or `None` = ask the listing. `own` =
+/// `version_files[registry sha1]`, `latest` = `update_many[registry sha1]`.
+/// Keyed by the REGISTRY digest: the update check is a statement about the
+/// registered file, as [`classify_update`] has always been. Pure.
+pub fn batch_update_state(
+    current_version_id: &str,
+    project_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+    own: Option<&ModVersion>,
+    latest: &[ModVersion],
+) -> Option<ModUpdateState> {
+    let _ = (current_version_id, project_id, mc, loader, own, latest);
+    None // stub: red round
 }
 
 /// `true` iff `installed` is one of the modpack's bundled mods — its
@@ -420,5 +437,108 @@ mod tests {
         let s = pack_origin_summary(&po);
         assert_eq!(s.project_name, "Cool Pack");
         assert_eq!(s.mod_shas, vec!["aaa".to_string()]);
+    }
+
+    // ── Batch update state (2026-09-21 spec §5.4) ───────────────────────────
+    use crate::mods::compat::batch_model::{build, Platform};
+
+    const NF: LoaderKind = LoaderKind::NeoForge;
+
+    #[test]
+    fn batch_update_rows() {
+        let v1 = build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["aa"]).version;
+        let v2 = build("p", "v2", &["1.21.1"], &[NF], "p-2.jar", &["bb"]).version;
+        let old = build("p", "v0", &["1.21"], &[NF], "p-0.jar", &["cc"]).version;
+        // U1: unknown bytes, or bytes of another project → ask the listing.
+        assert!(batch_update_state("v1", "p", "1.21.1", NF, None, &[v2.clone()]).is_none());
+        assert!(batch_update_state("v1", "q", "1.21.1", NF, Some(&v1), &[v2.clone()]).is_none());
+        // U2: nothing listed, the file itself not tagged → Unknown, as an empty listing says.
+        assert!(matches!(
+            batch_update_state("v0", "p", "1.21.1", NF, Some(&old), &[]),
+            Some(ModUpdateState::Unknown)
+        ));
+        // U3: nothing listed although the file is tagged — contradiction → ask.
+        assert!(batch_update_state("v1", "p", "1.21.1", NF, Some(&v1), &[]).is_none());
+        // U3: the newest tagged build is one the filename rule drops → ask.
+        let fo = LoaderKind::Forge;
+        let forge_own = build("p", "f1", &["1.20.4"], &[fo], "p-forge-1.jar", &["dd"]).version;
+        let dropped = build("p", "f2", &["1.20.4"], &[fo], "p-neoforge-2.jar", &["ee"]).version;
+        assert!(
+            batch_update_state("f1", "p", "1.20.4", fo, Some(&forge_own), &[dropped]).is_none()
+        );
+        // U4: the newest listed build is the registered one.
+        assert!(matches!(
+            batch_update_state("v2", "p", "1.21.1", NF, Some(&v2), &[v2.clone()]),
+            Some(ModUpdateState::UpToDate)
+        ));
+        // U5: the bytes ARE the registered version: listed → update; not listed → Unknown.
+        match batch_update_state("v1", "p", "1.21.1", NF, Some(&v1), &[v2.clone()]) {
+            Some(ModUpdateState::UpdateAvailable { target }) => assert_eq!(target.version_id, "v2"),
+            other => panic!("expected an update to v2, got {other:?}"),
+        }
+        assert!(matches!(
+            batch_update_state("v0", "p", "1.21.1", NF, Some(&old), &[v2.clone()]),
+            Some(ModUpdateState::Unknown)
+        ));
+        // U6: the bytes belong to another version than the registered one → ask.
+        assert!(batch_update_state("v9", "p", "1.21.1", NF, Some(&v1), &[v2]).is_none());
+    }
+
+    fn kind(s: &ModUpdateState) -> &'static str {
+        match s {
+            ModUpdateState::UpToDate => "up_to_date",
+            ModUpdateState::UpdateAvailable { .. } => "update_available",
+            ModUpdateState::Unknown => "unknown",
+            ModUpdateState::CheckFailed { .. } => "check_failed",
+        }
+    }
+
+    #[test]
+    fn a_batch_update_state_is_what_the_listing_would_say_or_it_declines() {
+        let platform = Platform(vec![
+            build("p", "v0", &["1.21"], &[NF], "p-0.jar", &["a0"]),
+            build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["a1"]),
+            build("p", "v1b", &["1.21.1"], &[NF], "p-1b.jar", &["a1"]),
+            build("p", "v2", &["1.21.1"], &[NF], "p-2.jar", &["a2", "a2x"]),
+            build("q", "w1", &["1.21.1"], &[NF], "q-1.jar", &["b1"]),
+        ]);
+        let listing = platform.listing("p", "1.21.1", NF);
+        let mut decided = 0;
+        for (h, current) in [
+            ("a0", "v0"),
+            ("a1", "v1"),
+            ("a1", "v1b"),
+            ("a2", "v2"),
+            ("a2x", "v2"),
+            ("a1", "v9"),
+            ("zz", "v1"),
+        ] {
+            let m = installed_mod(h, Some(ModSource::Modrinth), Some("p"), Some(current));
+            let expected = classify_update(&m, &listing);
+            let latest = platform.update_many(h, "1.21.1", NF);
+            let owners = platform.owners(h);
+            let picks: Vec<Option<&ModVersion>> = if owners.is_empty() {
+                vec![None]
+            } else {
+                owners.into_iter().map(Some).collect()
+            };
+            for own in picks {
+                if let Some(state) = batch_update_state(current, "p", "1.21.1", NF, own, &latest) {
+                    decided += 1;
+                    assert_eq!(kind(&state), kind(&expected), "{h} / {current}");
+                    if let (
+                        ModUpdateState::UpdateAvailable { target: a },
+                        ModUpdateState::UpdateAvailable { target: b },
+                    ) = (&state, &expected)
+                    {
+                        assert_eq!(a.version_id, b.version_id, "{h} / {current}: target");
+                    }
+                }
+            }
+        }
+        assert!(
+            decided >= 4,
+            "only {decided} decided — the batch is not being exercised"
+        );
     }
 }
