@@ -13,7 +13,10 @@
   // The line carries the label too, visually hidden: when work moves to a new
   // phase only the spinner's aria-label changes, which screen readers do not
   // announce — the polite line is what they hear, so it must say which phase
-  // the count belongs to.
+  // the count belongs to (`aria-atomic`: read whole, as StatusMessage does).
+  // While it has nothing to say the line is `absolute` — out of flow, still in
+  // the accessibility tree — so the flex gap does not grow around an empty box
+  // (DESIGN.md §10, `tests/no-idle-live-region-box.test.ts`).
   import Spinner from '$lib/ui/Spinner.svelte';
 
   interface Props {
@@ -28,8 +31,14 @@
 <div class="flex flex-col items-center justify-center gap-2 py-8 text-secondary">
   <Spinner {size} {delayMs} labelPlacement="below" {label} />
   {#if detail !== undefined}
-    <p class="text-xs text-muted" aria-live="polite" data-testid="loading-panel-detail">
-      {#if detail}<span class="sr-only">{label} </span><span>{detail}</span>{/if}
+    <p
+      class="text-xs text-muted"
+      class:absolute={!detail}
+      aria-live="polite"
+      aria-atomic="true"
+      data-testid="loading-panel-detail"
+    >
+      {#if detail}<span class="sr-only">{label + ' '}</span><span>{detail}</span>{/if}
     </p>
   {/if}
 </div>
