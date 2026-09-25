@@ -183,6 +183,22 @@ pub fn drop_filename_loader_mismatches(
     }
 }
 
+/// True iff `v` is tagged for both `mc` and `want` — the test the SERVER
+/// applies, both in the per-project listing and in
+/// `version_files/update_many` (2026-09-21 spec, S2/S5). Our filename rule is
+/// not part of it.
+pub fn tagged_for(v: &ModVersion, mc: &str, want: LoaderKind) -> bool {
+    let _ = (v, mc, want);
+    false // stub: red round
+}
+
+/// True iff the per-project listing for (`mc`, `want`) would contain `v`:
+/// tagged for both, and kept by [`drop_filename_loader_mismatches`]'s rule.
+pub fn listed_for(v: &ModVersion, mc: &str, want: LoaderKind) -> bool {
+    let _ = (v, mc, want);
+    false // stub: red round
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModSearchQuery {
     pub source: ModSource,
@@ -903,5 +919,41 @@ mod tests {
         .unwrap();
         assert_eq!(q.kind, ContentKind::Mod);
         assert_eq!(q.plugin_core, None);
+    }
+
+    fn version_on(filename: &str, mc: &str, loaders: Vec<LoaderKind>) -> ModVersion {
+        let mut v = version_tagged(filename, loaders);
+        v.mc_versions = vec![mc.into()];
+        v
+    }
+
+    #[test]
+    fn tagged_for_needs_both_the_game_version_and_the_loader() {
+        let v = version_on("mod-1.0.jar", "1.21.1", vec![LoaderKind::NeoForge]);
+        assert!(tagged_for(&v, "1.21.1", LoaderKind::NeoForge));
+        assert!(
+            !tagged_for(&v, "1.21", LoaderKind::NeoForge),
+            "a neighbouring Minecraft version is not this one"
+        );
+        assert!(!tagged_for(&v, "1.21.1", LoaderKind::Forge));
+    }
+
+    #[test]
+    fn listed_for_is_membership_of_the_per_project_listing() {
+        let plain = version_on("mod-1.0.jar", "1.21.1", vec![LoaderKind::NeoForge]);
+        assert!(listed_for(&plain, "1.21.1", LoaderKind::NeoForge));
+        assert!(
+            !listed_for(&plain, "1.21", LoaderKind::NeoForge),
+            "not tagged → not listed"
+        );
+        // Tagged, but the filename rule drops it — Xaero's NeoForge jar tagged
+        // `forge`: the server returns it, our listing does not.
+        let mistagged = version_on(
+            "xaerominimap-neoforge-1.20.4.jar",
+            "1.20.4",
+            vec![LoaderKind::Forge],
+        );
+        assert!(tagged_for(&mistagged, "1.20.4", LoaderKind::Forge));
+        assert!(!listed_for(&mistagged, "1.20.4", LoaderKind::Forge));
     }
 }
