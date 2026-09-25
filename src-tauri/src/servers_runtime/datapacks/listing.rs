@@ -171,7 +171,12 @@ fn build_entries(
                     disabled.contains(&row.filename),
                 )
             });
-            let (state, ignored_reason) = if unknown.contains(&row.filename) {
+            // An entry the game ignores is ignored whatever pack it is, so an
+            // unknown join does not wipe that (§0.5 A4); any other candidate's
+            // state is unknown.
+            let ignored_on_disk =
+                disk.is_some_and(|d| matches!(d.presence, detect::Presence::Unusable { .. }));
+            let (state, ignored_reason) = if unknown.contains(&row.filename) && !ignored_on_disk {
                 (None, None)
             } else {
                 state::derive(disk.map(|d| &d.presence), membership, None)
@@ -500,5 +505,42 @@ mod tests {
         assert_eq!(rows[0].record.project_id.as_deref(), Some("veinminer"));
         assert_eq!((rows[0].state, rows[0].ignored_reason), (None, None));
         assert!(rows[0].present);
+    }
+
+    /// §0.5 A4: detection does not depend on which pack an entry is. When R2
+    /// cannot tell whether the sidecar's `vm.zip` is the world's `VM.ZIP`, the
+    /// game still ignores `VM.ZIP` whatever it is, and the row says why.
+    #[test]
+    fn an_unknown_join_keeps_the_reason_the_game_ignores_its_candidate() {
+        let on_disk = vec![detect::OnDiskEntry {
+            name: "VM.ZIP".into(),
+            presence: detect::Presence::Unusable {
+                is_dir: false,
+                reason: IgnoredReason::ZipExtensionNotLowercase,
+            },
+            vouched: false,
+        }];
+        let records = vec![ServerInstalledRecord {
+            filename: "vm.zip".into(),
+            sha1: "aa".into(),
+            source: None,
+            project_id: Some("veinminer".into()),
+            version_id: None,
+            name: None,
+            version_number: None,
+            enrich_attempted: false,
+        }];
+        let lists = (vec!["vanilla".to_string()], Vec::new());
+        let could_not_tell =
+            |_: &str, _: &[String]| detect::Resolved::Unknown(std::io::Error::other("stat failed"));
+        let rows = build_entries(&on_disk, &records, Some(&lists), &could_not_tell);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(
+            (rows[0].state, rows[0].ignored_reason),
+            (
+                Some(WorldPackState::Ignored),
+                Some(IgnoredReason::ZipExtensionNotLowercase)
+            )
+        );
     }
 }
