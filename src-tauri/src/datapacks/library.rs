@@ -611,7 +611,7 @@ async fn worlds_naming(instance_root: &Path, filename: &str) -> Result<Sweep> {
     Ok(sweep)
 }
 
-// Case-folded on purpose (§0.5 A18): it only NOMINATES worlds for the
+/// Case-folded on purpose (§0.5 A18): it only NOMINATES worlds for the
 /// cascade's orphan sweep, and the removal it calls applies R3, which never
 /// drops an id whose exact spelling is a present entry.
 fn names_ci(list: &[String], entry: &str) -> bool {
