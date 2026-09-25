@@ -141,6 +141,26 @@ fn classify_at(
     if ft.is_dir() {
         return folder_presence(path).map(Some);
     }
+    // `PackDetector` loads regular files only (a link is followed to its
+    // target, A25). A FIFO, socket or device is not an entry, and is never
+    // opened: opening a FIFO blocks until a writer appears. A link whose
+    // target cannot be stated is "could not tell".
+    let is_regular_file = if ft.is_symlink() {
+        match fs::metadata(path) {
+            Ok(meta) => meta.is_file(),
+            Err(cause) => {
+                return Err(Unreadable {
+                    is_dir: false,
+                    cause,
+                })
+            }
+        }
+    } else {
+        ft.is_file()
+    };
+    if !is_regular_file {
+        return Ok(None);
+    }
     if has_zip_suffix(name) {
         if vouched {
             return Ok(Some(Presence::Pack { is_dir: false }));
@@ -298,11 +318,37 @@ pub fn resolve(dp_dir: &Path, name: &str, names: &[String]) -> Resolved {
     let (Some(only), None) = (matches.next(), matches.next()) else {
         return Resolved::Absent;
     };
-    match fs::symlink_metadata(dp_dir.join(name)) {
-        Ok(_) => Resolved::Folded(only.clone()),
-        // Case-sensitive file system: a different pack.
+    // Both names must be ONE entry: `name` stating is not enough. `names` can
+    // be stale, or filtered (the sidecar passes regular files only), and on a
+    // case-sensitive file system a `name` that stats is a different pack.
+    match same_entry(&dp_dir.join(name), &dp_dir.join(only)) {
+        Ok(true) => Resolved::Folded(only.clone()),
+        Ok(false) => Resolved::Absent,
+        // Case-sensitive file system (or the entry went away): not this pack.
         Err(e) if e.kind() == io::ErrorKind::NotFound => Resolved::Absent,
         Err(e) => Resolved::Unknown(e),
+    }
+}
+
+/// Whether two paths are the same directory entry. Neither is followed.
+/// Unix: the same `(dev, ino)`. Elsewhere: the same type, length, and
+/// modification and creation times, from handle metadata — Windows'
+/// `symlink_metadata` asks the file itself, not the directory listing, so
+/// two spellings of one NTFS entry agree exactly. `Err` = either could not
+/// be stated (`NotFound`: that name is not there).
+pub(crate) fn same_entry(a: &Path, b: &Path) -> io::Result<bool> {
+    let (ma, mb) = (fs::symlink_metadata(a)?, fs::symlink_metadata(b)?);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(ma.dev() == mb.dev() && ma.ino() == mb.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(ma.file_type() == mb.file_type()
+            && ma.len() == mb.len()
+            && ma.modified()? == mb.modified()?
+            && ma.created()? == mb.created()?)
     }
 }
 
@@ -795,5 +841,51 @@ mod tests {
             target_for_write(td.path(), "missing.zip").unwrap(),
             WriteTarget::Absent
         ));
+    }
+
+    /// R2's fold check (N.3): two names are one entry only when the file
+    /// system says they are the same file, not merely when both stat. Two
+    /// distinct files of the same length (and, here, distinct modification
+    /// times) are two entries; a file is one entry with itself.
+    #[test]
+    fn same_entry_tells_two_same_sized_files_apart() {
+        let td = tempfile::tempdir().unwrap();
+        let (a, b) = (td.path().join("a.zip"), td.path().join("b.zip"));
+        std::fs::write(&a, b"xx").unwrap();
+        std::fs::write(&b, b"yy").unwrap();
+        let earlier = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&b)
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+        assert!(!same_entry(&a, &b).unwrap());
+        assert!(same_entry(&a, &a).unwrap());
+    }
+
+    /// Where the file system folds case, the other spelling is the same entry.
+    #[test]
+    fn same_entry_sees_a_folded_spelling_as_one_entry() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(td.path().join("veinminer.zip"), b"x").unwrap();
+        if !fs_folds_case(td.path()) {
+            return; // case-sensitive: the other spelling does not exist
+        }
+        assert!(same_entry(
+            &td.path().join("VeinMiner.zip"),
+            &td.path().join("veinminer.zip")
+        )
+        .unwrap());
+    }
+
+    /// `PackDetector` loads regular files only. A socket (or a FIFO) named
+    /// `*.zip` is not an entry and is never opened: opening a FIFO blocks.
+    #[cfg(unix)]
+    #[test]
+    fn a_socket_named_zip_is_not_an_entry() {
+        let td = tempfile::tempdir().unwrap();
+        let _sock = std::os::unix::net::UnixListener::bind(td.path().join("sock.zip")).unwrap();
+        assert!(scan(td.path(), &never).unwrap().is_empty());
     }
 }

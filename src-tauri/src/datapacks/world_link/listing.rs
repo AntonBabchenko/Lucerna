@@ -134,9 +134,11 @@ fn build_rows(
 
 /// N.1 vouch rule (client only). A registry row has the EXACT filename, and
 /// the world entry and `<instance>/datapacks/<name>` agree on `(len,
-/// modified)`. `std::fs::metadata` is a handle query; `DirEntry::metadata` can
-/// be stale for an NTFS hardlink. Any stat failure or difference means "not
-/// vouched", which costs one central-directory read and never changes the verdict.
+/// modified)`, read from an open handle on each file. A directory entry's
+/// copy of those (`DirEntry::metadata`, or Windows' `fs::metadata` when it
+/// falls back to the listing on a sharing violation) can be stale for an NTFS
+/// hardlink. Any failure or difference means "not vouched", which costs one
+/// central-directory read and never changes the verdict.
 pub(crate) fn vouched_by_library(
     rows: &[InstalledDatapack],
     lib_dir: &Path,
@@ -146,12 +148,10 @@ pub(crate) fn vouched_by_library(
     if !rows.iter().any(|r| r.filename == name) {
         return false;
     }
-    // Could not stat either side: not vouched, so the zip gets the real root
-    // check. The restrictive answer, and it never changes the verdict (N.1).
-    let (Ok(world), Ok(lib)) = (
-        std::fs::metadata(world_path),
-        std::fs::metadata(lib_dir.join(name)),
-    ) else {
+    // Could not open or stat either side: not vouched, so the zip gets the
+    // real root check. The restrictive answer; it never changes the verdict.
+    let handle_meta = |p: &Path| std::fs::File::open(p).and_then(|f| f.metadata());
+    let (Ok(world), Ok(lib)) = (handle_meta(world_path), handle_meta(&lib_dir.join(name))) else {
         return false;
     };
     match (world.modified(), lib.modified()) {
@@ -571,6 +571,59 @@ mod tests {
                 WorldPackState::Ignored,
                 Some(IgnoredReason::FolderWithoutPackMcmeta)
             )
+        );
+    }
+
+    /// N.1 vouch rule, positive path: a world entry hardlinked to the library
+    /// copy is the library's file, so it is never opened (a body the zip crate
+    /// rejects still lists as a pack).
+    #[tokio::test]
+    async fn a_hardlinked_library_copy_is_vouched_and_never_opened() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("vm.zip"), b"garbage the zip crate rejects").unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::hard_link(lib.join("vm.zip"), wd.join("datapacks/vm.zip")).unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        let row = only_row(&listed);
+        assert_eq!(
+            (row.state, row.ignored_reason),
+            (WorldPackState::Enabled, None)
+        );
+    }
+
+    /// N.1 vouch rule, the mtime half: the same name and length with another
+    /// modification time is not the library copy, so it is root-checked.
+    #[tokio::test]
+    async fn a_same_sized_world_zip_with_another_mtime_is_root_checked() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        let body = b"garbage the zip crate rejects";
+        std::fs::write(lib.join("vm.zip"), body).unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), body).unwrap();
+        let earlier = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(wd.join("datapacks/vm.zip"))
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        assert_eq!(
+            only_row(&listed).ignored_reason,
+            Some(IgnoredReason::Unreadable),
+            "root-checked, and the zip crate cannot read it"
         );
     }
 }
