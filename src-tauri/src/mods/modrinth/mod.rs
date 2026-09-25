@@ -5,6 +5,7 @@ mod types;
 use async_trait::async_trait;
 
 use crate::error::Error;
+use crate::mods::hash_probe::{classify_status, BatchFailure, LatestAnswers};
 use crate::mods::platform::*;
 use std::collections::HashMap;
 
@@ -254,6 +255,114 @@ impl ModrinthClient {
             }
         }
         Ok(out)
+    }
+
+    /// `POST /v2/version_files` for many hashes: the version owning each file
+    /// (2026-09-21 spec, S1 — one arbitrary owner when several versions carry
+    /// the same bytes). Request hashes and response keys are lower-cased: the
+    /// server's lookup is case-sensitive (S9). Unknown hashes are absent — and
+    /// so is an owner the per-project listing does not show (S10): the bytes
+    /// then read as unknown and the listing decides. Any failed chunk fails
+    /// the call.
+    pub async fn owners_by_hashes(
+        &self,
+        shas: &[String],
+    ) -> Result<HashMap<String, ModVersion>, BatchFailure> {
+        let mut out = HashMap::new();
+        for chunk in shas.chunks(BATCH_CHUNK) {
+            let hashes: Vec<String> = chunk.iter().map(|s| s.to_ascii_lowercase()).collect();
+            let map: HashMap<String, types::Version> = self
+                .post_hash_batch(
+                    "/v2/version_files",
+                    serde_json::json!({ "hashes": hashes, "algorithm": "sha1" }),
+                )
+                .await?;
+            for (sha, v) in map {
+                if in_project_listing(v.status.as_deref()) {
+                    out.insert(sha.to_ascii_lowercase(), convert_version(v));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// `POST /v2/version_files/update_many` for many hashes: for each project
+    /// owning each file, its newest version tagged for (`mc`, `loader`) — by
+    /// TAGS only; the caller applies our filename rule (S2, D5). Absent = no
+    /// such version, or unknown bytes (S3: indistinguishable here). A hash
+    /// whose answer names a version the per-project listing does not show is
+    /// `declined` (S10). `/update` is deprecated upstream in favour of this
+    /// endpoint (S4).
+    pub async fn latest_by_hashes(
+        &self,
+        shas: &[String],
+        mc: &str,
+        loader: LoaderKind,
+    ) -> Result<LatestAnswers, BatchFailure> {
+        let mut out = LatestAnswers::default();
+        for chunk in shas.chunks(BATCH_CHUNK) {
+            let hashes: Vec<String> = chunk.iter().map(|s| s.to_ascii_lowercase()).collect();
+            let map: HashMap<String, Vec<types::Version>> = self
+                .post_hash_batch(
+                    "/v2/version_files/update_many",
+                    serde_json::json!({
+                        "hashes": hashes,
+                        "algorithm": "sha1",
+                        "loaders": [Self::loader_facet(loader)],
+                        "game_versions": [mc],
+                    }),
+                )
+                .await?;
+            for (sha, vs) in map {
+                let sha = sha.to_ascii_lowercase();
+                // One version the listing leaves out and the newest LISTED
+                // build of that project is unknown: nothing may be concluded
+                // from this hash (S10).
+                if vs.iter().all(|v| in_project_listing(v.status.as_deref())) {
+                    out.listed
+                        .insert(sha, vs.into_iter().map(convert_version).collect());
+                } else {
+                    out.declined.insert(sha);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// One batch POST through the chokepoint, classified per
+    /// [`classify_status`]. Every failure leaves one line in the launcher log:
+    /// it is the only place the reason survives.
+    async fn post_hash_batch<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<T, BatchFailure> {
+        let url = format!("{}{}", self.base, path);
+        let body = serde_json::to_vec(&body).expect("a serde_json::Value always serializes");
+        let resp = match crate::network::request::post(
+            &url,
+            &[("user-agent", UA), ("content-type", "application/json")],
+            &body,
+            "mods",
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                crate::diag!("[hash_probe] {path}: no response ({e}) — counted as unavailable");
+                return Err(BatchFailure::Unavailable);
+            }
+        };
+        if let Some(failure) = classify_status(resp.status) {
+            crate::diag!("[hash_probe] {path}: HTTP {} — {failure:?}", resp.status);
+            return Err(failure);
+        }
+        serde_json::from_slice(&resp.body).map_err(|e| {
+            crate::diag!(
+                "[hash_probe] {path}: undecodable body ({e}) — per-project listing instead"
+            );
+            BatchFailure::Unusable
+        })
     }
 }
 
@@ -717,6 +826,15 @@ fn urlencode(s: &str) -> String {
     out
 }
 
+/// True for the statuses the per-project listing holds. labrinth builds a
+/// project's version list from `VersionStatus::is_listed()` — `listed` and
+/// `archived` — while the hash endpoints admit every status that is not hidden,
+/// `unlisted` included (2026-09-21 spec, S10). A missing status is not assumed
+/// listed.
+fn in_project_listing(status: Option<&str>) -> bool {
+    matches!(status, Some("listed" | "archived"))
+}
+
 fn convert_version(v: types::Version) -> ModVersion {
     let primary = v
         .files
@@ -859,7 +977,7 @@ fn build_facets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{body_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -1613,6 +1731,153 @@ mod tests {
         assert_eq!(hit.version_id, "v1");
         assert_eq!(hit.version_number, "1.0.0");
         assert_eq!(hit.name, "v1");
+    }
+
+    #[tokio::test]
+    async fn owners_by_hashes_lowercases_and_converts() {
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .and(body_json(serde_json::json!({ "hashes": ["aabb"], "algorithm": "sha1" })))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"AABB":{"id":"v1","project_id":"p1","name":"v1","version_number":"1.0",
+                   "game_versions":["1.21.1"],"loaders":["neoforge"],"date_published":null,
+                   "files":[{"url":"u","filename":"p1-1.0.jar","hashes":{"sha1":"aabb"},"size":1,"primary":true}],
+                   "dependencies":[],"status":"listed"}}"#,
+            ))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = ModrinthClient::with_base(s.uri())
+            .owners_by_hashes(&["AABB".to_string()])
+            .await
+            .unwrap();
+        let v = &out["aabb"];
+        assert_eq!(v.project_id, "p1");
+        assert_eq!(v.loaders, vec![LoaderKind::NeoForge]);
+        assert_eq!(v.primary_file.sha1.as_deref(), Some("aabb"));
+    }
+
+    #[tokio::test]
+    async fn latest_by_hashes_sends_the_platform_filter_and_parses_the_array_shape() {
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files/update_many"))
+            .and(body_json(serde_json::json!({
+                "hashes": ["aabb"],
+                "algorithm": "sha1",
+                "loaders": ["fabric"],
+                "game_versions": ["1.21.1"]
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"aabb":[
+                  {"id":"v2","project_id":"p1","name":"v2","version_number":"2.0","game_versions":["1.21.1"],
+                   "loaders":["fabric"],"date_published":null,
+                   "files":[{"url":"u","filename":"p1-2.0.jar","hashes":{"sha1":"cc"},"size":1,"primary":true}],
+                   "dependencies":[],"status":"listed"},
+                  {"id":"w5","project_id":"p2","name":"w5","version_number":"5.0","game_versions":["1.21.1"],
+                   "loaders":["fabric"],"date_published":null,
+                   "files":[{"url":"u","filename":"p2-5.0.jar","hashes":{"sha1":"dd"},"size":1,"primary":true}],
+                   "dependencies":[],"status":"archived"}
+                ]}"#,
+            ))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = ModrinthClient::with_base(s.uri())
+            .latest_by_hashes(&["aabb".to_string()], "1.21.1", LoaderKind::Fabric)
+            .await
+            .unwrap();
+        assert_eq!(out.listed["aabb"].len(), 2);
+        assert_eq!(out.listed["aabb"][1].project_id, "p2");
+        assert!(
+            out.declined.is_empty(),
+            "listed and archived versions are both in the listing"
+        );
+    }
+
+    #[tokio::test]
+    async fn owners_by_hashes_leaves_out_a_version_the_project_listing_does_not_show() {
+        // labrinth builds a project's version list from `listed` + `archived`;
+        // `version_files` also returns `unlisted` (2026-09-21 spec, S10).
+        use crate::mods::hash_probe::test_support::{obj, version_json, with_status};
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(obj(vec![
+                (
+                    "aa",
+                    with_status(
+                        version_json("v1", "p1", "1.21.1", "neoforge", "p1-1.jar", "aa"),
+                        "unlisted",
+                    ),
+                ),
+                (
+                    "bb",
+                    with_status(
+                        version_json("w1", "p2", "1.21.1", "neoforge", "p2-1.jar", "bb"),
+                        "archived",
+                    ),
+                ),
+            ])))
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = ModrinthClient::with_base(s.uri())
+            .owners_by_hashes(&["aa".to_string(), "bb".to_string()])
+            .await
+            .unwrap();
+        assert!(
+            !out.contains_key("aa"),
+            "an unlisted owner reads as unknown bytes"
+        );
+        assert!(out.contains_key("bb"));
+    }
+
+    #[tokio::test]
+    async fn latest_by_hashes_declines_a_hash_whose_answer_names_an_unlisted_version() {
+        use crate::mods::hash_probe::test_support::{obj, version_json, with_status};
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files/update_many"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(obj(vec![
+                (
+                    "aa",
+                    serde_json::json!([
+                        version_json("v2", "p1", "1.21.1", "fabric", "p1-2.jar", "cc"),
+                        with_status(
+                            version_json("w5", "p2", "1.21.1", "fabric", "p2-5.jar", "dd"),
+                            "unlisted"
+                        ),
+                    ]),
+                ),
+                (
+                    "bb",
+                    serde_json::json!([version_json(
+                        "x1", "p3", "1.21.1", "fabric", "p3-1.jar", "ee"
+                    )]),
+                ),
+            ])))
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = ModrinthClient::with_base(s.uri())
+            .latest_by_hashes(
+                &["aa".to_string(), "bb".to_string()],
+                "1.21.1",
+                LoaderKind::Fabric,
+            )
+            .await
+            .unwrap();
+        assert!(out.declined.contains("aa"));
+        assert!(!out.listed.contains_key("aa"));
+        assert_eq!(out.listed["bb"].len(), 1);
     }
 
     #[tokio::test]

@@ -3,16 +3,42 @@
   // beneath it. Use for panels / dialog bodies that are otherwise empty while
   // content loads. Inline / per-row loads should use
   // <Spinner labelPlacement="right" .../> directly instead.
+  //
+  // `detail` is an optional muted line under the label for work that can say
+  // how far along it is («37 of 136»). Pass `null` until there is something to
+  // say: the line's live region is rendered whenever the prop is given at all,
+  // so it exists before its first update — a region created WITH its text is
+  // often not announced. Leave the prop out and nothing extra is rendered.
+  //
+  // The line carries the label too, visually hidden: when work moves to a new
+  // phase only the spinner's aria-label changes, which screen readers do not
+  // announce — the polite line is what they hear, so it must say which phase
+  // the count belongs to (`aria-atomic`: read whole, as StatusMessage does).
+  // While it has nothing to say the line is `absolute` — out of flow, still in
+  // the accessibility tree — so the flex gap does not grow around an empty box
+  // (DESIGN.md §10, `tests/no-idle-live-region-box.test.ts`).
   import Spinner from '$lib/ui/Spinner.svelte';
 
   interface Props {
     label: string;
     size?: 'sm' | 'md' | 'lg';
     delayMs?: number;
+    detail?: string | null;
   }
-  let { label, size = 'lg', delayMs = 150 }: Props = $props();
+  let { label, size = 'lg', delayMs = 150, detail }: Props = $props();
 </script>
 
 <div class="flex flex-col items-center justify-center gap-2 py-8 text-secondary">
   <Spinner {size} {delayMs} labelPlacement="below" {label} />
+  {#if detail !== undefined}
+    <p
+      class="text-xs text-muted"
+      class:absolute={!detail}
+      aria-live="polite"
+      aria-atomic="true"
+      data-testid="loading-panel-detail"
+    >
+      {#if detail}<span class="sr-only">{label + ' '}</span><span>{detail}</span>{/if}
+    </p>
+  {/if}
 </div>

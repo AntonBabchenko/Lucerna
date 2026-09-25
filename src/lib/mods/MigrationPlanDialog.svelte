@@ -23,6 +23,7 @@
     type McMigrationReport,
     type McMigrationRowOutcome,
     type McMigrationSelections_Deserialize,
+    type MigrationPlanProgress,
     type NewDependencyRow_Serialize,
     type NoPlatformBuildRow,
     type StrandedDisposition,
@@ -30,6 +31,7 @@
     type StrandedRow,
     type UnjudgedReason,
   } from '$lib/ipc/bindings';
+  import { loadMigrationPlan } from '$lib/mods/migration-plan-runner';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -67,6 +69,9 @@
   let phase = $state<Phase>('loading');
   let plan = $state<McMigrationPlan_Serialize | null>(null);
   let loadError = $state<string | null>(null);
+  // The backend's latest progress tick while the plan loads; `null` before the
+  // first one, when the loading state reads exactly as it always has.
+  let progress = $state<MigrationPlanProgress | null>(null);
 
   // Per-row settled choices. Sets/maps from `svelte/reactivity` so `.add` /
   // `.delete` / `.set` mutate in place and stay reactive — no manual
@@ -127,7 +132,8 @@
   async function loadPlan() {
     phase = 'loading';
     loadError = null;
-    const res = await commands.modsPlanMcMigration(instanceId);
+    progress = null;
+    const res = await loadMigrationPlan(instanceId, (p) => (progress = p));
     if (res.status === 'error') {
       loadError = formatError(res.error);
       phase = 'error';
@@ -142,6 +148,19 @@
   }
 
   onMount(() => void loadPlan());
+
+  // The loading label names what the backend is doing now; before its first
+  // tick — and while it checks installed mods — it reads as it always has.
+  function loadingLabel(p: MigrationPlanProgress | null): string {
+    switch (p?.phase) {
+      case 'finding_replacements':
+        return $t('mods.migration.progress.findingReplacements');
+      case 'resolving_dependencies':
+        return $t('mods.migration.progress.resolvingDependencies');
+      default:
+        return $t('mods.migration.loading');
+    }
+  }
 
   // Apply is gated on "the user selected at least one thing to do", NOT on
   // "every stranded row is decided". Someone who only wants a top-section
@@ -294,7 +313,12 @@
 
   <div class="min-h-0 flex-1 overflow-y-auto p-4">
     {#if phase === 'loading'}
-      <LoadingPanel label={$t('mods.migration.loading')} />
+      <LoadingPanel
+        label={loadingLabel(progress)}
+        detail={progress
+          ? $t('mods.migration.progress.count', { done: progress.done, total: progress.total })
+          : null}
+      />
     {:else if phase === 'error'}
       <p class="text-sm text-danger mb-3" data-testid="migration-load-error">{loadError}</p>
       <button type="button" class="btn-secondary btn-sm" onclick={() => void loadPlan()}>
