@@ -354,7 +354,7 @@ mod tests {
 
     #[tokio::test]
     async fn migrate_in_a_world_without_a_datapacks_compound_creates_no_compound() {
-        // `forget_ci`, then `set_enabled(.., true)`. If the forget created an
+        // The forget, then `set_enabled(.., true)`. If the forget created an
         // empty compound, the enable would write `[file/vm-2.zip]` with no
         // vanilla below it: the order bug §0.5 A15 removes.
         let _lock = hardlink_lock();

@@ -1,81 +1,49 @@
-//! The union listing: on-disk entries, sidecar rows and level.dat names.
+//! The server world's listing: its on-disk entries as the game sees them
+//! (`datapacks::detect`), the sidecar rows that denote them (R2) and the
+//! level.dat names, each row with its derived state.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::datapacks::detect;
 use crate::datapacks::presence::{self, LevelDatPresence};
-use crate::datapacks::{state, world_link};
+use crate::datapacks::state;
+use crate::error::{Error, Result};
 use crate::servers_runtime::installed::ServerInstalledRecord;
-
-use crate::error::Result;
 
 use super::{sidecar, ServerDatapackEntry, ServerDatapackListing};
 
-/// What Minecraft's own `datapacks/` scanner would load: any directory,
-/// regardless of name, plus any file ending `.zip`. Returned as
-/// `(name, is_dir)`. An absent or unreadable dir yields an empty list, never
-/// an error.
-fn on_disk_entries(dp_dir: &Path) -> Vec<(String, bool)> {
-    let Ok(rd) = std::fs::read_dir(dp_dir) else {
-        return Vec::new();
-    };
-    rd.flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            match e.file_type() {
-                Ok(ft) if ft.is_dir() => Some((name, true)),
-                Ok(_) if name.to_ascii_lowercase().ends_with(".zip") => Some((name, false)),
-                _ => None,
-            }
-        })
-        .collect()
-}
-
-/// Merge the three name sources into one deduplicated list, case-folded.
-///
-/// The kept SPELLING for a collision prefers, in order: on-disk, then the
-/// sidecar row's, then `level.dat`'s. On-disk has to win because the
-/// `present` flag below is a plain, un-folded comparison against the chosen
-/// spelling, while `level.dat` membership goes through `contains_ci`. Get it
-/// backwards and a case-drifted pack renders as a phantom ghost row whose
-/// removal-as-repair then clears the `level.dat` entry of a PRESENT pack —
-/// which, since present-and-unlisted auto-enables, silently re-enables a pack
-/// the admin disabled.
-///
-/// Display/merge only: every write path keeps using the exact filename its
-/// own caller gave it.
-fn union_names(level_dat_names: &[String], sidecar: &[String], on_disk: &[String]) -> Vec<String> {
-    let mut by_key: BTreeMap<String, String> = BTreeMap::new();
-    // Insertion order is priority order, LOWEST first — a later insert for the
-    // same folded key overwrites the earlier one.
-    for n in level_dat_names.iter().chain(sidecar).chain(on_disk) {
-        by_key.insert(n.to_lowercase(), n.clone());
-    }
-    by_key.into_values().collect()
-}
-
-/// Every datapack this server's world knows about: the union of the on-disk
-/// entries, the provenance sidecar and the `level.dat` name lists, each row
-/// with its derived state.
+/// Every datapack this server's world knows about: the entries of its
+/// `datapacks/` folder, classified as the game's `PackDetector` does
+/// (`detect::scan`), the provenance sidecar's rows and the `level.dat` name
+/// lists, each row with its derived state. On-disk entries never merge with
+/// each other; a sidecar row joins the entry it denotes (R2), and a
+/// `level.dat` name joins only an exact or single case-insensitive on-disk
+/// match (the display merge, spec §2 N.3). Membership is exact on the
+/// engine's id (R1).
 ///
 /// The lists are the ones the server would load: `level.dat`'s,
 /// `level.dat_old`'s when only the backup is left, or two empty lists for a
 /// world not generated yet. A `level.dat` problem never fails the listing:
 /// it degrades the states to unknown, and sets `level_dat: None` when the
-/// presence itself could not be told.
+/// presence itself could not be told. An entry the game ignores keeps its
+/// `Ignored` state and reason either way (§0.5 A4): detection does not depend
+/// on `level.dat`.
 ///
-/// `Result` is reserved for the folder scan, whose failure is to become the
-/// pane's load error (§0.5 A4); nothing returns `Err` yet.
+/// `Err` = the world's `datapacks/` could not be read; the pane shows it as
+/// its load error (§0.5 A4). A missing folder is no entries, not an error.
 ///
 /// `world_dir` is `runtime/<level>/`; its `datapacks/` child holds the packs.
 ///
 /// **Not read-only:** this reconciles the provenance sidecar against disk and
 /// persists the result (best-effort) via [`sidecar::reconcile`], adopting a
-/// hand-dropped `.zip` and pruning a row whose file is gone. The client's
+/// hand-dropped pack and pruning a row whose file is gone. The client's
 /// `datapacks::registry::list` is deliberately the same shape.
 pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
     let dp_dir = world_dir.join("datapacks");
-    let on_disk = on_disk_entries(&dp_dir);
+    // No vouch on the server (N.1): packs are few, and a sidecar row adopted
+    // by name was never validated.
+    let on_disk = detect::scan(&dp_dir, &|_, _| false)
+        .map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
     let records = sidecar::reconcile(world_dir);
 
     // What the server would load. Present ⇒ `level.dat`; OnlyOld ⇒
@@ -89,7 +57,8 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
         Ok(p) => Some(p),
         Err(e) => {
             crate::diag!(
-                "server datapacks: listing {} with unknown states: could not tell whether it                  has a level.dat: {e}",
+                "server datapacks: listing {} with unknown states: could not tell whether it \
+                 has a level.dat: {e}",
                 world_dir.display()
             );
             None
@@ -101,7 +70,8 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
             Ok(lists) => lists,
             Err(e) => {
                 crate::diag!(
-                    "server datapacks: listing {} with unknown states: could not read its data                      pack lists: {e}",
+                    "server datapacks: listing {} with unknown states: could not read its data \
+                     pack lists: {e}",
                     world_dir.display()
                 );
                 None
@@ -120,74 +90,73 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
         Some((e, d)) => (strip(e), strip(d)),
         None => (Vec::new(), Vec::new()),
     };
-
-    let on_disk_names: Vec<String> = on_disk.iter().map(|(n, _)| n.clone()).collect();
+    let disk_names: Vec<String> = on_disk.iter().map(|e| e.name.clone()).collect();
     let sidecar_names: Vec<String> = records.iter().map(|r| r.filename.clone()).collect();
     let mut level_dat_names = enabled.clone();
-    level_dat_names.extend(disabled.clone());
+    level_dat_names.extend(disabled.iter().cloned());
+    let resolves_to = |name: &str| detect::resolve_for_display(&dp_dir, name, &disk_names);
+    let merged = detect::display_merge(&on_disk, &sidecar_names, &resolves_to, &level_dat_names);
 
-    let mut out: Vec<ServerDatapackEntry> =
-        union_names(&level_dat_names, &sidecar_names, &on_disk_names)
-            .into_iter()
-            .map(|name| {
-                let disk = on_disk.iter().find(|(n, _)| *n == name);
-                let present = disk.is_some();
-                let is_folder = disk.map(|(_, d)| *d).unwrap_or(false);
-                let record = records
-                    .iter()
-                    .find(|r| r.filename.to_lowercase() == name.to_lowercase())
-                    .cloned()
-                    .unwrap_or_else(|| ServerInstalledRecord {
-                        filename: name.clone(),
-                        // A folder or a ghost: nothing to hash. The UI keys rows
-                        // on the filename precisely because of this.
-                        sha1: String::new(),
-                        source: None,
-                        project_id: None,
-                        version_id: None,
-                        name: None,
-                        version_number: None,
-                        enrich_attempted: false,
-                    });
-                // `Some` only when the lists were actually read — an unreadable
-                // file, or a presence that could not be told, degrades every
-                // state to unknown rather than guessing. (An ABSENT one — never
-                // generated — is `Some` with empty lists.)
-                // Interim: Task G3.5 replaces the source loop with `detect::scan`.
-                let presence = disk.map(|(_, is_dir)| crate::datapacks::detect::Presence::Pack {
-                    is_dir: *is_dir,
+    let mut rows: Vec<ServerDatapackEntry> = merged
+        .into_iter()
+        .map(|row| {
+            let disk = row.on_disk.map(|i| &on_disk[i]);
+            let record = row
+                .joined
+                .as_deref()
+                .and_then(|n| records.iter().find(|r| r.filename == n))
+                .cloned()
+                .unwrap_or_else(|| ServerInstalledRecord {
+                    filename: row.filename.clone(),
+                    // A folder, a non-pack or a ghost: nothing to hash. The UI
+                    // keys rows on the filename precisely because of this.
+                    sha1: String::new(),
+                    source: None,
+                    project_id: None,
+                    version_id: None,
+                    name: None,
+                    version_number: None,
+                    enrich_attempted: false,
                 });
-                let membership = lists.is_some().then(|| {
-                    (
-                        world_link::contains_ci(&enabled, &name),
-                        world_link::contains_ci(&disabled, &name),
-                    )
-                });
-                let (st, ignored_reason) = state::derive(presence.as_ref(), membership, None);
-                ServerDatapackEntry {
-                    record,
-                    state: st,
-                    ignored_reason,
-                    present,
-                    is_folder,
-                }
-            })
-            .collect();
-    out.sort_by(|a, b| {
+            // R1 (N.3): exact, on the engine's id: the row's own spelling.
+            // `None` when the lists could not be read — an unreadable file, or
+            // a presence that could not be told. (An ABSENT one — never
+            // generated — is `Some` with empty lists.)
+            let membership = lists.as_ref().map(|_| {
+                (
+                    enabled.contains(&row.filename),
+                    disabled.contains(&row.filename),
+                )
+            });
+            let (state, ignored_reason) =
+                state::derive(disk.map(|d| &d.presence), membership, None);
+            ServerDatapackEntry {
+                record,
+                state,
+                ignored_reason,
+                present: disk.is_some(),
+                is_folder: disk.is_some_and(|d| d.presence.is_dir()),
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| {
         a.record
             .filename
             .to_lowercase()
             .cmp(&b.record.filename.to_lowercase())
+            .then_with(|| a.record.filename.cmp(&b.record.filename))
     });
     Ok(ServerDatapackListing {
         level_dat,
-        entries: out,
+        entries: rows,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::detect::{test_support::zip_of, IgnoredReason};
+    use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::presence::LevelDatPresence;
     use crate::datapacks::{level_dat, level_dat_entry, WorldPackState};
     use std::io::Write;
@@ -264,8 +233,11 @@ mod tests {
         // Orphaned, whose "repair" would clear a LIVE pack's level.dat entry —
         // and since present-and-unlisted auto-enables, silently re-enable a
         // pack the admin had disabled.
+        // A folder pack has `pack.mcmeta` directly inside it (N.0); its empty
+        // twin is `an_empty_folder_is_ignored_even_when_level_dat_lists_it`.
         let td = world(&[]);
         std::fs::create_dir_all(td.path().join("datapacks").join("FolderPack")).unwrap();
+        std::fs::write(td.path().join("datapacks/FolderPack/pack.mcmeta"), b"{}").unwrap();
         seed_level_dat(td.path(), &[], &["FolderPack"]).await;
         let row = find(&rows(td.path()), "FolderPack").clone();
         assert_eq!(row.state, Some(WorldPackState::Disabled));
@@ -379,5 +351,78 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].record.filename, "veinminer.zip");
         assert_eq!(rows[0].state, Some(WorldPackState::Enabled));
+    }
+
+    #[test]
+    fn an_empty_folder_is_ignored_even_when_level_dat_lists_it() {
+        let td = world(&[]);
+        std::fs::create_dir_all(td.path().join("datapacks").join("FolderPack")).unwrap();
+        seed(td.path(), &[], &["file/FolderPack"]);
+        let r = rows(td.path());
+        let row = find(&r, "FolderPack");
+        assert_eq!(
+            (row.state, row.ignored_reason),
+            (
+                Some(WorldPackState::Ignored),
+                Some(IgnoredReason::FolderWithoutPackMcmeta)
+            )
+        );
+        assert!(row.present && row.is_folder);
+    }
+
+    /// Engine fact (N.0): `Disabled` is `List.contains`, exact, so a
+    /// differently-capitalised entry keeps nothing off.
+    #[test]
+    fn a_case_drifted_disabled_entry_reports_enabled() {
+        let td = world(&["veinminer.zip"]);
+        seed(td.path(), &[], &["file/VeinMiner.zip"]);
+        let r = rows(td.path());
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert_eq!(r[0].state, Some(WorldPackState::Enabled));
+    }
+
+    #[test]
+    fn upper_case_and_rootless_zips_are_ignored() {
+        let td = world(&["Upper.ZIP"]);
+        std::fs::write(
+            td.path().join("datapacks/rootless.zip"),
+            zip_of(&[("readme.txt", b"x")]),
+        )
+        .unwrap();
+        seed(td.path(), &[], &[]);
+        let r = rows(td.path());
+        assert_eq!(
+            find(&r, "Upper.ZIP").ignored_reason,
+            Some(IgnoredReason::ZipExtensionNotLowercase)
+        );
+        assert_eq!(
+            find(&r, "rootless.zip").ignored_reason,
+            Some(IgnoredReason::ZipWithoutPackMcmeta)
+        );
+        assert!(r.iter().all(|e| e.state == Some(WorldPackState::Ignored)));
+    }
+
+    /// §0.5 A4.
+    #[test]
+    fn an_ignored_entry_keeps_its_reason_when_level_dat_is_unreadable() {
+        let td = world(&[]);
+        std::fs::create_dir_all(td.path().join("datapacks").join("Loose")).unwrap();
+        std::fs::write(td.path().join("level.dat"), b"not nbt at all").unwrap();
+        let r = rows(td.path());
+        assert_eq!(
+            (r[0].state, r[0].ignored_reason),
+            (
+                Some(WorldPackState::Ignored),
+                Some(IgnoredReason::FolderWithoutPackMcmeta)
+            )
+        );
+    }
+
+    /// §0.5 A4: a scan error is the pane's load error.
+    #[test]
+    fn an_unreadable_datapacks_dir_is_a_listing_error() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(td.path().join("datapacks"), b"a file").unwrap();
+        assert!(entries(td.path()).is_err());
     }
 }

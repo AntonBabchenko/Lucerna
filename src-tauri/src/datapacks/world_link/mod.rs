@@ -184,20 +184,6 @@ pub(crate) async fn pack_name_for_write(dp_dir: &Path, filename: &str) -> Result
     }
 }
 
-/// Case-insensitive membership check against a level.dat name list (the
-/// `Enabled`/`Disabled` lists `level_dat::lists` returns). The spelling
-/// [`union_names`] picked for a pack may differ in case from what level.dat
-/// actually holds for that same file — an exact `contains` here would then
-/// miss the match, turning a `Disabled` pack into a reported `Enabled` (or
-/// vice versa), which is worse than the phantom-row bug `union_names` fixes.
-/// Query-only: never compare a value here that is about to be written back
-/// to level.dat — those writes must keep the caller's exact filename.
-#[must_use]
-pub(crate) fn contains_ci(haystack: &[String], needle: &str) -> bool {
-    let needle = needle.to_lowercase();
-    haystack.iter().any(|h| h.to_lowercase() == needle)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

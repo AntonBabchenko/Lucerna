@@ -7148,10 +7148,10 @@ export type ServerDatapackEntry = {
 	 */
 	present: boolean,
 	/**
-	 *  The on-disk entry is a directory. Minecraft loads folder packs and
-	 *  `level.dat` does not distinguish them, so they are listed, toggleable
-	 *  and removable — but they carry no sha1 and no provenance, so the UI
-	 *  offers them no update or catalog affordance.
+	 *  The on-disk entry is a directory. A folder is a pack only when
+	 *  `pack.mcmeta` sits directly inside it; otherwise the row is `Ignored`
+	 *  (N.1). Folder packs carry no sha1 and no provenance, so the UI offers
+	 *  them no update or catalog affordance.
 	 */
 	is_folder: boolean,
 };

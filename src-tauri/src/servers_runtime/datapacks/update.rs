@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::datapacks::{level_dat, level_dat_entry, world_link, DatapackProvenance};
+use crate::datapacks::{detect, level_dat, level_dat_entry, DatapackProvenance};
 use crate::error::{Error, Result};
 use crate::servers_runtime::installed;
 
@@ -47,9 +47,10 @@ pub async fn update_one(
         // Identity FIRST: the on-disk file must be the one the sidecar
         // describes. A mismatch (hand-replaced pack, or a fail-open-empty
         // sidecar) is reported, and nothing is touched.
-        let row = sidecar::reconcile(world_dir)
-            .into_iter()
-            .find(|r| r.filename.to_lowercase() == old_filename.to_lowercase());
+        let row = {
+            let rows = sidecar::reconcile(world_dir);
+            detect::find_by_name(&rows, old_filename, |r| r.filename.as_str()).cloned()
+        };
         let disk_sha = installed::sha1_of(&dp_dir.join(old_filename)).unwrap_or_default();
         // A crash between `install_bytes`'s file write and its sidecar
         // upsert leaves the on-disk file already holding the TARGET bytes
@@ -114,11 +115,26 @@ pub async fn update_one(
     // The sidecar lookup runs here, while the old file is still on disk, so
     // `sidecar::reconcile` (`.zip`-aware, prunes a row whose file is gone)
     // does not prune this row out from under the check.
-    let old_path = dp_dir.join(old_filename);
-    if old_path.exists() {
-        let old_row = sidecar::reconcile(world_dir)
-            .into_iter()
-            .find(|r| r.filename.to_lowercase() == old_filename.to_lowercase());
+    // R2 (N.4): the entry the old name denotes. On a case-sensitive file
+    // system a case variant is a different pack, and is never touched.
+    let names =
+        detect::entry_names(&dp_dir).map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+    let old_on_disk = match detect::resolve(&dp_dir, old_filename, &names) {
+        detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => Some(n),
+        detect::Resolved::Absent => None,
+        detect::Resolved::Unknown(e) => {
+            return Err(Error::io(
+                dp_dir.join(old_filename).display().to_string(),
+                e,
+            ))
+        }
+    };
+    let old_path = dp_dir.join(old_on_disk.as_deref().unwrap_or(old_filename));
+    if old_on_disk.is_some() {
+        let old_row = {
+            let rows = sidecar::reconcile(world_dir);
+            detect::find_by_name(&rows, old_filename, |r| r.filename.as_str()).cloned()
+        };
         let old_disk_sha = installed::sha1_of(&old_path).unwrap_or_default();
         let old_is_ours = old_row
             .as_ref()
@@ -145,9 +161,14 @@ pub async fn update_one(
     let was_enabled = {
         let _guard = level_dat_lock().lock().await;
         match presence::of(world_dir)? {
-            LevelDatPresence::Present => {
-                Some(carry_state(world_dir, old_filename, new_filename).await?)
-            }
+            LevelDatPresence::Present => Some(
+                carry_state(
+                    world_dir,
+                    old_on_disk.as_deref().unwrap_or(old_filename),
+                    &record.filename,
+                )
+                .await?,
+            ),
             // No level.dat — normally a world the server has never
             // generated — and it must not be given one: a level.dat holding
             // nothing but Data.DataPacks is not a world, and the server
@@ -203,30 +224,31 @@ pub async fn update_one(
 /// old name's enabled state to the new name and return it. The caller holds
 /// `level_dat_lock` — this must not take it (the lock is not reentrant).
 ///
-/// Read level.dat once. An already-listed NEW entry's state takes precedence:
-/// a retried migration must not have its state re-derived from a stale old
-/// entry and flip a disabled pack on.
-async fn carry_state(world_dir: &Path, old_filename: &str, new_filename: &str) -> Result<bool> {
+/// Read level.dat once. `old_name` is the old entry's ON-DISK spelling (R2),
+/// so its id is the engine's. The state is carried with the engine's rule
+/// (`level_dat::carried_enabled`): enabled unless listed only in Disabled, so
+/// both lists ⇒ enabled and a present, unlisted pack is enabled. An
+/// already-listed NEW entry's state takes precedence: a retried migration must
+/// not have its state re-derived from a stale old entry and flip a disabled
+/// pack on. The old id is forgotten with R3.
+async fn carry_state(world_dir: &Path, old_name: &str, new_name: &str) -> Result<bool> {
     let (mut root, framing) = level_dat::read_at(world_dir)?;
-    let (enabled_raw, disabled_raw) = level_dat::lists(&root);
-    let strip = |v: &[String]| -> Vec<String> {
-        v.iter()
-            .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
-            .collect()
+    let (enabled, disabled) = level_dat::lists(&root);
+    let (old_id, new_id) = (level_dat_entry(old_name), level_dat_entry(new_name));
+    let was_enabled = level_dat::carried_enabled(&enabled, &disabled, &old_id, &new_id);
+    let dp_dir = world_dir.join("datapacks");
+    let present = match detect::entry_names(&dp_dir) {
+        Ok(n) => Some(n),
+        Err(e) => {
+            crate::diag!(
+                "server datapacks: could not list {}: {e}; clearing the exact old id only",
+                dp_dir.display()
+            );
+            None
+        }
     };
-    let (enabled, disabled) = (strip(&enabled_raw), strip(&disabled_raw));
-    let new_listed = world_link::contains_ci(&enabled, new_filename)
-        || world_link::contains_ci(&disabled, new_filename);
-    // The three-case rule: in neither list means ENABLED (Minecraft
-    // auto-enables a present, unlisted pack). Reading it as two cases
-    // silently disables a pack that was on.
-    let was_enabled = if new_listed {
-        !world_link::contains_ci(&disabled, new_filename)
-    } else {
-        !world_link::contains_ci(&disabled, old_filename)
-    };
-    let mut changed = level_dat::forget_ci(&mut root, &level_dat_entry(old_filename))?;
-    changed |= level_dat::set_enabled(&mut root, &level_dat_entry(new_filename), was_enabled)?;
+    let mut changed = level_dat::forget_with_case_ghosts(&mut root, &old_id, present.as_deref())?;
+    changed |= level_dat::set_enabled(&mut root, &new_id, was_enabled)?;
     if changed {
         level_dat::write_at(world_dir, &root, framing).await?;
     }
@@ -808,5 +830,29 @@ mod tests {
             );
             assert!(!td.path().join("level.dat").exists(), "{new_name}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_renamed_update_keeps_a_both_lists_pack_enabled() {
+        let td = booted_world_with("vm-1.zip", b"v1").await;
+        crate::datapacks::level_dat::test_support::seed(
+            td.path(),
+            &["file/vm-1.zip"],
+            &["file/vm-1.zip"],
+        );
+        let out = update_one(
+            td.path(),
+            "vm-1.zip",
+            "vm-2.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.was_enabled, Some(true), "both lists ⇒ loaded (N.0)");
+        assert_eq!(
+            state_of(td.path(), "vm-2.zip"),
+            Some(WorldPackState::Enabled)
+        );
     }
 }

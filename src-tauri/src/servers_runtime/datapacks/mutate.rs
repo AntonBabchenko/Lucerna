@@ -3,16 +3,18 @@
 use std::path::Path;
 
 use crate::datapacks::presence::{self, LevelDatPresence};
-use crate::datapacks::{level_dat, level_dat_entry, pack_meta, DatapackProvenance};
+use crate::datapacks::{detect, level_dat, level_dat_entry, pack_meta, DatapackProvenance};
 use crate::error::{DatapackRejection, Error, Result};
 use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 
 use super::{level_dat_lock, refuse_only_old};
 
 /// Enable or disable one pack in the world's `level.dat`. The file itself is
-/// never touched — this is the game's own mechanism, so what the launcher
-/// shows is exactly what `/datapack list` shows.
+/// never touched — this is the game's own mechanism.
 ///
+/// The name is resolved to the on-disk entry by R2, and the engine's id,
+/// `file/` + that entry's own spelling, is written (spec §2 N.4). An entry the
+/// game ignores is refused with `DatapackInvalid`, and nothing is written.
 /// Works for folder packs too: `level.dat` does not distinguish them.
 ///
 /// Refuses when `level.dat` is absent — see [`Error::ServerWorldNotCreated`] —
@@ -31,8 +33,12 @@ pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Res
         LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
         LevelDatPresence::Absent => return Err(Error::ServerWorldNotCreated),
     }
+    // §0.5 A7 step 5: R2 + D1, after the level.dat presence check.
+    let dp_dir = world_dir.join("datapacks");
+    let on_disk = crate::datapacks::world_link::pack_name_for_write(&dp_dir, filename).await?;
     let (mut root, framing) = level_dat::read_at(world_dir)?;
-    if level_dat::set_enabled(&mut root, &level_dat_entry(filename), enabled)? {
+    let entry = level_dat_entry(on_disk.as_deref().unwrap_or(filename));
+    if level_dat::set_enabled(&mut root, &entry, enabled)? {
         level_dat::write_at(world_dir, &root, framing).await?;
     }
     Ok(())
@@ -59,46 +65,50 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
         });
     }
     let dp_dir = world_dir.join("datapacks");
-    let path = dp_dir.join(filename);
-    // Deliberate defence-in-depth, not an oversight: `is_safe_filename` above
-    // already rejects separators, so `path` cannot actually escape `dp_dir`.
-    // This guards the unconditional `remove_dir_all` below against that
-    // invariant ever being wrong.
-    if !path.starts_with(&dp_dir) {
-        return Err(Error::ServerFileInvalid {
-            filename: filename.to_string(),
-            reason: "path escapes the datapacks dir".into(),
-        });
-    }
 
     // One lock around the whole removal, and one presence reading. D2 comes
     // before anything is deleted, and the level.dat edit is computed before
     // the file goes, so an unreadable level.dat refuses with the pack in place.
     {
         let _guard = level_dat_lock().lock().await;
-        let edit = match presence::of(world_dir)? {
-            LevelDatPresence::Present => {
-                let (mut root, framing) = level_dat::read_at(world_dir)?;
-                level_dat::forget_ci(&mut root, &level_dat_entry(filename))?
-                    .then_some((root, framing))
-            }
+        let level_dat_present = match presence::of(world_dir)? {
+            LevelDatPresence::Present => true,
             LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
             // Never generated: a pack installed before the first boot has no
             // level.dat half to clear, and refusing would make it unremovable.
-            LevelDatPresence::Absent => None,
+            LevelDatPresence::Absent => false,
         };
 
-        // Accepted: a folder pack's `remove_dir_all` runs under the global
-        // server lock, because server folder packs are small and the removal
-        // must stay inside the same critical section as its level.dat edit.
-        match std::fs::metadata(&path) {
-            Ok(m) if m.is_dir() => std::fs::remove_dir_all(&path)
-                .map_err(|e| Error::io(path.display().to_string(), e))?,
-            Ok(_) => {
-                std::fs::remove_file(&path).map_err(|e| Error::io(path.display().to_string(), e))?
+        // R2 (N.4): delete only the entry `filename` actually denotes. On a
+        // case-sensitive file system a case variant is a different pack.
+        let names =
+            detect::entry_names(&dp_dir).map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+        let on_disk = match detect::resolve(&dp_dir, filename, &names) {
+            detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => Some(n),
+            detect::Resolved::Absent => None,
+            detect::Resolved::Unknown(e) => {
+                return Err(Error::io(dp_dir.join(filename).display().to_string(), e))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(Error::io(path.display().to_string(), e)),
+        };
+
+        let edit = if level_dat_present {
+            let (mut root, framing) = level_dat::read_at(world_dir)?;
+            // R3's `present`: what is left after the removal — the one
+            // `read_dir` above, minus the entry removed.
+            let present: Vec<String> = names
+                .iter()
+                .filter(|n| Some(*n) != on_disk.as_ref())
+                .cloned()
+                .collect();
+            let entry = level_dat_entry(on_disk.as_deref().unwrap_or(filename));
+            level_dat::forget_with_case_ghosts(&mut root, &entry, Some(&present))?
+                .then_some((root, framing))
+        } else {
+            None
+        };
+
+        if let Some(name) = &on_disk {
+            remove_entry(&dp_dir, name)?;
         }
 
         if let Some((root, framing)) = edit {
@@ -107,6 +117,37 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
     }
 
     super::sidecar::forget(world_dir, filename)
+}
+
+/// Remove one entry of `dp_dir` by its real type. Idempotent: an entry that
+/// is gone by now is `Ok`.
+///
+/// Accepted: a folder pack's `remove_dir_all` runs under the global server
+/// lock, because server folder packs are small and the removal must stay
+/// inside the same critical section as its level.dat edit.
+fn remove_entry(dp_dir: &Path, name: &str) -> Result<()> {
+    let path = dp_dir.join(name);
+    // Deliberate defence-in-depth, not an oversight: `name` is the validated
+    // `filename` or a name `read_dir` returned for `dp_dir`, so `path` cannot
+    // actually escape `dp_dir`. This guards the unconditional
+    // `remove_dir_all` below against that invariant ever being wrong.
+    if !path.starts_with(dp_dir) {
+        return Err(Error::ServerFileInvalid {
+            filename: name.to_string(),
+            reason: "path escapes the datapacks dir".into(),
+        });
+    }
+    match std::fs::metadata(&path) {
+        Ok(m) if m.is_dir() => {
+            std::fs::remove_dir_all(&path).map_err(|e| Error::io(path.display().to_string(), e))?
+        }
+        Ok(_) => {
+            std::fs::remove_file(&path).map_err(|e| Error::io(path.display().to_string(), e))?
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(Error::io(path.display().to_string(), e)),
+    }
+    Ok(())
 }
 
 /// Place verified bytes into the world's `datapacks/` and record a sidecar
@@ -126,7 +167,7 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
 ///
 /// No `level.dat` write: a fresh pack lands present-and-unlisted, which the
 /// game auto-enables on boot — the honest server-side default, and exactly
-/// why `state::derive`'s `(true, _, false)` arm exists.
+/// why `state::derive_listed` reads a present, unlisted pack as `Enabled`.
 ///
 /// Refuses a world with only `level.dat_old` ([`Error::ServerWorldOnlyOld`]).
 pub async fn install_bytes(
@@ -182,10 +223,12 @@ pub async fn install_bytes(
 
     if let Some(prov) = provenance {
         if let Ok(meta_dest) = std::fs::metadata(&dest) {
-            let want = filename.to_lowercase();
-            let existing_row = super::sidecar::reconcile(world_dir)
-                .into_iter()
-                .find(|r| r.filename.to_lowercase() == want);
+            // N.3 provenance lookup: the exact name, else the single
+            // case-insensitive match.
+            let existing_row = {
+                let rows = super::sidecar::reconcile(world_dir);
+                detect::find_by_name(&rows, filename, |r| r.filename.as_str()).cloned()
+            };
             // A directory can never be proven ours — it has no file sha1, and
             // placing bytes here would rename a zip over a whole pack folder.
             let same_project = !meta_dest.is_dir()
@@ -284,6 +327,8 @@ pub(crate) fn validate_install_name(filename: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::detect::test_support::fs_folds_case;
+    use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::{level_dat, WorldPackState};
     use std::io::Write;
 
@@ -398,6 +443,8 @@ mod tests {
     async fn the_toggle_works_on_a_folder_pack() {
         let td = world(&[]);
         std::fs::create_dir_all(td.path().join("datapacks").join("Folder")).unwrap();
+        // A folder is a pack only with `pack.mcmeta` directly inside (N.0).
+        std::fs::write(td.path().join("datapacks/Folder/pack.mcmeta"), b"{}").unwrap();
         boot_world(td.path()).await;
         set_enabled(td.path(), "Folder", false).await.unwrap();
         assert_eq!(
@@ -463,17 +510,16 @@ mod tests {
 
     #[tokio::test]
     async fn removal_clears_a_case_drifted_level_dat_name() {
+        // Seeded directly: `set_enabled` resolves the on-disk spelling now
+        // (N.4), so it would never write this drift itself.
         let td = world(&["veinminer.zip"]);
-        boot_world(td.path()).await;
-        set_enabled(td.path(), "VeinMiner.zip", false)
-            .await
-            .unwrap();
+        seed(td.path(), &[], &["file/VeinMiner.zip"]);
         remove(td.path(), "veinminer.zip").await.unwrap();
         let (root, _) = level_dat::read_at(td.path()).unwrap();
         let (en, dis) = level_dat::lists(&root);
         assert!(
             en == vec!["vanilla".to_string()] && dis.is_empty(),
-            "forget_ci must fold the case"
+            "R3: a case variant no present entry spells exactly is a ghost the engine already drops"
         );
     }
 
@@ -764,6 +810,59 @@ mod tests {
         assert!(
             td.path().join("datapacks").join("p.zip").exists(),
             "the file must not go before level.dat can follow"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_toggle_refuses_a_folder_the_game_ignores() {
+        let td = world(&[]);
+        std::fs::create_dir_all(td.path().join("datapacks").join("Folder")).unwrap();
+        boot_world(td.path()).await;
+        let before = std::fs::read(td.path().join("level.dat")).unwrap();
+        let err = set_enabled(td.path(), "Folder", false).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::DatapackInvalid {
+                    reason: DatapackRejection::NotAPack,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
+        assert_eq!(std::fs::read(td.path().join("level.dat")).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn the_toggle_writes_the_entrys_own_spelling() {
+        let td = world(&["veinminer.zip"]);
+        if !fs_folds_case(td.path()) {
+            return;
+        }
+        boot_world(td.path()).await;
+        set_enabled(td.path(), "VeinMiner.zip", false)
+            .await
+            .unwrap();
+        let (root, _) = level_dat::read_at(td.path()).unwrap();
+        assert!(level_dat::lists(&root)
+            .1
+            .contains(&"file/veinminer.zip".to_string()));
+    }
+
+    #[tokio::test]
+    async fn removal_never_touches_a_case_variant_on_a_case_sensitive_file_system() {
+        let td = world(&["Foo.zip"]);
+        if fs_folds_case(td.path()) {
+            return;
+        }
+        std::fs::write(td.path().join("datapacks/foo.zip"), datapack_zip(b"y")).unwrap();
+        seed(td.path(), &["file/Foo.zip", "file/foo.zip"], &[]);
+        remove(td.path(), "foo.zip").await.unwrap();
+        assert!(td.path().join("datapacks/Foo.zip").exists());
+        let (root, _) = level_dat::read_at(td.path()).unwrap();
+        assert_eq!(
+            level_dat::lists(&root).0,
+            vec!["vanilla".to_string(), "file/Foo.zip".to_string()]
         );
     }
 }
