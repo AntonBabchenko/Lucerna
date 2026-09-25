@@ -1478,7 +1478,16 @@
       "stateDisabled": "Отключён",
       "stateNotAdded": "Не добавлен в этот мир",
       "stateOrphaned": "Отсутствует — мир всё ещё его ожидает",
+      "stateIgnored": "Не загружается игрой",
+      "stateCouldNotCheck": "Не удалось проверить",
       "orphanedHint": "При загрузке мира Minecraft спросит об этом датапаке. Уберите его из мира, чтобы запрос больше не появлялся.",
+      "ignoredReason": {
+        "folderWithoutPackMcmeta": "Minecraft загружает папку, только если прямо в ней лежит pack.mcmeta, а в этой папке его нет.",
+        "folderPackNestedInside": "pack.mcmeta лежит на одну папку глубже, чем нужно. Перенесите вложенную папку прямо в datapacks.",
+        "zipExtensionNotLowercase": "Minecraft загружает только файлы, имя которых оканчивается на .zip строчными буквами. Переименуйте файл так, чтобы он оканчивался на .zip.",
+        "zipWithoutPackMcmeta": "В корне этого архива нет pack.mcmeta. Если внутри одна папка, датапак лежит на уровень глубже, чем нужно.",
+        "unreadable": "Lucerna не удалось прочитать эту запись и проверить, загрузит ли её Minecraft."
+      },
       "external": "Не в библиотеке",
       "copyNotLinked": "Этот датапак был скопирован, а не связан ссылкой, — теперь он занимает отдельное место на диске.",
       "formatMismatch": "Датапак сделан для формата {packFormat}, а эта версия Minecraft ожидает {expected}. Из-за этого мир может не загрузиться.",
@@ -2480,7 +2489,7 @@
     "dataLocationRecoverySessionDir": "Эта папка принадлежит временной сессии Lucerna и удаляется при закрытии лаунчера. Выберите папку, в которой лежат ваши данные.",
     "datapackInvalid": "«{filename}» — не датапак. {reason}",
     "datapackInvalidReason": {
-      "notAZip": "Minecraft загружает из папки datapacks только папки и .zip-архивы.",
+      "notAZip": "Minecraft загружает из папки datapacks только папки и файлы, имя которых оканчивается на .zip строчными буквами.",
       "isAResourcePack": "Похоже, это ресурспак — вместо папки data в нём есть папка assets.",
       "notAPack": "В архиве нет pack.mcmeta или папки data."
     },

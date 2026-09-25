@@ -38,6 +38,7 @@ function makePack(over: Partial<WorldDatapack> = {}): WorldDatapack {
   return {
     filename: 'test-pack.zip',
     state: 'enabled',
+    ignored_reason: null,
     in_library: true,
     compat: { kind: 'compatible' },
     ...over,
@@ -416,5 +417,31 @@ describe('WorldDatapacks — listing envelope', () => {
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     expect(await screen.findByText('backup-pack.zip')).toBeTruthy();
     expect(screen.queryByText(/No datapacks yet/i)).toBeNull();
+  });
+});
+
+describe('WorldDatapacks — a row the game ignores', () => {
+  it('shows its reason and offers removal but no toggle', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([
+        makePack({
+          filename: 'Loose',
+          state: 'ignored',
+          ignored_reason: 'folder_without_pack_mcmeta',
+          in_library: false,
+          compat: { kind: 'unknown' },
+        }),
+      ]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText('Ignored by the game');
+    expect(screen.getByText(/pack\.mcmeta sits directly inside it/i)).toBeTruthy();
+    expect(screen.queryByTestId('world-datapack-toggle')).toBeNull();
+    expect(screen.queryByTestId('world-datapack-add-world')).toBeNull();
+    expect(screen.queryByText('Compatibility unknown')).toBeNull();
+    await fireEvent.click(screen.getByTestId('world-datapack-remove-world'));
+    expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'Loose');
   });
 });

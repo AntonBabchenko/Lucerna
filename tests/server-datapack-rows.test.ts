@@ -15,6 +15,7 @@ function entry(over: Partial<ServerDatapackEntry> = {}): ServerDatapackEntry {
       enrich_attempted: false,
     },
     state: 'enabled',
+    ignored_reason: null,
     present: true,
     is_folder: false,
     ...over,
@@ -45,7 +46,7 @@ describe('badgeOf', () => {
 });
 
 describe('rowKey', () => {
-  test('keys on the case-folded filename, not sha1', () => {
+  test('keys on the exact filename, not sha1 and not a folded name', () => {
     // A folder pack and a ghost row both carry an empty sha1, so a sha1 key
     // would collide every one of them onto ''.
     const folder = entry({
@@ -57,7 +58,25 @@ describe('rowKey', () => {
       present: false,
     });
     expect(rowKey(folder)).not.toBe(rowKey(ghost));
-    expect(rowKey(entry({ record: { ...entry().record, filename: 'P.ZIP' } }))).toBe('p.zip');
+    // Spec §2 N.3: on a case-sensitive file system these are two packs; a
+    // folded key collides them as {#each} keys and update-map keys.
+    const named = (filename: string) => entry({ record: { ...entry().record, filename } });
+    expect(rowKey(named('Foo.zip'))).not.toBe(rowKey(named('foo.zip')));
+    expect(rowKey(named('P.ZIP'))).toBe('P.ZIP');
+  });
+});
+
+describe('an ignored row', () => {
+  test('gets a warning badge named by its reason and is never updatable', () => {
+    const ignored = entry({ state: 'ignored', ignored_reason: 'zip_extension_not_lowercase' });
+    expect(badgeOf(ignored)).toEqual({
+      variant: 'warning',
+      labelKey: 'worlds.datapacks.stateIgnored',
+    });
+    expect(badgeOf(entry({ state: 'ignored', ignored_reason: 'unreadable' })).labelKey).toBe(
+      'worlds.datapacks.stateCouldNotCheck',
+    );
+    expect(isUpdatable(ignored)).toBe(false);
   });
 });
 

@@ -15,6 +15,7 @@
     commands,
     type AssetUpdateState,
     type DatapackLibraryEntry,
+    type DatapackPlacementView,
     type DatapackLibraryView,
     type LoaderKind,
     type ModSource,
@@ -27,6 +28,7 @@
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { datapacksChanged } from '$lib/settings/state.svelte';
   import { datapackWorldSummary, datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
+  import { ignoredLabelKey } from '$lib/worlds/datapack-state';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import { get } from 'svelte/store';
@@ -419,11 +421,11 @@
     return enabled > 0 ? 'success' : 'neutral';
   }
 
-  function placementBadge(state: WorldPackState | null): {
+  function placementBadge(p: Pick<DatapackPlacementView, 'state' | 'ignored_reason'>): {
     variant: BadgeVariant;
     label: string;
   } {
-    switch (state) {
+    switch (p.state) {
       case 'enabled':
         return { variant: 'success', label: get(t)('worlds.datapacks.stateEnabled') };
       case 'disabled':
@@ -432,6 +434,8 @@
         return { variant: 'danger', label: get(t)('worlds.datapacks.stateOrphaned') };
       case 'not_added':
         return { variant: 'neutral', label: get(t)('worlds.datapacks.stateNotAdded') };
+      case 'ignored':
+        return { variant: 'warning', label: get(t)(ignoredLabelKey(p.ignored_reason)) };
       default:
         return { variant: 'neutral', label: get(t)('addons.datapacks.stateUnknown') };
     }
@@ -651,7 +655,7 @@
                 <p class="text-xs text-muted py-1">{$t('addons.datapacks.noPlacements')}</p>
               {:else}
                 {#each entry.placements as p (p.world)}
-                  {@const badge = placementBadge(p.state)}
+                  {@const badge = placementBadge(p)}
                   <div class="flex items-center gap-2 py-1 text-sm">
                     <Icon name="datapack" size={14} class="text-muted flex-shrink-0" />
                     <span class="flex-1 min-w-0 truncate text-primary">{p.world}</span>

@@ -15,6 +15,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
+  import { ignoredHintKey } from '$lib/worlds/datapack-state';
   import { badgeOf, isUpdatable, rowKey } from './datapack-rows';
 
   // Installed pane for a server world's datapacks (Task 11). Modeled on
@@ -80,7 +81,7 @@
     }
   }
 
-  // Per-pack update-check results, keyed by rowKey (lower-cased filename) so
+  // Per-pack update-check results, keyed by rowKey (exact filename) so
   // they line up with the row identity — NOT sha1, which two of the three row
   // provenances leave empty (see datapack-rows.ts).
   let updateChecks = $state(new Map<string, AssetUpdateState>());
@@ -126,6 +127,7 @@
 
   function rowAccent(entry: ServerDatapackEntry, key: string): CardAccent {
     if (!entry.present) return 'danger';
+    if (entry.state === 'ignored') return 'warning';
     const state = updateChecks.get(key);
     if (state?.kind === 'update_available' || state?.kind === 'check_failed') return 'warning';
     return 'none';
@@ -139,7 +141,7 @@
       const res = await commands.serverCheckDatapackUpdates(serverId);
       if (res.status === 'ok') {
         const m = new Map<string, AssetUpdateState>();
-        for (const c of res.data) m.set(c.filename.toLowerCase(), c.state);
+        for (const c of res.data) m.set(c.filename, c.state);
         updateChecks = m;
       } else actionError = formatError(res.error);
     } finally {
@@ -230,7 +232,8 @@
   }
 
   // Enable/disable in level.dat. A ghost row (present === false) never renders
-  // this control — there is no file to enable.
+  // this control — there is no file to enable — and neither does a row the
+  // game ignores: switching it on would change nothing it loads.
   async function toggle(row: ServerDatapackEntry) {
     if (disabled) {
       actionError = $t('servers.mods.stopToManage');
@@ -362,6 +365,15 @@
                 <span class="ml-2">{row.record.version_number}</span>
               {/if}
             </div>
+            {#if row.state === 'ignored'}
+              {@const hint = ignoredHintKey(row.ignored_reason)}
+              {#if hint}<p
+                  class="text-xs text-warning-text"
+                  data-testid="server-datapack-ignored-hint"
+                >
+                  {$t(hint)}
+                </p>{/if}
+            {/if}
           </div>
 
           {#if canUpdateRow}
@@ -377,7 +389,7 @@
             </button>
           {/if}
 
-          {#if row.present}
+          {#if row.present && row.state !== 'ignored'}
             <button
               type="button"
               class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}

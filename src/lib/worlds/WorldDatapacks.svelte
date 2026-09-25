@@ -1,6 +1,7 @@
 <script lang="ts">
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { commands, type WorldDatapack, type WorldPackState } from '$lib/ipc/bindings';
+  import { ignoredHintKey, ignoredLabelKey } from '$lib/worlds/datapack-state';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
@@ -16,10 +17,12 @@
   import { datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
 
   // Per-world datapack manager. Library ∪ on-disk ∪ level.dat names, each row
-  // carrying its own enabled/disabled/not_added/orphaned state — orphaned is
-  // the repair path for Minecraft's "data packs are no longer present"
-  // screen, so that row is the one deliberately rendered as a labelled
-  // action rather than an icon, per the other rows' terser vocabulary.
+  // carrying its own enabled/disabled/not_added/orphaned/ignored state —
+  // orphaned is the repair path for Minecraft's "data packs are no longer
+  // present" screen, so that row is the one deliberately rendered as a
+  // labelled action rather than an icon, per the other rows' terser
+  // vocabulary. An ignored row is an entry the game does not load: it gets its
+  // reason and removal only (spec §2 N.6).
   let {
     instanceId,
     world,
@@ -71,8 +74,8 @@
     void reload();
   });
 
-  function stateLabel(state: WorldPackState): string {
-    switch (state) {
+  function stateLabel(pack: WorldDatapack): string {
+    switch (pack.state) {
       case 'enabled':
         return $t('worlds.datapacks.stateEnabled');
       case 'disabled':
@@ -81,6 +84,8 @@
         return $t('worlds.datapacks.stateNotAdded');
       case 'orphaned':
         return $t('worlds.datapacks.stateOrphaned');
+      case 'ignored':
+        return $t(ignoredLabelKey(pack.ignored_reason));
     }
   }
 
@@ -94,6 +99,8 @@
         return 'neutral';
       case 'orphaned':
         return 'danger';
+      case 'ignored':
+        return 'warning';
     }
   }
 
@@ -104,6 +111,7 @@
   // real compatibility problem is more important information than "it's off".
   function rowAccent(pack: WorldDatapack): CardAccent {
     if (pack.state === 'orphaned') return 'danger';
+    if (pack.state === 'ignored') return 'warning';
     if (pack.compat.kind === 'mismatch') return 'warning';
     if (pack.state === 'disabled') return 'muted';
     return 'none';
@@ -282,9 +290,9 @@
                 variant={stateBadgeVariant(pack.state)}
                 icon={pack.state === 'orphaned' ? 'circleX' : undefined}
               >
-                {stateLabel(pack.state)}
+                {stateLabel(pack)}
               </StatusBadge>
-              {#if pack.compat.kind === 'unknown'}
+              {#if pack.state !== 'ignored' && pack.compat.kind === 'unknown'}
                 <StatusBadge variant="neutral" icon="info"
                   >{$t('worlds.datapacks.compatUnknown')}</StatusBadge
                 >
@@ -293,7 +301,7 @@
                 <StatusBadge variant="neutral">{$t('worlds.datapacks.external')}</StatusBadge>
               {/if}
             </div>
-            {#if pack.compat.kind === 'mismatch'}
+            {#if pack.state !== 'ignored' && pack.compat.kind === 'mismatch'}
               <p class="mt-0.5 text-xs text-warning-text">
                 {$t('worlds.datapacks.formatMismatch', {
                   packFormat: pack.compat.pack_format,
@@ -303,6 +311,15 @@
             {/if}
             {#if pack.state === 'orphaned'}
               <p class="mt-0.5 text-xs text-danger">{$t('worlds.datapacks.orphanedHint')}</p>
+            {/if}
+            {#if pack.state === 'ignored'}
+              {@const hint = ignoredHintKey(pack.ignored_reason, pack.compat)}
+              {#if hint}<p
+                  class="mt-0.5 text-xs text-warning-text"
+                  data-testid="world-datapack-ignored-hint"
+                >
+                  {$t(hint)}
+                </p>{/if}
             {/if}
           </div>
           <div class="flex flex-shrink-0 items-center gap-1">
@@ -348,6 +365,33 @@
                   <Icon name="trash" size={14} />
                   {$t('worlds.datapacks.removeFromWorld')}
                 </BusyButton>
+              </span>
+            {:else if pack.state === 'ignored'}
+              <!-- The game does not load this entry, so there is nothing to
+                   switch on or off: removal only (spec §2 N.6). -->
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <span
+                class="inline-flex"
+                tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
+                use:tooltip={{
+                  text: disabledReason ?? $t('worlds.datapacks.removeFromWorld'),
+                  describe: false,
+                }}
+              >
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  data-testid="world-datapack-remove-world"
+                  disabled={disabledKey !== null || busyRow === pack.filename}
+                  aria-label={$t('worlds.datapacks.removeFromWorld')}
+                  onclick={() => void removeFromWorld(pack.filename)}
+                >
+                  {#if busyRow === pack.filename}
+                    <Spinner size="sm" />
+                  {:else}
+                    <Icon name="trash" size={15} />
+                  {/if}
+                </button>
               </span>
             {:else}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->

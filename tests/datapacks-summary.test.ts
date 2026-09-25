@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { datapackWorldSummary } from '$lib/worlds/datapacks-gating';
 
 type P = Parameters<typeof datapackWorldSummary>[0][number];
-const p = (state: P['state']): P => ({ state });
+const p = (state: P['state'], level_dat: P['level_dat'] = 'present'): P => ({ state, level_dat });
 
 describe('datapackWorldSummary', () => {
   it('zero placements is the accent "in no world" state, not an absent value', () => {
@@ -42,5 +42,22 @@ describe('datapackWorldSummary', () => {
     const s = datapackWorldSummary([p('orphaned')]);
     expect(s.key).toBe('addons.datapacks.summaryEnabledIn');
     expect(s.args).toEqual({ enabled: 0, total: 1 });
+  });
+
+  it('an ignored placement is left out of the total (§0.5 A22)', () => {
+    expect(datapackWorldSummary([p('enabled'), p('ignored')]).args).toEqual({
+      enabled: 1,
+      total: 1,
+    });
+  });
+
+  it('a folder without a usable level.dat is left out of the total', () => {
+    const s = datapackWorldSummary([p('disabled'), p(null, 'absent'), p('disabled', 'only_old')]);
+    expect(s.key).toBe('addons.datapacks.summaryDisabledEverywhere');
+    expect(s.args.total).toBe(1);
+  });
+
+  it('a pack whose every placement is ignored is in no world', () => {
+    expect(datapackWorldSummary([p('ignored')]).key).toBe('addons.datapacks.summaryInNoWorld');
   });
 });

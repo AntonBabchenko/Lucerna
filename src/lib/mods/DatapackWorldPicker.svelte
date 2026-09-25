@@ -3,9 +3,11 @@
     commands,
     type DatapackPlacementView,
     type DatapackWorldView,
+    type IgnoredReason,
     type LevelDatPresence,
     type WorldPackState,
   } from '$lib/ipc/bindings';
+  import { ignoredLabelKey } from '$lib/worlds/datapack-state';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
@@ -71,6 +73,8 @@
      * the backend refuses the picker's add and toggle there.
      */
     levelDat: LevelDatPresence | null;
+    /** Why the game ignores this world's entry; set exactly when `state` is 'ignored'. */
+    ignoredReason: IgnoredReason | null;
   };
 
   let rows = $state<Row[] | null>(null);
@@ -107,6 +111,7 @@
           state: p ? p.state : null,
           unknown: p !== undefined && p.state === null,
           levelDat: levelDatOf(w.folder_name, p),
+          ignoredReason: p ? p.ignored_reason : null,
         });
       }
       // A placement can name a world the quick listing missed (e.g. its
@@ -118,6 +123,7 @@
             state: p.state,
             unknown: p.state === null,
             levelDat: levelDatOf(p.world, p),
+            ignoredReason: p.ignored_reason,
           });
         }
       }
@@ -130,7 +136,10 @@
     // Already enabled: nothing to do. Orphaned: the file is gone — repair
     // lives on the library row, not here. Unknown: acting blind on a world we
     // could not read would be a guess with a level.dat write attached.
-    return !row.unknown && row.state !== 'enabled' && row.state !== 'orphaned';
+    // Ignored: the game skips the entry; adding cannot fix it (§2 N.6).
+    return (
+      !row.unknown && row.state !== 'enabled' && row.state !== 'orphaned' && row.state !== 'ignored'
+    );
   }
 
   function stateNote(row: Row): string | null {
@@ -142,6 +151,8 @@
         return $t('worlds.datapacks.stateDisabled');
       case 'orphaned':
         return $t('worlds.datapacks.stateOrphaned');
+      case 'ignored':
+        return $t(ignoredLabelKey(row.ignoredReason));
       default:
         return null;
     }
@@ -231,7 +242,9 @@
                     ? 'danger'
                     : row.state === 'disabled'
                       ? 'muted'
-                      : 'neutral'}
+                      : row.state === 'ignored'
+                        ? 'warning'
+                        : 'neutral'}
               >
                 {note}
               </StatusBadge>

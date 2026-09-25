@@ -261,8 +261,9 @@
       // A ghost (level.dat names it, the file is gone) is not installed — the
       // installed pane deliberately offers it no toggle either. Rendering it
       // as "Installed" here would draw a live enable/disable control that,
-      // on click, flips a level.dat entry for a file that does not exist.
-      if (e.present && e.record.source && e.record.project_id) {
+      // on click, flips a level.dat entry for a file that does not exist —
+      // and an entry the game ignores is not installed either (§0.5 A22).
+      if (e.present && e.state !== 'ignored' && e.record.source && e.record.project_id) {
         m.set(`${e.record.source}:${e.record.project_id}`, e);
       }
     }

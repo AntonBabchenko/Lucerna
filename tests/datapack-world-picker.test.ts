@@ -56,7 +56,14 @@ describe('DatapackWorldPicker', () => {
     render(DatapackWorldPicker, {
       props: {
         ...baseProps,
-        placements: [{ world: 'Alpha', state: 'disabled' as const, level_dat: 'present' as const }],
+        placements: [
+          {
+            world: 'Alpha',
+            state: 'disabled' as const,
+            level_dat: 'present' as const,
+            ignored_reason: null,
+          },
+        ],
       },
     });
     const box = await screen.findByTestId('datapack-picker-world');
@@ -102,7 +109,14 @@ describe('DatapackWorldPicker', () => {
     render(DatapackWorldPicker, {
       props: {
         ...baseProps,
-        placements: [{ world: 'Gamma', state: 'enabled' as const, level_dat: 'present' as const }],
+        placements: [
+          {
+            world: 'Gamma',
+            state: 'enabled' as const,
+            level_dat: 'present' as const,
+            ignored_reason: null,
+          },
+        ],
       },
     });
     const box = (await screen.findByTestId('datapack-picker-world')) as HTMLInputElement;
@@ -125,7 +139,14 @@ describe('DatapackWorldPicker', () => {
         ],
         // A world only the placements know about (the quick listing missed
         // it) still carries the presence its placement reports.
-        placements: [{ world: 'Delta', state: 'disabled' as const, level_dat: 'absent' as const }],
+        placements: [
+          {
+            world: 'Delta',
+            state: 'disabled' as const,
+            level_dat: 'absent' as const,
+            ignored_reason: null,
+          },
+        ],
       },
     });
     const boxes = await screen.findAllByTestId('datapack-picker-world');
@@ -148,7 +169,14 @@ describe('DatapackWorldPicker', () => {
       props: {
         ...baseProps,
         worlds: [{ world: 'X', level_dat: null }],
-        placements: [{ world: 'X', state: 'disabled' as const, level_dat: 'present' as const }],
+        placements: [
+          {
+            world: 'X',
+            state: 'disabled' as const,
+            level_dat: 'present' as const,
+            ignored_reason: null,
+          },
+        ],
       },
     });
     const box = await screen.findByTestId('datapack-picker-world');
@@ -177,5 +205,27 @@ describe('DatapackWorldPicker', () => {
       boxes.map((b) => [b.getAttribute('data-world'), b.getAttribute('data-level-dat')]),
     );
     expect(byWorld).toEqual({ Alpha: 'present', alpha: 'only_old' });
+  });
+
+  it('an ignored placement cannot be ticked', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({ status: 'ok', data: [world('Delta')] });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [{ world: 'Delta', level_dat: 'present' as const }],
+        placements: [
+          {
+            world: 'Delta',
+            level_dat: 'present' as const,
+            state: 'ignored' as const,
+            ignored_reason: 'zip_extension_not_lowercase' as const,
+          },
+        ],
+      },
+    });
+    const box = (await screen.findByTestId('datapack-picker-world')) as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(box.checked).toBe(false);
+    expect(screen.getByText('Ignored by the game')).toBeTruthy();
   });
 });

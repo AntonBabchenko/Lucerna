@@ -31,13 +31,24 @@ export function datapacksDisabledKey(s: DatapacksGateState): TranslationKey | nu
  * unreadable) counts toward the total but never toward `enabled`, and it
  * blocks the «Выключен везде» claim: we cannot assert "everywhere off" about
  * a world we could not read.
+ *
+ * §0.5 A22: a world the pack is not live in is not counted at all — an entry
+ * the game ignores (`state === 'ignored'`), or a folder whose level.dat is
+ * missing (`absent`) or only `level.dat_old` (`only_old`). `level_dat ===
+ * null` (could not tell) still counts, as an unknown state, so it keeps
+ * blocking "disabled everywhere".
  */
-export function datapackWorldSummary(placements: Pick<DatapackPlacementView, 'state'>[]): {
+export function datapackWorldSummary(
+  placements: Pick<DatapackPlacementView, 'state' | 'level_dat'>[],
+): {
   key: TranslationKey;
   args: { enabled: number; total: number };
   emphasis: 'accent' | 'muted' | 'normal';
 } {
-  const total = placements.length;
+  const counted = placements.filter(
+    (p) => p.state !== 'ignored' && p.level_dat !== 'absent' && p.level_dat !== 'only_old',
+  );
+  const total = counted.length;
   if (total === 0) {
     return {
       key: 'addons.datapacks.summaryInNoWorld',
@@ -45,8 +56,8 @@ export function datapackWorldSummary(placements: Pick<DatapackPlacementView, 'st
       emphasis: 'accent',
     };
   }
-  const enabled = placements.filter((p) => p.state === 'enabled').length;
-  if (enabled === 0 && placements.every((p) => p.state === 'disabled')) {
+  const enabled = counted.filter((p) => p.state === 'enabled').length;
+  if (enabled === 0 && counted.every((p) => p.state === 'disabled')) {
     return {
       key: 'addons.datapacks.summaryDisabledEverywhere',
       args: { enabled: 0, total },

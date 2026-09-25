@@ -1478,7 +1478,16 @@
       "stateDisabled": "Disabled",
       "stateNotAdded": "Not in this world",
       "stateOrphaned": "Missing — the world still expects it",
+      "stateIgnored": "Ignored by the game",
+      "stateCouldNotCheck": "Couldn't check",
       "orphanedHint": "Minecraft will ask about this pack when the world loads. Removing it from the world clears the prompt.",
+      "ignoredReason": {
+        "folderWithoutPackMcmeta": "Minecraft loads a folder only when pack.mcmeta sits directly inside it, and this one has none.",
+        "folderPackNestedInside": "pack.mcmeta is one folder too deep. Move the inner folder straight into datapacks.",
+        "zipExtensionNotLowercase": "Minecraft only loads files whose name ends in lower-case .zip. Rename the file so it ends in .zip.",
+        "zipWithoutPackMcmeta": "This zip has no pack.mcmeta at its top level. If it holds a single folder, the pack is one level too deep.",
+        "unreadable": "Lucerna couldn't read this entry to check whether Minecraft loads it."
+      },
       "external": "Not in the library",
       "copyNotLinked": "This pack was copied instead of linked — it now uses its own disk space.",
       "formatMismatch": "Made for data pack format {packFormat}; this version expects {expected}. It may stop the world from loading.",
@@ -2480,7 +2489,7 @@
     "dataLocationRecoverySessionDir": "That folder belongs to Lucerna's temporary session and is deleted when Lucerna closes. Pick the folder that holds your data.",
     "datapackInvalid": "\"{filename}\" isn't a usable datapack. {reason}",
     "datapackInvalidReason": {
-      "notAZip": "Minecraft only loads folders and .zip files from a world's datapacks folder.",
+      "notAZip": "Minecraft only loads folders and files ending in lower-case .zip from a world's datapacks folder.",
       "isAResourcePack": "This looks like a resource pack — it has an assets folder instead of a data folder.",
       "notAPack": "It's missing pack.mcmeta or a data folder."
     },
