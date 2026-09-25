@@ -131,7 +131,7 @@ describe('WorldDatapacks — Add while the world is not known yet', () => {
 
   it('is disabled while the listing is pending', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise(() => {}));
+    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise<never>(() => {}));
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     for (const b of addButtons()) expect(b.disabled).toBe(true);
   });
@@ -140,7 +140,7 @@ describe('WorldDatapacks — Add while the world is not known yet', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld)
       .mockResolvedValueOnce({ status: 'ok', data: listing([makePack({ filename: 'a.zip' })]) })
-      .mockReturnValueOnce(new Promise(() => {}));
+      .mockReturnValueOnce(new Promise<never>(() => {}));
     const r = render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'First' } });
     await screen.findByText('a.zip');
     await r.rerender({ instanceId: 'inst-1', world: 'Second' });
