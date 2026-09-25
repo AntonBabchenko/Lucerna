@@ -290,8 +290,11 @@ mod tests {
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         zw.start_file("pack.mcmeta", opts).unwrap();
-        zw.write_all(format!(r#"{{"pack":{{"pack_format":{pack_format}}}}}"#).as_bytes())
-            .unwrap();
+        zw.write_all(
+            format!(r#"{{"pack":{{"pack_format":{pack_format},"description":"Test pack"}}}}"#)
+                .as_bytes(),
+        )
+        .unwrap();
         zw.start_file("data/x/function/a.mcfunction", opts).unwrap();
         zw.write_all(b"say hi").unwrap();
         zw.finish().unwrap().into_inner()

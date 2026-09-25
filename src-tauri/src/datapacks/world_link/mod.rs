@@ -214,12 +214,17 @@ pub(crate) mod test_util {
 
     use crate::datapacks::library;
 
+    /// A pack the game loads: `pack.mcmeta` with `pack_format` and the
+    /// `description` every era requires (spec §0.2 I9), plus a `data/` tree.
     pub(crate) fn datapack_zip(pack_format: u32) -> Vec<u8> {
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         zw.start_file("pack.mcmeta", opts).unwrap();
-        zw.write_all(format!(r#"{{"pack":{{"pack_format":{pack_format}}}}}"#).as_bytes())
-            .unwrap();
+        zw.write_all(
+            format!(r#"{{"pack":{{"pack_format":{pack_format},"description":"Test pack"}}}}"#)
+                .as_bytes(),
+        )
+        .unwrap();
         zw.start_file("data/x/function/a.mcfunction", opts).unwrap();
         zw.write_all(b"say hi").unwrap();
         zw.finish().unwrap().into_inner()
