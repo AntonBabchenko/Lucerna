@@ -92,20 +92,23 @@
         rows = [];
         return;
       }
-      const byWorld = new Map(placements.map((p) => [p.world.toLowerCase(), p]));
-      // Keyed by the EXACT folder name: `folder_name` and `DatapackWorldView.world`
-      // both come from a read_dir of saves/, and on a case-sensitive filesystem two
-      // names differing in case are two worlds. A world the library saw wins
-      // over its placement, including its null ("seen, could not tell"): a
-      // placement's answer must never turn "could not tell" into a known state.
+      // Everything here is keyed by the EXACT folder name: `folder_name`,
+      // `DatapackPlacementView.world` and `DatapackWorldView.world` all come
+      // from a read_dir of saves/, and on a case-sensitive filesystem two
+      // names differing in case are two worlds. Case-folding would hand one
+      // world the other's placement, and a tick would then toggle a world that
+      // never held the pack. A world the library saw wins over its placement,
+      // including its null ("seen, could not tell"): a placement's answer
+      // must never turn "could not tell" into a known state.
+      const byWorld = new Map(placements.map((p) => [p.world, p]));
       const presence = new Map(worlds.map((w) => [w.world, w.level_dat]));
       const levelDatOf = (name: string, p: DatapackPlacementView | undefined) =>
         presence.has(name) ? (presence.get(name) ?? null) : (p?.level_dat ?? null);
       const seen = new Set<string>();
       const out: Row[] = [];
       for (const w of res.data) {
-        const p = byWorld.get(w.folder_name.toLowerCase());
-        seen.add(w.folder_name.toLowerCase());
+        const p = byWorld.get(w.folder_name);
+        seen.add(w.folder_name);
         out.push({
           world: w.folder_name,
           state: p ? p.state : null,
@@ -117,7 +120,7 @@
       // A placement can name a world the quick listing missed (e.g. its
       // level.dat is locked); it still deserves a row rather than vanishing.
       for (const p of placements) {
-        if (!seen.has(p.world.toLowerCase())) {
+        if (!seen.has(p.world)) {
           out.push({
             world: p.world,
             state: p.state,

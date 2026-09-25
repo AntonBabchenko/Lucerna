@@ -46,6 +46,7 @@
   import { commands, events } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { libraryReadSucceeded, warnLibraryReadBlockedPicker } from './datapack-library-warning';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { canInstallMods } from './install-eligibility';
   import { get } from 'svelte/store';
@@ -441,15 +442,20 @@
         // worlds must show each world's CURRENT state, or the picker would
         // route a present-but-disabled world through add (which re-enables)
         // instead of the explicit toggle.
-        const lib = await commands.datapacksListLibrary(instanceId);
+        const libId = instanceId;
+        const lib = await commands.datapacksListLibrary(libId);
         if (lib.status === 'error') {
           // No picker on a listing we could not read: empty placements would
           // route a present-but-disabled world through add, and empty worlds
           // would show every world's level.dat as unknown. The pack is in the
           // library, so the library screen can place it once the read works.
-          pushWarning(formatError(lib.error));
+          // The warning is shared with the embedded browse view, whose refresh
+          // of the same listing this install also triggers: one failed read,
+          // one warning.
+          warnLibraryReadBlockedPicker(libId, lib.error);
           return;
         }
+        libraryReadSucceeded(libId);
         const entry = lib.data.entries.find((e) => e.pack.filename === last.filename);
         datapackPickerTarget = {
           ...last,

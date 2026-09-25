@@ -61,17 +61,32 @@ const openMock = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: (...a: unknown[]) => openMock(...a) }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 
-const toasts = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn() }));
-vi.mock('$lib/toasts/toasts.svelte', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('$lib/toasts/toasts.svelte')>()),
-  pushSuccess: (...a: unknown[]) => toasts.success(...a),
-  pushWarning: (...a: unknown[]) => toasts.warning(...a),
-}));
-
+import { tick } from 'svelte';
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
 import InstalledDatapacksView from '$lib/mods/InstalledDatapacksView.svelte';
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
+// The REAL toast store: what these tests pin is which warnings are on screen
+// — how many, which title — not which function was called how often.
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
+
+/** The EN title of the warning shown when the picker could not open. */
+const PICKER_BLOCKED = /couldn't read this instance's data pack library, so the world picker/i;
+/** The EN title of the warning for any other failed read of the library. */
+const READ_FAILED = /couldn't read this instance's data pack library, so the results/i;
+
+/** The warning toasts currently on screen. */
+function warnings() {
+  return toastList().filter((t) => t.kind === 'warning');
+}
+
+/** Lets every pending Svelte update and queued promise settle, so an absence
+ *  checked afterwards is not just "has not happened yet". */
+async function flush(): Promise<void> {
+  await tick();
+  await new Promise((r) => setTimeout(r, 0));
+  await tick();
+}
 
 const pack: InstalledDatapack = {
   filename: 'terralith.zip',
@@ -163,6 +178,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  for (const t of toastList()) dismiss(t.id);
   vi.clearAllMocks();
   const s = await import('$lib/settings/state.svelte');
   s.addonsKind.value = 'mod';
@@ -216,6 +232,14 @@ describe('the world picker receives the library listing’s worlds at every moun
 });
 
 describe('a library listing that cannot be read opens no picker and says so', () => {
+  const browseProps = {
+    source: 'modrinth' as const,
+    instanceId: 'inst-1',
+    mcVersion: '1.21.1',
+    loader: 'fabric' as const,
+    kind: 'datapack' as const,
+  };
+
   it('ModBrowseView: a failed refresh after the install warns instead of opening the picker', async () => {
     c.modsSearch.mockResolvedValue({
       status: 'ok',
@@ -227,39 +251,83 @@ describe('a library listing that cannot be read opens no picker and says so', ()
         ? listingFailure
         : { status: 'ok', data: { ...library, entries: [] } },
     );
-    render(ModBrowseView, {
-      props: {
-        source: 'modrinth',
-        instanceId: 'inst-1',
-        mcVersion: '1.21.1',
-        loader: 'fabric',
-        kind: 'datapack',
-      },
-    });
+    render(ModBrowseView, { props: browseProps });
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
-    await waitFor(() => {
-      expect(toasts.warning).toHaveBeenCalledWith(expect.stringMatching(/IO error at \/lib/i));
-    });
+    await waitFor(() => expect(warnings()).toHaveLength(1));
+    await flush();
+    const [w] = warnings();
+    expect(w.title).toMatch(PICKER_BLOCKED);
+    expect(w.lines.join('\n')).toMatch(/IO error at \/lib/i);
+    // The effect-driven refresh the install triggers fails the same way; it
+    // must not add a second warning or replace this, more specific one.
+    expect(warnings()).toHaveLength(1);
     expect(screen.queryByTestId('datapack-world-picker')).toBeNull();
   });
 
   it('AddonsTab: a failed listing after a local install warns instead of opening the picker', async () => {
+    // Only the first read AFTER the install fails — AddonsTab's own, which it
+    // issues before the browse view's refresh (that one only runs once the
+    // bump AddonsTab makes is flushed). Keyed on the install mock, so the
+    // warning can only be AddonsTab's; the browse view's read succeeds.
+    let failed = false;
+    c.datapacksListLibrary.mockImplementation(async () => {
+      if (c.datapacksInstallFromFile.mock.calls.length > 0 && !failed) {
+        failed = true;
+        return listingFailure;
+      }
+      return { status: 'ok', data: library };
+    });
     render(AddonsTab, { props: { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' } });
     await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
-    const zone = await screen.findByTestId('file-dropzone');
-    await waitFor(() => expect(c.datapacksListLibrary).toHaveBeenCalled());
-    // Only AddonsTab's own read fails. It is the first read after the
-    // install: the datapacksChanged bump it makes just before only schedules
-    // the embedded browse view's refresh, and that later read succeeds — so
-    // a warning here can only be AddonsTab's. (Were the order ever to flip,
-    // AddonsTab would get the good listing and open the picker, and this
-    // test would fail rather than pass on the browse view's warning.)
-    c.datapacksListLibrary.mockResolvedValueOnce(listingFailure);
-    await fireEvent.click(zone);
-    await waitFor(() => {
-      expect(c.datapacksInstallFromFile).toHaveBeenCalled();
-      expect(toasts.warning).toHaveBeenCalledWith(expect.stringMatching(/IO error at \/lib/i));
-    });
+    await fireEvent.click(await screen.findByTestId('file-dropzone'));
+    await waitFor(() => expect(warnings()).toHaveLength(1));
+    await flush();
+    const [w] = warnings();
+    expect(w.title).toMatch(PICKER_BLOCKED);
+    expect(w.lines.join('\n')).toMatch(/IO error at \/lib/i);
+    // The browse view's later, successful read must not take down the reason
+    // the picker did not open.
+    expect(warnings()).toHaveLength(1);
     expect(screen.queryByTestId('datapack-world-picker')).toBeNull();
+  });
+
+  it('AddonsTab: when the embedded browse view fails the same read, there is still one warning', async () => {
+    c.datapacksListLibrary.mockImplementation(async () =>
+      c.datapacksInstallFromFile.mock.calls.length > 0
+        ? listingFailure
+        : { status: 'ok', data: library },
+    );
+    render(AddonsTab, { props: { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' } });
+    await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
+    await fireEvent.click(await screen.findByTestId('file-dropzone'));
+    await waitFor(() => expect(warnings().length).toBeGreaterThan(0));
+    await flush();
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0].title).toMatch(PICKER_BLOCKED);
+    expect(screen.queryByTestId('datapack-world-picker')).toBeNull();
+  });
+
+  it('ModBrowseView: a failed background read warns, and the next successful read takes it down', async () => {
+    c.datapacksListLibrary.mockResolvedValue(listingFailure);
+    render(ModBrowseView, { props: browseProps });
+    await waitFor(() => expect(warnings()).toHaveLength(1));
+    expect(warnings()[0].title).toMatch(READ_FAILED);
+
+    c.datapacksListLibrary.mockResolvedValue({ status: 'ok', data: library });
+    const s = await import('$lib/settings/state.svelte');
+    s.datapacksChanged.value++;
+    await waitFor(() => expect(warnings()).toHaveLength(0));
+  });
+
+  it('ModBrowseView: switching instance takes the old instance’s warning down', async () => {
+    c.datapacksListLibrary.mockImplementation(async (id: string) =>
+      id === 'inst-1' ? listingFailure : { status: 'ok', data: library },
+    );
+    const { rerender } = render(ModBrowseView, { props: browseProps });
+    await waitFor(() => expect(warnings()).toHaveLength(1));
+
+    await rerender({ ...browseProps, instanceId: 'inst-2' });
+    await flush();
+    expect(warnings()).toHaveLength(0);
   });
 });

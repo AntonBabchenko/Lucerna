@@ -35,6 +35,12 @@
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
   import { installFailureToast } from '$lib/mods/install-failure';
+  import {
+    dismissLibraryReadWarning,
+    libraryReadSucceeded,
+    warnLibraryReadBlockedPicker,
+    warnLibraryReadFailed,
+  } from '$lib/mods/datapack-library-warning';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import {
     offPlatformFactsOfError,
@@ -284,18 +290,15 @@
   // the world picker needs the worlds a pack is not in yet.
   let installedDatapackWorlds = $state<DatapackWorldView[]>([]);
 
-  // The warning for a library listing that could not be read. Replaced, not
-  // stacked: one action refreshes twice (its own await, then the
-  // datapacksChanged effect), and both reads fail the same way.
-  let datapackListWarning: number | null = null;
-
   /**
    * Reload the library listing. `true` only when `installedDatapacks` and
    * `installedDatapackWorlds` now hold this instance's current listing. A
    * failed read leaves the previous listing in place for the badges and says
-   * so; a caller about to act on the listing must not use it.
+   * so (one shared warning — see `datapack-library-warning`); a caller about
+   * to act on the listing must not use it. `forPicker`: the read feeds the
+   * world picker, so a failure says the picker did not open.
    */
-  async function refreshInstalledDatapacks(): Promise<boolean> {
+  async function refreshInstalledDatapacks(opts: { forPicker?: boolean } = {}): Promise<boolean> {
     if (!isDatapack) {
       installedDatapacks = [];
       installedDatapackWorlds = [];
@@ -311,10 +314,11 @@
     // Superseded by an instance switch: that instance's own refresh answers.
     if (instanceId !== reqId) return false;
     if (r.status === 'error') {
-      if (datapackListWarning !== null) dismiss(datapackListWarning);
-      datapackListWarning = pushWarning(formatError(r.error));
+      if (opts.forPicker) warnLibraryReadBlockedPicker(reqId, r.error);
+      else warnLibraryReadFailed(reqId, r.error);
       return false;
     }
+    libraryReadSucceeded(reqId);
     installedDatapacks = r.data.entries;
     installedDatapackWorlds = r.data.worlds;
     return true;
@@ -968,7 +972,7 @@
         );
       }
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
-      const fresh = await refreshInstalledDatapacks();
+      const fresh = await refreshInstalledDatapacks({ forPicker: true });
       datapacksChanged.value++;
       // No picker on a snapshot whose refresh failed: its placements and
       // worlds predate this install. The failure is already on screen, and
@@ -1039,18 +1043,20 @@
   // this mounted view) they were created for. If the user switches instance or
   // the view unmounts, that context is stale — a Retry click could install
   // into the wrong instance — so dismiss any still-visible failure toasts
-  // instead of letting them outlive their context.
+  // instead of letting them outlive their context. The warning about the
+  // instance's unreadable data pack library goes the same way: it describes
+  // the instance this view has just left.
   let installFailureToastIds: number[] = [];
   function showInstallFailure(name: string, err: IpcError, retry: () => void) {
     installFailureToastIds.push(installFailureToast(name, err, retry));
   }
   $effect(() => {
-    // biome-ignore lint/correctness/noUnusedVariables: reactive read
-    const _id = instanceId;
+    const leaving = instanceId;
     return () => {
       for (const id of installFailureToastIds) dismiss(id);
       installFailureToastIds = [];
       offPlatformPrompt = null;
+      if (leaving) dismissLibraryReadWarning(leaving);
     };
   });
 

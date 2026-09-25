@@ -186,7 +186,69 @@ describe('DatapackWorldPicker', () => {
   // Both names come from the same read_dir, so the presence is matched on the
   // exact folder name: on a case-sensitive filesystem 'Alpha' and 'alpha'
   // are two worlds, each with its own level.dat.
-  it('two folders differing only in case each keep their own presence', async () => {
+  // The placements come from the same saves/ listing, so they too belong to
+  // the exact folder name. Were 'Alpha' to pick up 'alpha''s disabled
+  // placement, ticking it would send a toggle to a world that never held the
+  // pack instead of adding it there.
+  it('two folders differing only in case each keep their own presence and placement', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({
+      status: 'ok',
+      data: [world('Alpha'), world('alpha')],
+    });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [
+          { world: 'Alpha', level_dat: 'present' as const },
+          { world: 'alpha', level_dat: 'present' as const },
+        ],
+        placements: [
+          {
+            world: 'alpha',
+            state: 'disabled' as const,
+            level_dat: 'present' as const,
+            ignored_reason: null,
+          },
+        ],
+      },
+    });
+    const boxes = await screen.findAllByTestId('datapack-picker-world');
+    expect(boxes.map((b) => b.getAttribute('data-world')).sort()).toEqual(['Alpha', 'alpha']);
+    const upper = boxes.find((b) => b.getAttribute('data-world') === 'Alpha');
+    if (!upper) throw new Error('no Alpha row');
+    await fireEvent.click(upper);
+    await fireEvent.click(screen.getByTestId('datapack-picker-apply'));
+
+    await waitFor(() => {
+      expect(vi.mocked(commands.datapacksAddToWorld)).toHaveBeenCalledWith(
+        'inst',
+        'Alpha',
+        'terralith.zip',
+      );
+    });
+    expect(vi.mocked(commands.datapacksSetEnabledInWorld)).not.toHaveBeenCalled();
+  });
+
+  it('a placement for a world the listing missed keeps its row beside a same-but-for-case world', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({ status: 'ok', data: [world('alpha')] });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        placements: [
+          {
+            world: 'Alpha',
+            state: 'disabled' as const,
+            level_dat: 'present' as const,
+            ignored_reason: null,
+          },
+        ],
+      },
+    });
+    const boxes = await screen.findAllByTestId('datapack-picker-world');
+    expect(boxes.map((b) => b.getAttribute('data-world')).sort()).toEqual(['Alpha', 'alpha']);
+  });
+
+  it('two folders differing only in case each keep their own level.dat presence', async () => {
     vi.mocked(commands.listWorldNames).mockResolvedValue({
       status: 'ok',
       data: [world('Alpha'), world('alpha')],

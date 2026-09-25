@@ -1049,7 +1049,8 @@
         "apply": "Add to selected worlds",
         "libraryOnly": "Library only",
         "toastAdded": "{count, plural, one {Added to # world} other {Added to # worlds}}",
-        "toastFailed": "{count, plural, one {# world failed} other {# worlds failed}}"
+        "toastFailed": "{count, plural, one {# world failed} other {# worlds failed}}",
+        "libraryReadFailed": "Couldn't read this instance's data pack library, so the world picker didn't open. You can add the pack to worlds from the Installed view."
       },
       "remove": {
         "title": "Remove “{name}”?",
@@ -1074,7 +1075,8 @@
         "conflicts": "Doesn't work together with {names}",
         "empty": "Vanilla Tweaks has no packs for this Minecraft version yet.",
         "someFailed": "{count, plural, one {# pack could not be added} other {# packs could not be added}}"
-      }
+      },
+      "libraryReadFailed": "Couldn't read this instance's data pack library, so the results may not show which packs are already installed."
     },
     "install": {
       "toastInstalled": "{count, plural, one {Installed # add-on} other {Installed # add-ons}}",
