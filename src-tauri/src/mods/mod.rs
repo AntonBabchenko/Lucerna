@@ -10,6 +10,7 @@ pub mod cache;
 pub mod changelog;
 pub mod cited_resolve;
 pub mod compat;
+pub mod compat_probe;
 pub mod curseforge;
 pub mod dep_project;
 pub mod dep_resolve;
