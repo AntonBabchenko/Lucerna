@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::datapacks::detect::{self, OnDiskEntry, Presence, Resolved};
+use crate::datapacks::format::PackMcmeta;
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
     level_dat_entry, library_dir_at, registry, state, world_link, DatapackLibraryEntry,
@@ -196,7 +197,8 @@ fn gather(instance_root: &Path, rows: &[InstalledDatapack]) -> Vec<WorldFacts> {
 /// `expected` is the instance's expected `pack_format`, resolved by the caller
 /// (the command layer owns the `AppHandle` needed to find the client jar).
 pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<DatapackLibraryView> {
-    let rows: Vec<InstalledDatapack> = registry::list(instance_root).await?;
+    let stored = registry::list_rows(instance_root).await?;
+    let rows: Vec<InstalledDatapack> = stored.iter().map(|s| s.pack.clone()).collect();
     let root = instance_root.to_path_buf();
     let rows_for_scan = rows.clone();
     let worlds = tokio::task::spawn_blocking(move || gather(&root, &rows_for_scan))
@@ -240,7 +242,11 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
                 .collect();
             DatapackLibraryEntry {
                 in_library: row.is_some(),
-                compat: compat_of(row.and_then(|r| r.pack_format), expected),
+                compat: compat_of(
+                    row.and_then(|r| registry::mcmeta_of(&stored, &r.filename))
+                        .and_then(PackMcmeta::declared_pack_format),
+                    expected,
+                ),
                 pack: row.cloned().unwrap_or_else(|| unlisted(&filename)),
                 placements,
             }
@@ -326,7 +332,6 @@ fn unlisted(filename: &str) -> InstalledDatapack {
         filename: filename.to_string(),
         sha1: String::new(),
         size_bytes: 0.0,
-        pack_format: None,
         name: filename.trim_end_matches(".zip").to_string(),
         source: None,
         project_id: None,

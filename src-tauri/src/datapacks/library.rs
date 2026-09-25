@@ -350,7 +350,6 @@ pub async fn install_named_at(
         filename: filename.to_string(),
         sha1,
         size_bytes: bytes.len() as f64,
-        pack_format: meta.mcmeta.declared_pack_format(),
         name: meta
             .description
             .unwrap_or_else(|| filename.trim_end_matches(".zip").to_string()),
@@ -360,7 +359,7 @@ pub async fn install_named_at(
         version_number: provenance.and_then(|p| p.version_number.clone()),
         installed_at: Utc::now().to_rfc3339(),
     };
-    registry::add(instance_root, entry.clone()).await?;
+    registry::add(instance_root, entry.clone(), meta.mcmeta).await?;
     let refreshed = refreshed?;
     Ok(crate::datapacks::LibraryInstall {
         pack: entry,
@@ -676,13 +675,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn installs_a_zip_and_records_pack_format_and_name() {
+    async fn installs_a_zip_and_records_its_declaration_and_name() {
         let td = tempfile::tempdir().unwrap();
         let entry = install_named_at(td.path(), "VeinMiner.zip", &datapack_zip(), None)
             .await
             .unwrap();
 
-        assert_eq!(entry.pack.pack_format, Some(48));
+        let rows = registry::list_rows(td.path()).await.unwrap();
+        let row = rows
+            .iter()
+            .find(|r| r.pack.filename == "VeinMiner.zip")
+            .unwrap();
+        assert!(
+            matches!(&row.mcmeta, Some(crate::datapacks::format::PackMcmeta::Read(d))
+                if d.pack_format == crate::datapacks::format::Fact::Present(48)),
+            "{:?}",
+            row.mcmeta
+        );
         assert_eq!(entry.pack.name, "Vein Miner");
         assert!(
             entry.refreshed.is_empty(),
@@ -698,7 +707,7 @@ mod tests {
     /// read fail with a non-NotFound error on every platform. The install
     /// must refuse at the identity read, name the destination, and leave the
     /// directory alone — while a genuinely absent file (NotFound) keeps
-    /// installing fine, which `installs_a_zip_and_records_pack_format_and_name`
+    /// installing fine, which `installs_a_zip_and_records_its_declaration_and_name`
     /// already pins.
     ///
     /// NOTE: before the fix this scenario ALSO errored, but only by accident

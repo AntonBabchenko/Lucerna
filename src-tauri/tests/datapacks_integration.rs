@@ -37,9 +37,11 @@ use tempfile::TempDir;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
+use lucerna_lib::datapacks::format::{Fact, PackMcmeta};
 use lucerna_lib::datapacks::pack_meta::{self, PackKind};
 use lucerna_lib::datapacks::{
-    level_dat, library, library_dir_at, world_datapacks_dir_at, world_link, WorldPackState,
+    level_dat, library, library_dir_at, registry, world_datapacks_dir_at, world_link,
+    WorldPackState,
 };
 use lucerna_lib::mods::store::Placement;
 
@@ -423,7 +425,12 @@ async fn a_hand_dropped_library_file_is_adopted() {
         listed[0].source, None,
         "no provenance for a hand-dropped file"
     );
-    assert_eq!(listed[0].pack_format, Some(48));
+    let rows = registry::list_rows(&inst).await.unwrap();
+    assert!(
+        matches!(&rows[0].mcmeta, Some(PackMcmeta::Read(d)) if d.pack_format == Fact::Present(48)),
+        "{:?}",
+        rows[0].mcmeta
+    );
     assert_eq!(listed[0].name, "Vein Miner");
 }
 

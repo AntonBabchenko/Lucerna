@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use crate::datapacks::detect;
+use crate::datapacks::format::PackMcmeta;
 use crate::datapacks::{
     level_dat_entry, library_dir_at, presence, registry, state, InstalledDatapack, PackCompat,
     WorldDatapack, WorldDatapackListing,
@@ -59,7 +60,8 @@ pub async fn list_for_world_at(
         });
     };
 
-    let registry_entries: Vec<InstalledDatapack> = registry::list(instance_root).await?;
+    let stored = registry::list_rows(instance_root).await?;
+    let registry_entries: Vec<InstalledDatapack> = stored.iter().map(|s| s.pack.clone()).collect();
     let lib_dir = library_dir_at(instance_root);
     let dp_owned = dp_dir.clone();
     // `detect::scan` may open unvouched zips: off the executor (N.1).
@@ -68,6 +70,7 @@ pub async fn list_for_world_at(
             &dp_owned,
             &lib_dir,
             &registry_entries,
+            &stored,
             &enabled,
             &disabled,
             expected,
@@ -85,6 +88,7 @@ fn build_rows(
     dp_dir: &Path,
     lib_dir: &Path,
     registry_entries: &[InstalledDatapack],
+    stored: &[registry::StoredRow],
     enabled: &[String],
     disabled: &[String],
     expected: Option<u32>,
@@ -126,7 +130,11 @@ fn build_rows(
                 state: pack_state,
                 ignored_reason,
                 in_library: reg.is_some(),
-                compat: compat_of(reg.and_then(|e| e.pack_format), expected),
+                compat: compat_of(
+                    reg.and_then(|r| registry::mcmeta_of(stored, &r.filename))
+                        .and_then(PackMcmeta::declared_pack_format),
+                    expected,
+                ),
             }
         })
         .collect())

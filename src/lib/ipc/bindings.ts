@@ -4535,11 +4535,11 @@ export type InstalledDatapack = {
 	filename: string,
 	sha1: string,
 	size_bytes: number | null,
-	/**  `pack.pack_format` from `pack.mcmeta`; `None` when unreadable. */
-	pack_format: number | null,
 	/**
-	 *  Display name: `pack.description` when it is a plain string, else the
-	 *  filename without its extension.
+	 *  Display name: the plain text of `pack.description` (rich text
+	 *  flattened, `§` codes stripped), else the filename without its
+	 *  extension. Re-derived from the file whenever the registry re-reads its
+	 *  declaration.
 	 */
 	name: string,
 	/**  `None` for a local install; `Some` once the catalog supplies it. */

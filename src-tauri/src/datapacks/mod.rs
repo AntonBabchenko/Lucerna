@@ -45,10 +45,10 @@ pub struct InstalledDatapack {
     pub filename: String,
     pub sha1: String,
     pub size_bytes: f64,
-    /// `pack.pack_format` from `pack.mcmeta`; `None` when unreadable.
-    pub pack_format: Option<u32>,
-    /// Display name: `pack.description` when it is a plain string, else the
-    /// filename without its extension.
+    /// Display name: the plain text of `pack.description` (rich text
+    /// flattened, `§` codes stripped), else the filename without its
+    /// extension. Re-derived from the file whenever the registry re-reads its
+    /// declaration.
     pub name: String,
     /// `None` for a local install; `Some` once the catalog supplies it.
     pub source: Option<crate::mods::platform::ModSource>,

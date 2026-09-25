@@ -92,7 +92,6 @@ const pack: InstalledDatapack = {
   filename: 'terralith.zip',
   sha1: 'abc',
   size_bytes: 10,
-  pack_format: 48,
   name: 'Terralith',
   source: 'modrinth',
   project_id: 'terra',

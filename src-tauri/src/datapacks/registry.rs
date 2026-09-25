@@ -1,7 +1,8 @@
 //! Per-instance installed-datapacks registry.
 //!
-//! File: `{instance}/lucerna/installed-datapacks.json`. Schema v2 —
-//! v1 → v2 added `version_number`; see [`migrate`].
+//! File: `{instance}/lucerna/installed-datapacks.json`. Schema v3 —
+//! v1 → v2 added `version_number`; v2 → v3 added each row's `mcmeta`; see
+//! [`migrate`].
 //!
 //! On every read the registry is reconciled against the real contents of
 //! `{instance}/datapacks/`, so hand-dropped and hand-deleted files settle
@@ -22,10 +23,56 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
+use crate::datapacks::format::PackMcmeta;
+use crate::datapacks::pack_meta;
 use crate::datapacks::{library_dir_at, registry_path_at, InstalledDatapack};
 use crate::error::{Error, Result};
 
-const FILE_VERSION: u32 = 2;
+const FILE_VERSION: u32 = 3;
+
+/// One registry row as stored: the pack the UI sees, plus what its
+/// `pack.mcmeta` declares (§1 C4). The declaration stays off IPC — the UI
+/// gets the verdict, which depends on the instance's version and so is never
+/// stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredRow {
+    #[serde(flatten)]
+    pub pack: InstalledDatapack,
+    /// `None` ⟺ this build has not read the file's declaration yet: a v2
+    /// row, a value a newer build wrote in a shape this build cannot parse,
+    /// or a read that failed on I/O. `reconcile` backfills it from the
+    /// library file and retries on every listing until it has an answer —
+    /// "could not tell" is never stamped as a fact.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_mcmeta"
+    )]
+    pub mcmeta: Option<PackMcmeta>,
+}
+
+/// Reads `mcmeta` as an untyped [`serde_json::Value`] FIRST, then tries the
+/// typed shape. A value this build cannot parse (a newer build's variant, a
+/// downgrade round-trip) becomes `None` — re-read from the file, the source
+/// of truth — instead of failing the WHOLE registry parse, which
+/// `read_or_empty` turns into an empty registry with every row's provenance
+/// gone (§0.5 A23). Never call `PackMcmeta::deserialize` on the outer
+/// deserializer: an error there leaves it half-consumed.
+fn lenient_mcmeta<'de, D>(d: D) -> std::result::Result<Option<PackMcmeta>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(raw.and_then(|v| serde_json::from_value::<PackMcmeta>(v).ok()))
+}
+
+/// The recorded declaration of the row named exactly `filename`.
+#[must_use]
+pub fn mcmeta_of<'a>(rows: &'a [StoredRow], filename: &str) -> Option<&'a PackMcmeta> {
+    rows.iter()
+        .find(|r| r.pack.filename == filename)
+        .and_then(|r| r.mcmeta.as_ref())
+}
 
 /// Serializes every read-modify-write of the registry file: `list`'s
 /// reconcile-then-persist and `add`/`remove`'s own read-modify-write can
@@ -59,7 +106,7 @@ struct OnDisk {
     #[serde(default = "default_version")]
     version: u32,
     #[serde(default)]
-    datapacks: Vec<InstalledDatapack>,
+    datapacks: Vec<StoredRow>,
 }
 
 fn default_version() -> u32 {
@@ -164,11 +211,13 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
     }
 
     let before = state.datapacks.len();
-    state.datapacks.retain(|d| on_disk.contains(&d.filename));
+    state
+        .datapacks
+        .retain(|d| on_disk.contains(&d.pack.filename));
     let mut changed = state.datapacks.len() != before;
 
     for name in on_disk {
-        if state.datapacks.iter().any(|d| d.filename == name) {
+        if state.datapacks.iter().any(|d| d.pack.filename == name) {
             continue;
         }
         let path = lib.join(&name);
@@ -187,12 +236,11 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
                 continue;
             }
         };
-        let meta = crate::datapacks::pack_meta::read_meta(&bytes);
-        state.datapacks.push(InstalledDatapack {
+        let meta = pack_meta::read_meta(&bytes);
+        let pack = InstalledDatapack {
             name: meta
                 .description
                 .unwrap_or_else(|| name.trim_end_matches(".zip").to_string()),
-            pack_format: meta.mcmeta.declared_pack_format(),
             size_bytes: bytes.len() as f64,
             sha1: crate::datapacks::library::sha1_hex(&bytes),
             filename: name,
@@ -201,18 +249,78 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
             version_id: None,
             version_number: None,
             installed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        state.datapacks.push(StoredRow {
+            pack,
+            mcmeta: Some(meta.mcmeta),
         });
         changed = true;
+    }
+    let backfilled = backfill(&lib, state).await;
+    changed || backfilled
+}
+
+/// Fill `mcmeta` for every row that has none, from its library file (only
+/// the central directory and `pack.mcmeta` are read, off the executor). A
+/// parse outcome — `Missing`, `Unreadable`, a declaration — is a real answer
+/// and is persisted; an I/O failure is "could not tell": the row stays
+/// `None`, a `diag!` names it, and the next listing tries again. The display
+/// name is re-derived from the same read: it is display-only and always
+/// comes from the file.
+async fn backfill(lib: &Path, state: &mut OnDisk) -> bool {
+    let todo: Vec<(usize, std::path::PathBuf)> = state
+        .datapacks
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.mcmeta.is_none())
+        .map(|(i, r)| (i, lib.join(&r.pack.filename)))
+        .collect();
+    if todo.is_empty() {
+        return false;
+    }
+    let paths: Vec<std::path::PathBuf> = todo.iter().map(|(_, p)| p.clone()).collect();
+    let reads = match tokio::task::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|p| pack_meta::read_meta_file(p))
+            .collect::<Vec<_>>()
+    })
+    .await
+    {
+        Ok(reads) => reads,
+        Err(e) => {
+            crate::diag!(
+                "datapacks: pack.mcmeta backfill did not run, retried on the next listing: {e}"
+            );
+            return false;
+        }
+    };
+    let mut changed = false;
+    for ((i, path), read) in todo.into_iter().zip(reads) {
+        match read {
+            Ok(meta) => {
+                let row = &mut state.datapacks[i];
+                let stem = row.pack.filename.trim_end_matches(".zip").to_string();
+                row.pack.name = meta.description.unwrap_or(stem);
+                row.mcmeta = Some(meta.mcmeta);
+                changed = true;
+            }
+            Err(e) => crate::diag!(
+                "datapacks: could not read pack.mcmeta of {}, retried on the next listing: {e}",
+                path.display()
+            ),
+        }
     }
     changed
 }
 
-/// Read the registry, reconciled against `{instance}/datapacks/`. Persists the
+/// Read, reconcile and (best-effort) persist — the shared body of [`list`]
+/// and [`list_rows`]. Sorted case-insensitively by filename. Persists the
 /// reconciled state (and any schema migration) back to disk when either
 /// changed anything. The persist is best-effort: a full disk or a read-only
 /// data root must not turn an otherwise-successful listing into an error page
 /// — every pack still listed fine, only the housekeeping write failed.
-pub async fn list(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
+async fn reconciled_rows(instance_root: &Path) -> Vec<StoredRow> {
     let _guard = registry_lock().lock().await;
     let mut state = read_or_empty(instance_root).await;
     let migrated = migrate(&mut state);
@@ -226,17 +334,43 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
         }
     }
     let mut out = state.datapacks;
-    out.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
-    Ok(out)
+    out.sort_by(|a, b| {
+        a.pack
+            .filename
+            .to_lowercase()
+            .cmp(&b.pack.filename.to_lowercase())
+    });
+    out
+}
+
+/// The library's packs, reconciled against `{instance}/datapacks/`. The
+/// persist is best-effort (see [`reconciled_rows`]).
+pub async fn list(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
+    Ok(reconciled_rows(instance_root)
+        .await
+        .into_iter()
+        .map(|r| r.pack)
+        .collect())
+}
+
+/// [`list`], with each row's recorded `pack.mcmeta` declaration — for the two
+/// listings that compute a verdict (`overview`, `world_link::listing`).
+pub async fn list_rows(instance_root: &Path) -> Result<Vec<StoredRow>> {
+    Ok(reconciled_rows(instance_root).await)
 }
 
 /// Append a new entry, replacing any existing entry with the same filename.
-/// Caller has already placed the file in `{instance}/datapacks/`.
-pub async fn add(instance_root: &Path, item: InstalledDatapack) -> Result<()> {
+/// `mcmeta` is what the same bytes' `pack.mcmeta` declares, computed by the
+/// caller from the bytes it placed. Caller has already placed the file in
+/// `{instance}/datapacks/`.
+pub async fn add(instance_root: &Path, item: InstalledDatapack, mcmeta: PackMcmeta) -> Result<()> {
     let _guard = registry_lock().lock().await;
     let mut state = read_or_empty(instance_root).await;
-    state.datapacks.retain(|d| d.filename != item.filename);
-    state.datapacks.push(item);
+    state.datapacks.retain(|d| d.pack.filename != item.filename);
+    state.datapacks.push(StoredRow {
+        pack: item,
+        mcmeta: Some(mcmeta),
+    });
     state.version = FILE_VERSION;
     write(instance_root, &state).await
 }
@@ -246,11 +380,15 @@ pub async fn add(instance_root: &Path, item: InstalledDatapack) -> Result<()> {
 pub async fn remove(instance_root: &Path, filename: &str) -> Result<()> {
     let _guard = registry_lock().lock().await;
     let mut state = read_or_empty(instance_root).await;
-    state.datapacks.retain(|d| d.filename != filename);
+    state.datapacks.retain(|d| d.pack.filename != filename);
     state.version = FILE_VERSION;
     write(instance_root, &state).await
 }
 
+/// v2 → v3: rows gained `mcmeta`. The backfill in `reconcile` is keyed on the
+/// FIELD (`mcmeta: None`), never on this stamp, so a row whose read failed is
+/// never stamped and forgotten.
+///
 /// v1 → v2: `version_number` was added to `InstalledDatapack` with
 /// `#[serde(default)]`. No field backfill happens — or could: by the time this
 /// runs, `read_or_empty` has already deserialized into the new shape and serde
@@ -270,13 +408,180 @@ fn migrate(state: &mut OnDisk) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::format::{samples, Bound, Fact, FormatVersion, PackMcmeta};
+    use std::path::Path;
+
+    const TERRALITH: &str = r#"{"pack":{"min_format":107,"max_format":107,"description":[{"text":"Terralith","color":"green"},{"text":" by Stardust Labs"}]}}"#;
+
+    fn seed_registry(root: &Path, json: &str) -> std::path::PathBuf {
+        let lucerna = root.join("lucerna");
+        std::fs::create_dir_all(&lucerna).unwrap();
+        let reg = lucerna.join("installed-datapacks.json");
+        std::fs::write(&reg, json).unwrap();
+        reg
+    }
+
+    #[tokio::test]
+    async fn a_v2_row_is_backfilled_from_its_library_file_and_keeps_provenance() {
+        // A v2 row has no `mcmeta` and a stale `pack_format: null` (the corpus
+        // Terralith row). The upgrade re-reads the library file: provenance
+        // survives, the declaration is recorded, and the name comes from the
+        // rich-text description instead of the filename stem.
+        let td = tempfile::tempdir().unwrap();
+        let reg = seed_registry(
+            td.path(),
+            r#"{"version":2,"datapacks":[{"filename":"terralith.zip","sha1":"abc","size_bytes":10.0,"pack_format":null,"name":"terralith","source":"modrinth","project_id":"p1","version_id":"v1","version_number":"2.5.8","installed_at":"2026-01-01T00:00:00Z"}]}"#,
+        );
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(
+            lib.join("terralith.zip"),
+            samples::zip_with_mcmeta(TERRALITH),
+        )
+        .unwrap();
+
+        let rows = list_rows(td.path()).await.unwrap();
+
+        assert_eq!(rows.len(), 1, "the v2 row must survive");
+        assert_eq!(rows[0].pack.project_id.as_deref(), Some("p1"));
+        assert_eq!(rows[0].pack.version_id.as_deref(), Some("v1"));
+        assert_eq!(rows[0].pack.name, "Terralith by Stardust Labs");
+        match &rows[0].mcmeta {
+            Some(PackMcmeta::Read(d)) => {
+                assert_eq!(d.min_format, Fact::Present(Bound::Major(107)));
+                assert_eq!(d.max_format, Fact::Present(Bound::Major(107)));
+                assert_eq!(d.pack_format, Fact::Absent);
+            }
+            other => panic!("expected a recorded declaration, got {other:?}"),
+        }
+        let raw = std::fs::read_to_string(reg).unwrap();
+        assert!(raw.contains("\"version\": 3"), "raw was: {raw}");
+        assert!(
+            raw.contains("\"mcmeta\""),
+            "the backfill is persisted: {raw}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_library_file_leaves_the_row_unread_and_intact() {
+        // "Could not tell" is never stamped (Fallback discipline, q.2): an
+        // entry that cannot be read — a DIRECTORY named like the zip — keeps
+        // its row and provenance, records nothing (so its verdict is
+        // Unknown), and is retried on the next listing.
+        let td = tempfile::tempdir().unwrap();
+        let reg = seed_registry(
+            td.path(),
+            r#"{"version":3,"datapacks":[{"filename":"x.zip","sha1":"abc","size_bytes":10.0,"name":"X","source":"modrinth","project_id":"p1","version_id":"v1","installed_at":"2026-01-01T00:00:00Z"}]}"#,
+        );
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(lib.join("x.zip")).unwrap();
+
+        let rows = list_rows(td.path()).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].pack.project_id.as_deref(), Some("p1"));
+        assert_eq!(rows[0].mcmeta, None, "an I/O failure is not an answer");
+        assert_eq!(
+            crate::datapacks::verdict::verdict(
+                rows[0].mcmeta.as_ref(),
+                Some(FormatVersion::new(48, 0))
+            ),
+            crate::datapacks::PackCompat::Unknown
+        );
+        assert!(
+            !std::fs::read_to_string(&reg)
+                .unwrap()
+                .contains("\"mcmeta\""),
+            "nothing stamped"
+        );
+
+        std::fs::remove_dir_all(lib.join("x.zip")).unwrap();
+        std::fs::write(lib.join("x.zip"), samples::zip_with_mcmeta(samples::DAGGER)).unwrap();
+        let rows = list_rows(td.path()).await.unwrap();
+        assert!(
+            matches!(rows[0].mcmeta, Some(PackMcmeta::Read(_))),
+            "retried: {:?}",
+            rows[0].mcmeta
+        );
+        assert_eq!(rows[0].pack.project_id.as_deref(), Some("p1"));
+    }
+
+    #[tokio::test]
+    async fn a_declaration_this_build_cannot_parse_does_not_wipe_the_registry() {
+        // A newer build may store a variant this one does not know. A strict
+        // parse fails the WHOLE file, `read_or_empty` returns an empty
+        // registry, and every row's provenance is lost on the next write.
+        let td = tempfile::tempdir().unwrap();
+        seed_registry(
+            td.path(),
+            r#"{"version":3,"datapacks":[{"filename":"vm.zip","sha1":"abc","size_bytes":10.0,"name":"VM","source":"modrinth","project_id":"p1","version_id":"v1","installed_at":"2026-01-01T00:00:00Z","mcmeta":{"kind":"from_the_future","x":1}}]}"#,
+        );
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(
+            lib.join("vm.zip"),
+            samples::zip_with_mcmeta(samples::DAGGER),
+        )
+        .unwrap();
+
+        let rows = list_rows(td.path()).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].pack.project_id.as_deref(),
+            Some("p1"),
+            "provenance survives"
+        );
+        assert!(
+            matches!(rows[0].mcmeta, Some(PackMcmeta::Read(_))),
+            "re-read from the file"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_parse_outcome_is_persisted_as_an_answer() {
+        // The discrimination half: bytes that are not a zip ARE an answer
+        // (Unreadable), unlike an I/O failure — recorded, not retried forever.
+        let td = tempfile::tempdir().unwrap();
+        let reg = seed_registry(
+            td.path(),
+            r#"{"version":3,"datapacks":[{"filename":"vm.zip","sha1":"abc","size_bytes":4.0,"name":"vm","source":null,"project_id":null,"version_id":null,"installed_at":"2026-01-01T00:00:00Z"}]}"#,
+        );
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("vm.zip"), b"PACK").unwrap();
+
+        let rows = list_rows(td.path()).await.unwrap();
+        assert_eq!(rows[0].mcmeta, Some(PackMcmeta::Unreadable));
+        assert!(std::fs::read_to_string(reg)
+            .unwrap()
+            .contains("\"unreadable\""));
+    }
+
+    #[tokio::test]
+    async fn an_adopted_file_records_its_declaration_and_plain_name() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(
+            lib.join("caps.zip"),
+            samples::zip_with_mcmeta(samples::BETTERCAPS),
+        )
+        .unwrap();
+
+        let rows = list_rows(td.path()).await.unwrap();
+        assert_eq!(
+            rows[0].pack.name,
+            "Three-dimensional Caps! by _Lvnatic and RedRibbon!"
+        );
+        assert!(
+            matches!(&rows[0].mcmeta, Some(PackMcmeta::Read(d)) if d.supported_formats == Fact::Present((34, 48)))
+        );
+    }
 
     fn entry(filename: &str, sha1: &str) -> InstalledDatapack {
         InstalledDatapack {
             filename: filename.into(),
             sha1: sha1.into(),
             size_bytes: 10.0,
-            pack_format: Some(48),
             name: filename.trim_end_matches(".zip").into(),
             source: None,
             project_id: None,
@@ -299,7 +604,9 @@ mod tests {
         std::fs::create_dir_all(&lib).unwrap();
         std::fs::write(lib.join("vm.zip"), b"PACK").unwrap();
 
-        add(td.path(), entry("vm.zip", "aaa")).await.unwrap();
+        add(td.path(), entry("vm.zip", "aaa"), PackMcmeta::Unreadable)
+            .await
+            .unwrap();
         let got = list(td.path()).await.unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].filename, "vm.zip");
@@ -309,7 +616,9 @@ mod tests {
     async fn an_entry_whose_file_vanished_is_dropped_on_read() {
         let td = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(crate::datapacks::library_dir_at(td.path())).unwrap();
-        add(td.path(), entry("gone.zip", "bbb")).await.unwrap();
+        add(td.path(), entry("gone.zip", "bbb"), PackMcmeta::Unreadable)
+            .await
+            .unwrap();
         assert!(list(td.path()).await.unwrap().is_empty());
     }
 
@@ -341,7 +650,9 @@ mod tests {
         let lib = crate::datapacks::library_dir_at(td.path());
         std::fs::create_dir_all(&lib).unwrap();
         std::fs::write(lib.join("vm.zip"), b"PACK").unwrap();
-        add(td.path(), entry("vm.zip", "aaa")).await.unwrap();
+        add(td.path(), entry("vm.zip", "aaa"), PackMcmeta::Unreadable)
+            .await
+            .unwrap();
 
         remove(td.path(), "vm.zip").await.unwrap();
         let raw = std::fs::read_to_string(crate::datapacks::registry_path_at(td.path())).unwrap();
@@ -353,17 +664,19 @@ mod tests {
     async fn the_version_key_is_written_from_day_one() {
         let td = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(crate::datapacks::library_dir_at(td.path())).unwrap();
-        add(td.path(), entry("vm.zip", "aaa")).await.unwrap();
+        add(td.path(), entry("vm.zip", "aaa"), PackMcmeta::Unreadable)
+            .await
+            .unwrap();
         let raw = std::fs::read_to_string(crate::datapacks::registry_path_at(td.path())).unwrap();
         // A missing `version` key would default to CURRENT on read, so a file
         // written without it could never be migrated later. Pinned to the
         // literal current version on purpose: this test is what makes a
         // FILE_VERSION bump visible rather than silent.
-        assert!(raw.contains("\"version\": 2"), "raw was: {raw}");
+        assert!(raw.contains("\"version\": 3"), "raw was: {raw}");
     }
 
     #[tokio::test]
-    async fn a_v1_file_upgrades_to_v2_and_keeps_its_row() {
+    async fn a_v1_file_upgrades_to_v3_and_keeps_its_row() {
         // Asserting only on the version number would pass straight THROUGH the
         // wipe path: `read_or_empty` is `from_slice(..).unwrap_or(<empty>)`, so
         // a shape it cannot satisfy silently discards every row and reconcile
@@ -397,7 +710,7 @@ mod tests {
             "absent in v1; serde supplies the None, migrate cannot backfill"
         );
         let raw = std::fs::read_to_string(lucerna.join("installed-datapacks.json")).unwrap();
-        assert!(raw.contains("\"version\": 2"), "raw was: {raw}");
+        assert!(raw.contains("\"version\": 3"), "raw was: {raw}");
     }
 
     #[tokio::test]
@@ -415,7 +728,9 @@ mod tests {
         let lib = crate::datapacks::library_dir_at(td.path());
         std::fs::create_dir_all(&lib).unwrap();
         std::fs::write(lib.join("vm.zip"), b"PACK").unwrap();
-        add(td.path(), entry("vm.zip", "aaa")).await.unwrap();
+        add(td.path(), entry("vm.zip", "aaa"), PackMcmeta::Unreadable)
+            .await
+            .unwrap();
 
         // Replace the library DIRECTORY with a plain FILE. `read_dir` against
         // a file fails with something other than `NotFound` on every
@@ -488,7 +803,12 @@ mod tests {
         for i in 0..8 {
             let root = td.path().to_path_buf();
             handles.push(tokio::spawn(async move {
-                add(&root, entry(&format!("p{i}.zip"), "sha")).await
+                add(
+                    &root,
+                    entry(&format!("p{i}.zip"), "sha"),
+                    PackMcmeta::Unreadable,
+                )
+                .await
             }));
         }
         for h in handles {
