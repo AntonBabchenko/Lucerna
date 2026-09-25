@@ -222,9 +222,12 @@
 </script>
 
 <!-- One listed world, with why Lucerna leaves it alone when its level.dat
-     rules a change out (D2): no level.dat, or only level.dat_old. -->
+     rules a change out (D2): no level.dat, or only level.dat_old. The library
+     cascade does change a folder with no level file — it unlinks the file
+     there (§0.5 A3) — so in that mode such a folder carries no mark. -->
 {#snippet worldItem(p: DatapackPlacementView)}
-  {@const blocked = levelDatBlockedKey(p.level_dat)}
+  {@const blocked =
+    mode.kind === 'library' && p.level_dat === 'absent' ? null : levelDatBlockedKey(p.level_dat)}
   <li class="truncate">
     {p.world}
     {#if blocked !== null}

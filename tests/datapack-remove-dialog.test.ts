@@ -199,6 +199,9 @@ describe('DatapackRemoveDialog — worlds Lucerna could not check', () => {
     const affected = await screen.findByTestId('datapack-remove-affected');
     expect(within(affected).getByText('Husk')).toBeTruthy();
     expect(screen.queryByTestId('datapack-remove-unchecked')).toBeNull();
+    // The cascade unlinks the file there (§0.5 A3): a mark saying Lucerna
+    // leaves the folder alone would be false.
+    expect(screen.queryByTestId('datapack-remove-world-blocked')).toBeNull();
   });
 
   it('worlds-only mode lists them apart and says removal tries them too', async () => {
