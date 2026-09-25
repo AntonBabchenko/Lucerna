@@ -102,11 +102,17 @@ describe('InstalledDatapacksView — a sub-row whose world has no usable level.d
     expect(within(rows).queryByRole('button', { name: /remove from this world/i })).toBeNull();
   });
 
+  // A state on purpose: the backend never sends one for such a folder, so a
+  // `null` fixture hid the controls through the state checks alone and never
+  // reached the level.dat gate this test is about (A2).
   it('an absent sub-row says so and offers no toggle or trash', async () => {
-    library([placement('Husk', null, 'absent')]);
+    library([placement('Husk', 'enabled', 'absent')]);
     const rows = await expandedPlacements();
     expect(within(rows).getByText('No level.dat')).toBeTruthy();
     expect(within(rows).queryByText('State unknown')).toBeNull();
+    expect(
+      within(rows).queryByRole('button', { name: /(enable|disable) in this world/i }),
+    ).toBeNull();
     expect(within(rows).queryByRole('button', { name: /remove from this world/i })).toBeNull();
   });
 });
