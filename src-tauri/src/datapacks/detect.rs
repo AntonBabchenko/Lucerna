@@ -254,8 +254,12 @@ pub fn scan(dp_dir: &Path, vouch: &dyn Fn(&str, &Path) -> bool) -> io::Result<Ve
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
         let file_type = entry.file_type();
+        // Only a regular file (or a link to one) is offered to the vouch, which
+        // opens it: opening a FIFO or a device blocks (A25, N.1).
         let vouched = has_zip_suffix(&name)
-            && file_type.as_ref().is_ok_and(|ft| !ft.is_dir())
+            && file_type
+                .as_ref()
+                .is_ok_and(|ft| is_regular_file_or_link_to_one(&path, ft))
             && vouch(&name, &path);
         let presence = match classify_at(&path, &name, file_type, vouched) {
             Ok(Some(p)) => p,
@@ -269,6 +273,18 @@ pub fn scan(dp_dir: &Path, vouch: &dyn Fn(&str, &Path) -> bool) -> io::Result<Ve
         });
     }
     Ok(out)
+}
+
+/// A regular file, or a link whose target is one (A25): the only non-folder
+/// entries `PackDetector` loads, and the only ones Lucerna opens. A link
+/// whose target cannot be stated is not one here; `classify_at` reports it
+/// Unreadable.
+fn is_regular_file_or_link_to_one(path: &Path, ft: &fs::FileType) -> bool {
+    if ft.is_symlink() {
+        fs::metadata(path).is_ok_and(|m| m.is_file())
+    } else {
+        ft.is_file()
+    }
 }
 
 /// The names in `dp_dir` from one `read_dir`: A19's writer input for `resolve`.
@@ -908,5 +924,28 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let _sock = std::os::unix::net::UnixListener::bind(td.path().join("sock.zip")).unwrap();
         assert!(scan(td.path(), &never).unwrap().is_empty());
+    }
+
+    /// The vouch (`world_link::vouched_by_library`) opens the file to read its
+    /// metadata. A FIFO named like a library row must never reach it: opening
+    /// a FIFO blocks until a writer appears, hanging the listing. Only a
+    /// regular file, or a link to one, is offered for vouching.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_named_like_a_library_row_is_never_offered_to_the_vouch() {
+        use std::os::unix::ffi::OsStrExt;
+        let td = tempfile::tempdir().unwrap();
+        let fifo =
+            std::ffi::CString::new(td.path().join("lib.zip").as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo` is a valid NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let asked = std::cell::Cell::new(false);
+        let entries = scan(td.path(), &|_: &str, _: &Path| {
+            asked.set(true);
+            true
+        })
+        .unwrap();
+        assert!(!asked.get(), "the vouch would open the FIFO and block");
+        assert!(entries.is_empty(), "{entries:?}");
     }
 }
