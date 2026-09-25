@@ -41,6 +41,7 @@
     warnLibraryReadBlockedPicker,
     warnLibraryReadFailed,
   } from '$lib/mods/datapack-library-warning';
+  import { warnFailedRefresh } from '$lib/mods/datapack-refresh-warning';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import {
     offPlatformFactsOfError,
@@ -965,13 +966,7 @@
       // A same-name reinstall fans out to worlds already holding the pack;
       // per-world failures come back in `refreshed` and must not be silent —
       // that world stays on stale bytes.
-      const failedWorlds = installed.data.refreshed.filter((m) => m.kind === 'failed');
-      if (failedWorlds.length > 0) {
-        pushWarning(
-          get(t)('addons.datapacks.updateIncomplete', { count: failedWorlds.length }),
-          failedWorlds.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
-        );
-      }
+      warnFailedRefresh(installed.data.refreshed);
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
       const fresh = await refreshInstalledDatapacks({ forPicker: true });
       datapacksChanged.value++;

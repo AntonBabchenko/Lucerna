@@ -22,6 +22,7 @@
   import type { CardAccent, BadgeVariant } from '$lib/ui/cards/card-status';
   import { worldDatapacksDisabledKey, worldRowKind } from '$lib/worlds/datapacks-gating';
   import DatapackRemoveDialog from '$lib/mods/DatapackRemoveDialog.svelte';
+  import { warnFailedRefresh } from '$lib/mods/datapack-refresh-warning';
 
   // Per-world datapack manager. Library ∪ on-disk ∪ level.dat names, each row
   // carrying its own state. A "ghost" (a level.dat name whose file is gone) is
@@ -177,7 +178,13 @@
         actionError = formatError(installed.error);
         return;
       }
-      const placed = await commands.datapacksAddToWorld(instanceId, world, installed.data.filename);
+      // A same-named pack was replaced: a world left on its old bytes is named.
+      warnFailedRefresh(installed.data.refreshed);
+      const placed = await commands.datapacksAddToWorld(
+        instanceId,
+        world,
+        installed.data.pack.filename,
+      );
       if (placed.status === 'ok') {
         if (placed.data === 'copied') pushInfo($t('worlds.datapacks.copyNotLinked'));
       } else {

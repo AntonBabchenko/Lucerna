@@ -52,6 +52,7 @@
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
+  import { warnFailedRefresh } from './datapack-refresh-warning';
 
   let {
     instanceId,
@@ -106,6 +107,9 @@
         error = formatError(res.error);
         return;
       }
+      // A pack that replaced a same-named one names each world left on its
+      // old bytes, as a catalog install does.
+      for (const o of res.data.outcomes) warnFailedRefresh(o.refreshed);
       const failed = res.data.outcomes.filter((o) => !o.installed).length;
       if (failed > 0) {
         error = $t('addons.datapacks.vt.someFailed', { count: failed });

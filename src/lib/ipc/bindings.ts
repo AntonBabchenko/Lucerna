@@ -1991,9 +1991,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	datapacksListLibrary: (instanceId: string) => typedError<DatapackLibraryView, Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
 	/**
 	 *  Install a `.zip` file or folder datapack from `src_path` (a file-picker
-	 *  result) into the instance's library.
+	 *  result) into the instance's library. The returned fan-out is non-empty
+	 *  only when a same-named pack was already linked somewhere: a local install
+	 *  replaces it and refreshes those worlds, and each world it could not
+	 *  refresh comes back `Failed`.
 	 */
-	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<InstalledDatapack, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
+	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<LibraryInstall, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
 	/**
 	 *  Remove a datapack from the instance's library. With `cascade`, first unlink
 	 *  it and drop its level.dat entries in every world holding it; without,
@@ -8090,6 +8093,13 @@ export type VtInstallOutcome = {
 	filename: string,
 	installed: boolean,
 	error: string | null,
+	/**
+	 *  An instance install's same-name fan-out (`LibraryInstall.refreshed`):
+	 *  non-empty only when the library already held this name and worlds were
+	 *  linked to the old copy; a world it could not refresh is `Failed`.
+	 *  Always empty for a server install, which has one world and no fan-out.
+	 */
+	refreshed: WorldMigration[],
 };
 
 export type VtInstallReport = {

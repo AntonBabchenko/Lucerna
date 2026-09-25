@@ -152,7 +152,7 @@ beforeEach(() => {
     status: 'ok',
     data: [{ folder_name: 'Beta', modified_unix_ms: null }],
   });
-  c.datapacksInstallFromFile.mockResolvedValue({ status: 'ok', data: pack });
+  c.datapacksInstallFromFile.mockResolvedValue({ status: 'ok', data: installed });
   c.datapacksInstallFromVersion.mockResolvedValue({ status: 'ok', data: installed });
   c.modsDatapackVersions.mockResolvedValue({ status: 'ok', data: [version] });
   c.datapacksCheckUpdates.mockResolvedValue({ status: 'ok', data: [] });
@@ -327,5 +327,33 @@ describe('a library listing that cannot be read opens no picker and says so', ()
     await rerender({ ...browseProps, instanceId: 'inst-2' });
     await flush();
     expect(warnings()).toHaveLength(0);
+  });
+});
+
+// A local install carries no provenance, so a file under a name the library
+// already holds replaces that pack, and the worlds linked to the old copy are
+// refreshed. A world that could not be refreshed stays on the old bytes: the
+// catalog install names such worlds, and a local one must too.
+describe('a local reinstall whose world refresh failed says which worlds', () => {
+  it('AddonsTab: names each world it could not refresh', async () => {
+    c.datapacksInstallFromFile.mockResolvedValue({
+      status: 'ok',
+      data: {
+        pack,
+        refreshed: [
+          { kind: 'refreshed', world: 'Beta' },
+          { kind: 'failed', world: 'Alpha', details: 'locked' },
+        ],
+      },
+    });
+    render(AddonsTab, { props: { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' } });
+    await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
+    await fireEvent.click(await screen.findByTestId('file-dropzone'));
+    await waitFor(() =>
+      expect(warnings().some((w) => /did not receive the update/.test(w.title))).toBe(true),
+    );
+    const w = warnings().find((x) => /did not receive the update/.test(x.title));
+    expect(w?.title).toMatch(/^1 world did not receive the update/);
+    expect(w?.lines).toEqual(['Alpha: locked']);
   });
 });

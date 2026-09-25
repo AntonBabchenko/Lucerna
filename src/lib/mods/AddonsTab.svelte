@@ -39,6 +39,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { libraryReadSucceeded, warnLibraryReadBlockedPicker } from './datapack-library-warning';
+  import { warnFailedRefresh } from './datapack-refresh-warning';
   import {
     cachedDatapackSupport,
     rememberDatapackSupport,
@@ -422,7 +423,9 @@
       const r = await commands.datapacksInstallFromFile(instanceId, path);
       if (r.status === 'ok') {
         ok += 1;
-        last = { filename: r.data.filename, packName: r.data.name };
+        last = { filename: r.data.pack.filename, packName: r.data.pack.name };
+        // A same-named pack was replaced: a world left on its old bytes is named.
+        warnFailedRefresh(r.data.refreshed);
       } else {
         failed.push(`${filenameOf(path)}: ${formatError(r.error)}`);
       }

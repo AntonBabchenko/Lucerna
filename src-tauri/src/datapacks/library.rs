@@ -38,7 +38,15 @@ pub(crate) fn sha1_hex(bytes: &[u8]) -> String {
 /// instance's library. A directory is zipped in memory — see
 /// [`zip_folder_in_memory`] — and named `<foldername>.zip`; a file is read and
 /// installed under its own name.
-pub async fn install_local_at(instance_root: &Path, src: &Path) -> Result<InstalledDatapack> {
+///
+/// A local install carries no provenance, so it is never conflict-checked: a
+/// name the library already holds is replaced, and the same-name fan-out
+/// refreshes the worlds linked to the old copy. Its per-world report is
+/// returned with the row, as a catalog install's is.
+pub async fn install_local_at(
+    instance_root: &Path,
+    src: &Path,
+) -> Result<crate::datapacks::LibraryInstall> {
     let meta = tokio::fs::metadata(src)
         .await
         .map_err(|e| Error::io(src.display().to_string(), e))?;
@@ -57,12 +65,7 @@ pub async fn install_local_at(instance_root: &Path, src: &Path) -> Result<Instal
         let bytes = tokio::task::spawn_blocking(move || zip_folder_in_memory(&src_owned))
             .await
             .map_err(|e| Error::io(name.clone(), format!("join: {e}")))??;
-        // A local install has no world fan-out to report — the filename is
-        // freshly derived from the folder name, so any pre-existing same-named
-        // pack is caught by the conflict check, not silently refreshed.
-        install_named_at(instance_root, &filename, &bytes, None)
-            .await
-            .map(|r| r.pack)
+        install_named_at(instance_root, &filename, &bytes, None).await
     } else {
         // `install_named_at` enforces this too, and is the authoritative gate
         // now that the catalog can reach it directly. Kept here as well because
@@ -78,9 +81,7 @@ pub async fn install_local_at(instance_root: &Path, src: &Path) -> Result<Instal
         let bytes = tokio::fs::read(src)
             .await
             .map_err(|e| Error::io(src.display().to_string(), e))?;
-        install_named_at(instance_root, &name, &bytes, None)
-            .await
-            .map(|r| r.pack)
+        install_named_at(instance_root, &name, &bytes, None).await
     }
 }
 
@@ -788,7 +789,7 @@ mod tests {
         std::fs::write(src.join("pack.mcmeta"), MCMETA).unwrap();
         std::fs::write(src.join("data/vm/function/tick.mcfunction"), b"say hi").unwrap();
 
-        let entry = install_local_at(td.path(), &src).await.unwrap();
+        let entry = install_local_at(td.path(), &src).await.unwrap().pack;
 
         assert_eq!(entry.filename, "VeinMiner.zip");
         assert_eq!(entry.name, "Vein Miner");
@@ -1650,6 +1651,36 @@ mod tests {
         assert_eq!(
             std::fs::read(library_dir_at(td.path()).join("vm.zip")).unwrap(),
             datapack_zip_v2()
+        );
+        assert_eq!(out.pack.sha1, sha1_hex(&datapack_zip_v2()));
+    }
+
+    /// A local install carries no provenance, so it is never conflict-checked:
+    /// installing a file under a name the library already holds replaces it,
+    /// and the same-name fan-out refreshes the worlds. Its per-world report
+    /// reaches the caller, as a catalog install's does.
+    #[tokio::test]
+    async fn a_local_reinstall_reports_its_world_refresh() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        std::fs::create_dir_all(td.path().join(".minecraft")).unwrap();
+        std::fs::write(td.path().join(".minecraft").join("saves"), b"a file").unwrap();
+        let picked = tempfile::tempdir().unwrap();
+        let src = picked.path().join("vm.zip");
+        std::fs::write(&src, datapack_zip_v2()).unwrap();
+
+        let out = install_local_at(td.path(), &src).await.unwrap();
+
+        assert!(
+            matches!(
+                out.refreshed.as_slice(),
+                [crate::datapacks::WorldMigration::Failed { .. }]
+            ),
+            "{:?}",
+            out.refreshed
         );
         assert_eq!(out.pack.sha1, sha1_hex(&datapack_zip_v2()));
     }

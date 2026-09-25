@@ -85,14 +85,17 @@ pub async fn datapacks_list_library(
 }
 
 /// Install a `.zip` file or folder datapack from `src_path` (a file-picker
-/// result) into the instance's library.
+/// result) into the instance's library. The returned fan-out is non-empty
+/// only when a same-named pack was already linked somewhere: a local install
+/// replaces it and refreshes those worlds, and each world it could not
+/// refresh comes back `Failed`.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_install_from_file(
     app: tauri::AppHandle,
     instance_id: String,
     src_path: String,
-) -> Result<crate::datapacks::InstalledDatapack, crate::error::Error> {
+) -> Result<crate::datapacks::LibraryInstall, crate::error::Error> {
     guard(&instance_id)?;
     require_datapack_support(&app, &instance_id)?;
     crate::datapacks::library::install_local_at(

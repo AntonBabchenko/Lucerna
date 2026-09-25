@@ -18,6 +18,11 @@ pub struct VtInstallOutcome {
     pub filename: String,
     pub installed: bool,
     pub error: Option<String>,
+    /// An instance install's same-name fan-out (`LibraryInstall.refreshed`):
+    /// non-empty only when the library already held this name and worlds were
+    /// linked to the old copy; a world it could not refresh is `Failed`.
+    /// Always empty for a server install, which has one world and no fan-out.
+    pub refreshed: Vec<crate::datapacks::WorldMigration>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -106,11 +111,13 @@ pub async fn vt_install_to_instance(
                 filename: install.pack.filename,
                 installed: true,
                 error: None,
+                refreshed: install.refreshed,
             },
             Err(e) => VtInstallOutcome {
                 filename,
                 installed: false,
                 error: Some(e.to_string()),
+                refreshed: Vec::new(),
             },
         });
     }
@@ -164,11 +171,13 @@ pub async fn vt_install_to_server(
                 filename: record.filename,
                 installed: true,
                 error: None,
+                refreshed: Vec::new(),
             },
             Err(e) => VtInstallOutcome {
                 filename,
                 installed: false,
                 error: Some(e.to_string()),
+                refreshed: Vec::new(),
             },
         });
     }

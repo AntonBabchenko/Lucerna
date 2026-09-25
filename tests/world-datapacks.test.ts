@@ -18,6 +18,7 @@ import type {
   WorldDatapack,
   WorldDatapackListing,
 } from '$lib/ipc/bindings';
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
 import WorldDatapacks from '$lib/worlds/WorldDatapacks.svelte';
 import { revealTooltip } from './test-utils/reveal-tooltip';
@@ -43,8 +44,12 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+const openMock = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: (...a: unknown[]) => openMock(...a) }));
+
 afterEach(() => {
   hideTooltip();
+  for (const toast of toastList()) dismiss(toast.id);
   vi.clearAllMocks();
 });
 
@@ -76,6 +81,42 @@ describe('WorldDatapacks — datapack concept explainer', () => {
   it('renders the "What are data packs?" help trigger beside the panel title', async () => {
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     expect(await screen.findByRole('button', { name: /what are data packs\?/i })).toBeTruthy();
+  });
+});
+
+// A local install replaces a same-named library pack and refreshes the worlds
+// linked to the old copy. A world it could not refresh stays on the old
+// bytes, and is named, as a catalog install names it.
+describe('WorldDatapacks — adding a pack from a file', () => {
+  it('names each world a same-name refresh could not update, and adds the installed name', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    openMock.mockResolvedValue('/picked/vm.zip');
+    vi.mocked(commands.datapacksInstallFromFile).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        pack: {
+          filename: 'vm.zip',
+          sha1: 'a'.repeat(40),
+          size_bytes: 1,
+          name: 'VeinMiner',
+          source: null,
+          project_id: null,
+          version_id: null,
+          version_number: null,
+          installed_at: '2026-09-25T00:00:00Z',
+        },
+        refreshed: [{ kind: 'failed', world: 'Other', details: 'locked' }],
+      },
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText(/No datapacks yet/i);
+    await fireEvent.click(screen.getByTestId('world-datapack-add-library'));
+
+    await waitFor(() => expect(toastList().some((x) => x.kind === 'warning')).toBe(true));
+    const [warning] = toastList().filter((x) => x.kind === 'warning');
+    expect(warning.title).toMatch(/^1 world did not receive the update/);
+    expect(warning.lines).toEqual(['Other: locked']);
+    expect(commands.datapacksAddToWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'vm.zip');
   });
 });
 
