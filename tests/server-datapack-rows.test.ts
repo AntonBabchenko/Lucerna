@@ -90,3 +90,10 @@ describe('isUpdatable', () => {
     ).toBe(false);
   });
 });
+
+describe('badgeOf — ghosts are quiet (U3)', () => {
+  test('a ghost badge is neutral', () => {
+    expect(badgeOf(entry({ state: 'orphaned', present: false })).variant).toBe('neutral');
+    expect(badgeOf(entry({ state: 'not_added', present: false })).variant).toBe('neutral');
+  });
+});

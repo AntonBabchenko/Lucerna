@@ -3133,6 +3133,7 @@ export type TranslationKey =
   | 'worlds.datapacks.addToWorld'
   | 'worlds.datapacks.blockedBusy'
   | 'worlds.datapacks.blockedRunning'
+  | 'worlds.datapacks.clearEntry'
   | 'worlds.datapacks.compatBroken'
   | 'worlds.datapacks.compatTooNew'
   | 'worlds.datapacks.compatTooOld'

@@ -1,5 +1,5 @@
 import type { TranslationKey } from '$lib/i18n/keys.generated';
-import type { DatapackPlacementView } from '$lib/ipc/bindings';
+import type { DatapackPlacementView, WorldDatapack } from '$lib/ipc/bindings';
 
 export interface DatapacksGateState {
   /** The instance's game process is alive. */
@@ -74,4 +74,38 @@ export function datapackWorldSummary(
     args: { enabled, total },
     emphasis: 'normal',
   };
+}
+
+/** How a world-tab row behaves; see {@link worldRowKind}. */
+export type WorldRowKind = 'ignored' | 'ghost' | 'addable' | 'live';
+
+/**
+ * One classifier for every world-tab row (spec 2026-09-24 §4 U3):
+ *  - `ignored` — an entry the game does not load (D1); checked first, so a ghost
+ *    NAME that coincides with an ignored on-disk entry never offers "Clear
+ *    entry" (that removal would `remove_dir_all` the entry — its trash goes
+ *    through the this-world confirmation instead);
+ *  - `ghost` — a level.dat name whose file is gone: `orphaned`, or a
+ *    Disabled-only `not_added` that is not in the library (its "Add" would
+ *    always fail). Minecraft skips it and drops the id at its next save, so
+ *    it is quiet, and its one action only tidies the list sooner;
+ *  - `addable` — a library pack this world does not reference;
+ *  - `live` — enabled or disabled.
+ */
+export function worldRowKind(pack: Pick<WorldDatapack, 'state' | 'in_library'>): WorldRowKind {
+  switch (pack.state) {
+    case 'ignored':
+      return 'ignored';
+    case 'orphaned':
+      return 'ghost';
+    case 'not_added':
+      return pack.in_library ? 'addable' : 'ghost';
+    case 'enabled':
+    case 'disabled':
+      return 'live';
+    default: {
+      const unreachable: never = pack.state;
+      return unreachable;
+    }
+  }
 }

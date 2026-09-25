@@ -8254,8 +8254,8 @@ export type WorldMigration =
 
 export type WorldPackState = "enabled" | "disabled" | "not_added" | 
 /**
- *  Named in `level.dat`'s Enabled list but the file is gone — this is what
- *  Minecraft turns into the "data packs are no longer present" screen.
+ *  Named in Enabled but no loadable pack has this id; the game logs
+ *  "Missing data pack", skips it, and drops the id at the next save.
  */
 "orphaned" | 
 /**

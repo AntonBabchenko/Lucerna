@@ -461,10 +461,10 @@ pub async fn remove_from_library_at(
 
     // `placements_of` requires an on-disk file, so a world whose level.dat
     // still NAMES the pack while its file is already gone — an orphan, e.g.
-    // the user deleted the file by hand — was invisible above. A cascade must
-    // clear those names too: leaving one puts the world on Minecraft's "data
-    // packs are no longer present" screen after a removal whose purpose was
-    // preventing exactly that prompt. These worlds had no verified file of
+    // the user deleted the file by hand — was invisible above. A cascade
+    // clears those names too: the game would only log "Missing data pack" and
+    // drop the id at its next save, but a removal that says the pack is gone
+    // should not leave the entry behind. These worlds had no verified file of
     // ours, so `forget_for_cascade_at` only forgets the ids and never deletes
     // a file: one that appeared under the name fails the world instead.
     if let Some(sweep) = sweep {
@@ -954,10 +954,10 @@ mod tests {
     #[tokio::test]
     async fn cascading_removal_clears_an_orphaned_level_dat_name() {
         // A world whose level.dat still names the pack while the file is gone
-        // (the user deleted it by hand) has no placement, but a cascade must
-        // clear the name anyway — leaving it puts the world on Minecraft's
-        // "data packs are no longer present" screen after a removal whose
-        // purpose was preventing exactly that prompt.
+        // (the user deleted it by hand) has no placement, but a cascade
+        // clears the name anyway: the game would only log "Missing data pack"
+        // and drop the id at its next save, and a removal that says the pack
+        // is gone should not leave the entry behind.
         let _lock = crate::test_env_lock();
         let td = tempfile::tempdir().unwrap();
         install_named_at(td.path(), "vm.zip", &datapack_zip(), None)

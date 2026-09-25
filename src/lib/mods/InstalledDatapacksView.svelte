@@ -419,7 +419,8 @@
       case 'disabled':
         return { variant: 'muted', label: get(t)('worlds.datapacks.stateDisabled') };
       case 'orphaned':
-        return { variant: 'danger', label: get(t)('worlds.datapacks.stateOrphaned') };
+        // Quiet: the game skips the id and drops it at its next save (U3).
+        return { variant: 'neutral', label: get(t)('worlds.datapacks.stateOrphaned') };
       case 'not_added':
         return { variant: 'neutral', label: get(t)('worlds.datapacks.stateNotAdded') };
       case 'ignored':

@@ -336,10 +336,11 @@ fn set_in_lists(dp: &mut HashMap<String, Value>, entry: &str, enabled: bool) -> 
     Ok(removed || added)
 }
 
-/// Remove `entry` from both lists. Idempotent — this is what clears the
-/// "data packs are no longer present" screen after a pack is removed. Returns
-/// whether anything was actually removed; see `set_enabled` for why that
-/// matters to the caller.
+/// Remove `entry` from both lists. Idempotent — this is what clears the name
+/// of a removed pack. (The game would only log "Missing data pack", skip the id
+/// and drop it at its next save; clearing it just tidies the list sooner.)
+/// Returns whether anything was actually removed; see `set_enabled` for why
+/// that matters to the caller.
 pub fn forget(root: &mut Value, entry: &str) -> Result<bool> {
     // Nothing is listed when `DataPacks` is absent, so there is nothing to
     // forget. An empty compound created here would replace the engine

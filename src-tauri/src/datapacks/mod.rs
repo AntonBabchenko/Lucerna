@@ -73,8 +73,8 @@ pub enum WorldPackState {
     Enabled,
     Disabled,
     NotAdded,
-    /// Named in `level.dat`'s Enabled list but the file is gone — this is what
-    /// Minecraft turns into the "data packs are no longer present" screen.
+    /// Named in Enabled but no loadable pack has this id; the game logs
+    /// "Missing data pack", skips it, and drops the id at the next save.
     Orphaned,
     /// Something is on disk under this name, but the game does not load it
     /// (spec §2 N.1, §0.5 A1). The row's `ignored_reason` says why.

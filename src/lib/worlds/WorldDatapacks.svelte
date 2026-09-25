@@ -15,16 +15,16 @@
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import type { CardAccent, BadgeVariant } from '$lib/ui/cards/card-status';
-  import { datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
+  import { datapacksDisabledKey, worldRowKind } from '$lib/worlds/datapacks-gating';
   import DatapackRemoveDialog from '$lib/mods/DatapackRemoveDialog.svelte';
 
   // Per-world datapack manager. Library ∪ on-disk ∪ level.dat names, each row
-  // carrying its own enabled/disabled/not_added/orphaned/ignored state —
-  // orphaned is the repair path for Minecraft's "data packs are no longer
-  // present" screen, so that row is the one deliberately rendered as a
-  // labelled action rather than an icon, per the other rows' terser
-  // vocabulary. An ignored row is an entry the game does not load: it gets its
-  // reason and removal only (spec §2 N.6).
+  // carrying its own state. A "ghost" (a level.dat name whose file is gone) is
+  // not a problem: Minecraft logs "Missing data pack", skips it and drops the
+  // name at its next save. So it is rendered quietly and its one action,
+  // "Clear entry", only tidies the list sooner (see worldRowKind). An ignored
+  // row is an entry the game does not load: it gets its reason and removal
+  // only (spec §2 N.6).
   let {
     instanceId,
     world,
@@ -105,7 +105,7 @@
       case 'not_added':
         return 'neutral';
       case 'orphaned':
-        return 'danger';
+        return 'neutral';
       case 'ignored':
         return 'warning';
     }
@@ -115,17 +115,16 @@
   // through its reason hint (a not-loadable one names the same cause), and a
   // ghost whose file is gone has nothing left to judge.
   function rowCompatLine(pack: WorldDatapack): CompatLine | null {
-    if (pack.state === 'ignored' || pack.state === 'orphaned') return null;
+    const kind = worldRowKind(pack);
+    if (kind === 'ignored' || kind === 'ghost') return null;
     return compatLine(pack.compat);
   }
 
-  // Orphaned (file gone) outranks a compatibility warning for the row's
-  // accent — there is nothing left to judge once the file is missing.
-  // A merely-disabled pack ranks below both: it follows the shared
-  // disabled/muted convention from card-status.ts (see rowDim below), but a
-  // real compatibility problem is more important information than "it's off".
+  // A ghost is quiet (the game heals it itself); otherwise a compatibility
+  // problem outranks "it's off", which follows the shared muted convention
+  // from card-status.ts (see rowDim below).
   function rowAccent(pack: WorldDatapack): CardAccent {
-    if (pack.state === 'orphaned') return 'danger';
+    if (worldRowKind(pack) === 'ghost') return 'none';
     if (pack.state === 'ignored') return 'warning';
     if (rowCompatLine(pack) !== null) return 'warning';
     if (pack.state === 'disabled') return 'muted';
@@ -291,6 +290,7 @@
   {:else}
     <div class="overflow-hidden rounded-lg border border-border-subtle">
       {#each packs as pack (pack.filename)}
+        {@const kind = worldRowKind(pack)}
         {@const compatWarn = rowCompatLine(pack)}
         <CardShell variant="compact-row" accent={rowAccent(pack)} dim={rowDim(pack)}>
           <CardMedia placeholder="package" size="sm" />
@@ -302,13 +302,11 @@
               >
                 {pack.filename}
               </span>
-              <StatusBadge
-                variant={stateBadgeVariant(pack.state)}
-                icon={pack.state === 'orphaned' ? 'circleX' : undefined}
-              >
-                {stateLabel(pack)}
+              <StatusBadge variant={kind === 'ghost' ? 'neutral' : stateBadgeVariant(pack.state)}>
+                {kind === 'ghost' ? $t('worlds.datapacks.stateOrphaned') : stateLabel(pack)}
               </StatusBadge>
-              {#if pack.state !== 'ignored' && pack.compat.kind === 'unknown'}
+              <!-- A ghost has no file to judge, so no compatibility badge either. -->
+              {#if kind !== 'ignored' && kind !== 'ghost' && pack.compat.kind === 'unknown'}
                 <StatusBadge variant="neutral" icon="info"
                   >{$t('worlds.datapacks.compatUnknown')}</StatusBadge
                 >
@@ -322,8 +320,8 @@
                 {$t(compatWarn.key, compatWarn.args)}
               </p>
             {/if}
-            {#if pack.state === 'orphaned'}
-              <p class="mt-0.5 text-xs text-danger">{$t('worlds.datapacks.orphanedHint')}</p>
+            {#if kind === 'ghost'}
+              <p class="mt-0.5 text-xs text-muted">{$t('worlds.datapacks.orphanedHint')}</p>
             {/if}
             {#if pack.state === 'ignored'}
               {@const hint = ignoredHintKey(pack.ignored_reason, pack.compat)}
@@ -336,7 +334,53 @@
             {/if}
           </div>
           <div class="flex flex-shrink-0 items-center gap-1">
-            {#if pack.state === 'not_added'}
+            {#if kind === 'ignored'}
+              <!-- The game does not load this entry, so there is nothing to
+                   switch on or off: removal only (spec §2 N.6). -->
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <span
+                class="inline-flex"
+                tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
+                use:tooltip={{
+                  text: disabledReason ?? $t('worlds.datapacks.removeFromWorld'),
+                  describe: false,
+                }}
+              >
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  data-testid="world-datapack-remove-world"
+                  disabled={disabledKey !== null || busyRow === pack.filename}
+                  aria-label={$t('worlds.datapacks.removeFromWorld')}
+                  onclick={() => (removeTarget = pack.filename)}
+                >
+                  {#if busyRow === pack.filename}
+                    <Spinner size="sm" />
+                  {:else}
+                    <Icon name="trash" size={15} />
+                  {/if}
+                </button>
+              </span>
+            {:else if kind === 'ghost'}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <span
+                class="inline-flex"
+                tabindex={disabledKey !== null ? 0 : undefined}
+                use:tooltip={{ text: disabledReason ?? '', describe: false }}
+              >
+                <!-- Clears the level.dat name only: there is no file to delete,
+                     so it needs no confirmation (U3). -->
+                <BusyButton
+                  class="btn-secondary btn-sm"
+                  busy={busyRow === pack.filename}
+                  disabled={disabledKey !== null}
+                  onclick={() => void removeFromWorld(pack.filename)}
+                  data-testid="world-datapack-remove-orphaned"
+                >
+                  {$t('worlds.datapacks.clearEntry')}
+                </BusyButton>
+              </span>
+            {:else if kind === 'addable'}
               <!-- §0.5 I11: this version skips the pack; the engine would accept the file and load nothing, so no add is offered. -->
               {#if pack.compat.kind !== 'wont_load'}
                 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -364,51 +408,6 @@
                   </button>
                 </span>
               {/if}
-            {:else if pack.state === 'orphaned'}
-              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <span
-                class="inline-flex"
-                tabindex={disabledKey !== null ? 0 : undefined}
-                use:tooltip={{ text: disabledReason ?? '', describe: false }}
-              >
-                <BusyButton
-                  class="btn-secondary btn-sm"
-                  busy={busyRow === pack.filename}
-                  disabled={disabledKey !== null}
-                  onclick={() => void removeFromWorld(pack.filename)}
-                  data-testid="world-datapack-remove-orphaned"
-                >
-                  <Icon name="trash" size={14} />
-                  {$t('worlds.datapacks.removeFromWorld')}
-                </BusyButton>
-              </span>
-            {:else if pack.state === 'ignored'}
-              <!-- The game does not load this entry, so there is nothing to
-                   switch on or off: removal only (spec §2 N.6). -->
-              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <span
-                class="inline-flex"
-                tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
-                use:tooltip={{
-                  text: disabledReason ?? $t('worlds.datapacks.removeFromWorld'),
-                  describe: false,
-                }}
-              >
-                <button
-                  type="button"
-                  class="btn-icon btn-icon-sm btn-icon-danger"
-                  data-testid="world-datapack-remove-world"
-                  disabled={disabledKey !== null || busyRow === pack.filename}
-                  aria-label={$t('worlds.datapacks.removeFromWorld')}
-                  onclick={() => (removeTarget = pack.filename)}
-                >
-                  {#if busyRow === pack.filename}
-                    <Spinner size="sm" />
-                  {:else}
-                    <Icon name="trash" size={15} />
-                  {/if}
-                </button>
-              </span>
             {:else}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span

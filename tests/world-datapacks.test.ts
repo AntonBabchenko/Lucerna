@@ -102,25 +102,56 @@ describe('WorldDatapacks — toggling an enabled pack', () => {
 });
 
 describe('WorldDatapacks — orphaned row', () => {
-  it('shows the missing-state hint and offers removal instead of a toggle', async () => {
+  it('explains the game drops the name itself and offers Clear entry instead of a toggle', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
       data: listing([makePack({ filename: 'gone-pack.zip', state: 'orphaned' })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
-    await screen.findByText(/Minecraft will ask about this pack/i);
-    // Orphaned rows offer removal only — no enable/disable toggle (there is
-    // nothing left to judge once the file is gone).
+    // Engine truth: Minecraft logs "Missing data pack", skips the id and drops
+    // it at its next save — there is no prompt (spec 2026-09-24 §4 U3).
+    await screen.findByText(/drops the name the next time the world is saved/i);
+    expect(screen.queryByText(/will ask/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /^enable in this world$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^disable in this world$/i })).toBeNull();
-    const removeBtn = screen.getByTestId('world-datapack-remove-orphaned');
-    await fireEvent.click(removeBtn);
+    const clear = screen.getByTestId('world-datapack-remove-orphaned');
+    expect(clear.textContent).toMatch(/clear entry/i);
+    await fireEvent.click(clear);
+    // It deletes no file, so it needs no confirmation.
+    expect(screen.queryByTestId('datapack-remove-dialog')).toBeNull();
     expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith(
       'inst-1',
       'MyWorld',
       'gone-pack.zip',
     );
+  });
+
+  it('an orphaned row is a quiet, self-healing state', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([makePack({ filename: 'gone-pack.zip', state: 'orphaned' })]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    const hint = await screen.findByText(/drops the name the next time the world is saved/i);
+    expect(hint.className).toContain('text-muted');
+    const row = screen.getByText('gone-pack.zip').closest('[data-card-shell]') as HTMLElement;
+    expect(row.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
+    expect(row.innerHTML).not.toMatch(/bg-danger|text-danger/);
+    expect(within(row).getByText('File missing')).toBeTruthy();
+  });
+
+  it('a Disabled-only ghost not in the library offers Clear entry, not Add to this world', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([makePack({ filename: 'gone.zip', state: 'not_added', in_library: false })]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    const clear = await screen.findByTestId('world-datapack-remove-orphaned');
+    expect(clear.textContent).toMatch(/clear entry/i);
+    expect(screen.queryByTestId('world-datapack-add-world')).toBeNull();
   });
 });
 
@@ -399,7 +430,8 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
 
     // Distinct accent strips per state (data-card-accent is CardShell's own
     // accent strip hook — see src/lib/ui/cards/CardShell.svelte).
-    expect(orphanedRow.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
+    // A ghost is not a problem: the game drops the id itself (U3).
+    expect(orphanedRow.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
     expect(disabledRow.querySelector('[data-card-accent]')?.className).toContain(
       'bg-border-emphasis',
     );

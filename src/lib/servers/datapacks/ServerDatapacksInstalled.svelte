@@ -21,9 +21,10 @@
   // Installed pane for a server world's datapacks (Task 11). Modeled on
   // ServerPluginsInstalled — same toolbar/error-line/ConfirmDialog shape — but
   // diverges where datapacks genuinely differ: rows key on filename (not
-  // sha1 — see datapack-rows.ts), a ghost row has no toggle, a folder pack has
-  // no update affordance, and update-all must apply serially because every
-  // update rewrites level.dat. `disabled` is handed down by the host
+  // sha1 — see datapack-rows.ts), a ghost row has no toggle and is cleared,
+  // not removed (its file is already gone; the game drops the id itself), a
+  // folder pack has no update affordance, and update-all must apply serially
+  // because every update rewrites level.dat. `disabled` is handed down by the host
   // (ServerAddonsTab) already resolved from the server's running state, so
   // this component holds no server-state lookup of its own.
   let {
@@ -126,7 +127,6 @@
   );
 
   function rowAccent(entry: ServerDatapackEntry, key: string): CardAccent {
-    if (!entry.present) return 'danger';
     if (entry.state === 'ignored') return 'warning';
     const state = updateChecks.get(key);
     if (state?.kind === 'update_available' || state?.kind === 'check_failed') return 'warning';
@@ -426,7 +426,9 @@
 
   {#if pendingRemove}
     <ConfirmDialog
-      title={$t('servers.datapacks.remove')}
+      title={pendingRemove.present
+        ? $t('servers.datapacks.remove')
+        : $t('worlds.datapacks.clearEntry')}
       bodyText={pendingRemove.present
         ? $t('servers.datapacks.removeConfirm', {
             name: pendingRemove.record.name ?? pendingRemove.record.filename,
@@ -434,8 +436,10 @@
         : $t('servers.datapacks.removeGhostConfirm', {
             name: pendingRemove.record.name ?? pendingRemove.record.filename,
           })}
-      confirmLabel={$t('servers.datapacks.remove')}
-      variant="danger"
+      confirmLabel={pendingRemove.present
+        ? $t('servers.datapacks.remove')
+        : $t('worlds.datapacks.clearEntry')}
+      variant={pendingRemove.present ? 'danger' : 'primary'}
       busy={removing}
       error={actionError}
       onCancel={() => (pendingRemove = null)}

@@ -1485,15 +1485,16 @@
       "addFromFolder": "Из папки…",
       "addToWorld": "Добавить в этот мир",
       "removeFromWorld": "Убрать из этого мира",
+      "clearEntry": "Убрать запись",
       "enable": "Включить в этом мире",
       "disable": "Отключить в этом мире",
       "stateEnabled": "Включён",
       "stateDisabled": "Отключён",
       "stateNotAdded": "Не добавлен в этот мир",
-      "stateOrphaned": "Отсутствует — мир всё ещё его ожидает",
+      "stateOrphaned": "Файла нет",
       "stateIgnored": "Не загружается игрой",
       "stateCouldNotCheck": "Не удалось проверить",
-      "orphanedHint": "При загрузке мира Minecraft спросит об этом датапаке. Уберите его из мира, чтобы запрос больше не появлялся.",
+      "orphanedHint": "В списке датапаков мира это имя ещё есть, но файла уже нет. Minecraft пропустит его и сам уберёт запись при следующем сохранении мира; здесь её можно убрать сразу, для порядка.",
       "ignoredReason": {
         "folderWithoutPackMcmeta": "Minecraft загружает папку, только если прямо в ней лежит pack.mcmeta, а в этой папке его нет.",
         "folderPackNestedInside": "pack.mcmeta лежит на одну папку глубже, чем нужно. Перенесите вложенную папку прямо в datapacks.",
@@ -3440,7 +3441,7 @@
       "empty": "В мире этого сервера пока нет датапаков.",
       "remove": "Удалить датапак",
       "removeConfirm": "Удалить {name} из мира этого сервера?",
-      "removeGhostConfirm": "Мир всё ещё ссылается на {name}, но файла нет. Убрать запись?",
+      "removeGhostConfirm": "Мир всё ещё ссылается на {name}, но файла нет. Minecraft сам уберёт эту запись при следующем сохранении мира. Убрать её сейчас?",
       "pinnedFacets": "Minecraft {mcVersion}"
     },
     "settings": {

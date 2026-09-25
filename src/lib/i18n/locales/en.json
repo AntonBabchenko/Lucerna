@@ -1485,15 +1485,16 @@
       "addFromFolder": "From folder…",
       "addToWorld": "Add to this world",
       "removeFromWorld": "Remove from this world",
+      "clearEntry": "Clear entry",
       "enable": "Enable in this world",
       "disable": "Disable in this world",
       "stateEnabled": "Enabled",
       "stateDisabled": "Disabled",
       "stateNotAdded": "Not in this world",
-      "stateOrphaned": "Missing — the world still expects it",
+      "stateOrphaned": "File missing",
       "stateIgnored": "Ignored by the game",
       "stateCouldNotCheck": "Couldn't check",
-      "orphanedHint": "Minecraft will ask about this pack when the world loads. Removing it from the world clears the prompt.",
+      "orphanedHint": "The world's pack list still names this pack, but its file is gone. Minecraft skips it and drops the name the next time the world is saved; clearing it here just tidies the list sooner.",
       "ignoredReason": {
         "folderWithoutPackMcmeta": "Minecraft loads a folder only when pack.mcmeta sits directly inside it, and this one has none.",
         "folderPackNestedInside": "pack.mcmeta is one folder too deep. Move the inner folder straight into datapacks.",
@@ -3440,7 +3441,7 @@
       "empty": "No data packs in this server's world yet.",
       "remove": "Remove data pack",
       "removeConfirm": "Remove {name} from this server's world?",
-      "removeGhostConfirm": "The world still lists {name}, but its file is gone. Clear the entry?",
+      "removeGhostConfirm": "The world still lists {name}, but its file is gone. Minecraft drops the entry by itself the next time the server saves the world. Clear it now?",
       "pinnedFacets": "Minecraft {mcVersion}"
     },
     "settings": {

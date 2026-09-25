@@ -20,6 +20,9 @@ export type RowBadge = {
  * removal. The label is server-scoped rather than reused from the client:
  * `worlds.datapacks.stateNotAdded` reads "Not in this world", which is
  * meaningful across N worlds and meaningless for a server that has one.
+ *
+ * Neutral, not danger: a ghost is not a problem — Minecraft skips the id and
+ * drops it at its next save (spec 2026-09-24 §4 U3).
  */
 export function badgeOf(entry: ServerDatapackEntry): RowBadge {
   switch (entry.state) {
@@ -29,7 +32,7 @@ export function badgeOf(entry: ServerDatapackEntry): RowBadge {
       return { variant: 'muted', labelKey: 'worlds.datapacks.stateDisabled' };
     case 'orphaned':
     case 'not_added':
-      return { variant: 'danger', labelKey: 'servers.datapacks.stateGhost' };
+      return { variant: 'neutral', labelKey: 'servers.datapacks.stateGhost' };
     case 'ignored':
       return { variant: 'warning', labelKey: ignoredLabelKey(entry.ignored_reason) };
     default:

@@ -262,7 +262,7 @@
                 variant={row.state === 'enabled'
                   ? 'success'
                   : row.state === 'orphaned'
-                    ? 'danger'
+                    ? 'neutral'
                     : row.state === 'disabled'
                       ? 'muted'
                       : row.state === 'ignored'
