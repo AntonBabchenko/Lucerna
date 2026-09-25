@@ -187,7 +187,7 @@ where
 mod tests {
     use super::*;
     use crate::mods::compat::batch_model::build;
-    use crate::mods::hash_probe::test_support::{loopback_allowed, obj, version_json};
+    use crate::mods::hash_probe::test_support::{loopback_allowed, obj, version_json, with_status};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -539,5 +539,69 @@ mod tests {
             got,
             vec![resolved(LiveAvailability::FileListed, Some("v1")); 2]
         );
+    }
+
+    #[tokio::test]
+    async fn an_unlisted_newest_build_never_settles_an_ask() {
+        // `update_many` also sees unlisted versions; the per-project listing
+        // does not (spec S10). Here the only 1.21.1 build is unlisted, so the
+        // listing is empty — «builds exist» would have hidden a real
+        // «no release».
+        let s = MockServer::start().await;
+        answers(
+            &s,
+            obj(vec![(
+                "aa",
+                version_json("v1", "p1", "1.21", "neoforge", "p1-1.jar", "aa"),
+            )]),
+            obj(vec![(
+                "aa",
+                serde_json::json!([with_status(
+                    version_json("v2", "p1", "1.21.1", "neoforge", "p1-2.jar", "dd"),
+                    "unlisted"
+                )]),
+            )]),
+        )
+        .await;
+        let _seam = loopback_allowed();
+        let calls = AtomicUsize::new(0);
+        let got = resolve_asks(
+            &[ask(MR, "p1", Some("aa"), true)],
+            "1.21.1",
+            &ModrinthClient::with_base(s.uri()),
+            &HashProbeCache::new(),
+            listing(&calls, &[]),
+            |_, _| {},
+        )
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "the listing decides");
+        assert_eq!(got, vec![resolved(LiveAvailability::NoBuilds, None)]);
+    }
+
+    #[tokio::test]
+    async fn an_unlisted_installed_version_never_confirms_the_file() {
+        let s = MockServer::start().await;
+        answers(
+            &s,
+            obj(vec![("aa", with_status(v1_listed(), "unlisted"))]),
+            obj(vec![(
+                "aa",
+                serde_json::json!([with_status(v1_listed(), "unlisted")]),
+            )]),
+        )
+        .await;
+        let _seam = loopback_allowed();
+        let calls = AtomicUsize::new(0);
+        let got = resolve_asks(
+            &[ask(MR, "p1", Some("aa"), false)],
+            "1.21.1",
+            &ModrinthClient::with_base(s.uri()),
+            &HashProbeCache::new(),
+            listing(&calls, &[]),
+            |_, _| {},
+        )
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "the listing decides");
+        assert_eq!(got, vec![resolved(LiveAvailability::NoBuilds, None)]);
     }
 }

@@ -7,7 +7,7 @@
 //! gate that makes concurrent passes join instead of sending the same requests
 //! twice. It decides nothing about compatibility: `compat::batch_answer` does.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use tokio::time::{Duration, Instant};
@@ -50,8 +50,21 @@ pub struct Snapshot {
     pub own: HashMap<String, Option<ModVersion>>,
     /// `update_many`: for each project owning these bytes, its newest version
     /// tagged for (mc, loader) — tags only, BEFORE our filename rule. Empty =
-    /// none.
+    /// none. ABSENT = declined: the answer named a version the per-project
+    /// listing leaves out, so the newest LISTED build is unknown and only the
+    /// listing can answer (spec S10).
     pub latest: HashMap<String, Vec<ModVersion>>,
+}
+
+/// `update_many`'s answers, split by what the per-project listing can hold.
+#[derive(Debug, Clone, Default)]
+pub struct LatestAnswers {
+    /// sha → the newest version of each owning project, every one of them a
+    /// version the per-project listing shows.
+    pub listed: HashMap<String, Vec<ModVersion>>,
+    /// shas whose answer named a version the listing leaves out (`unlisted`):
+    /// nothing may be concluded from them.
+    pub declined: HashSet<String>,
 }
 
 type LatestKey = (String, String, LoaderKind);
@@ -60,7 +73,9 @@ type LatestKey = (String, String, LoaderKind);
 /// build their own, so parallel tests never share state (the #428 lesson).
 pub struct HashProbeCache {
     own: Mutex<HashMap<String, (Option<ModVersion>, Instant)>>,
-    latest: Mutex<HashMap<LatestKey, (Vec<ModVersion>, Instant)>>,
+    /// `None` = declined (see [`Snapshot::latest`]) — remembered for the TTL
+    /// like any answer.
+    latest: Mutex<HashMap<LatestKey, (Option<Vec<ModVersion>>, Instant)>>,
     /// Held across a fetch: a concurrent pass waits, then reads the cache.
     gate: tokio::sync::Mutex<()>,
 }
@@ -142,8 +157,12 @@ impl HashProbeCache {
             let fetched_at = Instant::now();
             let mut latest = self.latest.lock().expect("hash probe cache mutex poisoned");
             for sha in missing_latest {
-                let vs = got.get(&sha).cloned().unwrap_or_default();
-                latest.insert(latest_key(&sha), (vs, fetched_at));
+                let answer = if got.declined.contains(&sha) {
+                    None
+                } else {
+                    Some(got.listed.get(&sha).cloned().unwrap_or_default())
+                };
+                latest.insert(latest_key(&sha), (answer, fetched_at));
             }
         }
         let own = self.own.lock().expect("hash probe cache mutex poisoned");
@@ -153,7 +172,8 @@ impl HashProbeCache {
             if let Some((v, _)) = own.get(sha) {
                 snap.own.insert(sha.clone(), v.clone());
             }
-            if let Some((vs, _)) = latest.get(&latest_key(sha)) {
+            // A declined answer stays out: callers send such a hash to the listing.
+            if let Some((Some(vs), _)) = latest.get(&latest_key(sha)) {
                 snap.latest.insert(sha.clone(), vs.clone());
             }
         }
@@ -188,8 +208,15 @@ pub(crate) mod test_support {
                 "size": 1,
                 "primary": true
             }],
-            "dependencies": []
+            "dependencies": [],
+            "status": "listed"
         })
+    }
+
+    /// `v` with its `status` replaced — `version_json` answers `listed`.
+    pub(crate) fn with_status(mut v: serde_json::Value, status: &str) -> serde_json::Value {
+        v["status"] = serde_json::Value::String(status.into());
+        v
     }
 
     /// A JSON object from `(key, value)` pairs — keys that are not literals.
@@ -210,7 +237,7 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::{loopback_allowed, obj, version_json};
+    use super::test_support::{loopback_allowed, obj, version_json, with_status};
     use super::*;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -405,5 +432,97 @@ mod tests {
             .await
             .unwrap();
         assert!(snap.own.is_empty() && snap.latest.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_hash_whose_newest_build_is_unlisted_is_left_to_the_listing() {
+        // `update_many` also sees unlisted versions; the per-project listing
+        // does not (spec S10). The newest LISTED build is unknown here.
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(obj(vec![(
+                H1,
+                version_json("v1", "p1", "1.21", "neoforge", "p1-1.0.jar", H1),
+            )])))
+            .expect(1)
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files/update_many"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(obj(vec![(
+                H1,
+                serde_json::json!([with_status(
+                    version_json("v2", "p1", "1.21.1", "neoforge", "p1-2.0.jar", "ffff"),
+                    "unlisted"
+                )]),
+            )])))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam = loopback_allowed();
+        let cache = HashProbeCache::new();
+        let client = ModrinthClient::with_base(s.uri());
+        let snap = cache
+            .snapshot(&client, &[H1.to_string()], "1.21.1", NF)
+            .await
+            .unwrap();
+        assert!(snap.own[H1].is_some());
+        assert!(
+            !snap.latest.contains_key(H1),
+            "an unlisted newest build must not stand in for the listing"
+        );
+        // The decline is remembered for the TTL like any answer (`expect(1)`).
+        let again = cache
+            .snapshot(&client, &[H1.to_string()], "1.21.1", NF)
+            .await
+            .unwrap();
+        assert!(!again.latest.contains_key(H1));
+    }
+
+    #[tokio::test]
+    async fn an_owner_is_asked_again_whenever_its_latest_is() {
+        // A `latest` fetched now is never paired with an owner cached by an
+        // earlier pass: a stale owner next to a fresh «nothing tagged» would
+        // read as «no build» (B3).
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(obj(vec![(
+                H1,
+                version_json("v1", "p1", "1.21.1", "neoforge", "p1-1.0.jar", H1),
+            )])))
+            .up_to_n_times(1)
+            .mount(&s)
+            .await;
+        // Between the two passes the file is withdrawn.
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files/update_many"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .expect(2)
+            .mount(&s)
+            .await;
+        let _seam = loopback_allowed();
+        let cache = HashProbeCache::new();
+        let client = ModrinthClient::with_base(s.uri());
+        let first = cache
+            .snapshot(&client, &[H1.to_string()], "1.21.1", NF)
+            .await
+            .unwrap();
+        assert!(first.own[H1].is_some());
+        // Another Minecraft version: `latest` is fetched afresh — so is the owner.
+        let second = cache
+            .snapshot(&client, &[H1.to_string()], "1.21.4", NF)
+            .await
+            .unwrap();
+        assert!(
+            second.own[H1].is_none(),
+            "a withdrawn file must not keep the owner an earlier pass saw"
+        );
     }
 }
