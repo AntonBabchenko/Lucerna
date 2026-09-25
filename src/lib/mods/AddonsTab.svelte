@@ -1,12 +1,3 @@
-<script module lang="ts">
-  // Session-lived answers for the 1.13 datapack gate, keyed by instanceId
-  // and mcVersion joined with a newline — a character that can appear in
-  // neither half, so the key can never be ambiguous. Module-level so it
-  // survives the remount AddonsTab goes through on every top-level tab
-  // switch — see the supportsDatapacks effect for why that matters.
-  const supportsDatapacksCache = new Map<string, boolean>();
-</script>
-
 <script lang="ts">
   import type {
     CompatVerdict,
@@ -48,6 +39,11 @@
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { libraryReadSucceeded, warnLibraryReadBlockedPicker } from './datapack-library-warning';
+  import {
+    cachedDatapackSupport,
+    rememberDatapackSupport,
+    resolveDatapackSupport,
+  } from './datapack-support';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { canInstallMods } from './install-eligibility';
   import { get } from 'svelte/store';
@@ -147,7 +143,7 @@
   // changes), so an id-only dependency would leave the gate stale after a
   // 1.21 → 1.12.2 downgrade with the tab still mounted.
   //
-  // The module-level cache (below the component in module context) kills the
+  // The module-level cache in `datapack-support.ts` kills the
   // paint-then-vanish flash: AddonsTab remounts on every top-level tab
   // switch, and without a remembered answer a pre-1.13 instance would render
   // the Data packs tab for one frame on EVERY visit before the IPC answer
@@ -162,13 +158,11 @@
       supportsDatapacks = true;
       return;
     }
-    const key = `${id}\n${mc ?? ''}`;
-    supportsDatapacks = supportsDatapacksCache.get(key) ?? true;
+    supportsDatapacks = cachedDatapackSupport(id, mc);
     void (async () => {
-      const r = await commands.instanceSupportsDatapacks(id);
+      const v = await resolveDatapackSupport(id);
       if (instanceId !== id || mcVersion !== mc) return;
-      const v = r.status === 'ok' ? r.data : true;
-      supportsDatapacksCache.set(key, v);
+      rememberDatapackSupport(id, mc, v);
       supportsDatapacks = v;
     })();
   });

@@ -27,6 +27,23 @@ fn guard(instance_id: &str) -> Result<(), crate::error::Error> {
     crate::instances::maintenance::write_allowed(instance_id)
 }
 
+/// The version gate every datapack WRITER below calls right after [`guard`]
+/// (spec 2026-09-24 §4 U2; order A7: running/maintenance first, then this).
+/// A pre-1.13 Minecraft has no data-pack system, so anything written would
+/// be inert. Reads a FRESH `instance.json`: the UI's gate answers "supported"
+/// on an IPC error (uncertainty must not hide the feature), and this refusal
+/// is what keeps that permissive fallback from ever writing. A read error
+/// propagates, so a writer that cannot tell the version refuses. Removals are
+/// deliberately not gated (A10). Pinned by
+/// `tests/structural_datapack_version_gate.rs`.
+fn require_datapack_support(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<(), crate::error::Error> {
+    let instance = crate::instances::read_instance(app, instance_id)?;
+    crate::datapacks::compat::require_support(&instance.mc_version)
+}
+
 /// The data-pack format `instance_id`'s Minecraft reports, from its client
 /// jar's own `version.json`. `None` for any failure along the way — no
 /// instance, no `mc_version` yet, no versions dir, no client jar, an
@@ -75,6 +92,7 @@ pub async fn datapacks_install_from_file(
     src_path: String,
 ) -> Result<crate::datapacks::InstalledDatapack, crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     crate::datapacks::library::install_local_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         std::path::Path::new(&src_path),
@@ -137,6 +155,7 @@ pub async fn datapacks_add_to_world(
     filename: String,
 ) -> Result<crate::mods::store::Placement, crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     crate::datapacks::world_link::add_to_world_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,
@@ -242,6 +261,7 @@ pub async fn datapacks_install_from_version(
     version: crate::mods::platform::ModVersion,
 ) -> Result<crate::datapacks::LibraryInstall, crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     let root = crate::datapacks::instance_root(&app, &instance_id)?;
     let dd = super::data_dir(&app)?;
     let bytes = fetch_datapack_bytes(&dd, &version).await?;
@@ -324,6 +344,7 @@ pub async fn datapacks_update_one(
     let _update_guard = crate::datapacks::guard::DatapackUpdateGuard::acquire()
         .ok_or(crate::error::Error::InstanceBusy)?;
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     let root = crate::datapacks::instance_root(&app, &instance_id)?;
     let dd = super::data_dir(&app)?;
     // A Vanilla Tweaks pack has no direct URL — its bytes exist only after a
@@ -374,6 +395,7 @@ pub async fn datapacks_set_enabled_in_world(
     enabled: bool,
 ) -> Result<(), crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     crate::datapacks::world_link::set_enabled_in_world_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,

@@ -791,6 +791,13 @@ pub enum Error {
     #[error("'{legacy}' is already installed and differs from '{filename}' only in letter case; remove it first")]
     DatapackLegacyCaseName { filename: String, legacy: String },
 
+    /// A datapack WRITER was asked to act on an instance whose Minecraft has no
+    /// data-pack system (it arrived in 1.13): the game would read none of what
+    /// was written. Removals are never refused — cleanup works on any version
+    /// (spec 2026-09-24 §4 U2, A10).
+    #[error("data packs need Minecraft 1.13 or newer; this instance runs {mc_version}")]
+    DatapacksUnsupportedVersion { mc_version: String },
+
     /// Vanilla Tweaks publishes per Minecraft family, and the family derived
     /// from this version does not exist upstream — usually a Minecraft
     /// release VT has not caught up with. Deliberately not answered by

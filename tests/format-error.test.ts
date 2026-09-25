@@ -547,6 +547,10 @@ describe('formatError', () => {
         size_bytes: 300 * 1024 * 1024,
         limit_bytes: 256 * 1024 * 1024,
       },
+      datapacks_unsupported_version: {
+        kind: 'datapacks_unsupported_version',
+        mc_version: '1.12.2',
+      },
       datapack_legacy_case_name: {
         kind: 'datapack_legacy_case_name',
         filename: 'Pack.zip',

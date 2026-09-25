@@ -71,6 +71,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     recoverStrandedWorld: vi.fn(),
+    // The 1.13 datapack gate for the detail dialog's Datapacks tab.
+    instanceSupportsDatapacks: vi.fn().mockResolvedValue({ status: 'ok', data: true }),
     // WorldDetailDialog's Datapacks tab mounts WorldDatapacks, which fires
     // datapacksListForWorld on mount (and on any test that switches tabs, since
     // TabBar activation follows focus) — resolved so it never throws even in
@@ -336,6 +338,7 @@ describe('WorldDetailDialog — role=dialog aria-modal aria-labelledby', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld({ folder_name: 'OldWorld' }),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -352,6 +355,7 @@ describe('WorldDetailDialog — role=dialog aria-modal aria-labelledby', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld({ folder_name: 'MyBackupWorld' }),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -371,6 +375,7 @@ describe('WorldDetailDialog — the tab panel is wired to its active tab', () =>
       props: {
         instanceId: 'inst-1',
         world: makeWorld({ folder_name: 'TabbedWorld' }),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -402,6 +407,7 @@ describe('WorldDetailDialog (Backups tab) — empty state', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -436,6 +442,7 @@ describe('WorldDetailDialog (Backups tab) — error state', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -456,6 +463,7 @@ describe('WorldDetailDialog (Backups tab) — backup row', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -476,6 +484,7 @@ describe('WorldDetailDialog (Backups tab) — backup row', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -497,7 +506,13 @@ describe('WorldDetailDialog (Backups tab) — inline backup action icons', () =>
       data: [makeBackup({ filename: 'restore-test.zip' })],
     });
     render(WorldDetailDialog, {
-      props: { instanceId: 'inst-1', world: makeWorld(), onClose: () => {}, onChanged: () => {} },
+      props: {
+        instanceId: 'inst-1',
+        world: makeWorld(),
+        datapacksSupported: true,
+        onClose: () => {},
+        onChanged: () => {},
+      },
     });
     const btn = await screen.findByRole('button', { name: /^restore$/i });
     expect(btn.getAttribute('data-testid')).toBe('backup-restore-btn');
@@ -511,7 +526,13 @@ describe('WorldDetailDialog (Backups tab) — inline backup action icons', () =>
       data: [makeBackup({ filename: 'delete-test.zip' })],
     });
     render(WorldDetailDialog, {
-      props: { instanceId: 'inst-1', world: makeWorld(), onClose: () => {}, onChanged: () => {} },
+      props: {
+        instanceId: 'inst-1',
+        world: makeWorld(),
+        datapacksSupported: true,
+        onClose: () => {},
+        onChanged: () => {},
+      },
     });
     const btn = await screen.findByRole('button', { name: /^delete backup$/i });
     expect(btn.getAttribute('data-testid')).toBe('backup-delete-btn');
@@ -539,6 +560,7 @@ describe('WorldDetailDialog (Backups tab) — "Open backups folder"', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },
@@ -558,6 +580,7 @@ describe('WorldDetailDialog (Backups tab) — "Open backups folder"', () => {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },

@@ -2502,6 +2502,7 @@
       "notAPack": "В архиве нет pack.mcmeta или папки data."
     },
     "datapackTooLarge": "«{filename}» весит {sizeMb} МБ — больше лимита {limitMb} МБ для датапака.",
+    "datapacksUnsupportedVersion": "Датапаки работают с Minecraft 1.13 и новее, а эта сборка — на {mcVersion}.",
     "datapackLegacyCaseName": "«{legacy}» уже установлен. Его имя отличается от «{filename}» только регистром букв, а Minecraft загружает только файлы, оканчивающиеся на .zip строчными буквами. Сначала удалите «{legacy}», затем установите снова.",
     "vanillaTweaksUnavailable": "У Vanilla Tweaks пока нет паков для Minecraft {mcVersion}.",
     "vanillaTweaksBuildFailed": "Vanilla Tweaks не смог собрать этот набор. {message}",

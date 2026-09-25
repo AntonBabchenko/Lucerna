@@ -2502,6 +2502,7 @@
       "notAPack": "It's missing pack.mcmeta or a data folder."
     },
     "datapackTooLarge": "\"{filename}\" is {sizeMb} MB — over the {limitMb} MB limit for a datapack.",
+    "datapacksUnsupportedVersion": "Data packs need Minecraft 1.13 or newer; this instance runs {mcVersion}.",
     "datapackLegacyCaseName": "\"{legacy}\" is already installed. Its name differs from \"{filename}\" only in capital letters, and Minecraft only loads files ending in lower-case .zip. Remove \"{legacy}\" first, then install again.",
     "vanillaTweaksUnavailable": "Vanilla Tweaks has no packs for Minecraft {mcVersion} yet.",
     "vanillaTweaksBuildFailed": "Vanilla Tweaks couldn't put that selection together. {message}",

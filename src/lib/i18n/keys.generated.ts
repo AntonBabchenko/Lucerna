@@ -193,6 +193,7 @@ export type TranslationKey =
   | 'errors.datapackInvalidReason.notAZip'
   | 'errors.datapackLegacyCaseName'
   | 'errors.datapackTooLarge'
+  | 'errors.datapacksUnsupportedVersion'
   | 'errors.forgeInstallerCorrupted'
   | 'errors.forgeMappingsMissing'
   | 'errors.forgeMavenMetadataParseFailed'

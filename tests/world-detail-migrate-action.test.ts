@@ -44,7 +44,14 @@ describe('WorldDetailDialog — migrate entry point', () => {
   it('renders a text-labelled secondary footer action that reports the click', async () => {
     const onMigrate = vi.fn();
     render(WorldDetailDialog, {
-      props: { instanceId: 'src', world: WORLD, onClose: () => {}, onChanged: () => {}, onMigrate },
+      props: {
+        instanceId: 'src',
+        world: WORLD,
+        datapacksSupported: true,
+        onClose: () => {},
+        onChanged: () => {},
+        onMigrate,
+      },
     });
     const btn = (await screen.findByTestId('world-migrate-btn')) as HTMLButtonElement;
     // DESIGN.md §5: a committing, standalone dialog action is text-labelled,
@@ -63,6 +70,7 @@ describe('WorldDetailDialog — migrate entry point', () => {
       props: {
         instanceId: 'src',
         world: WORLD,
+        datapacksSupported: true,
         migrateDisabledReason: 'Stop "Source" first',
         onClose: () => {},
         onChanged: () => {},
@@ -83,7 +91,13 @@ describe('WorldDetailDialog — migrate entry point', () => {
 
   it('leaves the wrapper out of the tab order while the action is available', async () => {
     render(WorldDetailDialog, {
-      props: { instanceId: 'src', world: WORLD, onClose: () => {}, onChanged: () => {} },
+      props: {
+        instanceId: 'src',
+        world: WORLD,
+        datapacksSupported: true,
+        onClose: () => {},
+        onChanged: () => {},
+      },
     });
     const btn = (await screen.findByTestId('world-migrate-btn')) as HTMLButtonElement;
     expect((btn.parentElement as HTMLElement).hasAttribute('tabindex')).toBe(false);

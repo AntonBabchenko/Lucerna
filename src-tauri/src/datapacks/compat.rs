@@ -60,6 +60,19 @@ pub fn supports_datapacks(mc_version: &str) -> bool {
     }
 }
 
+/// [`supports_datapacks`] as a refusal, for the commands that WRITE datapacks.
+/// Same rule, same "unparseable ⟹ allowed": a wrongly-allowed write is inert
+/// data, never data loss.
+pub fn require_support(mc_version: &str) -> crate::error::Result<()> {
+    if supports_datapacks(mc_version) {
+        Ok(())
+    } else {
+        Err(crate::error::Error::DatapacksUnsupportedVersion {
+            mc_version: mc_version.to_string(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod supports_tests {
     use super::supports_datapacks;
@@ -92,6 +105,25 @@ mod supports_tests {
         assert!(supports_datapacks(""));
         assert!(supports_datapacks("26w14a"));
         assert!(supports_datapacks("garbage"));
+    }
+
+    #[test]
+    fn require_support_refuses_1_12_2_and_passes_1_13_and_unparseable() {
+        use crate::error::Error;
+        match super::require_support("1.12.2") {
+            Err(Error::DatapacksUnsupportedVersion { mc_version }) => {
+                assert_eq!(
+                    mc_version, "1.12.2",
+                    "the refusal names the version it refused"
+                );
+            }
+            other => panic!("1.12.2 must be refused as DatapacksUnsupportedVersion, got {other:?}"),
+        }
+        assert!(super::require_support("1.13").is_ok());
+        assert!(super::require_support("26.1").is_ok());
+        // Uncertainty never refuses: the worst case of a wrong allow is inert data.
+        assert!(super::require_support("").is_ok());
+        assert!(super::require_support("26w14a").is_ok());
     }
 }
 

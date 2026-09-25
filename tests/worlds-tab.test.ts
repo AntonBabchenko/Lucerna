@@ -30,6 +30,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     recoverStrandedWorld: vi.fn(),
+    // The 1.13 datapack gate for the detail dialog's Datapacks tab.
+    instanceSupportsDatapacks: vi.fn().mockResolvedValue({ status: 'ok', data: true }),
     backupWorld: vi
       .fn()
       .mockResolvedValue({ status: 'ok', data: { filename: 'b.zip', size_bytes: 10 } }),
@@ -184,6 +186,24 @@ describe('WorldsTab', () => {
   });
 });
 
+describe('WorldsTab — the pre-1.13 Datapacks gate', () => {
+  it("a pre-1.13 instance's world detail has no Datapacks tab", async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.instanceSupportsDatapacks).mockResolvedValueOnce({
+      status: 'ok',
+      data: false,
+    });
+    const { container, findByText } = render(WorldsTab, {
+      props: { instanceId: 'inst-pre113', onListChanged: () => {} },
+    });
+    await findByText('My World');
+    await fireEvent.click(container.querySelector('[data-testid="world-row"]') as HTMLElement);
+    await screen.findByTestId('world-detail-dialog');
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /datapacks/i })).toBeNull());
+    expect(commands.instanceSupportsDatapacks).toHaveBeenCalledWith('inst-pre113');
+  });
+});
+
 describe('WorldDetailDialog (Backups tab) — header back-up action', () => {
   it('renders a backups-create-btn and calls backupWorld on click', async () => {
     const mod = await import('$lib/ipc/bindings');
@@ -197,6 +217,7 @@ describe('WorldDetailDialog (Backups tab) — header back-up action', () => {
           modified_unix_ms: Date.now(),
           backup_count: 0,
         },
+        datapacksSupported: true,
         onClose: () => {},
         onChanged: () => {},
       },

@@ -3677,6 +3677,13 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "datapack_legacy_case_name"; filename: string; legacy: string } | 
 /**
+ *  A datapack WRITER was asked to act on an instance whose Minecraft has no
+ *  data-pack system (it arrived in 1.13): the game would read none of what
+ *  was written. Removals are never refused — cleanup works on any version
+ *  (spec 2026-09-24 §4 U2, A10).
+ */
+{ kind: "datapacks_unsupported_version"; mc_version: string } | 
+/**
  *  Vanilla Tweaks publishes per Minecraft family, and the family derived
  *  from this version does not exist upstream — usually a Minecraft
  *  release VT has not caught up with. Deliberately not answered by
