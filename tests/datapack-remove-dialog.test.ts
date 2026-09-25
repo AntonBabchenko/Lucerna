@@ -4,6 +4,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatapackPlacementView } from '$lib/ipc/bindings';
+import ru from '../src/lib/i18n/locales/ru.json';
 
 const toasts = vi.hoisted(() => ({
   pushSuccess: vi.fn(),
@@ -379,5 +380,16 @@ describe('DatapackRemoveDialog — worlds-only failure toast', () => {
     expect(title).toMatch(/1 world could not be cleaned/);
     expect(title).not.toMatch(/library copy/);
     expect(details).toEqual([expect.stringMatching(/^B: /)]);
+  });
+});
+
+// The RU note under "couldn't check" in worlds-only mode: "Удаление попробует
+// и эти миры" read as removing the worlds. It names what is removed, and from
+// where.
+describe('DatapackRemoveDialog — RU copy', () => {
+  it('the worlds-only note says the pack is taken out of those worlds', () => {
+    expect(ru.addons.datapacks.remove.uncheckedWorldsOnly).toMatch(
+      /убрать датапак и из этих миров/,
+    );
   });
 });
