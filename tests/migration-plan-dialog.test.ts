@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { McMigrationPlan_Serialize, ModVersion_Serialize } from '$lib/ipc/bindings';
 
@@ -10,6 +10,25 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsPlanMcMigration: (...a: unknown[]) => modsPlanMcMigration(...a),
     modsApplyMcMigration: (...a: unknown[]) => modsApplyMcMigration(...a),
+  },
+}));
+
+// Every Channel the plan runner constructs, in construction order, so a test
+// can push progress ticks the way the backend does. `vi.hoisted` is required:
+// the `vi.mock` factory below is lifted above every `const`.
+const { channels } = vi.hoisted(() => ({
+  channels: [] as { onmessage: ((m: unknown) => void) | null }[],
+}));
+
+// The runner does `new Channel()` and then assigns `.onmessage` — `Channel:
+// vi.fn()` would not survive that assignment (same stub as
+// tests/l10n-prefill-dialog.test.ts and tests/export-pack-dialog.test.ts).
+vi.mock('@tauri-apps/api/core', () => ({
+  Channel: class {
+    onmessage: ((m: unknown) => void) | null = null;
+    constructor() {
+      channels.push(this as { onmessage: ((m: unknown) => void) | null });
+    }
   },
 }));
 
@@ -399,5 +418,53 @@ describe('MigrationPlanDialog', () => {
     });
     await waitFor(() => expect(screen.getByTestId('migration-summary')).toBeTruthy());
     expect(onPlanLoaded).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MigrationPlanDialog — while the plan loads', () => {
+  beforeAll(() => locale.set('en'));
+  // `beforeEach`, not `afterEach`: the describe above renders the dialog too,
+  // and every render constructs a Channel.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    channels.length = 0;
+  });
+
+  it('reads as it always did until the backend reports progress', async () => {
+    // (pin)
+    modsPlanMcMigration.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    expect(await screen.findByRole('status', { name: 'Checking installed mods…' })).toBeTruthy();
+    expect(screen.queryByText(/\d+ of \d+/)).toBeNull();
+  });
+
+  it('asks for the plan with a progress channel', async () => {
+    modsPlanMcMigration.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    await waitFor(() =>
+      expect(modsPlanMcMigration).toHaveBeenCalledWith('inst-1', expect.anything()),
+    );
+    expect(channels).toHaveLength(1);
+  });
+
+  it('names the phase and counts through it as ticks arrive', async () => {
+    modsPlanMcMigration.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    await waitFor(() => expect(channels).toHaveLength(1));
+    const tick = (m: unknown) => channels[0].onmessage?.(m);
+
+    tick({ phase: 'checking_installed', done: 130, total: 136 });
+    expect(await screen.findByText('130 of 136')).toBeTruthy();
+    expect(await screen.findByRole('status', { name: 'Checking installed mods…' })).toBeTruthy();
+
+    tick({ phase: 'finding_replacements', done: 2, total: 9 });
+    expect(await screen.findByText('2 of 9')).toBeTruthy();
+    expect(await screen.findByRole('status', { name: 'Looking for replacements…' })).toBeTruthy();
+
+    tick({ phase: 'resolving_dependencies', done: 0, total: 3 });
+    expect(await screen.findByText('0 of 3')).toBeTruthy();
+    expect(
+      await screen.findByRole('status', { name: 'Checking what the replacements need…' }),
+    ).toBeTruthy();
   });
 });
