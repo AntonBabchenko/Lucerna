@@ -202,19 +202,39 @@ async fn placements_against(
 /// file from its stale snapshot, leaving it present-and-unlisted, which
 /// Minecraft auto-enables: a silently resurrected, just-removed pack.
 ///
-/// `Err` = `saves/` could not be listed, so no world could be refreshed.
+/// A FRESH install (`expected_sha: None`) has no bytes of ours in any world,
+/// so a world it could not check cannot hold a stale copy: it reports
+/// nothing for it. A reinstall that cannot even list `saves/` reports one
+/// `Failed` entry naming that folder: the install itself went through, and
+/// the worlds may still be on the old bytes.
 pub(crate) async fn refresh_placements(
     instance_root: &Path,
     filename: &str,
     expected_sha: Option<&str>,
-) -> Result<Vec<crate::datapacks::WorldMigration>> {
+) -> Vec<crate::datapacks::WorldMigration> {
     use crate::datapacks::WorldMigration;
 
     let src = library_dir_at(instance_root).join(filename);
 
     let _guard = level_dat_lock().lock().await;
 
-    let placements = placements_against(instance_root, filename, expected_sha).await?;
+    let placements = match placements_against(instance_root, filename, expected_sha).await {
+        Ok(placements) => placements,
+        Err(e) if expected_sha.is_none() => {
+            crate::diag!(
+                "datapacks: fresh install of {filename} could not list the worlds, which is \
+                 harmless (none can hold it yet): {e}"
+            );
+            return Vec::new();
+        }
+        Err(e) => {
+            let saves = instance_root.join(".minecraft").join("saves");
+            return vec![WorldMigration::Failed {
+                world: saves.display().to_string(),
+                details: format!("no world was refreshed: {e}"),
+            }];
+        }
+    };
     let mut report = Vec::with_capacity(placements.found.len() + placements.unchecked.len());
     for p in placements.found {
         if !p.is_ours {
@@ -229,10 +249,13 @@ pub(crate) async fn refresh_placements(
             }),
         }
     }
-    for (world, details) in placements.unchecked {
-        report.push(WorldMigration::Failed { world, details });
+    // Only a reinstall can have left stale bytes of ours in a world.
+    if expected_sha.is_some() {
+        for (world, details) in placements.unchecked {
+            report.push(WorldMigration::Failed { world, details });
+        }
     }
-    Ok(report)
+    report
 }
 
 #[cfg(test)]

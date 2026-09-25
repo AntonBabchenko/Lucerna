@@ -336,9 +336,9 @@ pub async fn install_named_at(
     // already in place. Per-world outcomes are RETURNED, not swallowed into a
     // `diag!` line: the catalog paths promise a precise per-world report.
     //
-    // `Err` (`saves/` could not be listed) is reported after the row below is
-    // recorded: the library file is already in place, and a registry that
-    // disagreed with it would be a second problem.
+    // A reinstall that cannot list `saves/` still installs: that no world
+    // could be refreshed comes back as a `Failed` entry, not as an error
+    // after the library file and its row were already written.
     let refreshed = crate::datapacks::world_link::refresh_placements(
         instance_root,
         filename,
@@ -360,7 +360,6 @@ pub async fn install_named_at(
         installed_at: Utc::now().to_rfc3339(),
     };
     registry::add(instance_root, entry.clone(), meta.mcmeta).await?;
-    let refreshed = refreshed?;
     Ok(crate::datapacks::LibraryInstall {
         pack: entry,
         refreshed,
@@ -1599,5 +1598,59 @@ mod tests {
             !matches!(got, Err(Error::DatapackLegacyCaseName { .. })),
             "got {got:?}"
         );
+    }
+
+    /// A FRESH install has no bytes of ours in any world, so a world that
+    /// cannot be checked cannot hold a stale copy: nothing to report.
+    #[tokio::test]
+    async fn a_fresh_install_reports_nothing_for_a_world_it_cannot_check() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        let wd = crate::datapacks::world_link::test_util::game_world(td.path(), "Locked");
+        std::fs::write(wd.join("datapacks"), b"a file, not a folder").unwrap();
+
+        let out = install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+
+        assert!(
+            !out.refreshed
+                .iter()
+                .any(|m| matches!(m, crate::datapacks::WorldMigration::Failed { .. })),
+            "{:?}",
+            out.refreshed
+        );
+    }
+
+    /// A reinstall whose `saves/` cannot be listed still installs: the library
+    /// file and its row are written. That no world could be refreshed comes
+    /// back as a failed entry in `refreshed`, never as "not installed".
+    #[tokio::test]
+    async fn a_reinstall_that_cannot_list_saves_installs_and_reports_the_refresh() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        std::fs::create_dir_all(td.path().join(".minecraft")).unwrap();
+        std::fs::write(td.path().join(".minecraft").join("saves"), b"a file").unwrap();
+
+        let out = install_named_at(td.path(), "vm.zip", &datapack_zip_v2(), None)
+            .await
+            .unwrap();
+
+        assert!(
+            matches!(
+                out.refreshed.as_slice(),
+                [crate::datapacks::WorldMigration::Failed { .. }]
+            ),
+            "{:?}",
+            out.refreshed
+        );
+        assert_eq!(
+            std::fs::read(library_dir_at(td.path()).join("vm.zip")).unwrap(),
+            datapack_zip_v2()
+        );
+        assert_eq!(out.pack.sha1, sha1_hex(&datapack_zip_v2()));
     }
 }
