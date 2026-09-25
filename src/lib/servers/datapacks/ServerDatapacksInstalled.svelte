@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { commands, type AssetUpdateState, type ServerDatapackEntry } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type AssetUpdateState,
+    type LevelDatPresence,
+    type ServerDatapackEntry,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
@@ -16,7 +21,13 @@
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import { ignoredHintKey } from '$lib/worlds/datapack-state';
-  import { badgeOf, isUpdatable, rowKey } from './datapack-rows';
+  import {
+    badgeOf,
+    isUpdatable,
+    rowKey,
+    serverToggleBlockedKey,
+    serverWorldBlockedKey,
+  } from './datapack-rows';
 
   // Installed pane for a server world's datapacks (Task 11). Modeled on
   // ServerPluginsInstalled — same toolbar/error-line/ConfirmDialog shape — but
@@ -41,6 +52,11 @@
   } = $props();
 
   let rows = $state<ServerDatapackEntry[]>([]);
+  // The world's level.dat presence (D2); null until loaded, or could not tell.
+  // Null is not a verdict: every writer re-checks presence before writing.
+  let levelDat = $state<LevelDatPresence | null>(null);
+  const worldBlock = $derived(serverWorldBlockedKey(levelDat));
+  const toggleBlock = $derived(serverToggleBlockedKey(levelDat));
   let loading = $state(false);
   let loadError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
@@ -108,8 +124,13 @@
     loadError = null;
     const res = await commands.serverListDatapacks(serverId);
     if (my !== gen) return; // superseded by a newer serverId/reloadToken change
-    if (res.status === 'ok') rows = res.data.entries;
-    else loadError = formatError(res.error);
+    if (res.status === 'ok') {
+      rows = res.data.entries;
+      levelDat = res.data.level_dat;
+    } else {
+      levelDat = null;
+      loadError = formatError(res.error);
+    }
     loading = false;
   }
 
@@ -117,6 +138,7 @@
     void reloadToken;
     void serverId;
     rows = [];
+    levelDat = null;
     loadError = null;
     void load();
   });
@@ -288,7 +310,7 @@
       class="btn-warning btn-sm"
       data-testid="server-datapacks-update-all"
       busy={updatingAll}
-      disabled={disabled || updatableCount === 0}
+      disabled={disabled || worldBlock !== null || updatableCount === 0}
       onclick={() => void updateAll()}
     >
       {$t('mods.installed.updateAll', { count: updatableCount })}
@@ -297,7 +319,7 @@
       type="button"
       class="btn-secondary btn-sm"
       data-testid="server-open-vt-builder"
-      {disabled}
+      disabled={disabled || worldBlock !== null}
       onclick={() => (vtOpen = true)}
     >
       {$t('addons.datapacks.vt.open')}
@@ -320,6 +342,16 @@
   {/if}
 
   <p class="text-xs text-secondary">{$t('servers.datapacks.note')}</p>
+
+  {#if levelDat === 'absent'}
+    <p class="text-xs text-secondary" data-testid="server-datapacks-level-dat-note">
+      {$t('servers.datapacks.notGenerated')}
+    </p>
+  {:else if levelDat === 'only_old'}
+    <p class="text-xs text-warning-text" data-testid="server-datapacks-level-dat-note">
+      {$t('servers.datapacks.onlyOldLevelDat')}
+    </p>
+  {/if}
 
   {#if loadError}
     <p class="text-sm text-danger" role="alert">{loadError}</p>
@@ -376,49 +408,86 @@
             {/if}
           </div>
 
+          <!-- Each tooltip rides a wrapping span, so a control disabled by the
+               world's level.dat (D2) still explains itself, keyboard included —
+               the WorldDatapacks shape. -->
           {#if canUpdateRow}
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm btn-icon-warning"
-              disabled={disabled || checkingUpdates || updatingAll || rowBusy}
-              onclick={() => void updateOne(row)}
-              aria-label={$t('addons.installed.update')}
-              use:tooltip={$t('addons.installed.update')}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <span
+              class="inline-flex"
+              tabindex={worldBlock !== null ? 0 : undefined}
+              use:tooltip={{
+                text: worldBlock !== null ? $t(worldBlock) : $t('addons.installed.update'),
+                describe: false,
+              }}
             >
-              <Icon name="refresh" size={15} />
-            </button>
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm btn-icon-warning"
+                data-testid="server-datapack-update"
+                disabled={disabled ||
+                  worldBlock !== null ||
+                  checkingUpdates ||
+                  updatingAll ||
+                  rowBusy}
+                onclick={() => void updateOne(row)}
+                aria-label={$t('addons.installed.update')}
+              >
+                <Icon name="refresh" size={15} />
+              </button>
+            </span>
           {/if}
 
           {#if row.present && row.state !== 'ignored'}
-            <button
-              type="button"
-              class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
-              {disabled}
-              onclick={() => void toggle(row)}
-              aria-label={row.state === 'enabled'
+            {@const toggleLabel =
+              row.state === 'enabled'
                 ? $t('servers.datapacks.disable')
                 : $t('servers.datapacks.enable')}
-              use:tooltip={row.state === 'enabled'
-                ? $t('servers.datapacks.disable')
-                : $t('servers.datapacks.enable')}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <span
+              class="inline-flex"
+              tabindex={toggleBlock !== null ? 0 : undefined}
+              use:tooltip={{
+                text: toggleBlock !== null ? $t(toggleBlock) : toggleLabel,
+                describe: false,
+              }}
             >
-              <Icon name="power" size={15} />
-            </button>
+              <button
+                type="button"
+                class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
+                data-testid="server-datapack-toggle"
+                disabled={disabled || toggleBlock !== null}
+                onclick={() => void toggle(row)}
+                aria-label={toggleLabel}
+              >
+                <Icon name="power" size={15} />
+              </button>
+            </span>
           {/if}
 
-          <button
-            type="button"
-            class="btn-icon btn-icon-sm btn-icon-danger"
-            {disabled}
-            onclick={() => {
-              actionError = null;
-              pendingRemove = row;
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <span
+            class="inline-flex"
+            tabindex={worldBlock !== null ? 0 : undefined}
+            use:tooltip={{
+              text: worldBlock !== null ? $t(worldBlock) : $t('servers.datapacks.remove'),
+              describe: false,
             }}
-            aria-label={$t('servers.datapacks.remove')}
-            use:tooltip={$t('servers.datapacks.remove')}
           >
-            <Icon name="trash" size={15} />
-          </button>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm btn-icon-danger"
+              data-testid="server-datapack-remove"
+              disabled={disabled || worldBlock !== null}
+              onclick={() => {
+                actionError = null;
+                pendingRemove = row;
+              }}
+              aria-label={$t('servers.datapacks.remove')}
+            >
+              <Icon name="trash" size={15} />
+            </button>
+          </span>
         </CardShell>
       {/each}
     </div>

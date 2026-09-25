@@ -102,7 +102,9 @@ describe('DatapackWorldPicker', () => {
       status: 'ok',
       data: [world('Beta')],
     });
-    render(DatapackWorldPicker, { props: baseProps });
+    render(DatapackWorldPicker, {
+      props: { ...baseProps, worlds: [{ world: 'Beta', level_dat: 'present' as const }] },
+    });
     const box = await screen.findByTestId('datapack-picker-world');
     await fireEvent.click(box);
     await fireEvent.click(screen.getByTestId('datapack-picker-apply'));
@@ -305,5 +307,35 @@ describe('DatapackWorldPicker', () => {
     expect(box.disabled).toBe(true);
     expect(box.checked).toBe(false);
     expect(screen.getByText('Ignored by the game')).toBeTruthy();
+  });
+
+  it('a world without level.dat cannot be ticked and says why', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({
+      status: 'ok',
+      data: [world('Broken'), world('NotAWorld')],
+    });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [
+          { world: 'Broken', level_dat: 'only_old' as const },
+          { world: 'NotAWorld', level_dat: 'absent' as const },
+        ],
+      },
+    });
+    const boxes = (await screen.findAllByTestId('datapack-picker-world')) as HTMLInputElement[];
+    expect(boxes.map((b) => b.disabled)).toEqual([true, true]);
+    expect(
+      screen.getByText('Open this world in Minecraft and restore it from the backup'),
+    ).toBeTruthy();
+    expect(screen.getByText('Not a world: this folder has no level.dat')).toBeTruthy();
+  });
+
+  it('a world the library listing did not report is not ticked blind', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({ status: 'ok', data: [world('Newer')] });
+    render(DatapackWorldPicker, { props: baseProps });
+    const box = (await screen.findByTestId('datapack-picker-world')) as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(screen.getByText(/state unknown/i)).toBeTruthy();
   });
 });

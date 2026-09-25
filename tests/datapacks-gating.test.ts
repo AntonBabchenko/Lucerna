@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { WorldPackState } from '$lib/ipc/bindings';
-import { datapacksDisabledKey, worldRowKind } from '$lib/worlds/datapacks-gating';
+import {
+  datapacksDisabledKey,
+  levelDatBlockedKey,
+  worldDatapacksDisabledKey,
+  worldRowKind,
+} from '$lib/worlds/datapacks-gating';
 
 describe('datapacksDisabledKey', () => {
   it('returns null when not running and not busy', () => {
@@ -35,5 +40,33 @@ describe('worldRowKind', () => {
     expect(worldRowKind(row('not_added', true))).toBe('addable');
     expect(worldRowKind(row('enabled'))).toBe('live');
     expect(worldRowKind(row('disabled', false))).toBe('live');
+  });
+});
+
+describe('levelDatBlockedKey', () => {
+  it('names absent and only-old, and nothing else', () => {
+    expect(levelDatBlockedKey('absent')).toBe('worlds.datapacks.blockedNoLevelDat');
+    expect(levelDatBlockedKey('only_old')).toBe('worlds.datapacks.blockedOnlyOld');
+    expect(levelDatBlockedKey('present')).toBeNull();
+    // Could not tell is not a verdict: the backend re-checks before any write.
+    expect(levelDatBlockedKey(null)).toBeNull();
+  });
+});
+
+describe('worldDatapacksDisabledKey', () => {
+  it('ranks running > level.dat > busy', () => {
+    expect(worldDatapacksDisabledKey({ running: true, busy: true, levelDat: 'only_old' })).toBe(
+      'worlds.datapacks.blockedRunning',
+    );
+    expect(worldDatapacksDisabledKey({ running: false, busy: true, levelDat: 'only_old' })).toBe(
+      'worlds.datapacks.blockedOnlyOld',
+    );
+    expect(worldDatapacksDisabledKey({ running: false, busy: true, levelDat: 'absent' })).toBe(
+      'worlds.datapacks.blockedNoLevelDat',
+    );
+    expect(worldDatapacksDisabledKey({ running: false, busy: true, levelDat: 'present' })).toBe(
+      'worlds.datapacks.blockedBusy',
+    );
+    expect(worldDatapacksDisabledKey({ running: false, busy: false, levelDat: null })).toBeNull();
   });
 });

@@ -200,3 +200,65 @@ describe('DatapackRemoveDialog — worlds Lucerna could not check', () => {
     expect(screen.queryByText(/the pack stays in the library/)).toBeNull();
   });
 });
+
+describe('DatapackRemoveDialog — worlds without a usable level.dat (D2)', () => {
+  it('the affected list names why such a world is left alone', async () => {
+    render(DatapackRemoveDialog, {
+      props: {
+        instanceId: 'inst-1',
+        filename: 'vm.zip',
+        packName: 'VeinMiner',
+        mode: {
+          kind: 'worlds-only' as const,
+          placements: [
+            {
+              world: 'Broken',
+              state: 'disabled' as const,
+              ignored_reason: null,
+              level_dat: 'only_old' as const,
+            },
+            {
+              world: 'Fine',
+              state: 'enabled' as const,
+              ignored_reason: null,
+              level_dat: 'present' as const,
+            },
+          ],
+        },
+        onClose: () => {},
+        onRemoved: () => {},
+      },
+    });
+    const reasons = await screen.findAllByTestId('datapack-remove-world-blocked');
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0].textContent).toMatch(/restore it from the backup/);
+  });
+
+  // The cascade refuses an only-old world (D2) and reports it Failed, which
+  // keeps the library copy — said before the click, not only in the toast.
+  it('with the cascade on, an only-old world says the library copy stays', async () => {
+    render(DatapackRemoveDialog, {
+      props: {
+        instanceId: 'inst-1',
+        filename: 'vm.zip',
+        packName: 'VeinMiner',
+        mode: {
+          kind: 'library' as const,
+          placements: [
+            {
+              world: 'Broken',
+              state: 'disabled' as const,
+              ignored_reason: null,
+              level_dat: 'only_old' as const,
+            },
+          ],
+        },
+        onClose: () => {},
+        onRemoved: () => {},
+      },
+    });
+    expect(await screen.findByText(/stays in the library until/)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.queryByText(/stays in the library until/)).toBeNull();
+  });
+});

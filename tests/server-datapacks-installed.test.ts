@@ -18,6 +18,8 @@ vi.mock('$lib/ipc/bindings', () => ({ commands: cmd }));
 
 import { commands } from '$lib/ipc/bindings';
 import ServerDatapacksInstalled from '$lib/servers/datapacks/ServerDatapacksInstalled.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 function entry(over: Partial<ServerDatapackEntry> = {}): ServerDatapackEntry {
   return {
@@ -51,7 +53,10 @@ beforeEach(() => {
   cmd.serverRemoveDatapack.mockResolvedValue({ status: 'ok', data: null });
   cmd.serverSetDatapackEnabled.mockResolvedValue({ status: 'ok', data: null });
 });
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  hideTooltip();
+  vi.clearAllMocks();
+});
 
 describe('ServerDatapacksInstalled', () => {
   it('an ignored row shows its reason and no toggle', async () => {
@@ -126,5 +131,58 @@ describe('ServerDatapacksInstalled — the note under the toolbar (U4)', () => {
     mount();
     expect(await screen.findByText(/built-in and mod-provided/)).toBeTruthy();
     expect(screen.queryByText(/matches what \/datapack list shows/)).toBeNull();
+  });
+});
+
+describe('ServerDatapacksInstalled — level.dat presence (D2)', () => {
+  it('only_old disables toggle, trash, update and VT', async () => {
+    listing('only_old', [entry()]);
+    cmd.serverCheckDatapackUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          filename: 'p.zip',
+          name: 'Terralith',
+          state: {
+            kind: 'update_available',
+            latest: { version_id: 'v2', version_number: '2.6.0' },
+          },
+        },
+      ],
+    });
+    mount();
+    const note = await screen.findByTestId('server-datapacks-level-dat-note');
+    expect(note.textContent).toMatch(/only the backup copy level\.dat_old is left/);
+    // Checking for updates reads only; it stays available.
+    await fireEvent.click(screen.getByTestId('server-datapacks-check-updates'));
+    const update = (await screen.findByTestId('server-datapack-update')) as HTMLButtonElement;
+    expect(update.disabled).toBe(true);
+    for (const id of [
+      'server-datapack-toggle',
+      'server-datapack-remove',
+      'server-datapacks-update-all',
+      'server-open-vt-builder',
+    ]) {
+      expect((screen.getByTestId(id) as HTMLButtonElement).disabled, id).toBe(true);
+    }
+    revealTooltip(screen.getByTestId('server-datapack-remove').closest('span') as HTMLElement);
+    expect(tooltipState.text).toBe('Start the server once to restore level.dat');
+  });
+
+  it('absent disables only the toggle, with the reason', async () => {
+    listing('absent', [entry()]);
+    mount();
+    const note = await screen.findByTestId('server-datapacks-level-dat-note');
+    expect(note.textContent).toMatch(/hasn't been created yet/);
+    const toggle = (await screen.findByTestId('server-datapack-toggle')) as HTMLButtonElement;
+    expect(toggle.disabled).toBe(true);
+    expect((screen.getByTestId('server-datapack-remove') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    expect((screen.getByTestId('server-open-vt-builder') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    revealTooltip(toggle.closest('span') as HTMLElement);
+    expect(tooltipState.text).toBe('Start the server once first');
   });
 });

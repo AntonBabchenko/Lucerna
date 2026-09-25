@@ -1,5 +1,5 @@
 import type { TranslationKey } from '$lib/i18n/keys.generated';
-import type { ServerDatapackEntry } from '$lib/ipc/bindings';
+import type { LevelDatPresence, ServerDatapackEntry } from '$lib/ipc/bindings';
 import type { BadgeVariant } from '$lib/ui/cards/card-status';
 import { ignoredLabelKey } from '$lib/worlds/datapack-state';
 
@@ -67,4 +67,31 @@ export function isUpdatable(entry: ServerDatapackEntry): boolean {
     entry.record.source !== null &&
     entry.record.project_id !== null
   );
+}
+
+/**
+ * Why EVERY change to this server world's packs is off, or null (D2): a world
+ * with only level.dat_old is restored by the server's next start, and Lucerna
+ * must not pre-empt that. A never-started world (`absent`) keeps add, update
+ * and remove (spec 2026-09-24 I4); see {@link serverToggleBlockedKey}.
+ */
+export function serverWorldBlockedKey(levelDat: LevelDatPresence | null): TranslationKey | null {
+  return levelDat === 'only_old' ? 'servers.datapacks.blockedOnlyOld' : null;
+}
+
+/**
+ * Why the on/off toggle alone is off, or null. On a never-started world it is
+ * rendered disabled up front (the backend refuses with ServerWorldNotCreated
+ * anyway): the state lives in a level.dat the server has not written yet.
+ */
+export function serverToggleBlockedKey(levelDat: LevelDatPresence | null): TranslationKey | null {
+  switch (levelDat) {
+    case 'only_old':
+      return 'servers.datapacks.blockedOnlyOld';
+    case 'absent':
+      return 'servers.datapacks.blockedNotCreated';
+    case 'present':
+    case null:
+      return null;
+  }
 }

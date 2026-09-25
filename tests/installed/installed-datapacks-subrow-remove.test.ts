@@ -89,3 +89,24 @@ describe('InstalledDatapacksView — a world sub-row', () => {
     expect(cmd.datapacksRemoveFromWorld).not.toHaveBeenCalled();
   });
 });
+
+describe('InstalledDatapacksView — a sub-row whose world has no usable level.dat (A2)', () => {
+  it('an only-old sub-row shows its state but offers no toggle or trash', async () => {
+    library([placement('Old', 'disabled', 'only_old')]);
+    const rows = await expandedPlacements();
+    expect(within(rows).getByText('Disabled')).toBeTruthy();
+    expect(within(rows).getByText('Only level.dat_old')).toBeTruthy();
+    expect(
+      within(rows).queryByRole('button', { name: /(enable|disable) in this world/i }),
+    ).toBeNull();
+    expect(within(rows).queryByRole('button', { name: /remove from this world/i })).toBeNull();
+  });
+
+  it('an absent sub-row says so and offers no toggle or trash', async () => {
+    library([placement('Husk', null, 'absent')]);
+    const rows = await expandedPlacements();
+    expect(within(rows).getByText('No level.dat')).toBeTruthy();
+    expect(within(rows).queryByText('State unknown')).toBeNull();
+    expect(within(rows).queryByRole('button', { name: /remove from this world/i })).toBeNull();
+  });
+});

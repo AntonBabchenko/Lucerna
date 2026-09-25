@@ -18,7 +18,9 @@ import type {
   WorldDatapack,
   WorldDatapackListing,
 } from '$lib/ipc/bindings';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
 import WorldDatapacks from '$lib/worlds/WorldDatapacks.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -41,7 +43,10 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  hideTooltip();
+  vi.clearAllMocks();
+});
 
 function makePack(over: Partial<WorldDatapack> = {}): WorldDatapack {
   return {
@@ -593,5 +598,64 @@ describe('WorldDatapacks — removing a pack from this world (U1)', () => {
         'trash-me.zip',
       ),
     );
+  });
+});
+
+describe('WorldDatapacks — level.dat presence (D2)', () => {
+  it('only_old disables every change and explains how to restore level.dat', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing(
+        [
+          makePack({ filename: 'live.zip', state: 'disabled' }),
+          makePack({ filename: 'addable.zip', state: 'not_added' }),
+          makePack({ filename: 'gone.zip', state: 'orphaned' }),
+          makePack({
+            filename: 'Loose',
+            state: 'ignored',
+            ignored_reason: 'folder_without_pack_mcmeta',
+            in_library: false,
+          }),
+        ],
+        'only_old',
+      ),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    const note = await screen.findByTestId('world-datapacks-level-dat-note');
+    expect(note.textContent).toMatch(/Attempt to Restore/);
+    // Rows stay, read-only, with the state level.dat_old holds.
+    expect(screen.getByText('live.zip')).toBeTruthy();
+    for (const id of [
+      'world-datapack-add-library',
+      'world-datapack-add-library-folder',
+      'world-datapack-toggle',
+      'world-datapack-add-world',
+      'world-datapack-remove-orphaned',
+    ]) {
+      expect((screen.getByTestId(id) as HTMLButtonElement).disabled, id).toBe(true);
+    }
+    // Both trash buttons: the live row's and the ignored row's.
+    const trashes = screen.getAllByTestId('world-datapack-remove-world') as HTMLButtonElement[];
+    expect(trashes).toHaveLength(2);
+    expect(trashes.every((b) => b.disabled)).toBe(true);
+    revealTooltip(screen.getByTestId('world-datapack-toggle').closest('span') as HTMLElement);
+    expect(tooltipState.text).toBe('Open this world in Minecraft and restore it from the backup');
+  });
+
+  it("absent says Minecraft doesn't treat the folder as a world", async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([], 'absent'),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'NotAWorld' } });
+    const note = await screen.findByTestId('world-datapacks-level-dat-note');
+    expect(note.textContent).toMatch(/no level\.dat, so Minecraft doesn't list it as a world/);
+    expect(screen.queryByText(/No datapacks yet/i)).toBeNull();
+    const add = screen.getByTestId('world-datapack-add-library') as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    revealTooltip(add.closest('span') as HTMLElement);
+    expect(tooltipState.text).toBe('Not a world: this folder has no level.dat');
   });
 });

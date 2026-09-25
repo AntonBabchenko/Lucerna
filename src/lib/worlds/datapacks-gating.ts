@@ -1,5 +1,5 @@
 import type { TranslationKey } from '$lib/i18n/keys.generated';
-import type { DatapackPlacementView, WorldDatapack } from '$lib/ipc/bindings';
+import type { DatapackPlacementView, LevelDatPresence, WorldDatapack } from '$lib/ipc/bindings';
 
 export interface DatapacksGateState {
   /** The instance's game process is alive. */
@@ -14,6 +14,44 @@ export interface DatapacksGateState {
  */
 export function datapacksDisabledKey(s: DatapacksGateState): TranslationKey | null {
   if (s.running) return 'worlds.datapacks.blockedRunning';
+  if (s.busy) return 'worlds.datapacks.blockedBusy';
+  return null;
+}
+
+/**
+ * Why a world's datapacks can't be changed because of its level.dat, or null
+ * (spec 2026-09-24 §3 L.8, D2): `absent` — not a world to Minecraft;
+ * `only_old` — the game restores level.dat from level.dat_old and Lucerna
+ * must not pre-empt that. `null` (could not tell) is not a verdict: every
+ * writer re-checks presence itself before writing (§3 L.4).
+ */
+export function levelDatBlockedKey(levelDat: LevelDatPresence | null): TranslationKey | null {
+  switch (levelDat) {
+    case 'absent':
+      return 'worlds.datapacks.blockedNoLevelDat';
+    case 'only_old':
+      return 'worlds.datapacks.blockedOnlyOld';
+    case 'present':
+    case null:
+      return null;
+  }
+}
+
+export interface WorldDatapacksGateState extends DatapacksGateState {
+  /** The world's level.dat presence; `null` until loaded or if the load failed. */
+  levelDat: LevelDatPresence | null;
+}
+
+/**
+ * The world tab's gate: running, then level.dat, then busy. The game owning
+ * the world outranks everything; a level.dat reason is a lasting state, and
+ * "busy" only a moment. `datapacksDisabledKey` stays for the library screen,
+ * whose rows span many worlds.
+ */
+export function worldDatapacksDisabledKey(s: WorldDatapacksGateState): TranslationKey | null {
+  if (s.running) return 'worlds.datapacks.blockedRunning';
+  const levelDat = levelDatBlockedKey(s.levelDat);
+  if (levelDat !== null) return levelDat;
   if (s.busy) return 'worlds.datapacks.blockedBusy';
   return null;
 }

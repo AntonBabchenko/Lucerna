@@ -79,4 +79,17 @@ describe('datapackWorldSummary', () => {
     expect(withDisabled.key).toBe('addons.datapacks.summaryEnabledIn');
     expect(withDisabled.args).toEqual({ enabled: 0, total: 2 });
   });
+
+  it('leaves ignored and non-present placements out of the total', () => {
+    const s = datapackWorldSummary([
+      p('enabled'),
+      p('ignored'),
+      p(null, 'absent'),
+      p('disabled', 'only_old'),
+      p(null, null),
+    ]);
+    expect(s.key).toBe('addons.datapacks.summaryEnabledIn');
+    // A null level_dat is "could not tell" and still counts, like a null state.
+    expect(s.args).toEqual({ enabled: 1, total: 2 });
+  });
 });

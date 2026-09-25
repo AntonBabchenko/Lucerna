@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import type { ServerDatapackEntry } from '$lib/ipc/bindings';
-import { badgeOf, isUpdatable, rowKey } from '$lib/servers/datapacks/datapack-rows';
+import {
+  badgeOf,
+  isUpdatable,
+  rowKey,
+  serverToggleBlockedKey,
+  serverWorldBlockedKey,
+} from '$lib/servers/datapacks/datapack-rows';
 
 function entry(over: Partial<ServerDatapackEntry> = {}): ServerDatapackEntry {
   return {
@@ -95,5 +101,18 @@ describe('badgeOf — ghosts are quiet (U3)', () => {
   test('a ghost badge is neutral', () => {
     expect(badgeOf(entry({ state: 'orphaned', present: false })).variant).toBe('neutral');
     expect(badgeOf(entry({ state: 'not_added', present: false })).variant).toBe('neutral');
+  });
+});
+
+describe('server level.dat gates (D2)', () => {
+  test('only-old blocks every change; a never-started world blocks only the toggle', () => {
+    expect(serverWorldBlockedKey('only_old')).toBe('servers.datapacks.blockedOnlyOld');
+    expect(serverWorldBlockedKey('absent')).toBeNull();
+    expect(serverWorldBlockedKey('present')).toBeNull();
+    expect(serverWorldBlockedKey(null)).toBeNull();
+    expect(serverToggleBlockedKey('only_old')).toBe('servers.datapacks.blockedOnlyOld');
+    expect(serverToggleBlockedKey('absent')).toBe('servers.datapacks.blockedNotCreated');
+    expect(serverToggleBlockedKey('present')).toBeNull();
+    expect(serverToggleBlockedKey(null)).toBeNull();
   });
 });

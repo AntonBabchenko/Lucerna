@@ -642,11 +642,26 @@
               {:else}
                 {#each entry.placements as p (p.world)}
                   {@const badge = placementBadge(p)}
+                  {@const actionable = p.level_dat === 'present'}
                   <div class="flex items-center gap-2 py-1 text-sm">
                     <Icon name="datapack" size={14} class="text-muted flex-shrink-0" />
                     <span class="flex-1 min-w-0 truncate text-primary">{p.world}</span>
-                    <StatusBadge variant={badge.variant}>{badge.label}</StatusBadge>
-                    {#if p.state === 'enabled' || p.state === 'disabled'}
+                    {#if p.level_dat === 'absent'}
+                      <StatusBadge variant="neutral"
+                        >{$t('addons.datapacks.placementNoLevelDat')}</StatusBadge
+                      >
+                    {:else}
+                      <StatusBadge variant={badge.variant}>{badge.label}</StatusBadge>
+                      {#if p.level_dat === 'only_old'}
+                        <StatusBadge variant="warning"
+                          >{$t('addons.datapacks.placementOnlyOld')}</StatusBadge
+                        >
+                      {/if}
+                    {/if}
+                    <!-- A2: the gate is level_dat, not state — an only-old world HAS a
+                         state (level.dat_old's) but takes no change until the game
+                         restores level.dat. -->
+                    {#if actionable && (p.state === 'enabled' || p.state === 'disabled')}
                       <button
                         type="button"
                         class={`btn-icon btn-icon-sm ${p.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
@@ -663,7 +678,7 @@
                         {#if busy}<Spinner size="sm" />{:else}<Icon name="power" size={15} />{/if}
                       </button>
                     {/if}
-                    {#if p.state !== null}
+                    {#if actionable && p.state !== null}
                       <button
                         type="button"
                         class="btn-icon btn-icon-sm btn-icon-danger"

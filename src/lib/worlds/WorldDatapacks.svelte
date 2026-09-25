@@ -1,6 +1,11 @@
 <script lang="ts">
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { commands, type WorldDatapack, type WorldPackState } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type LevelDatPresence,
+    type WorldDatapack,
+    type WorldPackState,
+  } from '$lib/ipc/bindings';
   import { ignoredHintKey, ignoredLabelKey } from '$lib/worlds/datapack-state';
   import { compatLine, type CompatLine } from '$lib/worlds/datapack-compat';
   import { formatError } from '$lib/ipc/format-error';
@@ -15,7 +20,7 @@
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import type { CardAccent, BadgeVariant } from '$lib/ui/cards/card-status';
-  import { datapacksDisabledKey, worldRowKind } from '$lib/worlds/datapacks-gating';
+  import { worldDatapacksDisabledKey, worldRowKind } from '$lib/worlds/datapacks-gating';
   import DatapackRemoveDialog from '$lib/mods/DatapackRemoveDialog.svelte';
 
   // Per-world datapack manager. Library ∪ on-disk ∪ level.dat names, each row
@@ -32,6 +37,9 @@
   }: { instanceId: string; world: string; running?: boolean } = $props();
 
   let packs = $state<WorldDatapack[]>([]);
+  // The world's level.dat presence (D2): `null` until loaded, or when the load
+  // failed.
+  let levelDat = $state<LevelDatPresence | null>(null);
   let loadError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
   let busy = $state(false);
@@ -42,7 +50,12 @@
   // (`world-datapack-remove-orphaned`) deletes nothing and stays one click.
   let removeTarget = $state<string | null>(null);
 
-  const disabledKey = $derived(datapacksDisabledKey({ running, busy }));
+  // running > level.dat > busy (worldDatapacksDisabledKey). `null` — not loaded
+  // yet, or the load failed — is not a verdict: the backend re-checks level.dat
+  // before any write (§3 L.4), so the permissive answer can never write. Every
+  // mutating control below already reads `disabledKey`, so D2 covers both Add
+  // buttons, `+`, the toggles, Clear entry and the trash.
+  const disabledKey = $derived(worldDatapacksDisabledKey({ running, busy, levelDat }));
   const disabledReason = $derived.by(() => {
     const key = disabledKey;
     return key === null ? null : $t(key);
@@ -58,12 +71,14 @@
     if (instanceId !== reqInstanceId || world !== reqWorld) return;
     if (res.status === 'ok') {
       packs = res.data.packs;
+      levelDat = res.data.level_dat;
     } else {
       // Clear the list on failure too: an error and a stale, still-interactive
       // row list must never render together (see the template's mutually
       // exclusive loadError / empty / list branches below) — a row surviving
       // a failed reload would contradict whatever action just triggered it.
       packs = [];
+      levelDat = null;
       loadError = formatError(res.error);
     }
   }
@@ -78,6 +93,8 @@
     // failed reload.
     actionError = null;
     removeTarget = null;
+    // The previous world's level.dat note must not stand over this one.
+    levelDat = null;
     void reload();
   });
 
@@ -279,6 +296,14 @@
     </div>
   </div>
 
+  {#if levelDat === 'absent' || levelDat === 'only_old'}
+    <p class="text-xs text-warning-text" data-testid="world-datapacks-level-dat-note">
+      {$t(
+        levelDat === 'absent' ? 'worlds.datapacks.noLevelDat' : 'worlds.datapacks.onlyOldLevelDat',
+      )}
+    </p>
+  {/if}
+
   {#if actionError}
     <p class="text-sm text-danger">{actionError}</p>
   {/if}
@@ -286,7 +311,11 @@
   {#if loadError}
     <p class="text-sm text-danger">{loadError}</p>
   {:else if packs.length === 0}
-    <p class="text-sm text-muted">{$t('worlds.datapacks.empty')}</p>
+    <!-- For a folder with no level.dat the note above replaces "No datapacks
+         yet" (§3 L.8): the game loads nothing from it at all. -->
+    {#if levelDat !== 'absent'}
+      <p class="text-sm text-muted">{$t('worlds.datapacks.empty')}</p>
+    {/if}
   {:else}
     <div class="overflow-hidden rounded-lg border border-border-subtle">
       {#each packs as pack (pack.filename)}

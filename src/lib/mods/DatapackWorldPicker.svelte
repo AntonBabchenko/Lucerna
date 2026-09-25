@@ -9,6 +9,8 @@
     type WorldPackState,
   } from '$lib/ipc/bindings';
   import { ignoredLabelKey } from '$lib/worlds/datapack-state';
+  import { levelDatBlockedKey } from '$lib/worlds/datapacks-gating';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { compatLine } from '$lib/worlds/datapack-compat';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
@@ -147,20 +149,40 @@
     })();
   });
 
+  /**
+   * Could not tell the world's level.dat — or the library listing never saw
+   * the folder (a world created after it) — or could not read its pack lists.
+   * Shown, never ticked blind: the backend refuses absent/only-old worlds
+   * anyway (§3 L.4), but a tick must not be a guess.
+   */
+  function isUnknown(row: Row): boolean {
+    return row.unknown || row.levelDat === null;
+  }
+
+  /** Why this world takes no change at all because of its level.dat (D2). */
+  function blockedKey(row: Row): TranslationKey | null {
+    return levelDatBlockedKey(row.levelDat);
+  }
+
   function selectable(row: Row): boolean {
     // Already enabled: nothing to do. Orphaned: the file is gone — repair
-    // lives on the library row, not here. Unknown: acting blind on a world we
-    // could not read would be a guess with a level.dat write attached.
-    // Ignored: the game skips the entry; adding cannot fix it (§2 N.6).
-    // Skipped: this version skips the pack itself, so no world is offered.
+    // lives on the library row, not here. No usable level.dat (D2) or
+    // unknown: acting would be a refused write, or a guess with a level.dat
+    // write attached. Ignored: the game skips the entry; adding cannot fix it
+    // (§2 N.6). Skipped: this version skips the pack itself, so no world is
+    // offered.
     if (skipped !== null) return false;
     return (
-      !row.unknown && row.state !== 'enabled' && row.state !== 'orphaned' && row.state !== 'ignored'
+      blockedKey(row) === null &&
+      !isUnknown(row) &&
+      row.state !== 'enabled' &&
+      row.state !== 'orphaned' &&
+      row.state !== 'ignored'
     );
   }
 
   function stateNote(row: Row): string | null {
-    if (row.unknown) return $t('addons.datapacks.stateUnknown');
+    if (isUnknown(row)) return $t('addons.datapacks.stateUnknown');
     switch (row.state) {
       case 'enabled':
         return $t('worlds.datapacks.stateEnabled');
@@ -240,6 +262,7 @@
       <div class="flex flex-col gap-1 max-h-72 overflow-y-auto" role="group">
         {#each rows as row (row.world)}
           {@const note = stateNote(row)}
+          {@const blocked = blockedKey(row)}
           <label
             class="flex items-center gap-2 rounded border border-border-subtle px-2 py-1.5 text-sm
               {selectable(row) ? '' : 'opacity-70'}"
@@ -257,7 +280,12 @@
               }}
             />
             <span class="flex-1 min-w-0 truncate text-primary">{row.world}</span>
-            {#if note}
+            {#if blocked !== null}
+              <span
+                class="text-xs text-warning-text text-right"
+                data-testid="datapack-picker-blocked">{$t(blocked)}</span
+              >
+            {:else if note}
               <StatusBadge
                 variant={row.state === 'enabled'
                   ? 'success'

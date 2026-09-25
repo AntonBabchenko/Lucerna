@@ -9,6 +9,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { levelDatBlockedKey } from '$lib/worlds/datapacks-gating';
 
   // The ONE removal confirmation for datapacks, shared by the library screen
   // and the catalog card's trash action (slice-2 design §7.6) — the catalog
@@ -78,6 +79,9 @@
   }
   const affected = $derived(placements.filter((p) => !isUnchecked(p)));
   const unchecked = $derived(placements.filter(isUnchecked));
+  // D2: the cascade refuses a world with only level.dat_old and reports it
+  // Failed, which keeps the library copy. Said up front, not only in the toast.
+  const anyOnlyOld = $derived(placements.some((p) => p.level_dat === 'only_old'));
 
   type Verdict = WorldEntryKind['kind'] | 'unchecked';
   const BODY: Record<Verdict, TranslationKey> = {
@@ -199,6 +203,20 @@
   }
 </script>
 
+<!-- One listed world, with why Lucerna leaves it alone when its level.dat
+     rules a change out (D2): no level.dat, or only level.dat_old. -->
+{#snippet worldItem(p: DatapackPlacementView)}
+  {@const blocked = levelDatBlockedKey(p.level_dat)}
+  <li class="truncate">
+    {p.world}
+    {#if blocked !== null}
+      <span class="text-xs text-muted" data-testid="datapack-remove-world-blocked"
+        >— {$t(blocked)}</span
+      >
+    {/if}
+  </li>
+{/snippet}
+
 <Modal ariaLabelledby="datapack-remove-title" {onClose} panelClass="w-full max-w-md">
   <div class="p-4 flex flex-col gap-3" data-testid="datapack-remove-dialog">
     <div class="flex items-start justify-between">
@@ -226,7 +244,7 @@
           <p>{$t('addons.datapacks.remove.affectedWorlds', { count: affected.length })}</p>
           <ul class="mt-1 list-disc list-inside text-primary">
             {#each affected as p (p.world)}
-              <li class="truncate">{p.world}</li>
+              {@render worldItem(p)}
             {/each}
           </ul>
         </div>
@@ -238,7 +256,7 @@
           <p>{$t('addons.datapacks.remove.uncheckedWorlds', { count: unchecked.length })}</p>
           <ul class="mt-1 list-disc list-inside text-primary">
             {#each unchecked as p (p.world)}
-              <li class="truncate">{p.world}</li>
+              {@render worldItem(p)}
             {/each}
           </ul>
           {#if mode.kind === 'library' && cascade}
@@ -251,6 +269,11 @@
             </p>
           {/if}
         </div>
+      {/if}
+      {#if mode.kind === 'library' && cascade && anyOnlyOld}
+        <p class="text-xs text-muted" data-testid="datapack-remove-only-old-note">
+          {$t('addons.datapacks.remove.onlyOldKeepsLibrary')}
+        </p>
       {/if}
       {#if mode.kind === 'library'}
         <label class="flex items-start gap-2 text-sm text-primary">
