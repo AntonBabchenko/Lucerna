@@ -264,18 +264,8 @@ pub(crate) async fn copy_server_datapacks(
         // ghost would leave an alarming "not carried" line about a pack that
         // was never there. Verified by mutation — removing this changes no
         // test outcome.
-        if !entry.present {
+        if !entry.present || !worth_carrying(&entry) {
             continue;
-        }
-        // §0.5 A4: an entry the game ignores was never loaded by the server.
-        // Carrying it would hand the client content the server never ran — an
-        // `X.ZIP` would even arrive as a working `X.zip` (N.5 normalises it).
-        // `Unreadable` is not that: Lucerna could not check it (Fallback
-        // discipline Q2), so it is tried like any pack, and a failure is
-        // logged as "not carried" below rather than skipped in silence.
-        match entry.ignored_reason {
-            None | Some(IgnoredReason::Unreadable) => {}
-            Some(_) => continue,
         }
         let r = &entry.record;
         let src = dp_dir.join(&r.filename);
@@ -321,6 +311,24 @@ pub(crate) async fn copy_server_datapacks(
         }
     }
     carry
+}
+
+/// Whether a present listing row is tried at all. §0.5 A4: an entry the game
+/// ignores was never loaded by the server, and carrying it would hand the
+/// client content the server never ran — an `X.ZIP` would even arrive as a
+/// working `X.zip` (N.5 normalises it). `Unreadable` is not that: Lucerna
+/// could not check it (Fallback discipline Q2), so it is tried like any
+/// pack, and a failure is logged as "not carried" rather than skipped in
+/// silence.
+fn worth_carrying(entry: &crate::servers_runtime::datapacks::ServerDatapackEntry) -> bool {
+    match entry.ignored_reason {
+        None => true,
+        // Only under a name the game could load: a folder, or exact `.zip`.
+        Some(IgnoredReason::Unreadable) => {
+            entry.is_folder || crate::datapacks::detect::has_zip_suffix(&entry.record.filename)
+        }
+        Some(_) => false,
+    }
 }
 
 /// What [`copy_server_datapacks`] did. The caller only logs; the tests read it.
@@ -742,5 +750,34 @@ mod tests {
             json.contains(r#""created_from_server":"srv-1""#),
             "got: {json}"
         );
+    }
+
+    /// An entry Lucerna could not read is tried, but only if the game could
+    /// have loaded it by its name: a folder, or a file ending in exact `.zip`.
+    /// An unreadable `X.ZIP` that has since become readable would otherwise be
+    /// installed as a working `X.zip` (N.5), content the server never ran.
+    #[test]
+    fn an_unreadable_entry_is_tried_only_under_a_name_the_game_loads() {
+        let row = |filename: &str, is_folder: bool| {
+            crate::servers_runtime::datapacks::ServerDatapackEntry {
+                record: crate::servers_runtime::installed::ServerInstalledRecord {
+                    filename: filename.into(),
+                    sha1: String::new(),
+                    source: None,
+                    project_id: None,
+                    version_id: None,
+                    name: None,
+                    version_number: None,
+                    enrich_attempted: false,
+                },
+                state: Some(crate::datapacks::WorldPackState::Ignored),
+                ignored_reason: Some(IgnoredReason::Unreadable),
+                present: true,
+                is_folder,
+            }
+        };
+        assert!(worth_carrying(&row("pack.zip", false)));
+        assert!(worth_carrying(&row("Folder", true)));
+        assert!(!worth_carrying(&row("Pack.ZIP", false)));
     }
 }
