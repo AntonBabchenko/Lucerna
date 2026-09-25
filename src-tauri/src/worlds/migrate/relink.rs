@@ -249,6 +249,16 @@ async fn adopt_then_link(
                 reason: LeftReason::TooLarge,
             };
         }
+        // A legacy `X.ZIP` library row holds the name (§0.5 A21): the same
+        // outcome as a different pack holding it, not an I/O failure.
+        Err(Error::DatapackLegacyCaseName { legacy, .. }) => {
+            crate::diag!(
+                "worlds::migrate: the target library holds the legacy {legacy}; {name} left as a copy"
+            );
+            return DatapackResult::LeftAsCopy {
+                reason: LeftReason::NameHeldByDifferentPack,
+            };
+        }
         // `ModsFilenameConflict` cannot fire for an absent name (its gate needs
         // an existing library file); `ModsUnsafeFilename`, `ModsInstancePath`
         // and a failed registry write land here.
@@ -890,6 +900,31 @@ mod tests {
         assert!(
             f.stage.join("datapacks").join("Loud.ZIP").is_file(),
             "left as world content"
+        );
+    }
+
+    /// A legacy `VM.ZIP` in the target library holds the name (§0.5 A21):
+    /// the world's `VM.zip` stays a copy, reported as a name held by a
+    /// different pack, not as an I/O failure. NTFS resolves the name to the
+    /// legacy file and compares bytes; a case-sensitive file system reaches
+    /// the install, which refuses with `DatapackLegacyCaseName`.
+    #[tokio::test]
+    async fn a_legacy_upper_case_library_file_holds_the_name() {
+        let _lock = hardlink_lock();
+        let f = fixture();
+        let lib = library_dir_at(&f.dst_root);
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("VM.ZIP"), datapack_zip(57)).unwrap();
+        stage_file(&f, "VM.zip", &datapack_zip(48));
+        let out = relink(&f, MigrationPath::Copied).await;
+        assert_eq!(
+            out.datapacks,
+            vec![DatapackMigration {
+                filename: "VM.zip".into(),
+                result: DatapackResult::LeftAsCopy {
+                    reason: LeftReason::NameHeldByDifferentPack
+                },
+            }]
         );
     }
 }

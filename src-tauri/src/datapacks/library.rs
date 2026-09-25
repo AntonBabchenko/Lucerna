@@ -1574,4 +1574,21 @@ mod tests {
             out.refreshed
         );
     }
+
+    /// §0.5 A21 refuses only a LEGACY `X.ZIP` row. A name that differs in case
+    /// from a modern `.zip` row is an ordinary install (on NTFS, a reinstall of
+    /// the same file), never the legacy refusal.
+    #[tokio::test]
+    async fn installing_a_case_variant_of_a_modern_zip_row_is_not_refused_as_legacy() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "VM.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let got = install_named_at(td.path(), "vm.zip", &datapack_zip_v2(), None).await;
+        assert!(
+            !matches!(got, Err(Error::DatapackLegacyCaseName { .. })),
+            "got {got:?}"
+        );
+    }
 }

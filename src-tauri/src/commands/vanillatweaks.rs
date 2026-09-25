@@ -100,8 +100,10 @@ pub async fn vt_install_to_instance(
         )
         .await;
         outcomes.push(match res {
-            Ok(_) => VtInstallOutcome {
-                filename,
+            // The name the install wrote (N.5 may have normalised it), which
+            // is the one the world picker must add.
+            Ok(install) => VtInstallOutcome {
+                filename: install.pack.filename,
                 installed: true,
                 error: None,
             },
@@ -157,8 +159,9 @@ pub async fn vt_install_to_server(
         )
         .await;
         outcomes.push(match res {
-            Ok(_) => VtInstallOutcome {
-                filename,
+            // The name the install wrote (N.5 may have normalised it).
+            Ok(record) => VtInstallOutcome {
+                filename: record.filename,
                 installed: true,
                 error: None,
             },

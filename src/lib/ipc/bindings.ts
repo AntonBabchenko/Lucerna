@@ -3672,12 +3672,13 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "datapack_too_large"; filename: string; size_bytes: number | null; limit_bytes: number | null } | 
 /**
- *  A library install whose (normalised) name differs from an existing
- *  library row only in letter case, where that row is a LEGACY `X.ZIP` file
- *  from before installs normalised the extension (§0.5 A21). Installing
- *  over it would leave two spellings of one pack, or on NTFS/APFS replace the
- *  legacy file under a name nobody recorded; a reinstall can also drop its
- *  provenance. The user removes the legacy row first.
+ *  An install whose (normalised) name differs from an existing pack only in
+ *  letter case, where that pack is a LEGACY `X.ZIP` file from before
+ *  installs normalised the extension (§0.5 A21): a library row, or the old
+ *  file of a server's same-name update. Installing over it would leave two
+ *  spellings of one pack, or on NTFS/APFS replace the legacy file under a
+ *  name nobody recorded; a reinstall can also drop its provenance. The user
+ *  removes the legacy pack first.
  */
 { kind: "datapack_legacy_case_name"; filename: string; legacy: string } | 
 /**

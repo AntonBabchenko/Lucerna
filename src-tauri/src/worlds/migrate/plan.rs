@@ -6,8 +6,9 @@ use std::path::Path;
 
 use crate::datapacks::detect::{self, Presence};
 use crate::datapacks::level_dat::{self, WorldVersion};
+use crate::datapacks::pack_meta::PackKind;
 use crate::datapacks::{compat, library, library_dir_at};
-use crate::error::{Error, Result};
+use crate::error::{DatapackRejection, Error, Result};
 use crate::instances::schema::LoaderKind;
 use crate::mods::installed;
 
@@ -195,7 +196,7 @@ fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackP
         if !ft.is_file() || !detect::has_zip_suffix(&name) {
             continue;
         }
-        let predicted = predict_one(&entry.path(), &library_dir.join(&name));
+        let predicted = predict_one(&entry.path(), &library_dir.join(&name), &name);
         packs.push(DatapackPlan {
             filename: name,
             predicted,
@@ -204,6 +205,34 @@ fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackP
     // `read_dir` order is unspecified; the dialog and the tests want one order.
     packs.sort_by(|a, b| a.filename.cmp(&b.filename));
     Ok((packs, folders))
+}
+
+/// The name is free in the target library, so the relink will try to adopt
+/// the world's file: predict what `install_named_at` will say about these
+/// bytes (size cap, then `pack_meta::classify`, whose root rule is the
+/// game's own, §0.5 A24), rather than promising an adoption it may refuse.
+fn predict_adoption(world_file: &Path, name: &str) -> DatapackResult {
+    let bytes = match std::fs::read(world_file) {
+        Ok(bytes) => bytes,
+        Err(e) => return unreadable(world_file, e),
+    };
+    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
+        return left_as_copy(LeftReason::TooLarge);
+    }
+    match crate::datapacks::pack_meta::classify(&bytes) {
+        PackKind::Datapack => DatapackResult::Adopted,
+        PackKind::ResourcePack => left_as_copy(LeftReason::NotADatapack {
+            reason: DatapackRejection::IsAResourcePack,
+        }),
+        PackKind::Neither => {
+            crate::diag!(
+                "world migration plan: {name} is not a datapack; predicted left as a copy"
+            );
+            left_as_copy(LeftReason::NotADatapack {
+                reason: DatapackRejection::NotAPack,
+            })
+        }
+    }
 }
 
 fn left_as_copy(reason: LeftReason) -> DatapackResult {
@@ -226,9 +255,9 @@ fn unreadable(path: &Path, e: std::io::Error) -> DatapackResult {
 /// be checked is `LeftAsCopy` too — the direction is the same, no adopt, no
 /// link — but the reason must say what happened: a stat failure is `Io` and a
 /// file that could not be read is `Unreadable`, never a different pack.
-fn predict_one(world_file: &Path, library_file: &Path) -> DatapackResult {
+fn predict_one(world_file: &Path, library_file: &Path, name: &str) -> DatapackResult {
     match library_file.try_exists() {
-        Ok(false) => return DatapackResult::Adopted,
+        Ok(false) => return predict_adoption(world_file, name),
         Ok(true) => {}
         // "Could not tell" keeps the plain copy: the restrictive direction
         // (Fallback discipline Q1/Q2) — predicting `Adopted` here would
@@ -577,7 +606,11 @@ mod tests {
         fs::write(dp.join("folderpack").join("pack.mcmeta"), b"{}").unwrap();
         fs::write(dp.join("keep.zip"), b"same bytes").unwrap();
         fs::write(dp.join("clash.zip"), b"world has v1").unwrap();
-        fs::write(dp.join("new.zip"), b"only in the world").unwrap();
+        fs::write(
+            dp.join("new.zip"),
+            crate::datapacks::detect::test_support::pack_zip(),
+        )
+        .unwrap();
         fs::write(dp.join("notes.txt"), b"ignored").unwrap();
         let lib = library_dir_at(&fx.loc.dst_root);
         fs::create_dir_all(&lib).unwrap();
@@ -687,5 +720,43 @@ mod tests {
         fs::write(dp.join("Real").join("pack.mcmeta"), b"{}").unwrap();
         let p = plan(&fx, "1.20.1").await.unwrap();
         assert_eq!(p.datapacks_folders, 1);
+    }
+
+    /// The plan predicts what the relink will do: a zip the library would
+    /// refuse (no root `pack.mcmeta`, or a resource pack) is left as a copy,
+    /// never promised as adopted.
+    #[tokio::test]
+    async fn a_zip_the_library_would_refuse_is_not_predicted_adopted() {
+        let fx = fixture();
+        install_jar(&fx.versions_dir, "1.20.1", Some(3465));
+        let dp = fx.world.join("datapacks");
+        fs::create_dir_all(&dp).unwrap();
+        fs::write(
+            dp.join("rootless.zip"),
+            crate::datapacks::detect::test_support::zip_of(&[("Inner/pack.mcmeta", b"{}")]),
+        )
+        .unwrap();
+        fs::write(dp.join("broken.zip"), b"not a zip").unwrap();
+
+        let p = plan(&fx, "1.20.1").await.unwrap();
+
+        let not_a_pack = DatapackResult::LeftAsCopy {
+            reason: LeftReason::NotADatapack {
+                reason: crate::error::DatapackRejection::NotAPack,
+            },
+        };
+        assert_eq!(
+            p.datapacks,
+            vec![
+                DatapackPlan {
+                    filename: "broken.zip".into(),
+                    predicted: not_a_pack.clone(),
+                },
+                DatapackPlan {
+                    filename: "rootless.zip".into(),
+                    predicted: not_a_pack,
+                },
+            ]
+        );
     }
 }

@@ -48,6 +48,16 @@ pub async fn update_one(
     // exactly as `VM.zip` → `vm.zip` does. Treating that as a rename would run
     // the migrate-and-delete path against the file just written.
     if new_filename.to_lowercase() == old_filename.to_lowercase() {
+        // §0.5 A21: the install writes `X.zip` (N.5), so over a legacy `X.ZIP`
+        // it would leave two spellings of one pack, or on NTFS/APFS replace the
+        // legacy file under a name nobody recorded. The admin removes the
+        // legacy file first. Input validation, ahead of any file read.
+        if !detect::has_zip_suffix(old_filename) {
+            return Err(Error::DatapackLegacyCaseName {
+                filename: new_filename.to_string(),
+                legacy: old_filename.to_string(),
+            });
+        }
         // Identity FIRST: the on-disk file must be the one the sidecar
         // describes. A mismatch (hand-replaced pack, or a fail-open-empty
         // sidecar) is reported, and nothing is touched.
@@ -75,7 +85,8 @@ pub async fn update_one(
             });
         }
         // Install under the OLD (registered) spelling so the sidecar and the
-        // directory entry stay consistent on every platform.
+        // directory entry stay consistent on every platform. It already ends
+        // in exact `.zip` (checked above), so the install keeps it as it is.
         let record =
             mutate::install_bytes(world_dir, old_filename, bytes, Some(provenance)).await?;
         return Ok(ServerDatapackUpdateOutcome {
@@ -884,5 +895,47 @@ mod tests {
             state_of(td.path(), "vm-2.zip"),
             Some(WorldPackState::Enabled)
         );
+    }
+
+    /// §0.5 A21 on the server: a same-name update over a legacy `X.ZIP` would
+    /// write `X.zip` (N.5) next to, or over, a file the game ignores, under
+    /// a name nobody recorded. It is refused, and the legacy file is kept.
+    #[tokio::test]
+    async fn a_same_name_update_over_a_legacy_upper_case_file_is_refused() {
+        let td = tempfile::tempdir().unwrap();
+        let dp = td.path().join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        level_dat::test_support::seed(td.path(), &[], &[]);
+        let legacy = datapack_zip(b"v1");
+        std::fs::write(dp.join("Old.ZIP"), &legacy).unwrap();
+        let sha1 = crate::servers_runtime::installed::sha1_of(&dp.join("Old.ZIP")).unwrap();
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[crate::servers_runtime::installed::ServerInstalledRecord {
+                filename: "Old.ZIP".into(),
+                sha1,
+                source: Some(crate::mods::platform::ModSource::Modrinth),
+                project_id: Some("veinminer".into()),
+                version_id: Some("v1".into()),
+                name: None,
+                version_number: None,
+                enrich_attempted: false,
+            }])
+            .unwrap();
+
+        let err = update_one(
+            td.path(),
+            "Old.ZIP",
+            "Old.zip",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(&err, Error::DatapackLegacyCaseName { legacy, .. } if legacy == "Old.ZIP"),
+            "got {err:?}"
+        );
+        assert_eq!(std::fs::read(dp.join("Old.ZIP")).unwrap(), legacy);
     }
 }

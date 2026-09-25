@@ -236,19 +236,33 @@ pub async fn add_to_world_at(
             details: e.details(),
         })?;
 
-    // N.4: write the engine's id, `file/` + the entry's own spelling. On
-    // NTFS/APFS, `materialize` over an entry differing only in case leaves an
-    // unspecified spelling, so read it back. Write only when the toggle
-    // actually changed something: `write_at` rolls the pre-edit backup forward
-    // on every call. A world with no DataPacks compound reports no change; the
-    // game adds the pack itself.
-    let names = detect::entry_names(&dp_dir).map_err(|e| Error::ModsInstancePath {
-        path: dp_dir.display().to_string(),
-        details: e.to_string(),
-    })?;
-    let on_disk = match detect::resolve(&dp_dir, filename, &names) {
+    // N.4: write the engine's id, `file/` + the entry's own spelling. Write
+    // only when the toggle actually changed something: `write_at` rolls the
+    // pre-edit backup forward on every call. A world with no DataPacks
+    // compound reports no change; the game adds the pack itself.
+    let on_disk = linked_entry_name(&dp_dir, filename).await?;
+    if level_dat::set_enabled(&mut root, &level_dat_entry(&on_disk), true)? {
+        level_dat::write_at(&world_dir, &root, framing).await?;
+    }
+    Ok(placement)
+}
+
+/// The on-disk spelling of the entry `materialize` just placed as
+/// `filename` (R2). On NTFS/APFS, a link over an entry differing only in case
+/// leaves an unspecified spelling, so it is read back. A spelling the game
+/// does not load (an existing `X.ZIP` kept by the file system) is refused
+/// with `DatapackInvalid { NotAZip }` rather than recorded as its id. Not
+/// seeing the entry just placed is "could not tell".
+async fn linked_entry_name(dp_dir: &Path, filename: &str) -> Result<String> {
+    let dest = dp_dir.join(filename);
+    let (_, resolved) = super::resolve_on_disk(dp_dir, filename)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dp_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    let on_disk = match resolved {
         detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => n,
-        // `materialize` just placed it: not seeing it is "could not tell".
         detect::Resolved::Absent => {
             return Err(Error::ModsInstancePath {
                 path: dest.display().to_string(),
@@ -262,10 +276,13 @@ pub async fn add_to_world_at(
             })
         }
     };
-    if level_dat::set_enabled(&mut root, &level_dat_entry(&on_disk), true)? {
-        level_dat::write_at(&world_dir, &root, framing).await?;
+    if !detect::has_zip_suffix(&on_disk) {
+        return Err(Error::DatapackInvalid {
+            filename: on_disk,
+            reason: DatapackRejection::NotAZip,
+        });
     }
-    Ok(placement)
+    Ok(on_disk)
 }
 
 /// Unlink a datapack from a world and drop its level.dat entry from both
@@ -1352,5 +1369,38 @@ mod tests {
             .is_err());
         assert!(wd.join("datapacks/vm.zip").exists());
         assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), level_before);
+    }
+
+    /// N.4 / N.10: NTFS may keep an existing entry's spelling when a link
+    /// lands over it. The id written must be one the game loads, so a linked
+    /// entry spelled `X.ZIP` is refused rather than recorded as `file/X.ZIP`.
+    #[tokio::test]
+    async fn a_linked_entry_whose_spelling_the_game_ignores_is_refused() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(td.path().join("X.ZIP"), b"x").unwrap();
+        let got = linked_entry_name(td.path(), "X.zip").await;
+        if fs_folds_case(td.path()) {
+            assert!(
+                matches!(
+                    got,
+                    Err(Error::DatapackInvalid {
+                        reason: DatapackRejection::NotAZip,
+                        ..
+                    })
+                ),
+                "{got:?}"
+            );
+        } else {
+            // Case-sensitive: `X.zip` is not there at all.
+            assert!(
+                matches!(got, Err(Error::ModsInstancePath { .. })),
+                "{got:?}"
+            );
+        }
+        std::fs::write(td.path().join("ok.zip"), b"x").unwrap();
+        assert_eq!(
+            linked_entry_name(td.path(), "ok.zip").await.unwrap(),
+            "ok.zip"
+        );
     }
 }
