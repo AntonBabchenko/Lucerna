@@ -3,51 +3,58 @@
 //!
 //! This is the transpose of [`crate::datapacks::world_link::list_for_world_at`].
 //! That answers "what does THIS world hold"; this answers "where does THIS pack
-//! live". Both derive their per-(pack, world) state from the same pure
-//! [`state::derive`], so the two surfaces can never disagree about a pack.
+//! live". Both classify a world's entries with the same `detect::scan` and
+//! derive their per-(pack, world) state from the same pure [`state::derive`],
+//! so the two surfaces can never disagree about a pack.
 //!
 //! Read-only: it takes no lock and writes no `level.dat`. `registry::list` may
 //! persist a reconciliation, which is the same write the world-scoped listing
 //! already performs and which the game never reads.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::Path;
 
+use crate::datapacks::detect::{self, OnDiskEntry, Presence};
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
-    level_dat_entry, registry, state, world_link, DatapackLibraryEntry, DatapackLibraryView,
-    DatapackPlacementView, DatapackWorldView, InstalledDatapack, PackCompat,
+    level_dat_entry, library_dir_at, registry, state, world_link, DatapackLibraryEntry,
+    DatapackLibraryView, DatapackPlacementView, DatapackWorldView, InstalledDatapack, PackCompat,
 };
-use crate::error::Result;
+use crate::error::{Error, Result};
 
-/// What one world contributes: the names physically present in its
-/// `datapacks/` folder, its `level.dat` presence, and the two lists the
-/// game would load.
+/// What one world contributes: its on-disk entries as the game sees them,
+/// its `level.dat` presence, and the two lists the game would load.
 struct WorldFacts {
     world: String,
     /// `None` when whether the folder holds `level.dat` could not be told.
     level_dat: Option<LevelDatPresence>,
-    on_disk: Vec<String>,
     /// `level.dat`'s lists, or `level.dat_old`'s for an only-old world.
     /// `None` when they could not be read, when the presence could not be
     /// told, or for a folder with neither file — no world, no state.
     lists: Option<(Vec<String>, Vec<String>)>,
+    /// `None` = the world's `datapacks/` could not be read (N.1). Every
+    /// placement in that world then reports `state: None`.
+    on_disk: Option<Vec<OnDiskEntry>>,
+    /// Registry filename → the on-disk entry it denotes (R2).
+    resolved: HashMap<String, String>,
 }
 
 /// Gather every world's facts with ONE presence stat, ONE list read and ONE
-/// `read_dir` per world — not one per (pack, world) pair.
+/// `read_dir` per world — not one per (pack, world) pair. Synchronous: the
+/// scan may open unvouched zips, so the caller runs it in `spawn_blocking`.
 ///
-/// A world whose presence or lists cannot be read does NOT fail the
-/// listing: reading N worlds instead of one multiplies the chance of hitting
-/// a locked file (`WorldInUse` is what a running Minecraft produces), and
-/// one locked world must not blank the whole screen. Its packs report
-/// `state: None` instead, and the folder still appears in `worlds` — with
-/// `level_dat: None` when it was the presence that could not be told.
-async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
+/// A world whose presence, lists or `datapacks/` folder cannot be read does
+/// NOT fail the listing: reading N worlds instead of one multiplies the
+/// chance of hitting a locked file (`WorldInUse` is what a running Minecraft
+/// produces), and one locked world must not blank the whole screen. Its packs
+/// report `state: None` instead, and the folder still appears in `worlds` —
+/// with `level_dat: None` when it was the presence that could not be told.
+fn gather(instance_root: &Path, rows: &[InstalledDatapack]) -> Vec<WorldFacts> {
     let saves_dir = instance_root.join(".minecraft").join("saves");
     let Ok(rd) = std::fs::read_dir(&saves_dir) else {
         return Vec::new();
     };
+    let lib_dir = library_dir_at(instance_root);
     let mut out = Vec::new();
     for entry in rd.flatten() {
         let Ok(meta) = entry.metadata() else { continue };
@@ -61,7 +68,6 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
             continue;
         }
         let world_dir = entry.path();
-        let on_disk = world_link::list_on_disk_entries(&world_dir.join("datapacks")).await;
         // Could not tell, or could not read: unknown, never guessed, and
         // logged, because the view itself only shows "unknown". Neither file:
         // not a world to the game, which loads nothing from it, so there is
@@ -70,7 +76,8 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
             Ok(p) => Some(p),
             Err(e) => {
                 crate::diag!(
-                    "datapacks: library view shows {} with no state: could not tell whether it                      has a level.dat: {e}",
+                    "datapacks: library view shows {} with no state: could not tell whether it \
+                     has a level.dat: {e}",
                     world_dir.display()
                 );
                 None
@@ -81,7 +88,8 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
                 Ok(lists) => lists,
                 Err(e) => {
                     crate::diag!(
-                        "datapacks: library view shows {} with no state: could not read its                          data pack lists: {e}",
+                        "datapacks: library view shows {} with no state: could not read its \
+                         data pack lists: {e}",
                         world_dir.display()
                     );
                     None
@@ -89,47 +97,40 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
             },
             None => None,
         };
+        let dp_dir = world_dir.join("datapacks");
+        let vouch = |name: &str, p: &Path| world_link::vouched_by_library(rows, &lib_dir, name, p);
+        let on_disk = match detect::scan(&dp_dir, &vouch) {
+            Ok(entries) => Some(entries),
+            Err(e) => {
+                crate::diag!(
+                    "datapacks library: could not read {}: {e}; its placements show an unknown state",
+                    dp_dir.display()
+                );
+                None
+            }
+        };
+        let resolved = match &on_disk {
+            Some(entries) => {
+                let names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
+                rows.iter()
+                    .filter_map(|r| {
+                        detect::resolve_for_display(&dp_dir, &r.filename, &names)
+                            .map(|n| (r.filename.clone(), n))
+                    })
+                    .collect()
+            }
+            None => HashMap::new(),
+        };
         out.push(WorldFacts {
             world,
             level_dat,
-            on_disk,
             lists,
+            on_disk,
+            resolved,
         });
     }
     out.sort_by(|a, b| a.world.to_lowercase().cmp(&b.world.to_lowercase()));
     out
-}
-
-/// The state of one named pack in one world.
-///
-/// `file_present` comes from the directory listing, not from level.dat: it is
-/// [`state::derive`]'s first argument and is not recoverable from the two
-/// lists — every Enabled/Disabled vs Orphaned/NotAdded distinction turns on it.
-/// Membership is tested case-insensitively because NTFS is: a level.dat entry
-/// spelled `file/VeinMiner.zip` and an on-disk `veinminer.zip` are one file,
-/// and an exact test reports a disabled pack as enabled.
-fn state_in(
-    facts: &WorldFacts,
-    filename: &str,
-) -> (
-    Option<crate::datapacks::WorldPackState>,
-    Option<crate::datapacks::detect::IgnoredReason>,
-) {
-    // Interim: Task G3.3 replaces this with `detect::scan` + `placement_in`.
-    let file_present = facts
-        .on_disk
-        .iter()
-        .any(|n| n.eq_ignore_ascii_case(filename));
-    let presence =
-        file_present.then_some(crate::datapacks::detect::Presence::Pack { is_dir: false });
-    let entry = level_dat_entry(filename);
-    let lists = facts.lists.as_ref().map(|(en, dis)| {
-        (
-            world_link::contains_ci(en, &entry),
-            world_link::contains_ci(dis, &entry),
-        )
-    });
-    state::derive(presence.as_ref(), lists, None)
 }
 
 /// Every datapack this instance knows about, with its state in every world.
@@ -138,53 +139,48 @@ fn state_in(
 /// (the command layer owns the `AppHandle` needed to find the client jar).
 pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<DatapackLibraryView> {
     let rows: Vec<InstalledDatapack> = registry::list(instance_root).await?;
-    let worlds = gather(instance_root).await;
+    let root = instance_root.to_path_buf();
+    let rows_for_scan = rows.clone();
+    let worlds = tokio::task::spawn_blocking(move || gather(&root, &rows_for_scan))
+        .await
+        .map_err(|e| Error::io(instance_root.display().to_string(), format!("join: {e}")))?;
 
-    // The entry set is the registry UNION every name present in some world.
-    // A pack removed from the library without cascading is gone from the
-    // registry but still loading in game; leaving it out would make live
-    // content invisible. Keyed case-insensitively, preferring the registry's
-    // spelling when both exist, because that is the name every write path uses.
-    let mut names: BTreeMap<String, String> = BTreeMap::new();
+    // Library rows, then world-only PACKS: an on-disk pack entry that no
+    // registry name resolves to (R2). A pack removed from the library without
+    // cascading is gone from the registry but still loading in game; leaving
+    // it out would make live content invisible. Keyed exactly (N.3); an entry
+    // the game ignores is not a pack, so the world tab shows it and this
+    // screen does not (N.1 Q1).
+    let mut names: Vec<(String, bool)> = rows.iter().map(|r| (r.filename.clone(), true)).collect();
     for facts in &worlds {
-        for n in &facts.on_disk {
-            names.insert(n.to_lowercase(), n.clone());
+        for e in facts.on_disk.iter().flatten() {
+            let claimed = facts.resolved.values().any(|n| *n == e.name);
+            if claimed || !matches!(e.presence, Presence::Pack { .. }) {
+                continue;
+            }
+            if !names.iter().any(|(n, _)| *n == e.name) {
+                names.push((e.name.clone(), false));
+            }
         }
     }
-    for r in &rows {
-        names.insert(r.filename.to_lowercase(), r.filename.clone());
-    }
+    names.sort_by(|a, b| {
+        a.0.to_lowercase()
+            .cmp(&b.0.to_lowercase())
+            .then_with(|| a.0.cmp(&b.0))
+    });
 
     let entries = names
-        .into_values()
-        .map(|filename| {
-            let row = rows
-                .iter()
-                .find(|r| r.filename.eq_ignore_ascii_case(&filename));
+        .into_iter()
+        .map(|(filename, in_registry)| {
+            let row = if in_registry {
+                rows.iter().find(|r| r.filename == filename)
+            } else {
+                None
+            };
             let placements = worlds
                 .iter()
-                .filter(|f| {
-                    // Only worlds that actually reference the pack — a world
-                    // that has never seen it contributes nothing, and listing
-                    // every world against every pack would turn the expander
-                    // into noise.
-                    f.on_disk.iter().any(|n| n.eq_ignore_ascii_case(&filename))
-                        || f.lists.as_ref().is_some_and(|(en, dis)| {
-                            let e = level_dat_entry(&filename);
-                            world_link::contains_ci(en, &e) || world_link::contains_ci(dis, &e)
-                        })
-                })
-                .map(|f| {
-                    let (state, ignored_reason) = state_in(f, &filename);
-                    DatapackPlacementView {
-                        world: f.world.clone(),
-                        state,
-                        ignored_reason,
-                        level_dat: f.level_dat,
-                    }
-                })
+                .filter_map(|f| placement_in(f, &filename, row))
                 .collect();
-
             DatapackLibraryEntry {
                 in_library: row.is_some(),
                 compat: compat_of(row.and_then(|r| r.pack_format), expected),
@@ -204,6 +200,48 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
                 level_dat: f.level_dat,
             })
             .collect(),
+    })
+}
+
+/// This pack's placement in one world, or `None` when the world does not
+/// reference it — a world that has never seen the pack contributes nothing,
+/// and listing every world against every pack would turn the expander into
+/// noise. The on-disk entry is the one a registry name resolves to (R2), or
+/// the entry with exactly this name for a world-only pack. Membership is
+/// exact (R1) on the engine's id: the entry's own spelling when there is
+/// one — an id whose case drifted from the file names nothing the game loads.
+fn placement_in(
+    f: &WorldFacts,
+    filename: &str,
+    row: Option<&InstalledDatapack>,
+) -> Option<DatapackPlacementView> {
+    let entry = f.on_disk.as_ref().and_then(|entries| {
+        let on_disk_name = match row {
+            Some(_) => f.resolved.get(filename)?.as_str(),
+            None => filename,
+        };
+        entries.iter().find(|e| e.name == on_disk_name)
+    });
+    let id = level_dat_entry(entry.map_or(filename, |e| e.name.as_str()));
+    let listed = f
+        .lists
+        .as_ref()
+        .map(|(en, dis)| (en.contains(&id), dis.contains(&id)));
+    if entry.is_none() && !listed.is_some_and(|(e, d)| e || d) {
+        return None;
+    }
+    // A folder that could not be read: nothing on disk is known, so nothing is derived.
+    let lists_for_state = if f.on_disk.is_some() { listed } else { None };
+    let (state, ignored_reason) = state::derive(
+        entry.map(|e| &e.presence),
+        lists_for_state,
+        state::loadable_of(row, entry),
+    );
+    Some(DatapackPlacementView {
+        world: f.world.clone(),
+        state,
+        ignored_reason,
+        level_dat: f.level_dat,
     })
 }
 
@@ -242,6 +280,8 @@ fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::detect::{test_support::zip_of, IgnoredReason};
+    use crate::datapacks::world_link::test_util::game_world;
     use crate::datapacks::{library, world_link, WorldPackState};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
@@ -517,5 +557,79 @@ mod tests {
             }
         );
         assert_eq!(view.expected_pack_format, Some(57));
+    }
+
+    #[tokio::test]
+    async fn a_placement_in_both_lists_is_enabled() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), "vm.zip", 48).await;
+        let wd = game_world(td.path(), "Alpha");
+        world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+        crate::datapacks::level_dat::test_support::seed(&wd, &["file/vm.zip"], &["file/vm.zip"]);
+        let view = list_at(td.path(), None).await.unwrap();
+        let p = &entry_for(&view, "vm.zip").placements;
+        assert_eq!(p.len(), 1);
+        assert_eq!(
+            p[0].state,
+            Some(WorldPackState::Enabled),
+            "an available Enabled id stays selected (N.0)"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_case_drifted_disabled_placement_is_enabled() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), "vm.zip", 48).await;
+        let wd = game_world(td.path(), "Alpha");
+        world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+        crate::datapacks::level_dat::test_support::seed(&wd, &[], &["file/VM.zip"]);
+        let view = list_at(td.path(), None).await.unwrap();
+        assert_eq!(
+            entry_for(&view, "vm.zip").placements[0].state,
+            Some(WorldPackState::Enabled)
+        );
+    }
+
+    /// N.1 / Q1: a non-pack world entry is not an "only in worlds" pack.
+    #[tokio::test]
+    async fn an_entry_the_game_ignores_is_not_an_only_in_worlds_pack() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Alpha");
+        std::fs::create_dir_all(wd.join("datapacks/Loose/data")).unwrap();
+        std::fs::write(
+            wd.join("datapacks/junk.zip"),
+            zip_of(&[("readme.txt", b"x")]),
+        )
+        .unwrap();
+        assert!(list_at(td.path(), None).await.unwrap().entries.is_empty());
+    }
+
+    /// N.5: a legacy `X.ZIP` library row stays listed; its world link shows as Ignored.
+    #[tokio::test]
+    async fn a_legacy_upper_case_link_is_an_ignored_placement() {
+        let td = tempfile::tempdir().unwrap();
+        let bytes = datapack_zip(48);
+        let lib = crate::datapacks::library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("Legacy.ZIP"), &bytes).unwrap();
+        let wd = game_world(td.path(), "Alpha");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/Legacy.ZIP"), &bytes).unwrap();
+        let view = list_at(td.path(), None).await.unwrap();
+        let p = &entry_for(&view, "Legacy.ZIP").placements;
+        assert_eq!(p.len(), 1, "{p:?}");
+        assert_eq!(
+            (p[0].state, p[0].ignored_reason),
+            (
+                Some(WorldPackState::Ignored),
+                Some(IgnoredReason::ZipExtensionNotLowercase)
+            )
+        );
     }
 }

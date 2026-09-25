@@ -29,7 +29,7 @@ mod mutate;
 mod placements;
 
 pub use listing::list_for_world_at;
-pub(crate) use listing::list_on_disk_entries;
+pub(crate) use listing::vouched_by_library;
 pub(crate) use migrate::migrate_placements;
 pub(crate) use mutate::remove_for_cascade_at;
 pub use mutate::{add_to_world_at, remove_from_world_at, set_enabled_in_world_at};

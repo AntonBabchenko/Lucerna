@@ -1,94 +1,26 @@
-//! The read-only merged per-world view: the union of the registry, the
-//! world's on-disk `datapacks/` entries and its level.dat names, each row
-//! with a derived state and a compat verdict. No lock — reads only.
+//! The read-only merged per-world view: the world's on-disk entries as the
+//! game sees them (`detect::scan`), the registry names that denote them (R2)
+//! and the level.dat names, each row with a derived state. No lock.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::datapacks::detect;
 use crate::datapacks::{
-    level_dat_entry, presence, registry, state, InstalledDatapack, PackCompat, WorldDatapack,
-    WorldDatapackListing,
+    level_dat_entry, library_dir_at, presence, registry, state, InstalledDatapack, PackCompat,
+    WorldDatapack, WorldDatapackListing,
 };
-use crate::error::Result;
+use crate::error::{Error, Result};
 
-use super::{contains_ci, world_dirs_checked};
+use super::world_dirs_checked;
 
-/// The `.zip` files and directories Minecraft's own `datapacks/` scanner
-/// would load out of one world's folder: any directory, regardless of what
-/// it's called, plus any file whose name ends `.zip`. Without the directory
-/// branch, a hand-installed folder datapack never appears "present" here,
-/// which `state::derive` then turns into a false `Orphaned`.
-///
-/// A directory that cannot be read (missing `datapacks/` folder, a world
-/// that has never had a pack added) yields an empty list, never an error: a
-/// missing `datapacks/` folder is an ordinary state.
-pub(crate) async fn list_on_disk_entries(dp_dir: &Path) -> Vec<String> {
-    let mut on_disk = Vec::new();
-    let Ok(mut rd) = tokio::fs::read_dir(dp_dir).await else {
-        return on_disk;
-    };
-    while let Ok(Some(e)) = rd.next_entry().await {
-        let name = e.file_name().to_string_lossy().to_string();
-        let is_datapack_entry = match e.file_type().await {
-            Ok(ft) if ft.is_dir() => true,
-            Ok(_) => name.to_ascii_lowercase().ends_with(".zip"),
-            Err(_) => false,
-        };
-        if is_datapack_entry {
-            on_disk.push(name);
-        }
-    }
-    on_disk
-}
-
-/// Merge one world's three datapack name sources — the library registry, the
-/// files/folders actually present in the world's `datapacks/` folder, and
-/// the names level.dat references (its own `file/` prefix already stripped
-/// by the caller) — into one deduplicated, sorted list.
-///
-/// NTFS is case-insensitive: a level.dat entry spelled `file/VeinMiner.zip`
-/// and an on-disk file named `veinminer.zip` name the SAME file. Deduping on
-/// exact string equality (the bug this replaces) kept both spellings as two
-/// separate rows — a phantom `Orphaned` for the level.dat spelling (nothing
-/// matched it byte-for-byte) alongside a genuine `Enabled` for the on-disk
-/// spelling. One physical pack must never render as two contradictory rows,
-/// so dedup keys on a case-folded name instead.
-///
-/// The kept SPELLING for a case-folded collision prefers, in order: on-disk
-/// (that's what the file is actually named), then the registry's, then
-/// level.dat's. On-disk wins because [`list_for_world_at`]'s own
-/// `file_present` check is a plain, un-folded `on_disk.contains(&filename)`
-/// — that only stays correct if, whenever a match exists on disk, the
-/// chosen spelling IS the on-disk one.
-///
-/// Display/merge only. Nothing returned from here is written back to the
-/// filesystem or level.dat; every write path keeps using the exact filename
-/// its own caller gave it.
-fn union_names(registry: &[String], on_disk: &[String], level_dat: &[String]) -> Vec<String> {
-    let mut by_key: BTreeMap<String, String> = BTreeMap::new();
-    // Insertion order is the priority order, LOWEST first: a later insert
-    // for the same case-folded key overwrites the earlier one, so the
-    // desired winner (on-disk) has to go last.
-    for n in level_dat {
-        by_key.insert(n.to_lowercase(), n.clone());
-    }
-    for n in registry {
-        by_key.insert(n.to_lowercase(), n.clone());
-    }
-    for n in on_disk {
-        by_key.insert(n.to_lowercase(), n.clone());
-    }
-    // `BTreeMap` iterates in key order, and the key IS the case-folded name —
-    // already sorted the same way the old `sort_by(|a, b|
-    // a.to_lowercase().cmp(&b.to_lowercase()))` produced.
-    by_key.into_values().collect()
-}
-
-/// List every datapack relevant to one world: the union of the library's
-/// filenames, the entries actually present in the world's `datapacks/`
-/// folder, and the names level.dat references (its own `file/` prefix
-/// stripped). Sorted case-insensitively by filename, deduplicated
-/// case-insensitively too — see [`union_names`] for why.
+/// List every datapack relevant to one world: the entries in the world's
+/// `datapacks/` folder, classified as the game's `PackDetector` does
+/// (`detect::scan`), the library's filenames and the names level.dat
+/// references (its own `file/` prefix stripped). On-disk entries never merge
+/// with each other; a registry name joins the entry it denotes (R2), and a
+/// level.dat name joins only an exact or single case-insensitive on-disk match
+/// (the display merge, spec §2 N.3). Each row's state uses the engine's exact
+/// id, `file/` + the row's own spelling (R1).
 ///
 /// The lists are the ones the game would load (D2): `level.dat`'s, or
 /// `level.dat_old`'s when only the backup is left — the game opens the
@@ -96,7 +28,8 @@ fn union_names(registry: &[String], on_disk: &[String], level_dat: &[String]) ->
 /// not a world to the game: its listing is empty, and neither the registry
 /// nor the folder is read. A presence that cannot be told, or a read error
 /// on either file, fails the listing, so the world tab shows its load error
-/// rather than rows that guess.
+/// rather than rows that guess. So does a `datapacks/` folder that cannot be
+/// read (N.1).
 ///
 /// A world folder that does not exist at all fails with `WorldNotFound`,
 /// as every writer does: it is not a folder without `level.dat`, and
@@ -104,10 +37,10 @@ fn union_names(registry: &[String], on_disk: &[String], level_dat: &[String]) ->
 /// world".
 ///
 /// `compat` is computed from the pack_format the REGISTRY recorded at
-/// install time, never by opening a zip here — listing a world must cost no
-/// zip reads. A world file with no registry entry (e.g. hand-dropped
-/// straight into the world folder, or imported with a world) reports
-/// `Unknown` deliberately, rather than opening every zip on every render.
+/// install time. Library-vouched zips cost no zip read; any other zip costs
+/// one central-directory read (N.1 Cost). A world file with no registry
+/// entry (e.g. hand-dropped straight into the world folder, or imported with
+/// a world) reports `Unknown` compat deliberately.
 pub async fn list_for_world_at(
     instance_root: &Path,
     world: &str,
@@ -127,56 +60,111 @@ pub async fn list_for_world_at(
     };
 
     let registry_entries: Vec<InstalledDatapack> = registry::list(instance_root).await?;
-    let on_disk = list_on_disk_entries(&dp_dir).await;
+    let lib_dir = library_dir_at(instance_root);
+    let dp_owned = dp_dir.clone();
+    // `detect::scan` may open unvouched zips: off the executor (N.1).
+    let packs = tokio::task::spawn_blocking(move || {
+        build_rows(
+            &dp_owned,
+            &lib_dir,
+            &registry_entries,
+            &enabled,
+            &disabled,
+            expected,
+        )
+    })
+    .await
+    .map_err(|e| Error::io(dp_dir.display().to_string(), format!("join: {e}")))?
+    .map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+    Ok(WorldDatapackListing { level_dat, packs })
+}
 
+/// One world tab's rows: one `read_dir` of its `datapacks/`, the registry rows
+/// and the two lists already read by the caller.
+fn build_rows(
+    dp_dir: &Path,
+    lib_dir: &Path,
+    registry_entries: &[InstalledDatapack],
+    enabled: &[String],
+    disabled: &[String],
+    expected: Option<u32>,
+) -> std::io::Result<Vec<WorldDatapack>> {
+    let vouch = |name: &str, world_path: &Path| {
+        vouched_by_library(registry_entries, lib_dir, name, world_path)
+    };
+    let on_disk = detect::scan(dp_dir, &vouch)?;
+    let disk_names: Vec<String> = on_disk.iter().map(|e| e.name.clone()).collect();
     let registry_names: Vec<String> = registry_entries
         .iter()
         .map(|e| e.filename.clone())
         .collect();
     let level_dat_names: Vec<String> = enabled
         .iter()
-        .chain(disabled.iter())
+        .chain(disabled)
         .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
         .collect();
-    let names = union_names(&registry_names, &on_disk, &level_dat_names);
-
-    let packs = names
+    let resolves_to = |name: &str| detect::resolve_for_display(dp_dir, name, &disk_names);
+    let rows = detect::display_merge(&on_disk, &registry_names, &resolves_to, &level_dat_names);
+    Ok(rows
         .into_iter()
-        .map(|filename| {
-            let file_present = on_disk.contains(&filename);
-            let entry = level_dat_entry(&filename);
-            let in_enabled = contains_ci(&enabled, &entry);
-            let in_disabled = contains_ci(&disabled, &entry);
-            // Interim: Task G3.3 replaces this loop with `detect::scan`.
-            let presence =
-                file_present.then_some(crate::datapacks::detect::Presence::Pack { is_dir: false });
-            let (pack_state, ignored_reason) =
-                state::derive_listed(presence.as_ref(), in_enabled, in_disabled, None);
-
-            let reg = registry_entries
-                .iter()
-                .find(|e| e.filename.to_lowercase() == filename.to_lowercase());
-            let in_library = reg.is_some();
-            let compat = compat_of(reg.and_then(|e| e.pack_format), expected);
-
+        .map(|row| {
+            let entry = row.on_disk.map(|i| &on_disk[i]);
+            let reg = row
+                .joined
+                .as_deref()
+                .and_then(|n| registry_entries.iter().find(|e| e.filename == n));
+            // R1 (N.3): membership is exact, on the engine's id — `file/` + the row's own spelling.
+            let id = level_dat_entry(&row.filename);
+            let (pack_state, ignored_reason) = state::derive_listed(
+                entry.map(|e| &e.presence),
+                enabled.contains(&id),
+                disabled.contains(&id),
+                state::loadable_of(reg, entry),
+            );
             WorldDatapack {
-                filename,
+                filename: row.filename,
                 state: pack_state,
                 ignored_reason,
-                in_library,
-                compat,
+                in_library: reg.is_some(),
+                compat: compat_of(reg.and_then(|e| e.pack_format), expected),
             }
         })
-        .collect();
+        .collect())
+}
 
-    Ok(WorldDatapackListing { level_dat, packs })
+/// N.1 vouch rule (client only). A registry row has the EXACT filename, and
+/// the world entry and `<instance>/datapacks/<name>` agree on `(len,
+/// modified)`. `std::fs::metadata` is a handle query; `DirEntry::metadata` can
+/// be stale for an NTFS hardlink. Any stat failure or difference means "not
+/// vouched", which costs one central-directory read and never changes the verdict.
+pub(crate) fn vouched_by_library(
+    rows: &[InstalledDatapack],
+    lib_dir: &Path,
+    name: &str,
+    world_path: &Path,
+) -> bool {
+    if !rows.iter().any(|r| r.filename == name) {
+        return false;
+    }
+    // Could not stat either side: not vouched, so the zip gets the real root
+    // check. The restrictive answer, and it never changes the verdict (N.1).
+    let (Ok(world), Ok(lib)) = (
+        std::fs::metadata(world_path),
+        std::fs::metadata(lib_dir.join(name)),
+    ) else {
+        return false;
+    };
+    match (world.modified(), lib.modified()) {
+        (Ok(w), Ok(l)) => world.len() == lib.len() && w == l,
+        _ => false,
+    }
 }
 
 /// Compare a pack's own `pack_format` against what the instance's Minecraft
 /// expects. `Unknown` when either side is unavailable — an unreadable pack,
 /// or (see `compat` module) a client jar that hasn't been installed yet.
 ///
-/// Private: the only call site is [`list_for_world_at`] above, in this same
+/// Private: the only call site is [`build_rows`] above, in this same
 /// file; nothing else in the crate needs it.
 #[must_use]
 fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
@@ -193,7 +181,13 @@ fn compat_of(pack_format: Option<u32>, expected: Option<u32>) -> PackCompat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::detect::{
+        test_support::{pack_zip, zip_of},
+        IgnoredReason,
+    };
+    use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::presence::LevelDatPresence;
+    use crate::datapacks::world_link::set_enabled_in_world_at;
     use crate::datapacks::world_link::test_util::*;
     use crate::datapacks::{level_dat, WorldPackState};
 
@@ -231,18 +225,18 @@ mod tests {
         assert!(listed[0].in_library);
     }
 
-    /// NTFS is case-insensitive: `veinminer.zip` on disk and level.dat's own
-    /// `file/VeinMiner.zip` entry name the SAME file. Before the case-folded
-    /// union in `union_names`, exact-string dedup kept both spellings as two
-    /// separate rows — a phantom `Orphaned` for the level.dat spelling (no
-    /// file matched it byte-for-byte) alongside a genuine `Enabled` for the
-    /// on-disk spelling. One physical pack must render as exactly one row.
+    /// Engine fact (N.0): the pack's id is `file/` + its exact on-disk
+    /// spelling, so level.dat's `file/VeinMiner.zip` does not name the file
+    /// `veinminer.zip` — the game drops that stale id (`WARN Missing data
+    /// pack`) and auto-adds the file. The display merge (N.3) hides a level.dat
+    /// spelling whose only case-insensitive match is one on-disk entry, which
+    /// states nothing false because the row's state uses the exact id.
     #[tokio::test]
     async fn a_case_mismatched_name_between_level_dat_and_disk_merges_into_one_row() {
         let td = tempfile::tempdir().unwrap();
         let wd = world_dir(td.path(), "Survival");
         std::fs::create_dir_all(wd.join("datapacks")).unwrap();
-        std::fs::write(wd.join("datapacks/veinminer.zip"), b"stub").unwrap();
+        std::fs::write(wd.join("datapacks/veinminer.zip"), pack_zip()).unwrap();
         level_dat::test_support::seed(&wd, &["file/VeinMiner.zip"], &[]);
 
         let listed = list_for_world_at(td.path(), "Survival", None)
@@ -258,19 +252,15 @@ mod tests {
         assert_eq!(listed[0].state, WorldPackState::Enabled);
     }
 
-    /// Regression for the membership check, not just the union: merging
-    /// names case-insensitively is not enough if `in_enabled`/`in_disabled`
-    /// still compare exact strings against level.dat's own spelling — that
-    /// would report this pack `Enabled` (present and unlisted, per
-    /// `state::derive`) when level.dat actually disabled it, which is WORSE
-    /// than the phantom-row bug the union fixes, because it silently
-    /// re-enables a pack the user turned off.
+    /// Engine fact (N.0): `Disabled` is `List.contains`, exact;
+    /// `file/VeinMiner.zip` does not name `file/veinminer.zip`. Inverted from
+    /// the pre-batch claim.
     #[tokio::test]
-    async fn a_case_mismatched_disabled_entry_still_reports_disabled() {
+    async fn a_case_drifted_disabled_entry_does_not_keep_the_pack_off() {
         let td = tempfile::tempdir().unwrap();
         let wd = world_dir(td.path(), "Survival");
         std::fs::create_dir_all(wd.join("datapacks")).unwrap();
-        std::fs::write(wd.join("datapacks/veinminer.zip"), b"stub").unwrap();
+        std::fs::write(wd.join("datapacks/veinminer.zip"), pack_zip()).unwrap();
         level_dat::test_support::seed(&wd, &[], &["file/VeinMiner.zip"]);
 
         let listed = list_for_world_at(td.path(), "Survival", None)
@@ -282,27 +272,9 @@ mod tests {
         assert_eq!(listed[0].filename, "veinminer.zip");
         assert_eq!(
             listed[0].state,
-            WorldPackState::Disabled,
-            "an exact-string membership check would miss level.dat's \
-             differently-cased entry and report this Enabled instead"
+            WorldPackState::Enabled,
+            "the game adds file/veinminer.zip from the file, and Disabled holds a different string"
         );
-    }
-
-    /// Direct unit coverage for the three-way spelling collision
-    /// `union_names` itself resolves: same case-folded key, three different
-    /// spellings, one from each source. On-disk must win regardless of
-    /// insertion order because [`list_for_world_at`]'s `file_present` check
-    /// is an un-folded `on_disk.contains(&filename)` — only correct if the
-    /// chosen spelling equals the on-disk one whenever a match exists there.
-    #[test]
-    fn union_names_prefers_on_disk_over_registry_and_level_dat() {
-        let registry = vec!["VEINMINER.zip".to_string()];
-        let on_disk = vec!["veinminer.zip".to_string()];
-        let level_dat = vec!["VeinMiner.zip".to_string()];
-
-        let names = union_names(&registry, &on_disk, &level_dat);
-
-        assert_eq!(names, vec!["veinminer.zip".to_string()]);
     }
 
     #[tokio::test]
@@ -445,12 +417,14 @@ mod tests {
     async fn a_folder_datapack_is_reported_enabled_not_orphaned() {
         let td = tempfile::tempdir().unwrap();
         let wd = game_world(td.path(), "Survival");
-        // A hand-installed FOLDER datapack, not a `.zip` — Minecraft's own
-        // datapacks/ scanner loads directories under any name, and so must
-        // this listing. Before the fix this reported `file_present: false`
-        // (only `.zip`-named files were scanned) and, once level.dat records
-        // it, that becomes a false `Orphaned`.
+        // A hand-installed FOLDER datapack, not a `.zip` — Minecraft loads a
+        // directory whose `pack.mcmeta` sits directly inside it (N.0), and so
+        // must this listing. Before the fix this reported `file_present:
+        // false` (only `.zip`-named files were scanned) and, once level.dat
+        // records it, that becomes a false `Orphaned`. Its no-mcmeta twin is
+        // `a_folder_without_pack_mcmeta_is_listed_as_ignored`.
         std::fs::create_dir_all(wd.join("datapacks/MyFolderPack/data")).unwrap();
+        std::fs::write(wd.join("datapacks/MyFolderPack/pack.mcmeta"), b"{}").unwrap();
 
         let listed = list_for_world_at(td.path(), "Survival", None)
             .await
@@ -463,6 +437,140 @@ mod tests {
             listed[0].state,
             WorldPackState::Enabled,
             "present and unlisted in level.dat ⇒ Minecraft auto-enables it"
+        );
+    }
+
+    fn only_row(listed: &[WorldDatapack]) -> &WorldDatapack {
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        &listed[0]
+    }
+
+    #[tokio::test]
+    async fn an_upper_case_zip_is_listed_as_ignored() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/Pack.ZIP"), pack_zip()).unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        let row = only_row(&listed);
+        assert_eq!(
+            (row.state, row.ignored_reason),
+            (
+                WorldPackState::Ignored,
+                Some(IgnoredReason::ZipExtensionNotLowercase)
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rootless_zip_is_listed_as_ignored() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(
+            wd.join("datapacks/rootless.zip"),
+            zip_of(&[("readme.txt", b"x")]),
+        )
+        .unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        assert_eq!(
+            only_row(&listed).ignored_reason,
+            Some(IgnoredReason::ZipWithoutPackMcmeta)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_nested_folder_pack_is_listed_as_ignored() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks/Outer/Inner/data")).unwrap();
+        std::fs::write(wd.join("datapacks/Outer/Inner/pack.mcmeta"), b"{}").unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        assert_eq!(
+            only_row(&listed).ignored_reason,
+            Some(IgnoredReason::FolderPackNestedInside)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_datapacks_dir_is_an_error() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::write(wd.join("datapacks"), b"a file, not a folder").unwrap();
+        assert!(list_for_world_at(td.path(), "Survival", None)
+            .await
+            .is_err());
+    }
+
+    /// §0.5 A13: a same-named world zip that is not the library copy
+    /// (other length or mtime) is root-checked, never vouched.
+    #[tokio::test]
+    async fn a_same_named_world_zip_with_other_len_or_mtime_is_root_checked() {
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), zip_of(&[("readme.txt", b"x")])).unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        let row = only_row(&listed);
+        assert!(row.in_library);
+        assert_eq!(
+            row.ignored_reason,
+            Some(IgnoredReason::ZipWithoutPackMcmeta)
+        );
+    }
+
+    /// Engine (N.0): `Disabled.contains` is exact, so a drifted
+    /// `file/VeinMiner.zip` keeps nothing off, and the toggle round-trips.
+    #[tokio::test]
+    async fn toggling_a_case_drifted_pack_is_never_stuck() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/veinminer.zip"), pack_zip()).unwrap();
+        seed(&wd, &[], &["file/VeinMiner.zip"]);
+        set_enabled_in_world_at(td.path(), "Survival", "veinminer.zip", false)
+            .await
+            .unwrap();
+        set_enabled_in_world_at(td.path(), "Survival", "veinminer.zip", true)
+            .await
+            .unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        assert_eq!(only_row(&listed).state, WorldPackState::Enabled);
+    }
+
+    /// Engine (N.0): a directory is a pack only when `pack.mcmeta` is a
+    /// regular file directly inside it; otherwise the game ignores it.
+    #[tokio::test]
+    async fn a_folder_without_pack_mcmeta_is_listed_as_ignored() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Survival");
+        std::fs::create_dir_all(wd.join("datapacks/MyFolderPack/data")).unwrap();
+        let listed = list_for_world_at(td.path(), "Survival", None)
+            .await
+            .unwrap()
+            .packs;
+        assert_eq!(
+            (only_row(&listed).state, only_row(&listed).ignored_reason),
+            (
+                WorldPackState::Ignored,
+                Some(IgnoredReason::FolderWithoutPackMcmeta)
+            )
         );
     }
 }
