@@ -123,6 +123,8 @@ pub struct ServerDatapackEntry {
     /// it reads as two empty lists, a real answer (see
     /// [`ServerDatapackListing::level_dat`]).
     pub state: Option<crate::datapacks::WorldPackState>,
+    /// `Some` exactly when `state` is `Ignored`. Both come from `state::derive`.
+    pub ignored_reason: Option<crate::datapacks::detect::IgnoredReason>,
     /// Something is on disk under this name. Independent of `state`, which
     /// can be `None` for a pack that is plainly present.
     pub present: bool,

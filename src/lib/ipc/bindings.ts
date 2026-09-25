@@ -3125,6 +3125,8 @@ export type DatapackPlacementView = {
 	 *  guessed.
 	 */
 	state: WorldPackState | null,
+	/**  `Some` exactly when `state` is `Ignored`. Both come from `state::derive`. */
+	ignored_reason: IgnoredReason | null,
 	/**
 	 *  This world's `level.dat` presence; `None` when it could not be told.
 	 *  Anything but `Some(Present)` means Lucerna adds, toggles or removes
@@ -4334,6 +4336,27 @@ export type HostKeyPreview = {
 	/**  Whether this fingerprint is already trusted (matches the stored one). */
 	trusted: boolean,
 };
+
+/**  Why the game does not load an entry of a world's `datapacks/` folder. */
+export type IgnoredReason = 
+/**  A folder with no `pack.mcmeta` directly inside it. */
+"folder_without_pack_mcmeta" | 
+/**  The folder's `pack.mcmeta` is one level deeper. */
+"folder_pack_nested_inside" | 
+/**  The file name ends in `.ZIP` (or another capitalisation). */
+"zip_extension_not_lowercase" | 
+/**  The zip has no `pack.mcmeta` at its root. */
+"zip_without_pack_mcmeta" | 
+/**
+ *  Lucerna could not read the entry to check. Not a claim about the
+ *  game: the UI says "Couldn't check".
+ */
+"unreadable" | 
+/**
+ *  A well-formed pack whose `pack.mcmeta` this Minecraft cannot load
+ *  (§0.5 A1). Never produced here: `state::derive` sets it from `loadable`.
+ */
+"not_loadable";
 
 /**  Typed progress streamed to the UI during an import. */
 export type ImportProgress = { phase: "creating_instance"; name: string } | { phase: "copying"; category: ContentCategory; current: number; total: number } | { phase: "recovering_identities" } | 
@@ -7117,6 +7140,8 @@ export type ServerDatapackEntry = {
 	 *  [`ServerDatapackListing::level_dat`]).
 	 */
 	state: WorldPackState | null,
+	/**  `Some` exactly when `state` is `Ignored`. Both come from `state::derive`. */
+	ignored_reason: IgnoredReason | null,
 	/**
 	 *  Something is on disk under this name. Independent of `state`, which
 	 *  can be `None` for a pack that is plainly present.
@@ -8062,6 +8087,8 @@ export type World = {
 export type WorldDatapack = {
 	filename: string,
 	state: WorldPackState,
+	/**  `Some` exactly when `state` is `Ignored`. Both come from `state::derive`. */
+	ignored_reason: IgnoredReason | null,
 	/**
 	 *  False for a file the user (or a world import) put in the world folder
 	 *  directly. Supported, not an error — only "remove from library" is
@@ -8138,7 +8165,12 @@ export type WorldPackState = "enabled" | "disabled" | "not_added" |
  *  Named in `level.dat`'s Enabled list but the file is gone — this is what
  *  Minecraft turns into the "data packs are no longer present" screen.
  */
-"orphaned";
+"orphaned" | 
+/**
+ *  Something is on disk under this name, but the game does not load it
+ *  (spec §2 N.1, §0.5 A1). The row's `ignored_reason` says why.
+ */
+"ignored";
 
 /**
  *  Lightweight world entry for the sidebar Play-button dropdown: folder

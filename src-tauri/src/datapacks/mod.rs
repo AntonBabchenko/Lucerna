@@ -74,6 +74,9 @@ pub enum WorldPackState {
     /// Named in `level.dat`'s Enabled list but the file is gone — this is what
     /// Minecraft turns into the "data packs are no longer present" screen.
     Orphaned,
+    /// Something is on disk under this name, but the game does not load it
+    /// (spec §2 N.1, §0.5 A1). The row's `ignored_reason` says why.
+    Ignored,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -89,6 +92,8 @@ pub enum PackCompat {
 pub struct WorldDatapack {
     pub filename: String,
     pub state: WorldPackState,
+    /// `Some` exactly when `state` is `Ignored`. Both come from `state::derive`.
+    pub ignored_reason: Option<crate::datapacks::detect::IgnoredReason>,
     /// False for a file the user (or a world import) put in the world folder
     /// directly. Supported, not an error — only "remove from library" is
     /// unavailable for it.
@@ -120,6 +125,8 @@ pub struct DatapackPlacementView {
     /// `level_dat`) — unknown, or no world to hold a state, rather than
     /// guessed.
     pub state: Option<WorldPackState>,
+    /// `Some` exactly when `state` is `Ignored`. Both come from `state::derive`.
+    pub ignored_reason: Option<crate::datapacks::detect::IgnoredReason>,
     /// This world's `level.dat` presence; `None` when it could not be told.
     /// Anything but `Some(Present)` means Lucerna adds, toggles or removes
     /// nothing in this world. A library-wide cascade removal or renamed update

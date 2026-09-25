@@ -147,7 +147,11 @@ pub async fn list_for_world_at(
             let entry = level_dat_entry(&filename);
             let in_enabled = contains_ci(&enabled, &entry);
             let in_disabled = contains_ci(&disabled, &entry);
-            let pack_state = state::derive(file_present, in_enabled, in_disabled);
+            // Interim: Task G3.3 replaces this loop with `detect::scan`.
+            let presence =
+                file_present.then_some(crate::datapacks::detect::Presence::Pack { is_dir: false });
+            let (pack_state, ignored_reason) =
+                state::derive_listed(presence.as_ref(), in_enabled, in_disabled, None);
 
             let reg = registry_entries
                 .iter()
@@ -158,6 +162,7 @@ pub async fn list_for_world_at(
             WorldDatapack {
                 filename,
                 state: pack_state,
+                ignored_reason,
                 in_library,
                 compat,
             }

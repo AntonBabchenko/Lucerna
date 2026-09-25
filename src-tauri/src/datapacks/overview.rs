@@ -108,18 +108,28 @@ async fn gather(instance_root: &Path) -> Vec<WorldFacts> {
 /// Membership is tested case-insensitively because NTFS is: a level.dat entry
 /// spelled `file/VeinMiner.zip` and an on-disk `veinminer.zip` are one file,
 /// and an exact test reports a disabled pack as enabled.
-fn state_in(facts: &WorldFacts, filename: &str) -> Option<crate::datapacks::WorldPackState> {
-    let (enabled, disabled) = facts.lists.as_ref()?;
+fn state_in(
+    facts: &WorldFacts,
+    filename: &str,
+) -> (
+    Option<crate::datapacks::WorldPackState>,
+    Option<crate::datapacks::detect::IgnoredReason>,
+) {
+    // Interim: Task G3.3 replaces this with `detect::scan` + `placement_in`.
     let file_present = facts
         .on_disk
         .iter()
         .any(|n| n.eq_ignore_ascii_case(filename));
+    let presence =
+        file_present.then_some(crate::datapacks::detect::Presence::Pack { is_dir: false });
     let entry = level_dat_entry(filename);
-    Some(state::derive(
-        file_present,
-        world_link::contains_ci(enabled, &entry),
-        world_link::contains_ci(disabled, &entry),
-    ))
+    let lists = facts.lists.as_ref().map(|(en, dis)| {
+        (
+            world_link::contains_ci(en, &entry),
+            world_link::contains_ci(dis, &entry),
+        )
+    });
+    state::derive(presence.as_ref(), lists, None)
 }
 
 /// Every datapack this instance knows about, with its state in every world.
@@ -164,10 +174,14 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
                             world_link::contains_ci(en, &e) || world_link::contains_ci(dis, &e)
                         })
                 })
-                .map(|f| DatapackPlacementView {
-                    world: f.world.clone(),
-                    state: state_in(f, &filename),
-                    level_dat: f.level_dat,
+                .map(|f| {
+                    let (state, ignored_reason) = state_in(f, &filename);
+                    DatapackPlacementView {
+                        world: f.world.clone(),
+                        state,
+                        ignored_reason,
+                        level_dat: f.level_dat,
+                    }
                 })
                 .collect();
 
@@ -291,11 +305,13 @@ mod tests {
                 DatapackPlacementView {
                     world: "Alpha".into(),
                     state: Some(WorldPackState::Enabled),
+                    ignored_reason: None,
                     level_dat: Some(LevelDatPresence::Present),
                 },
                 DatapackPlacementView {
                     world: "Beta".into(),
                     state: Some(WorldPackState::Disabled),
+                    ignored_reason: None,
                     level_dat: Some(LevelDatPresence::Present),
                 },
             ],
@@ -347,6 +363,7 @@ mod tests {
             vec![DatapackPlacementView {
                 world: "Alpha".into(),
                 state: Some(WorldPackState::Enabled),
+                ignored_reason: None,
                 level_dat: Some(LevelDatPresence::Present),
             }]
         );
@@ -370,6 +387,7 @@ mod tests {
             vec![DatapackPlacementView {
                 world: "Loose".into(),
                 state: None,
+                ignored_reason: None,
                 level_dat: Some(LevelDatPresence::Absent),
             }],
             "the game loads nothing from this folder, so no state is claimed"
@@ -395,6 +413,7 @@ mod tests {
             vec![DatapackPlacementView {
                 world: "Restoring".into(),
                 state: Some(WorldPackState::Disabled),
+                ignored_reason: None,
                 level_dat: Some(LevelDatPresence::OnlyOld),
             }]
         );

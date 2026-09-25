@@ -103,8 +103,8 @@ fn level_dat_missing(world: &str) -> Error {
 /// write of the SAME world's level.dat: both read the same on-disk root,
 /// both compute an edit against that stale snapshot, and whichever writes
 /// last wins — silently reverting the other's change. Because
-/// `state::derive(true, false, false)` is `Enabled` ("present and unlisted"
-/// is correct — Minecraft auto-enables it), the reverted disable is not just
+/// `state::derive_listed` reads a present, unlisted pack as `Enabled`
+/// (Minecraft auto-enables it), the reverted disable is not just
 /// lost, it is invisible: the next refresh shows the pack Enabled with no
 /// error, and it loads in game.
 ///

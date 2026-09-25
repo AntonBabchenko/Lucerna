@@ -153,16 +153,21 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
                 // file, or a presence that could not be told, degrades every
                 // state to unknown rather than guessing. (An ABSENT one — never
                 // generated — is `Some` with empty lists.)
-                let st = lists.is_some().then(|| {
-                    state::derive(
-                        present,
+                // Interim: Task G3.5 replaces the source loop with `detect::scan`.
+                let presence = disk.map(|(_, is_dir)| crate::datapacks::detect::Presence::Pack {
+                    is_dir: *is_dir,
+                });
+                let membership = lists.is_some().then(|| {
+                    (
                         world_link::contains_ci(&enabled, &name),
                         world_link::contains_ci(&disabled, &name),
                     )
                 });
+                let (st, ignored_reason) = state::derive(presence.as_ref(), membership, None);
                 ServerDatapackEntry {
                     record,
                     state: st,
+                    ignored_reason,
                     present,
                     is_folder,
                 }
