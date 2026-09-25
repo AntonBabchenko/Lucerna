@@ -51,12 +51,16 @@
   // (`world-datapack-remove-orphaned`) deletes nothing and stays one click.
   let removeTarget = $state<string | null>(null);
 
-  // running > level.dat > busy (worldDatapacksDisabledKey). `null` — not loaded
-  // yet, or the load failed — is not a verdict: the backend re-checks level.dat
-  // before any write (§3 L.4), so the permissive answer can never write. Every
-  // mutating control below already reads `disabledKey`, so D2 covers both Add
-  // buttons, `+`, the toggles, Clear entry and the trash.
+  // running > level.dat > busy (worldDatapacksDisabledKey). Every mutating
+  // control below reads `disabledKey`, so D2 covers both Add buttons, `+`, the
+  // toggles, Clear entry and the trash. `null` — not loaded yet, or the load
+  // failed — is not a verdict there: the per-row controls only exist once a
+  // listing arrived (a failed load clears the rows), and their world writers
+  // re-check level.dat first (§3 L.4). The two Add buttons are different: they
+  // install into the library BEFORE the world writer refuses anything, so
+  // they also wait until the world's level.dat is known (`addBlocked`).
   const disabledKey = $derived(worldDatapacksDisabledKey({ running, busy, levelDat }));
+  const addBlocked = $derived(disabledKey !== null || levelDat === null);
   const disabledReason = $derived.by(() => {
     const key = disabledKey;
     return key === null ? null : $t(key);
@@ -94,8 +98,11 @@
     // failed reload.
     actionError = null;
     removeTarget = null;
-    // The previous world's level.dat note must not stand over this one.
+    // The previous world's level.dat note must not stand over this one, and
+    // neither must its rows: until this world's listing arrives they would
+    // act on this world under the previous world's names.
     levelDat = null;
+    packs = [];
     void reload();
   });
 
@@ -275,7 +282,7 @@
         <BusyButton
           class="btn-secondary btn-sm"
           busy={busyAdd}
-          disabled={disabledKey !== null}
+          disabled={addBlocked}
           onclick={() => void addDatapackToLibrary('zip')}
           data-testid="world-datapack-add-library"
         >
@@ -292,7 +299,7 @@
         <button
           type="button"
           class="btn-tertiary inline-flex items-center gap-1"
-          disabled={disabledKey !== null}
+          disabled={addBlocked}
           data-testid="world-datapack-add-library-folder"
           onclick={() => void addDatapackToLibrary('folder')}
         >

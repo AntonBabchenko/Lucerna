@@ -120,6 +120,49 @@ describe('WorldDatapacks — adding a pack from a file', () => {
   });
 });
 
+// Add installs into the library FIRST and only then adds to this world, so a
+// permissive answer while the world's level.dat is unknown would write the
+// library even where the world add is then refused. Add waits for a listing.
+describe('WorldDatapacks — Add while the world is not known yet', () => {
+  const addButtons = () => [
+    screen.getByTestId('world-datapack-add-library') as HTMLButtonElement,
+    screen.getByTestId('world-datapack-add-library-folder') as HTMLButtonElement,
+  ];
+
+  it('is disabled while the listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise(() => {}));
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    for (const b of addButtons()) expect(b.disabled).toBe(true);
+  });
+
+  it('a world switch drops the previous world’s rows while the new listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld)
+      .mockResolvedValueOnce({ status: 'ok', data: listing([makePack({ filename: 'a.zip' })]) })
+      .mockReturnValueOnce(new Promise(() => {}));
+    const r = render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'First' } });
+    await screen.findByText('a.zip');
+    await r.rerender({ instanceId: 'inst-1', world: 'Second' });
+    expect(screen.queryByText('a.zip')).toBeNull();
+    for (const b of addButtons()) expect(b.disabled).toBe(true);
+  });
+
+  it('is disabled when the listing failed', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: 'saves/MyWorld/level.dat', details: 'locked' },
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText(/locked/);
+    for (const b of addButtons()) expect(b.disabled).toBe(true);
+    await fireEvent.click(addButtons()[0]);
+    expect(openMock).not.toHaveBeenCalled();
+    expect(commands.datapacksInstallFromFile).not.toHaveBeenCalled();
+  });
+});
+
 describe('WorldDatapacks — empty state', () => {
   it('shows "No datapacks yet" with text-muted when the world has no packs', async () => {
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
