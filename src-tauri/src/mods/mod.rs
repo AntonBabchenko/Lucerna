@@ -21,6 +21,7 @@ pub mod fix_resolve;
 pub mod forge_descriptor;
 pub mod hangar;
 pub mod hash_cache;
+pub mod hash_probe;
 pub mod install;
 pub mod install_batch;
 pub mod installed;

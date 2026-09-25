@@ -5,6 +5,7 @@ mod types;
 use async_trait::async_trait;
 
 use crate::error::Error;
+use crate::mods::hash_probe::BatchFailure;
 use crate::mods::platform::*;
 use std::collections::HashMap;
 
@@ -254,6 +255,34 @@ impl ModrinthClient {
             }
         }
         Ok(out)
+    }
+
+    /// `POST /v2/version_files` for many hashes: the version owning each file
+    /// (2026-09-21 spec, S1 — one arbitrary owner when several versions carry
+    /// the same bytes). Request hashes and response keys are lower-cased: the
+    /// server's lookup is case-sensitive (S9). Unknown hashes are absent. Any
+    /// failed chunk fails the call.
+    pub async fn owners_by_hashes(
+        &self,
+        shas: &[String],
+    ) -> Result<HashMap<String, ModVersion>, BatchFailure> {
+        let _ = shas;
+        Err(BatchFailure::Unusable) // stub: red round
+    }
+
+    /// `POST /v2/version_files/update_many` for many hashes: for each project
+    /// owning each file, its newest version tagged for (`mc`, `loader`) — by
+    /// TAGS only; the caller applies our filename rule (S2, D5). Absent = no
+    /// such version, or unknown bytes (S3: indistinguishable here). `/update`
+    /// is deprecated upstream in favour of this endpoint (S4).
+    pub async fn latest_by_hashes(
+        &self,
+        shas: &[String],
+        mc: &str,
+        loader: LoaderKind,
+    ) -> Result<HashMap<String, Vec<ModVersion>>, BatchFailure> {
+        let _ = (shas, mc, loader);
+        Err(BatchFailure::Unusable) // stub: red round
     }
 }
 
@@ -859,7 +888,7 @@ fn build_facets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{body_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -1613,6 +1642,69 @@ mod tests {
         assert_eq!(hit.version_id, "v1");
         assert_eq!(hit.version_number, "1.0.0");
         assert_eq!(hit.name, "v1");
+    }
+
+    #[tokio::test]
+    async fn owners_by_hashes_lowercases_and_converts() {
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .and(body_json(serde_json::json!({ "hashes": ["aabb"], "algorithm": "sha1" })))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"AABB":{"id":"v1","project_id":"p1","name":"v1","version_number":"1.0",
+                   "game_versions":["1.21.1"],"loaders":["neoforge"],"date_published":null,
+                   "files":[{"url":"u","filename":"p1-1.0.jar","hashes":{"sha1":"aabb"},"size":1,"primary":true}],
+                   "dependencies":[]}}"#,
+            ))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = ModrinthClient::with_base(s.uri())
+            .owners_by_hashes(&["AABB".to_string()])
+            .await
+            .unwrap();
+        let v = &out["aabb"];
+        assert_eq!(v.project_id, "p1");
+        assert_eq!(v.loaders, vec![LoaderKind::NeoForge]);
+        assert_eq!(v.primary_file.sha1.as_deref(), Some("aabb"));
+    }
+
+    #[tokio::test]
+    async fn latest_by_hashes_sends_the_platform_filter_and_parses_the_array_shape() {
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files/update_many"))
+            .and(body_json(serde_json::json!({
+                "hashes": ["aabb"],
+                "algorithm": "sha1",
+                "loaders": ["fabric"],
+                "game_versions": ["1.21.1"]
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"aabb":[
+                  {"id":"v2","project_id":"p1","name":"v2","version_number":"2.0","game_versions":["1.21.1"],
+                   "loaders":["fabric"],"date_published":null,
+                   "files":[{"url":"u","filename":"p1-2.0.jar","hashes":{"sha1":"cc"},"size":1,"primary":true}],
+                   "dependencies":[]},
+                  {"id":"w5","project_id":"p2","name":"w5","version_number":"5.0","game_versions":["1.21.1"],
+                   "loaders":["fabric"],"date_published":null,
+                   "files":[{"url":"u","filename":"p2-5.0.jar","hashes":{"sha1":"dd"},"size":1,"primary":true}],
+                   "dependencies":[]}
+                ]}"#,
+            ))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = ModrinthClient::with_base(s.uri())
+            .latest_by_hashes(&["aabb".to_string()], "1.21.1", LoaderKind::Fabric)
+            .await
+            .unwrap();
+        assert_eq!(out["aabb"].len(), 2);
+        assert_eq!(out["aabb"][1].project_id, "p2");
     }
 
     #[tokio::test]
