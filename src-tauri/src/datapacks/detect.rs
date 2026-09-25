@@ -352,19 +352,40 @@ pub(crate) fn same_entry(a: &Path, b: &Path) -> io::Result<bool> {
     }
 }
 
-/// R2 for the display merge. `Unknown` joins nothing (the name stands as its
-/// own row) and is logged.
-#[must_use]
-pub fn resolve_for_display(dp_dir: &Path, name: &str, names: &[String]) -> Option<String> {
-    match resolve(dp_dir, name, names) {
-        Resolved::Exact(n) | Resolved::Folded(n) => Some(n),
+/// What a registry or sidecar name denotes on disk, for a listing (N.3 R2).
+#[derive(Debug)]
+pub enum Joined {
+    /// The on-disk entry, by its own spelling.
+    Entry(String),
+    /// R2 could not tell (a stat error other than NotFound). `candidate` is
+    /// the one entry differing from the name only in case (`resolve` stats
+    /// only then), which may or may not be this pack.
+    Unknown {
+        candidate: Option<String>,
+        cause: io::Error,
+    },
+}
+
+/// R2 for one name a listing joins to its on-disk rows. `None` = it denotes
+/// no entry. `resolve` is [`resolve`] bound to the folder; tests pass their
+/// own to reach `Unknown`, which a real file system rarely produces. Each
+/// caller decides what "could not tell" means for its view — never a row
+/// that guesses.
+pub fn join_name(
+    name: &str,
+    disk_names: &[String],
+    resolve: &dyn Fn(&str, &[String]) -> Resolved,
+) -> Option<Joined> {
+    match resolve(name, disk_names) {
+        Resolved::Exact(n) | Resolved::Folded(n) => Some(Joined::Entry(n)),
         Resolved::Absent => None,
-        Resolved::Unknown(e) => {
-            crate::diag!(
-                "datapacks: could not tell whether {name} is in {}: {e}; listed as its own row",
-                dp_dir.display()
-            );
-            None
+        Resolved::Unknown(cause) => {
+            let folded = name.to_lowercase();
+            let candidate = disk_names
+                .iter()
+                .find(|n| n.to_lowercase() == folded)
+                .cloned();
+            Some(Joined::Unknown { candidate, cause })
         }
     }
 }

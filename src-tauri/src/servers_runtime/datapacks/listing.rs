@@ -79,6 +79,25 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
         },
         None => None,
     };
+    let rows = build_entries(&on_disk, &records, lists.as_ref(), &|name, names| {
+        detect::resolve(&dp_dir, name, names)
+    });
+    Ok(ServerDatapackListing {
+        level_dat,
+        entries: rows,
+    })
+}
+
+/// The rows from what `entries` read: the scanned entries, the reconciled
+/// sidecar rows and the two lists (`None` = could not be read). `resolve` is
+/// R2 bound to the world's `datapacks/`; a test passes its own to reach
+/// `Unknown`, which a real file system rarely produces.
+fn build_entries(
+    on_disk: &[detect::OnDiskEntry],
+    records: &[ServerInstalledRecord],
+    lists: Option<&(Vec<String>, Vec<String>)>,
+    resolve: &dyn Fn(&str, &[String]) -> detect::Resolved,
+) -> Vec<ServerDatapackEntry> {
     // `file/` is stripped with `filter_map`, which DROPS every entry lacking
     // the prefix — `vanilla` and the feature-flag packs every world carries.
     let strip = |v: &[String]| -> Vec<String> {
@@ -86,7 +105,7 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
             .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
             .collect()
     };
-    let (enabled, disabled) = match &lists {
+    let (enabled, disabled) = match lists {
         Some((e, d)) => (strip(e), strip(d)),
         None => (Vec::new(), Vec::new()),
     };
@@ -94,8 +113,32 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
     let sidecar_names: Vec<String> = records.iter().map(|r| r.filename.clone()).collect();
     let mut level_dat_names = enabled.clone();
     level_dat_names.extend(disabled.iter().cloned());
-    let resolves_to = |name: &str| detect::resolve_for_display(&dp_dir, name, &disk_names);
-    let merged = detect::display_merge(&on_disk, &sidecar_names, &resolves_to, &level_dat_names);
+    // R2 for every sidecar name. One R2 cannot resolve (a stat error) joins
+    // its one candidate entry, whose row then shows an unknown state: never a
+    // ghost row for the sidecar name claiming the pack is not in this world
+    // while the server may already load it (Fallback discipline Q2).
+    let mut joined_to = std::collections::HashMap::new();
+    let mut unknown: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for name in &sidecar_names {
+        match detect::join_name(name, &disk_names, resolve) {
+            Some(detect::Joined::Entry(n)) => {
+                joined_to.insert(name.clone(), n);
+            }
+            Some(detect::Joined::Unknown { candidate, cause }) => {
+                crate::diag!(
+                    "server datapacks: could not tell whether {name} is on disk: {cause}; its row \
+                     shows an unknown state"
+                );
+                if let Some(c) = candidate {
+                    unknown.insert(c.clone());
+                    joined_to.insert(name.clone(), c);
+                }
+            }
+            None => {}
+        }
+    }
+    let resolves_to = |name: &str| joined_to.get(name).cloned();
+    let merged = detect::display_merge(on_disk, &sidecar_names, &resolves_to, &level_dat_names);
 
     let mut rows: Vec<ServerDatapackEntry> = merged
         .into_iter()
@@ -122,14 +165,17 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
             // `None` when the lists could not be read — an unreadable file, or
             // a presence that could not be told. (An ABSENT one — never
             // generated — is `Some` with empty lists.)
-            let membership = lists.as_ref().map(|_| {
+            let membership = lists.map(|_| {
                 (
                     enabled.contains(&row.filename),
                     disabled.contains(&row.filename),
                 )
             });
-            let (state, ignored_reason) =
-                state::derive(disk.map(|d| &d.presence), membership, None);
+            let (state, ignored_reason) = if unknown.contains(&row.filename) {
+                (None, None)
+            } else {
+                state::derive(disk.map(|d| &d.presence), membership, None)
+            };
             ServerDatapackEntry {
                 record,
                 state,
@@ -146,10 +192,7 @@ pub fn entries(world_dir: &Path) -> Result<ServerDatapackListing> {
             .cmp(&b.record.filename.to_lowercase())
             .then_with(|| a.record.filename.cmp(&b.record.filename))
     });
-    Ok(ServerDatapackListing {
-        level_dat,
-        entries: rows,
-    })
+    rows
 }
 
 #[cfg(test)]
@@ -424,5 +467,38 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         std::fs::write(td.path().join("datapacks"), b"a file").unwrap();
         assert!(entries(td.path()).is_err());
+    }
+
+    /// R2 could not tell whether the sidecar's `vm.zip` is the world's
+    /// `VM.zip` (a stat error). The row joins its one candidate with an
+    /// unknown state, instead of a ghost `vm.zip` row claiming the pack is
+    /// not in this world while the server may already load it.
+    #[test]
+    fn a_sidecar_name_r2_could_not_resolve_joins_its_candidate_with_an_unknown_state() {
+        let on_disk = vec![detect::OnDiskEntry {
+            name: "VM.zip".into(),
+            presence: detect::Presence::Pack { is_dir: false },
+            vouched: false,
+        }];
+        let records = vec![ServerInstalledRecord {
+            filename: "vm.zip".into(),
+            sha1: "aa".into(),
+            source: None,
+            project_id: Some("veinminer".into()),
+            version_id: None,
+            name: None,
+            version_number: None,
+            enrich_attempted: false,
+        }];
+        let lists = (vec!["vanilla".to_string()], Vec::new());
+        let could_not_tell = |name: &str, _: &[String]| {
+            assert_eq!(name, "vm.zip");
+            detect::Resolved::Unknown(std::io::Error::other("stat failed"))
+        };
+        let rows = build_entries(&on_disk, &records, Some(&lists), &could_not_tell);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].record.project_id.as_deref(), Some("veinminer"));
+        assert_eq!((rows[0].state, rows[0].ignored_reason), (None, None));
+        assert!(rows[0].present);
     }
 }

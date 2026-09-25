@@ -78,6 +78,7 @@ pub async fn list_for_world_at(
             &enabled,
             &disabled,
             game,
+            &|name, names| detect::resolve(&dp_owned, name, names),
         )
     })
     .await
@@ -87,7 +88,9 @@ pub async fn list_for_world_at(
 }
 
 /// One world tab's rows: one `read_dir` of its `datapacks/`, the registry rows
-/// and the two lists already read by the caller.
+/// and the two lists already read by the caller. `resolve` is R2 bound to the
+/// folder; a test passes its own to reach `Unknown`. `Err` = the folder, or
+/// what a registry name denotes in it, could not be read.
 fn build_rows(
     dp_dir: &Path,
     lib_dir: &Path,
@@ -96,6 +99,7 @@ fn build_rows(
     enabled: &[String],
     disabled: &[String],
     game: Option<FormatVersion>,
+    resolve: &dyn Fn(&str, &[String]) -> detect::Resolved,
 ) -> std::io::Result<Vec<WorldDatapack>> {
     let vouch = |name: &str, world_path: &Path| {
         vouched_by_library(registry_entries, lib_dir, name, world_path)
@@ -111,7 +115,26 @@ fn build_rows(
         .chain(disabled)
         .filter_map(|n| n.strip_prefix("file/").map(str::to_string))
         .collect();
-    let resolves_to = |name: &str| detect::resolve_for_display(dp_dir, name, &disk_names);
+    // R2 for every registry name. One R2 cannot resolve (a stat error) fails
+    // the listing, so the tab shows its load error: the alternative is a row
+    // for the library name with nothing on disk (NotAdded or Orphaned) while
+    // the world may already load the pack (Fallback discipline Q2).
+    let mut joined_to = std::collections::HashMap::new();
+    for name in &registry_names {
+        match detect::join_name(name, &disk_names, resolve) {
+            Some(detect::Joined::Entry(n)) => {
+                joined_to.insert(name.clone(), n);
+            }
+            Some(detect::Joined::Unknown { cause, .. }) => {
+                return Err(std::io::Error::new(
+                    cause.kind(),
+                    format!("could not tell whether it holds {name}: {cause}"),
+                ));
+            }
+            None => {}
+        }
+    }
+    let resolves_to = |name: &str| joined_to.get(name).cloned();
     let rows = detect::display_merge(&on_disk, &registry_names, &resolves_to, &level_dat_names);
     Ok(rows
         .into_iter()
@@ -692,5 +715,46 @@ mod tests {
             Some(IgnoredReason::Unreadable),
             "root-checked, and the zip crate cannot read it"
         );
+    }
+
+    /// R2 could not tell whether the library's `vm.zip` is the world's
+    /// `VM.zip` (a stat error). The tab shows its load error rather than a
+    /// ghost `vm.zip` row offering an add, while the world may already load
+    /// the pack — the library view calls the same placement unknown.
+    #[test]
+    fn a_name_r2_could_not_resolve_fails_the_world_listing() {
+        let td = tempfile::tempdir().unwrap();
+        let dp = td.path().join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        std::fs::write(dp.join("VM.zip"), pack_zip()).unwrap();
+        let reg = vec![InstalledDatapack {
+            filename: "vm.zip".into(),
+            sha1: String::new(),
+            size_bytes: 0.0,
+            name: "vm".into(),
+            source: None,
+            project_id: None,
+            version_id: None,
+            version_number: None,
+            installed_at: String::new(),
+        }];
+        let could_not_tell = |name: &str, names: &[String]| {
+            if name == "vm.zip" {
+                detect::Resolved::Unknown(std::io::Error::other("stat failed"))
+            } else {
+                detect::resolve(&dp, name, names)
+            }
+        };
+        let got = build_rows(
+            &dp,
+            &td.path().join("lib"),
+            &reg,
+            &[],
+            &["vanilla".to_string()],
+            &[],
+            None,
+            &could_not_tell,
+        );
+        assert!(got.is_err(), "{got:?}");
     }
 }
