@@ -84,9 +84,20 @@ pub async fn update_at(
     // per-world report, and a failure in EITHER half blocks the cleanup step.
     let mut migrations = install.refreshed;
     // `Err`: no world could be checked (`saves/` or the old library copy is
-    // unreadable). Both library rows stay, and a retry converges.
-    migrations
-        .extend(world_link::migrate_placements(instance_root, old_filename, &new_name).await?);
+    // unreadable). The new library file and its row are already written, so
+    // this is an incomplete update, not a failed one: one `Failed` entry says
+    // so, both library rows stay, and a retry converges (as
+    // `refresh_placements` reports a `saves/` it cannot list).
+    match world_link::migrate_placements(instance_root, old_filename, &new_name).await {
+        Ok(moved) => migrations.extend(moved),
+        Err(e) => {
+            let saves = instance_root.join(".minecraft").join("saves");
+            migrations.push(WorldMigration::Failed {
+                world: saves.display().to_string(),
+                details: format!("no world was moved to the new version: {e}"),
+            });
+        }
+    }
     let failed = migrations
         .iter()
         .any(|m| matches!(m, WorldMigration::Failed { .. }));
@@ -523,5 +534,34 @@ mod tests {
             td.path().join("datapacks").join("vm-1.zip").exists(),
             "the old library copy stays for a retry"
         );
+    }
+
+    /// When no world can be checked at all (`saves/` cannot be listed), the
+    /// new library file and its row are already written. That is an
+    /// incomplete update with both copies kept, reported as one `Failed`
+    /// entry, never an error that makes callers say "not installed".
+    #[tokio::test]
+    async fn an_update_that_cannot_list_saves_is_incomplete_not_an_error() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        std::fs::create_dir_all(td.path().join(".minecraft")).unwrap();
+        std::fs::write(td.path().join(".minecraft").join("saves"), b"a file").unwrap();
+
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.zip", &v2_zip(), &prov("v2"))
+            .await
+            .expect("the new copy is installed; the update is only incomplete");
+
+        assert!(!out.completed);
+        assert!(
+            matches!(out.migrations.as_slice(), [WorldMigration::Failed { .. }]),
+            "{:?}",
+            out.migrations
+        );
+        assert_eq!(out.pack.filename, "vm-2.zip");
+        assert!(td.path().join("datapacks").join("vm-1.zip").exists());
+        assert!(td.path().join("datapacks").join("vm-2.zip").exists());
     }
 }
