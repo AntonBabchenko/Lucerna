@@ -67,15 +67,25 @@ pub struct LatestAnswers {
     pub declined: HashSet<String>,
 }
 
-type LatestKey = (String, String, LoaderKind);
+/// (sha, mc, loader).
+type PairKey = (String, String, LoaderKind);
+
+/// Both answers for one hash at one (mc, loader), fetched TOGETHER and stamped
+/// once. An owner is never paired with a `latest` from another fetch: a stale
+/// owner next to a fresh «nothing tagged» (a withdrawn file), or a fresh owner
+/// next to an old «nothing tagged» that only meant «unknown bytes» (S3), would
+/// both read as «no build» (B3).
+struct Pair {
+    own: Option<ModVersion>,
+    /// `None` = declined (see [`Snapshot::latest`]).
+    latest: Option<Vec<ModVersion>>,
+    fetched_at: Instant,
+}
 
 /// TTL cache + fetch gate. Production shares [`HashProbeCache::global`]; tests
 /// build their own, so parallel tests never share state (the #428 lesson).
 pub struct HashProbeCache {
-    own: Mutex<HashMap<String, (Option<ModVersion>, Instant)>>,
-    /// `None` = declined (see [`Snapshot::latest`]) — remembered for the TTL
-    /// like any answer.
-    latest: Mutex<HashMap<LatestKey, (Option<Vec<ModVersion>>, Instant)>>,
+    pairs: Mutex<HashMap<PairKey, Pair>>,
     /// Held across a fetch: a concurrent pass waits, then reads the cache.
     gate: tokio::sync::Mutex<()>,
 }
@@ -89,8 +99,7 @@ impl Default for HashProbeCache {
 impl HashProbeCache {
     pub fn new() -> Self {
         Self {
-            own: Mutex::new(HashMap::new()),
-            latest: Mutex::new(HashMap::new()),
+            pairs: Mutex::new(HashMap::new()),
             gate: tokio::sync::Mutex::new(()),
         }
     }
@@ -102,8 +111,9 @@ impl HashProbeCache {
     }
 
     /// Both answers for `shas` at (`mc`, `loader`), from the cache where fresh,
-    /// from the platform otherwise. Any failed request fails the call; what
-    /// succeeded before it stays cached.
+    /// from the platform otherwise. The two answers of a hash are fetched
+    /// together and cached as one [`Pair`]; any failed request fails the call
+    /// and caches nothing for the hashes it was fetching.
     pub async fn snapshot(
         &self,
         client: &ModrinthClient,
@@ -124,61 +134,47 @@ impl HashProbeCache {
         // disappear before this call assembles its answer, because only the
         // next call's `retain` removes entries and it waits on the same gate.
         let now = Instant::now();
-        let latest_key = |sha: &str| (sha.to_string(), mc.to_string(), loader);
-        let missing_latest: Vec<String> = {
-            let mut latest = self.latest.lock().expect("hash probe cache mutex poisoned");
-            latest.retain(|_, (_, at)| now.saturating_duration_since(*at) < TTL);
+        let key = |sha: &str| (sha.to_string(), mc.to_string(), loader);
+        let missing: Vec<String> = {
+            let mut pairs = self.pairs.lock().expect("hash probe cache mutex poisoned");
+            pairs.retain(|_, p| now.saturating_duration_since(p.fetched_at) < TTL);
             wanted
                 .iter()
-                .filter(|s| !latest.contains_key(&latest_key(s)))
+                .filter(|s| !pairs.contains_key(&key(s)))
                 .cloned()
                 .collect()
         };
-        // Every hash whose `latest` is fetched now gets its owner fetched now
-        // too, so an owner is never older than a `latest` it is paired with: a
-        // stale owner next to a fresh «nothing tagged» would read as «no
-        // build» (B3) for a file that is gone from the platform.
-        let missing_own: Vec<String> = {
-            let refetch: HashSet<&String> = missing_latest.iter().collect();
-            let mut own = self.own.lock().expect("hash probe cache mutex poisoned");
-            own.retain(|_, (_, at)| now.saturating_duration_since(*at) < TTL);
-            wanted
-                .iter()
-                .filter(|s| !own.contains_key(*s) || refetch.contains(s))
-                .cloned()
-                .collect()
-        };
-        if !missing_own.is_empty() {
-            let got = client.owners_by_hashes(&missing_own).await?;
+        if !missing.is_empty() {
+            // Both requests before anything is stored: a hash is cached with
+            // both answers or not at all.
+            let owners = client.owners_by_hashes(&missing).await?;
+            let latest = client.latest_by_hashes(&missing, mc, loader).await?;
             let fetched_at = Instant::now();
-            let mut own = self.own.lock().expect("hash probe cache mutex poisoned");
-            for sha in missing_own {
-                let v = got.get(&sha).cloned();
-                own.insert(sha, (v, fetched_at));
-            }
-        }
-        if !missing_latest.is_empty() {
-            let got = client.latest_by_hashes(&missing_latest, mc, loader).await?;
-            let fetched_at = Instant::now();
-            let mut latest = self.latest.lock().expect("hash probe cache mutex poisoned");
-            for sha in missing_latest {
-                let answer = if got.declined.contains(&sha) {
-                    None
-                } else {
-                    Some(got.listed.get(&sha).cloned().unwrap_or_default())
+            let mut pairs = self.pairs.lock().expect("hash probe cache mutex poisoned");
+            for sha in missing {
+                let pair = Pair {
+                    own: owners.get(&sha).cloned(),
+                    latest: if latest.declined.contains(&sha) {
+                        None
+                    } else {
+                        Some(latest.listed.get(&sha).cloned().unwrap_or_default())
+                    },
+                    fetched_at,
                 };
-                latest.insert(latest_key(&sha), (answer, fetched_at));
+                pairs.insert(key(&sha), pair);
             }
         }
-        let own = self.own.lock().expect("hash probe cache mutex poisoned");
-        let latest = self.latest.lock().expect("hash probe cache mutex poisoned");
+        let pairs = self.pairs.lock().expect("hash probe cache mutex poisoned");
         let mut snap = Snapshot::default();
         for sha in &wanted {
-            if let Some((v, _)) = own.get(sha) {
-                snap.own.insert(sha.clone(), v.clone());
-            }
+            // Present by construction: fetched above, or fresh when checked —
+            // only the next call's `retain`, under the same gate, removes one.
+            let Some(pair) = pairs.get(&key(sha)) else {
+                continue;
+            };
+            snap.own.insert(sha.clone(), pair.own.clone());
             // A declined answer stays out: callers send such a hash to the listing.
-            if let Some((Some(vs), _)) = latest.get(&latest_key(sha)) {
+            if let Some(vs) = &pair.latest {
                 snap.latest.insert(sha.clone(), vs.clone());
             }
         }
