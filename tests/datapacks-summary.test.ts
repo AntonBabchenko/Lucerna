@@ -55,10 +55,20 @@ describe('datapackWorldSummary', () => {
     });
   });
 
-  it('a folder without a usable level.dat is left out of the total', () => {
+  // Departs from §0.5 A22 on purpose (honesty over its letter): the game
+  // restores an only-old world from level.dat_old and loads the packs that
+  // file holds, so the row counts it by that state. Only a folder with no
+  // level file, which the game never opens, is left out.
+  it('a folder with no level file is left out; an only-old world counts by its state', () => {
     const s = datapackWorldSummary([p('disabled'), p(null, 'absent'), p('disabled', 'only_old')]);
     expect(s.key).toBe('addons.datapacks.summaryDisabledEverywhere');
-    expect(s.args.total).toBe(1);
+    expect(s.args.total).toBe(2);
+  });
+
+  it('a pack enabled only in an only-old world is not "in no world"', () => {
+    const s = datapackWorldSummary([p('enabled', 'only_old')]);
+    expect(s.key).toBe('addons.datapacks.summaryEnabledIn');
+    expect(s.args).toEqual({ enabled: 1, total: 1 });
   });
 
   it('a pack whose every placement is ignored is in no world', () => {
@@ -80,7 +90,7 @@ describe('datapackWorldSummary', () => {
     expect(withDisabled.args).toEqual({ enabled: 0, total: 2 });
   });
 
-  it('leaves ignored and non-present placements out of the total', () => {
+  it('leaves ignored placements and folders with no level file out of the total', () => {
     const s = datapackWorldSummary([
       p('enabled'),
       p('ignored'),
@@ -90,6 +100,6 @@ describe('datapackWorldSummary', () => {
     ]);
     expect(s.key).toBe('addons.datapacks.summaryEnabledIn');
     // A null level_dat is "could not tell" and still counts, like a null state.
-    expect(s.args).toEqual({ enabled: 1, total: 2 });
+    expect(s.args).toEqual({ enabled: 1, total: 3 });
   });
 });

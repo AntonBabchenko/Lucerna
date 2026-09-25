@@ -70,11 +70,14 @@ export function worldDatapacksDisabledKey(s: WorldDatapacksGateState): Translati
  * blocks the «Выключен везде» claim: we cannot assert "everywhere off" about
  * a world we could not read.
  *
- * §0.5 A22: a world the pack is not live in is not counted at all — an entry
- * the game ignores (`state === 'ignored'`), or a folder whose level.dat is
- * missing (`absent`) or only `level.dat_old` (`only_old`). `level_dat ===
- * null` (could not tell) still counts, as an unknown state, so it keeps
- * blocking "disabled everywhere". So does an entry Lucerna could not read
+ * §0.5 A22, as amended: a world the pack is not live in is not counted at
+ * all — an entry the game ignores (`state === 'ignored'`), or a folder with
+ * no level file (`absent`), which the game never opens. An only-old world IS
+ * counted, by the state `level.dat_old` holds: the game restores the world
+ * from it and loads those packs, so leaving it out made a pack live only
+ * there read "In no world" (honesty over A22's letter). `level_dat === null`
+ * (could not tell) still counts, as an unknown state, so it keeps blocking
+ * "disabled everywhere". So does an entry Lucerna could not read
  * (`ignored_reason === 'unreadable'`): that is "could not tell", not "the game
  * ignores it" (Fallback discipline Q2).
  */
@@ -86,10 +89,7 @@ export function datapackWorldSummary(
   emphasis: 'accent' | 'muted' | 'normal';
 } {
   const counted = placements.filter(
-    (p) =>
-      (p.state !== 'ignored' || p.ignored_reason === 'unreadable') &&
-      p.level_dat !== 'absent' &&
-      p.level_dat !== 'only_old',
+    (p) => (p.state !== 'ignored' || p.ignored_reason === 'unreadable') && p.level_dat !== 'absent',
   );
   const total = counted.length;
   if (total === 0) {
