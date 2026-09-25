@@ -83,33 +83,54 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
     // be resolved is kept: a pruned row is provenance lost for good. A row
     // that names its file in another case takes the on-disk spelling, which is
     // the pack's id — the listing, the pane's row key and a client made from
-    // this server then all see the name the game loads.
+    // this server then all see the name the game loads. Two rows can name one
+    // file that way (`VM.zip` and `vm.zip` on NTFS): the one naming it exactly
+    // stays, else the first, and a duplicate is dropped rather than saved.
+    use crate::datapacks::detect::{resolve, Resolved};
+    let resolutions: Vec<Resolved> = records
+        .iter()
+        .map(|r| resolve(&dp_dir, &r.filename, &files))
+        .collect();
+    let named_exactly: Vec<String> = resolutions
+        .iter()
+        .filter_map(|res| match res {
+            Resolved::Exact(n) => Some(n.clone()),
+            _ => None,
+        })
+        .collect();
     let mut claimed: Vec<String> = Vec::new();
-    let mut renamed = false;
-    let before = records.len();
-    records.retain_mut(
-        |r| match crate::datapacks::detect::resolve(&dp_dir, &r.filename, &files) {
-            crate::datapacks::detect::Resolved::Exact(n) => {
+    let mut changed = false;
+    let mut kept = Vec::with_capacity(records.len());
+    for (mut r, res) in records.into_iter().zip(resolutions) {
+        match res {
+            Resolved::Exact(n) => {
                 claimed.push(n);
-                true
+                kept.push(r);
             }
-            crate::datapacks::detect::Resolved::Folded(n) => {
+            Resolved::Folded(n) => {
+                changed = true;
+                if named_exactly.contains(&n) || claimed.contains(&n) {
+                    crate::diag!(
+                        "server datapacks: dropped the row for {}: another row already names {n}",
+                        r.filename
+                    );
+                    continue;
+                }
                 r.filename = n.clone();
-                renamed = true;
                 claimed.push(n);
-                true
+                kept.push(r);
             }
-            crate::datapacks::detect::Resolved::Absent => false,
-            crate::datapacks::detect::Resolved::Unknown(e) => {
+            Resolved::Absent => changed = true,
+            Resolved::Unknown(e) => {
                 crate::diag!(
                     "server datapacks: kept the row for {}, could not tell whether its file is there: {e}",
                     r.filename
                 );
-                true
+                kept.push(r);
             }
-        },
-    );
-    let mut changed = renamed || records.len() != before;
+        }
+    }
+    records = kept;
 
     for name in files {
         // D1: adopt only what the game loads: exact `.zip` with a root pack.mcmeta.
@@ -564,5 +585,35 @@ mod tests {
             regular_file_names(entries).unwrap(),
             vec!["a.zip".to_string()]
         );
+    }
+
+    /// Two rows that name one file (NTFS/APFS: `VM.zip` folds onto the file
+    /// `vm.zip`, which `vm.zip` names exactly) must not both take its spelling
+    /// and be saved as duplicates. The exact row wins; with no exact row, the
+    /// first one does. On a case-sensitive file system `VM.zip` names no file
+    /// and is pruned. Either way: one row, spelled as on disk.
+    #[test]
+    fn two_rows_naming_one_file_leave_one_row() {
+        let td = world_with(&[("vm.zip", b"a")]);
+        let mut exact = row("vm.zip", "bb");
+        exact.project_id = Some("exact".into());
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("VM.zip", "aa"), exact])
+            .unwrap();
+        let rows = reconcile(td.path());
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].filename, "vm.zip");
+        assert_eq!(rows[0].project_id.as_deref(), Some("exact"));
+
+        let td = world_with(&[("vm.zip", b"a")]);
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("VM.zip", "aa"), row("Vm.zip", "cc")])
+            .unwrap();
+        let rows = reconcile(td.path());
+        assert!(rows.len() <= 1, "{rows:?}");
+        let saved = crate::servers_runtime::installed::lock(td.path())
+            .load()
+            .unwrap();
+        assert_eq!(saved.len(), rows.len(), "{saved:?}");
     }
 }
