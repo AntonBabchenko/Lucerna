@@ -162,6 +162,21 @@ describe('DatapackRemoveDialog — worlds Lucerna could not check', () => {
     expect(screen.queryByText(/the pack stays in the library/)).toBeNull();
   });
 
+  // `ignored` + `unreadable` is Lucerna failing to read the entry, not the
+  // game ignoring it: the cascade cannot compare it either, and fails it.
+  it('an entry Lucerna could not read is listed as could-not-check', async () => {
+    render(DatapackRemoveDialog, {
+      props: libraryProps([
+        { ...view('Sealed', 'ignored'), ignored_reason: 'unreadable' },
+        { ...view('Loose', 'ignored'), ignored_reason: 'zip_extension_not_lowercase' },
+      ]),
+    });
+    const unchecked = await screen.findByTestId('datapack-remove-unchecked');
+    expect(within(unchecked).getByText('Sealed')).toBeTruthy();
+    expect(within(unchecked).queryByText('Loose')).toBeNull();
+    expect(within(screen.getByTestId('datapack-remove-affected')).getByText('Loose')).toBeTruthy();
+  });
+
   it('a folder with neither level file is an affected world, not an unchecked one', async () => {
     render(DatapackRemoveDialog, { props: libraryProps([view('Husk', null, 'absent')]) });
     const affected = await screen.findByTestId('datapack-remove-affected');

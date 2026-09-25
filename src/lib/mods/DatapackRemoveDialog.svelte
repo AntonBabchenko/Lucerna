@@ -71,8 +71,10 @@
   // Unknown state in a folder that has a level file (or whose level file could
   // not be told): could not check. A folder with neither level file has no list
   // to hold a state (`absent`) — it is an affected world the cascade unlinks.
+  // An `unreadable` entry is Lucerna failing to read it, not the game ignoring
+  // it: the cascade cannot compare it with the library copy either.
   function isUnchecked(p: DatapackPlacementView): boolean {
-    return p.state === null && p.level_dat !== 'absent';
+    return (p.state === null && p.level_dat !== 'absent') || p.ignored_reason === 'unreadable';
   }
   const affected = $derived(placements.filter((p) => !isUnchecked(p)));
   const unchecked = $derived(placements.filter(isUnchecked));
