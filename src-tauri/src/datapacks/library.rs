@@ -1623,6 +1623,41 @@ mod tests {
         );
     }
 
+    /// A library removal without cascade leaves a world holding the file, which
+    /// is that world's own copy from then on. A fresh install under the same
+    /// name has no old library copy to compare it with, so it refreshes
+    /// nothing: the world's file is reported as not ours and left as it is.
+    #[tokio::test]
+    async fn a_fresh_install_leaves_a_same_named_world_file_alone() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let wd = crate::datapacks::world_link::test_util::game_world(td.path(), "Alpha");
+        crate::datapacks::world_link::add_to_world_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+        remove_from_library_at(td.path(), "vm.zip", false)
+            .await
+            .unwrap();
+
+        let out = install_named_at(td.path(), "vm.zip", &datapack_zip_v2(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            out.refreshed,
+            vec![crate::datapacks::WorldMigration::SkippedNotOurs {
+                world: "Alpha".into()
+            }]
+        );
+        assert_eq!(
+            std::fs::read(wd.join("datapacks").join("vm.zip")).unwrap(),
+            datapack_zip()
+        );
+    }
+
     /// A reinstall whose `saves/` cannot be listed still installs: the library
     /// file and its row are written. That no world could be refreshed comes
     /// back as a failed entry in `refreshed`, never as "not installed".

@@ -313,11 +313,14 @@ fn identify_world_file(entry: &Path, entry_len: u64, lib: &Path) -> Result<World
 /// file from its stale snapshot, leaving it present-and-unlisted, which
 /// Minecraft auto-enables: a silently resurrected, just-removed pack.
 ///
-/// A FRESH install (`expected_sha: None`) has no bytes of ours in any world,
-/// so a world it could not check cannot hold a stale copy: it reports
-/// nothing for it. A reinstall that cannot even list `saves/` reports one
-/// `Failed` entry naming that folder: the install itself went through, and
-/// the worlds may still be on the old bytes.
+/// A FRESH install (`expected_sha: None`) has no old library copy to compare
+/// a world's file with, so it refreshes no world. A world can still hold a
+/// file under the name — one a library removal without cascade left behind —
+/// but that file is the world's own copy now, reported `SkippedNotOurs`. So a
+/// world it could not check loses nothing, and it reports nothing for it. A
+/// reinstall that cannot even list `saves/` reports one `Failed` entry naming
+/// that folder: the install itself went through, and the worlds may still be
+/// on the old bytes.
 pub(crate) async fn refresh_placements(
     instance_root: &Path,
     filename: &str,
@@ -333,8 +336,9 @@ pub(crate) async fn refresh_placements(
         Ok(placements) => placements,
         Err(e) if expected_sha.is_none() => {
             crate::diag!(
-                "datapacks: fresh install of {filename} could not list the worlds, which is \
-                 harmless (none can hold it yet): {e}"
+                "datapacks: fresh install of {filename} could not list the worlds; none was \
+                 refreshed, and none would have been (there is no old library copy to refresh \
+                 from): {e}"
             );
             return Vec::new();
         }
@@ -360,7 +364,8 @@ pub(crate) async fn refresh_placements(
             }),
         }
     }
-    // Only a reinstall can have left stale bytes of ours in a world.
+    // Only a reinstall refreshes, so only a reinstall can leave a world on the
+    // old library bytes.
     if expected_sha.is_some() {
         for (world, details) in placements.unchecked {
             report.push(WorldMigration::Failed { world, details });
