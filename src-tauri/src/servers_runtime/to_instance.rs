@@ -253,6 +253,12 @@ pub(crate) async fn copy_server_datapacks(
         if !entry.present {
             continue;
         }
+        // §0.5 A4: an entry the game ignores was never loaded by the server.
+        // Carrying it would hand the client content the server never ran — an
+        // `X.ZIP` would even arrive as a working `X.zip` (N.5 normalises it).
+        if entry.ignored_reason.is_some() {
+            continue;
+        }
         let r = &entry.record;
         let src = dp_dir.join(&r.filename);
         let provenance = match (r.source, r.project_id.clone(), r.version_id.clone()) {
@@ -428,13 +434,57 @@ mod tests {
     /// One unusable pack must not cost the user the others: the produced
     /// instance is already usable from the mandatory mod copy, so this step is
     /// best-effort by design.
+    /// §0.5 A4: the server never loaded an entry the game ignores. Carrying
+    /// `Pack.ZIP` would even hand the client a WORKING `Pack.zip` (N.5
+    /// normalises it), which is content the server never ran.
+    #[tokio::test]
+    async fn an_ignored_server_entry_is_not_carried() {
+        let d = tempfile::tempdir().unwrap();
+        let runtime = d.path().join("runtime");
+        let inst = d.path().join("instance");
+        let world = server_world(&runtime, "world");
+        std::fs::write(world.join("datapacks/Pack.ZIP"), datapack_zip()).unwrap();
+        std::fs::create_dir_all(world.join("datapacks/Loose/data")).unwrap();
+        std::fs::write(world.join("datapacks/real.zip"), datapack_zip()).unwrap();
+        copy_server_datapacks(&runtime, &inst).await;
+        let rows = library_rows(&inst).await;
+        assert_eq!(
+            rows.iter().map(|r| r.filename.as_str()).collect::<Vec<_>>(),
+            vec!["real.zip"]
+        );
+    }
+
+    /// §0.5 A4: a server world whose `datapacks/` cannot be read is a listing
+    /// error; the carry logs it and carries nothing rather than a guess.
+    #[tokio::test]
+    async fn an_unreadable_server_datapacks_folder_carries_nothing() {
+        let d = tempfile::tempdir().unwrap();
+        let runtime = d.path().join("runtime");
+        let inst = d.path().join("instance");
+        let world = runtime.join("world");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("datapacks"), b"a file, not a folder").unwrap();
+        copy_server_datapacks(&runtime, &inst).await;
+        assert!(library_rows(&inst).await.is_empty());
+    }
+
     #[tokio::test]
     async fn one_bad_pack_does_not_stop_the_others() {
         let d = tempfile::tempdir().unwrap();
         let runtime = d.path().join("runtime");
         let inst = d.path().join("instance");
         let world = server_world(&runtime, "world");
-        std::fs::write(world.join("datapacks/broken.zip"), b"not a zip").unwrap();
+        // A present pack whose install fails (a resource pack, which the
+        // library refuses). Not "not a zip": the listing reports an
+        // unreadable zip as Ignored (Couldn't check), and it is never tried.
+        std::fs::write(
+            world.join("datapacks/broken.zip"),
+            zip_of(&[
+                ("pack.mcmeta", PACK_MCMETA),
+                ("assets/minecraft/x.png", b""),
+            ]),
+        )
+        .unwrap();
         std::fs::write(world.join("datapacks/good.zip"), datapack_zip()).unwrap();
 
         copy_server_datapacks(&runtime, &inst).await;
