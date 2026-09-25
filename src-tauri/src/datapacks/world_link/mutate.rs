@@ -197,6 +197,32 @@ pub async fn add_to_world_at(
     let (mut root, framing) = level_dat::read_at(&world_dir)?;
     level_dat::set_enabled(&mut root.clone(), &level_dat_entry(filename), true)?;
 
+    // N.4: the entry `filename` denotes in this world now. Where the file
+    // system folds case, linking over an entry spelled `X.ZIP` may keep that
+    // spelling, an id the game ignores: refuse before anything is linked.
+    // (`linked_entry_name` below checks the result again.)
+    let (_, existing) = super::resolve_on_disk(&dp_dir, filename)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dp_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    match existing {
+        detect::Resolved::Exact(n) | detect::Resolved::Folded(n) if !detect::has_zip_suffix(&n) => {
+            return Err(Error::DatapackInvalid {
+                filename: n,
+                reason: DatapackRejection::NotAZip,
+            });
+        }
+        detect::Resolved::Unknown(e) => {
+            return Err(Error::ModsInstancePath {
+                path: dp_dir.join(filename).display().to_string(),
+                details: e.to_string(),
+            });
+        }
+        detect::Resolved::Exact(_) | detect::Resolved::Folded(_) | detect::Resolved::Absent => {}
+    }
+
     tokio::fs::create_dir_all(&dp_dir)
         .await
         .map_err(|e| Error::ModsInstancePath {
@@ -1407,5 +1433,46 @@ mod tests {
             linked_entry_name(td.path(), "ok.zip").await.unwrap(),
             "ok.zip"
         );
+    }
+
+    /// N.4: where the file system folds case, adding `VM.zip` to a world that
+    /// holds `VM.ZIP` would link over that entry, and NTFS may keep its
+    /// spelling — an id the game ignores. It is refused before anything is
+    /// linked, and the world entry is left exactly as it was.
+    #[tokio::test]
+    async fn add_refuses_before_linking_over_an_entry_spelled_x_zip_upper() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "VM.zip", 48).await;
+        let wd = game_world(td.path(), "Survival");
+        let dp = wd.join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        let lib_bytes = std::fs::read(library_dir_at(td.path()).join("VM.zip")).unwrap();
+        std::fs::write(dp.join("VM.ZIP"), &lib_bytes).unwrap();
+        let level_before = std::fs::read(wd.join("level.dat")).unwrap();
+
+        let got = add_to_world_at(td.path(), "Survival", "VM.zip").await;
+
+        let names: Vec<String> = std::fs::read_dir(&dp)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        if fs_folds_case(td.path()) {
+            assert!(
+                matches!(
+                    got,
+                    Err(Error::DatapackInvalid {
+                        reason: DatapackRejection::NotAZip,
+                        ..
+                    })
+                ),
+                "{got:?}"
+            );
+            assert_eq!(names, vec!["VM.ZIP".to_string()], "nothing was linked");
+            assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), level_before);
+        } else {
+            // Case-sensitive: `VM.zip` is a different entry from `VM.ZIP`.
+            assert!(got.is_ok(), "{got:?}");
+        }
     }
 }
