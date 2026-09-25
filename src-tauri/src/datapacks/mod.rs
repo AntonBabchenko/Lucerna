@@ -22,6 +22,7 @@ use specta::Type;
 use crate::error::{Error, Result};
 
 pub mod compat;
+pub mod detect;
 pub mod guard;
 pub mod level_dat;
 pub mod library;
