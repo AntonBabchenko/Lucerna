@@ -163,6 +163,15 @@ fn filename_overrules_tags(found: LoaderKind, want: LoaderKind, tags: &[LoaderKi
     tags.is_empty() || tags.contains(&found) || forge_pair
 }
 
+/// True when our filename rule keeps `v` for a `want` request — see
+/// [`filename_overrules_tags`]. A filename that names no loader is kept.
+fn kept_by_filename_rule(v: &ModVersion, want: LoaderKind) -> bool {
+    match loader_in_filename(&v.primary_file.filename) {
+        Some(found) => !filename_overrules_tags(found, want, &v.loaders),
+        None => true,
+    }
+}
+
 /// Drop versions whose primary-file filename names a loader that contradicts
 /// the request — see [`filename_overrules_tags`] for when a filename is
 /// allowed to contradict. Versions whose filename names no loader are kept
@@ -174,10 +183,7 @@ pub fn drop_filename_loader_mismatches(
     match want {
         Some(want) => versions
             .into_iter()
-            .filter(|v| match loader_in_filename(&v.primary_file.filename) {
-                Some(found) => !filename_overrules_tags(found, want, &v.loaders),
-                None => true,
-            })
+            .filter(|v| kept_by_filename_rule(v, want))
             .collect(),
         None => versions,
     }
@@ -188,15 +194,13 @@ pub fn drop_filename_loader_mismatches(
 /// `version_files/update_many` (2026-09-21 spec, S2/S5). Our filename rule is
 /// not part of it.
 pub fn tagged_for(v: &ModVersion, mc: &str, want: LoaderKind) -> bool {
-    let _ = (v, mc, want);
-    false // stub: red round
+    v.mc_versions.iter().any(|g| g == mc) && v.loaders.contains(&want)
 }
 
 /// True iff the per-project listing for (`mc`, `want`) would contain `v`:
 /// tagged for both, and kept by [`drop_filename_loader_mismatches`]'s rule.
 pub fn listed_for(v: &ModVersion, mc: &str, want: LoaderKind) -> bool {
-    let _ = (v, mc, want);
-    false // stub: red round
+    tagged_for(v, mc, want) && kept_by_filename_rule(v, want)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
