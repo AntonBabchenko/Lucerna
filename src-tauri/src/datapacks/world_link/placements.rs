@@ -169,8 +169,12 @@ async fn placements_against(
             }
         };
         // A folder is never the library's zip, and with no library copy
-        // nothing can be proven ours: neither needs the entry's bytes.
-        let entry_sha = if cand_meta.is_dir() || lib_sha.is_none() {
+        // nothing can be proven ours: neither needs the entry's bytes. Nor
+        // does anything else that is not a regular file (a FIFO, a socket, a
+        // device; followed, so a link to a file is a file): it is not the
+        // library's zip, and opening a FIFO would block until a writer
+        // appears — under `level_dat_lock` for every mutating caller.
+        let entry_sha = if !cand_meta.is_file() || lib_sha.is_none() {
             None
         } else {
             match tokio::fs::read(&candidate).await {
@@ -246,6 +250,11 @@ pub(crate) async fn world_entry_kind_at(
     };
     if entry_meta.is_dir() {
         return Ok(WorldEntryKind::OwnFolder);
+    }
+    // Not a regular file (a FIFO, a socket, a device): never the library's
+    // zip, and reading a FIFO would block the dialog's check forever.
+    if !entry_meta.is_file() {
+        return Ok(WorldEntryKind::OwnFile);
     }
     let lib = library_dir_at(instance_root).join(filename);
     let label = entry.display().to_string();
@@ -463,6 +472,53 @@ mod tests {
             world_entry_kind_at(td.path(), "W", "vm.zip").await.unwrap(),
             WorldEntryKind::Missing
         );
+    }
+
+    /// A FIFO under the pack's name is not the library's copy, and reading it
+    /// to hash it would block until a writer appears — under `level_dat_lock`
+    /// for every mutating caller of `placements_of`, and forever in the
+    /// removal dialog's check. Both judge it by its type, never opening it.
+    /// `cfg(unix)`: Windows has no FIFO in a folder, so this runs in CI only.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_fifo_named_like_the_pack_is_not_ours_and_is_never_opened() {
+        use std::os::unix::ffi::OsStrExt;
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm.zip", 48).await;
+        let dp = game_world(td.path(), "W").join("datapacks");
+        std::fs::create_dir_all(&dp).unwrap();
+        let fifo = dp.join("vm.zip");
+        let c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let unblock = || {
+            // Release a blocked reader so the runtime can shut down.
+            drop(
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&fifo)
+                    .expect("open the FIFO's write end"),
+            );
+        };
+        let budget = std::time::Duration::from_secs(5);
+
+        let Ok(found) = tokio::time::timeout(budget, placements_of(td.path(), "vm.zip")).await
+        else {
+            unblock();
+            panic!("the placement scan opened the FIFO and blocked");
+        };
+        let found = found.unwrap();
+        assert!(found.unchecked.is_empty(), "{:?}", found.unchecked);
+        assert_eq!(found.found.len(), 1);
+        assert!(!found.found[0].is_ours);
+
+        let Ok(kind) =
+            tokio::time::timeout(budget, world_entry_kind_at(td.path(), "W", "vm.zip")).await
+        else {
+            unblock();
+            panic!("the removal check opened the FIFO and blocked");
+        };
+        assert_eq!(kind.unwrap(), WorldEntryKind::OwnFile);
     }
 
     #[tokio::test]

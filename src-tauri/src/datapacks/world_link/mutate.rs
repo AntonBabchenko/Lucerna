@@ -27,6 +27,9 @@ use super::{
 /// A DIRECTORY is always a conflict: Minecraft loads folder datapacks, and a
 /// folder has no file sha1 to compare, so it can never be proven ours. Doing
 /// otherwise would let `materialize` rename a zip over a whole pack folder.
+/// So is anything else that is not a regular file (a FIFO, a socket, a
+/// device): it is not the library's zip, and opening it to hash it could
+/// block forever under `level_dat_lock` (a FIFO waits for a writer).
 ///
 /// Sizes are compared before hashing so a large pack costs one `metadata` call
 /// in the common "different pack" case rather than two full reads.
@@ -48,7 +51,8 @@ async fn conflicting_world_entry(src: &Path, dest: &Path) -> Result<Option<Error
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    if dest_meta.is_dir() {
+    // Followed metadata: a link to a regular file is a file here.
+    if !dest_meta.is_file() {
         return Ok(Some(Error::ModsFilenameConflict {
             filename,
             existing_sha: String::new(),
@@ -1220,6 +1224,45 @@ mod tests {
             matches!(verdict, Err(Error::ModsInstancePath { .. })),
             "an unreadable different-size dest must propagate, not report a conflict \
              with a fabricated blank sha: {verdict:?}"
+        );
+    }
+
+    /// A FIFO under the pack's name is not the library's file, and opening it
+    /// to hash it would block until a writer appears — under `level_dat_lock`,
+    /// stalling every datapack writer. It is a conflict, judged by its type
+    /// without ever opening it. `cfg(unix)`: Windows has no FIFO in a folder,
+    /// so this runs in CI only.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_fifo_in_the_way_is_a_conflict_and_is_never_opened() {
+        use std::os::unix::ffi::OsStrExt;
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("lib-vm.zip");
+        std::fs::write(&src, b"library bytes").unwrap();
+        let dest = td.path().join("vm.zip");
+        let c = std::ffi::CString::new(dest.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+
+        let verdict = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            conflicting_world_entry(&src, &dest),
+        )
+        .await;
+
+        let Ok(verdict) = verdict else {
+            // Release the blocked reader so the runtime can shut down.
+            drop(
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&dest)
+                    .expect("open the FIFO's write end"),
+            );
+            panic!("the gate opened the FIFO and blocked");
+        };
+        assert!(
+            matches!(verdict, Ok(Some(Error::ModsFilenameConflict { .. }))),
+            "got {verdict:?}"
         );
     }
 
