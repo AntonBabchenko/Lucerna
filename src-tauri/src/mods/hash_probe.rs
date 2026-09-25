@@ -530,4 +530,55 @@ mod tests {
             "a withdrawn file must not keep the owner an earlier pass saw"
         );
     }
+
+    #[tokio::test]
+    async fn an_owner_is_only_ever_paired_with_the_latest_fetched_alongside_it() {
+        // A pass at another (mc, loader) must not refresh the owner this key
+        // pairs with its older `latest`. Here the bytes are unknown at first —
+        // `latest` is empty BECAUSE of that (S3) — and then published: the
+        // newer owner next to that empty `latest` would read as «no build» (B3).
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .up_to_n_times(1)
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(obj(vec![(
+                H1,
+                version_json("v1", "p1", "1.20.1", "neoforge", "p1-1.0.jar", H1),
+            )])))
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files/update_many"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&s)
+            .await;
+        let _seam = loopback_allowed();
+        let cache = HashProbeCache::new();
+        let client = ModrinthClient::with_base(s.uri());
+        let first = cache
+            .snapshot(&client, &[H1.to_string()], "1.21.1", NF)
+            .await
+            .unwrap();
+        assert!(first.own[H1].is_none(), "unknown bytes at first");
+        let other = cache
+            .snapshot(&client, &[H1.to_string()], "1.21.4", NF)
+            .await
+            .unwrap();
+        assert!(other.own[H1].is_some(), "published by the second pass");
+        // Back at the first key, inside the TTL: its own pair, fetched together.
+        let again = cache
+            .snapshot(&client, &[H1.to_string()], "1.21.1", NF)
+            .await
+            .unwrap();
+        assert!(
+            again.own[H1].is_none(),
+            "an owner fetched for another key must not meet this key's latest"
+        );
+        assert!(again.latest[H1].is_empty());
+    }
 }
