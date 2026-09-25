@@ -2088,6 +2088,7 @@ export type TranslationKey =
   | 'servers.create'
   | 'servers.datapacks.blockedNotCreated'
   | 'servers.datapacks.blockedOnlyOld'
+  | 'servers.datapacks.blockedUnknown'
   | 'servers.datapacks.checkUpdates'
   | 'servers.datapacks.disable'
   | 'servers.datapacks.empty'

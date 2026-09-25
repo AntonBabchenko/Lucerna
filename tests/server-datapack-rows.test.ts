@@ -110,9 +110,18 @@ describe('server level.dat gates (D2)', () => {
     expect(serverWorldBlockedKey('absent')).toBeNull();
     expect(serverWorldBlockedKey('present')).toBeNull();
     expect(serverWorldBlockedKey(null)).toBeNull();
-    expect(serverToggleBlockedKey('only_old')).toBe('servers.datapacks.blockedOnlyOld');
-    expect(serverToggleBlockedKey('absent')).toBe('servers.datapacks.blockedNotCreated');
-    expect(serverToggleBlockedKey('present')).toBeNull();
-    expect(serverToggleBlockedKey(null)).toBeNull();
+    expect(serverToggleBlockedKey('only_old', 'enabled')).toBe('servers.datapacks.blockedOnlyOld');
+    expect(serverToggleBlockedKey('absent', 'enabled')).toBe('servers.datapacks.blockedNotCreated');
+    expect(serverToggleBlockedKey('present', 'enabled')).toBeNull();
+    expect(serverToggleBlockedKey(null, 'disabled')).toBeNull();
+  });
+
+  // Fallback Q1: a row whose state could not be read has no known side to
+  // switch to; a live toggle would guess "Enable".
+  test('a row whose state is unknown cannot be switched', () => {
+    expect(serverToggleBlockedKey('present', null)).toBe('servers.datapacks.blockedUnknown');
+    expect(serverToggleBlockedKey(null, null)).toBe('servers.datapacks.blockedUnknown');
+    // A lasting world reason still wins.
+    expect(serverToggleBlockedKey('only_old', null)).toBe('servers.datapacks.blockedOnlyOld');
   });
 });

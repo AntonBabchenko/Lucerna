@@ -1,5 +1,5 @@
 import type { TranslationKey } from '$lib/i18n/keys.generated';
-import type { LevelDatPresence, ServerDatapackEntry } from '$lib/ipc/bindings';
+import type { LevelDatPresence, ServerDatapackEntry, WorldPackState } from '$lib/ipc/bindings';
 import type { BadgeVariant } from '$lib/ui/cards/card-status';
 import { ignoredLabelKey } from '$lib/worlds/datapack-state';
 
@@ -80,11 +80,17 @@ export function serverWorldBlockedKey(levelDat: LevelDatPresence | null): Transl
 }
 
 /**
- * Why the on/off toggle alone is off, or null. On a never-started world it is
+ * Why one row's on/off toggle is off, or null. On a never-started world it is
  * rendered disabled up front (the backend refuses with ServerWorldNotCreated
- * anyway): the state lives in a level.dat the server has not written yet.
+ * anyway): the state lives in a level.dat the server has not written yet. A
+ * row whose state could not be read (`null`) has no known side to switch to:
+ * a live toggle would guess "Enable" (Fallback discipline Q1). The world's
+ * lasting reasons come first.
  */
-export function serverToggleBlockedKey(levelDat: LevelDatPresence | null): TranslationKey | null {
+export function serverToggleBlockedKey(
+  levelDat: LevelDatPresence | null,
+  state: WorldPackState | null,
+): TranslationKey | null {
   switch (levelDat) {
     case 'only_old':
       return 'servers.datapacks.blockedOnlyOld';
@@ -92,6 +98,6 @@ export function serverToggleBlockedKey(levelDat: LevelDatPresence | null): Trans
       return 'servers.datapacks.blockedNotCreated';
     case 'present':
     case null:
-      return null;
+      return state === null ? 'servers.datapacks.blockedUnknown' : null;
   }
 }

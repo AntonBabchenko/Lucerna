@@ -169,6 +169,17 @@ describe('ServerDatapacksInstalled — level.dat presence (D2)', () => {
     expect(tooltipState.text).toBe('Start the server once to restore level.dat');
   });
 
+  it('a row whose state could not be read offers no live toggle, and says why', async () => {
+    listing('present', [entry({ state: null })]);
+    mount();
+    const toggle = (await screen.findByTestId('server-datapack-toggle')) as HTMLButtonElement;
+    expect(toggle.disabled).toBe(true);
+    revealTooltip(toggle.closest('span') as HTMLElement);
+    expect(tooltipState.text).toBe("Couldn't read whether this pack is on or off");
+    await fireEvent.click(toggle);
+    expect(cmd.serverSetDatapackEnabled).not.toHaveBeenCalled();
+  });
+
   it('absent disables only the toggle, with the reason', async () => {
     listing('absent', [entry()]);
     mount();

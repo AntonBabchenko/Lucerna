@@ -56,7 +56,6 @@
   // Null is not a verdict: every writer re-checks presence before writing.
   let levelDat = $state<LevelDatPresence | null>(null);
   const worldBlock = $derived(serverWorldBlockedKey(levelDat));
-  const toggleBlock = $derived(serverToggleBlockedKey(levelDat));
   let loading = $state(false);
   let loadError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
@@ -439,6 +438,7 @@
           {/if}
 
           {#if row.present && row.state !== 'ignored'}
+            {@const toggleBlock = serverToggleBlockedKey(levelDat, row.state)}
             {@const toggleLabel =
               row.state === 'enabled'
                 ? $t('servers.datapacks.disable')

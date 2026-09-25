@@ -3451,6 +3451,7 @@
       "onlyOldLevelDat": "The world's level.dat is missing — only the backup copy level.dat_old is left. Start the server once so Minecraft restores level.dat from it, then stop it to manage data packs.",
       "blockedNotCreated": "Start the server once first",
       "blockedOnlyOld": "Start the server once to restore level.dat",
+      "blockedUnknown": "Couldn't read whether this pack is on or off",
       "empty": "No data packs in this server's world yet.",
       "remove": "Remove data pack",
       "removeConfirm": "Remove {name} from this server's world?",
