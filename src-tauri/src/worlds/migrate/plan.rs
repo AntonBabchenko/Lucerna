@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use crate::datapacks::detect::{self, Presence};
 use crate::datapacks::level_dat::{self, WorldVersion};
 use crate::datapacks::{compat, library, library_dir_at};
 use crate::error::{Error, Result};
@@ -153,9 +154,11 @@ fn verdict_of(
     }
 }
 
-/// Regular `*.zip` files (case-insensitive) directly under the world's
-/// `datapacks/` get a prediction; directories are counted as folder packs;
-/// symlinks and other files are ignored (the §5 scope rule).
+/// Regular files directly under the world's `datapacks/` whose name ends in
+/// `.zip` exactly (the game's own rule, `datapacks::detect`) get a
+/// prediction; a folder with `pack.mcmeta` directly inside is counted as a
+/// folder pack; symlinks, other folders and other files are ignored (the §5
+/// scope rule, spec §2 N.1).
 fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackPlan>, u32)> {
     let entries = match std::fs::read_dir(dp_dir) {
         Ok(entries) => entries,
@@ -175,14 +178,21 @@ fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackP
             // `copy_tree` skips it; the stage step counts it in `links_skipped`.
             continue;
         }
-        if ft.is_dir() {
-            folders = folders.saturating_add(1);
-            continue;
-        }
         let Some(name) = entry.file_name().to_str().map(String::from) else {
             continue;
         };
-        if !ft.is_file() || !name.to_ascii_lowercase().ends_with(".zip") {
+        if ft.is_dir() {
+            // A folder PACK has `pack.mcmeta` directly inside it (spec §2 N.1).
+            if matches!(
+                detect::classify_one(dp_dir, &name, false),
+                Some(Presence::Pack { is_dir: true })
+            ) {
+                folders = folders.saturating_add(1);
+            }
+            continue;
+        }
+        // The game's `endsWith(".zip")` is exact (N.0): `X.ZIP` stays world content.
+        if !ft.is_file() || !detect::has_zip_suffix(&name) {
             continue;
         }
         let predicted = predict_one(&entry.path(), &library_dir.join(&name));
@@ -563,6 +573,8 @@ mod tests {
         install_jar(&fx.versions_dir, "1.20.1", Some(3465));
         let dp = fx.world.join("datapacks");
         fs::create_dir_all(dp.join("folderpack").join("data")).unwrap();
+        // A folder pack has `pack.mcmeta` directly inside it (spec §2 N.0).
+        fs::write(dp.join("folderpack").join("pack.mcmeta"), b"{}").unwrap();
         fs::write(dp.join("keep.zip"), b"same bytes").unwrap();
         fs::write(dp.join("clash.zip"), b"world has v1").unwrap();
         fs::write(dp.join("new.zip"), b"only in the world").unwrap();
@@ -648,7 +660,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missing_datapacks_folder_is_zero_packs_and_an_upper_case_zip_counts() {
+    async fn a_missing_datapacks_folder_is_zero_packs_and_an_upper_case_zip_is_not_planned() {
         let fx = fixture();
         install_jar(&fx.versions_dir, "1.20.1", Some(3465));
         let p = plan(&fx, "1.20.1").await.unwrap();
@@ -659,8 +671,21 @@ mod tests {
         fs::create_dir_all(&dp).unwrap();
         fs::write(dp.join("Loud.ZIP"), b"x").unwrap();
         let p = plan(&fx, "1.20.1").await.unwrap();
-        assert_eq!(p.datapacks.len(), 1);
-        assert_eq!(p.datapacks[0].filename, "Loud.ZIP");
-        assert_eq!(p.datapacks[0].predicted, DatapackResult::Adopted);
+        // Engine `endsWith(".zip")` is case-sensitive (spec §2 N.0):
+        // `Loud.ZIP` stays world content.
+        assert!(p.datapacks.is_empty(), "{:?}", p.datapacks);
+    }
+
+    /// §0.5 A13: a folder is a pack only with `pack.mcmeta` directly inside.
+    #[tokio::test]
+    async fn a_folder_without_pack_mcmeta_is_not_counted() {
+        let fx = fixture();
+        install_jar(&fx.versions_dir, "1.20.1", Some(3465));
+        let dp = fx.world.join("datapacks");
+        fs::create_dir_all(dp.join("Loose").join("data")).unwrap();
+        fs::create_dir_all(dp.join("Real").join("data")).unwrap();
+        fs::write(dp.join("Real").join("pack.mcmeta"), b"{}").unwrap();
+        let p = plan(&fx, "1.20.1").await.unwrap();
+        assert_eq!(p.datapacks_folders, 1);
     }
 }

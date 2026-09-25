@@ -53,10 +53,10 @@ use super::{DatapackMigration, DatapackResult, LeftReason, MigrationPath, Relink
 /// world: on `Renamed` every entry left unlinked is de-shared from the SOURCE
 /// library ([`deshare`]).
 ///
-/// Visits regular files whose name ends in `.zip` (case-insensitive) — the
-/// rule `world_link::list_on_disk_entries` uses, minus directories. A
-/// directory is a folder pack, counted and left as it is; a symlink or any
-/// other file is ignored. A missing `datapacks/` folder is zero packs.
+/// Visits regular files whose name ends in `.zip` exactly (the game's own
+/// rule, `datapacks::detect`). A folder with `pack.mcmeta` directly inside
+/// is a folder pack, counted and left as it is; any other folder, a symlink or
+/// any other file is ignored. A missing `datapacks/` folder is zero packs.
 pub(crate) async fn relink_datapacks_at(
     stage: &Path,
     src_root: &Path,
@@ -105,15 +105,6 @@ pub(crate) async fn relink_datapacks_at(
         if ft.is_symlink() {
             continue;
         }
-        if ft.is_dir() {
-            // A folder datapack: copied as it is, never zipped, never adopted
-            // (the library is zip-only and level.dat names `file/<folder>`).
-            folders_copied += 1;
-            continue;
-        }
-        if !ft.is_file() {
-            continue;
-        }
         let file_name = entry.file_name();
         let Some(name) = file_name.to_str() else {
             // Not representable as a library filename; left in place.
@@ -123,7 +114,23 @@ pub(crate) async fn relink_datapacks_at(
             );
             continue;
         };
-        if name.to_ascii_lowercase().ends_with(".zip") {
+        if ft.is_dir() {
+            // A folder datapack: copied as it is, never zipped, never adopted
+            // (the library is zip-only and level.dat names `file/<folder>`).
+            // Only a folder with `pack.mcmeta` directly inside is a pack (N.1).
+            if matches!(
+                crate::datapacks::detect::classify_one(&dp_dir, name, false),
+                Some(crate::datapacks::detect::Presence::Pack { is_dir: true })
+            ) {
+                folders_copied += 1;
+            }
+            continue;
+        }
+        if !ft.is_file() {
+            continue;
+        }
+        // The game's `endsWith(".zip")` is exact (N.0): `X.ZIP` stays world content.
+        if crate::datapacks::detect::has_zip_suffix(name) {
             zips.push(name.to_string());
         }
     }
@@ -334,13 +341,13 @@ async fn sha1_of(path: &Path) -> std::io::Result<String> {
         .map_err(|e| std::io::Error::other(format!("join: {e}")))
 }
 
-/// The source registry row for `name` (case-folded, as `install_named_at`'s
-/// own lookup — NTFS folds non-ASCII too), when it carries a full catalog
-/// identity. A row without `source`, `project_id` or `version_id` is a local
-/// install and yields `None`, exactly what a local install records.
+/// The source registry row for `name` (exact first, else the single
+/// case-insensitive match, as `install_named_at`'s own lookup — NTFS folds
+/// non-ASCII too), when it carries a full catalog identity. A row without
+/// `source`, `project_id` or `version_id` is a local install and yields
+/// `None`, exactly what a local install records.
 fn provenance_for(name: &str, rows: &[InstalledDatapack]) -> Option<DatapackProvenance> {
-    let want = name.to_lowercase();
-    let row = rows.iter().find(|r| r.filename.to_lowercase() == want)?;
+    let row = crate::datapacks::detect::find_by_name(rows, name, |r| r.filename.as_str())?;
     Some(DatapackProvenance {
         source: row.source?,
         project_id: row.project_id.clone()?,
@@ -865,6 +872,24 @@ mod tests {
         assert!(
             !td.path().join("dst").try_exists().unwrap(),
             "nothing is created for nothing"
+        );
+    }
+
+    /// Engine (spec §2 N.0): `endsWith(".zip")` is case-sensitive, and a
+    /// folder is a pack only with `pack.mcmeta` directly inside it.
+    #[tokio::test]
+    async fn an_upper_case_zip_is_not_adopted_and_a_bare_folder_is_not_counted() {
+        let _lock = hardlink_lock();
+        let f = fixture();
+        stage_file(&f, "Loud.ZIP", &datapack_zip(48));
+        std::fs::create_dir_all(f.stage.join("datapacks").join("Bare").join("data")).unwrap();
+        let out = relink(&f, MigrationPath::Copied).await;
+        assert!(out.datapacks.is_empty(), "{:?}", out.datapacks);
+        assert_eq!(out.folders_copied, 0);
+        assert!(registry::list(&f.dst_root).await.unwrap().is_empty());
+        assert!(
+            f.stage.join("datapacks").join("Loud.ZIP").is_file(),
+            "left as world content"
         );
     }
 }
