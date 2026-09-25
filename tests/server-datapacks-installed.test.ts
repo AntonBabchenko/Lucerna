@@ -125,6 +125,27 @@ describe('ServerDatapacksInstalled — a ghost entry (U3)', () => {
   });
 });
 
+// A reload that fails after an action must not leave the old rows standing
+// with the world's level.dat reason gone: on a never-started world that would
+// turn the blocked toggles live. Rows and error never render together.
+describe('ServerDatapacksInstalled — a reload that fails', () => {
+  it('clears the rows instead of keeping them with their gates lifted', async () => {
+    const q = entry({ record: { ...entry().record, filename: 'q.zip', name: 'Q' } });
+    listing('absent', [entry(), q]);
+    mount();
+    const removes = await screen.findAllByTestId('server-datapack-remove');
+    cmd.serverListDatapacks.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: 'runtime/world/datapacks', details: 'locked' },
+    });
+    await fireEvent.click(removes[0]);
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: /^remove data pack$/i }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/locked/));
+    expect(screen.queryAllByTestId('server-datapack-toggle')).toHaveLength(0);
+  });
+});
+
 describe('ServerDatapacksInstalled — the note under the toolbar (U4)', () => {
   it('the note does not claim to match /datapack list', async () => {
     listing('present', []);

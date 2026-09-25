@@ -127,6 +127,11 @@
       rows = res.data.entries;
       levelDat = res.data.level_dat;
     } else {
+      // Clear the rows too, as WorldDatapacks.reload does: rows kept from the
+      // last good load with `levelDat` gone would lift the level.dat gates
+      // (a never-started world's toggles would turn live), and an error and a
+      // stale, still-interactive list must never render together.
+      rows = [];
       levelDat = null;
       loadError = formatError(res.error);
     }
