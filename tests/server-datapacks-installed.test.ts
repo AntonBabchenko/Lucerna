@@ -119,3 +119,12 @@ describe('ServerDatapacksInstalled — a ghost entry (U3)', () => {
     await waitFor(() => expect(cmd.serverRemoveDatapack).toHaveBeenCalledWith('s1', 'gone.zip'));
   });
 });
+
+describe('ServerDatapacksInstalled — the note under the toolbar (U4)', () => {
+  it('the note does not claim to match /datapack list', async () => {
+    listing('present', []);
+    mount();
+    expect(await screen.findByText(/built-in and mod-provided/)).toBeTruthy();
+    expect(screen.queryByText(/matches what \/datapack list shows/)).toBeNull();
+  });
+});

@@ -3437,7 +3437,7 @@
       "enable": "Enable",
       "disable": "Disable",
       "checkUpdates": "Check for updates",
-      "note": "Data packs are enabled and disabled in the world itself, so this list matches what /datapack list shows in game.",
+      "note": "Switching a pack on or off here edits the world's own pack list, the same one /datapack enable and /datapack disable change in game. This list shows what is in the world's datapacks folder; /datapack list also shows built-in and mod-provided packs, which aren't listed here.",
       "empty": "No data packs in this server's world yet.",
       "remove": "Remove data pack",
       "removeConfirm": "Remove {name} from this server's world?",

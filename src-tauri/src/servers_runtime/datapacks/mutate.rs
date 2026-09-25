@@ -10,7 +10,9 @@ use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 use super::{level_dat_lock, refuse_only_old};
 
 /// Enable or disable one pack in the world's `level.dat`. The file itself is
-/// never touched — this is the game's own mechanism.
+/// never touched — this edits the same list `/datapack enable` and
+/// `/datapack disable` change in game. (The pane lists the world's
+/// `datapacks/` folder; `/datapack list` also shows built-in and mod packs.)
 ///
 /// The name is resolved to the on-disk entry by R2, and the engine's id,
 /// `file/` + that entry's own spelling, is written (spec §2 N.4). An entry the
