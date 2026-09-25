@@ -1061,6 +1061,7 @@
         "uncheckedWorlds": "{count, plural, one {# world couldn't be checked:} other {# worlds couldn't be checked:}}",
         "uncheckedKeepsLibrary": "If they still can't be checked when you remove the pack, they are left as they are and the pack stays in the library, so trying again later can finish the job.",
         "uncheckedWorldsOnly": "Removing tries these worlds as well and tells you about any it couldn't change.",
+        "unchangedWorlds": "{count, plural, one {# world won't be changed:} other {# worlds won't be changed:}}",
         "onlyOldKeepsLibrary": "Lucerna won't change a world that has only level.dat_old, so that world keeps the pack, and the pack stays in the library until you restore the world and remove it again.",
         "cascade": "Also remove from worlds",
         "keepNote": "If unchecked, the worlds keep their copies and the pack keeps loading in game.",
@@ -1078,7 +1079,7 @@
         "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
         "toastFailedWorldsOnly": "{count, plural, one {# world could not be cleaned} other {# worlds could not be cleaned}}",
         "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
-        "worldsOnlyNote": "This pack isn't in the library, so removing it deletes it from the listed worlds permanently. It can't be restored."
+        "worldsOnlyNote": "This pack isn't in the library, so removing it deletes it permanently from every world Lucerna can change. It can't be restored."
       },
       "vt": {
         "open": "Vanilla Tweaks…",

@@ -23,7 +23,8 @@
   //
   // Three modes. `library` — the cascade removal from the library row.
   // `worlds-only` — a row whose library copy is gone: per-world removal by
-  // name. `this-world` — one pack out of ONE world, from the world tab's
+  // name, which skips (and lists apart) the worlds every world writer refuses
+  // (D2). `this-world` — one pack out of ONE world, from the world tab's
   // trash and the library sub-row's trash (spec 2026-09-24 §4 U1). It asks
   // the backend what the entry IS first: only the library's own copy
   // survives a removal, anything else is the only copy and is deleted
@@ -77,8 +78,20 @@
   function isUnchecked(p: DatapackPlacementView): boolean {
     return (p.state === null && p.level_dat !== 'absent') || p.ignored_reason === 'unreadable';
   }
-  const affected = $derived(placements.filter((p) => !isUnchecked(p)));
-  const unchecked = $derived(placements.filter(isUnchecked));
+  // D2: every world writer refuses a folder with no level.dat or only
+  // level.dat_old. A worlds-only removal goes world by world through those
+  // writers, so such worlds are listed apart as left unchanged and never
+  // tried. The library cascade differs: it unlinks the file in a folder with
+  // no level file (A3) and fails an only-old world, which the only-old note
+  // says up front.
+  const unchanged = $derived(
+    mode.kind === 'worlds-only'
+      ? placements.filter((p) => p.level_dat === 'absent' || p.level_dat === 'only_old')
+      : [],
+  );
+  const tried = $derived(placements.filter((p) => !unchanged.includes(p)));
+  const affected = $derived(tried.filter((p) => !isUnchecked(p)));
+  const unchecked = $derived(tried.filter(isUnchecked));
   // D2: the cascade refuses a world with only level.dat_old and reports it
   // Failed, which keeps the library copy. Said up front, not only in the toast.
   const anyOnlyOld = $derived(placements.some((p) => p.level_dat === 'only_old'));
@@ -144,7 +157,7 @@
   async function confirmWorldsOnly() {
     let removed = 0;
     const failed: string[] = [];
-    for (const p of placements) {
+    for (const p of tried) {
       const res = await commands.datapacksRemoveFromWorld(instanceId, p.world, filename);
       if (res.status === 'ok') removed += 1;
       else failed.push(`${p.world}: ${formatError(res.error)}`);
@@ -272,6 +285,16 @@
           {/if}
         </div>
       {/if}
+      {#if unchanged.length > 0}
+        <div class="text-sm text-secondary" data-testid="datapack-remove-unchanged">
+          <p>{$t('addons.datapacks.remove.unchangedWorlds', { count: unchanged.length })}</p>
+          <ul class="mt-1 list-disc list-inside text-primary">
+            {#each unchanged as p (p.world)}
+              {@render worldItem(p)}
+            {/each}
+          </ul>
+        </div>
+      {/if}
       {#if mode.kind === 'library' && cascade && anyOnlyOld}
         <p class="text-xs text-muted" data-testid="datapack-remove-only-old-note">
           {$t('addons.datapacks.remove.onlyOldKeepsLibrary')}
@@ -303,7 +326,8 @@
       <BusyButton
         class="btn-danger btn-sm"
         {busy}
-        disabled={mode.kind === 'this-world' && verdict === null}
+        disabled={(mode.kind === 'this-world' && verdict === null) ||
+          (mode.kind === 'worlds-only' && tried.length === 0)}
         onclick={confirm}
         data-testid="datapack-remove-confirm"
       >

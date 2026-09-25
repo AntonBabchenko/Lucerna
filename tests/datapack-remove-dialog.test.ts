@@ -263,6 +263,60 @@ describe('DatapackRemoveDialog — worlds without a usable level.dat (D2)', () =
   });
 });
 
+// A worlds-only removal goes world by world, and every world writer refuses a
+// folder with no level.dat or only level.dat_old (D2). Those are listed apart
+// as left unchanged, never promised a deletion and never tried.
+describe('DatapackRemoveDialog — worlds-only, worlds Lucerna won’t change', () => {
+  const place = (
+    world: string,
+    state: DatapackPlacementView['state'],
+    level_dat: DatapackPlacementView['level_dat'],
+  ): DatapackPlacementView => ({ world, state, ignored_reason: null, level_dat });
+  const worldsOnly = (placements: DatapackPlacementView[]) => ({
+    instanceId: 'inst-1',
+    filename: 'vm.zip',
+    packName: 'VeinMiner',
+    mode: { kind: 'worlds-only' as const, placements },
+    onClose: () => {},
+    onRemoved: () => {},
+  });
+
+  it('lists absent and only-old folders apart, with why, and removes from the rest only', async () => {
+    cmd.datapacksRemoveFromWorld.mockResolvedValue({ status: 'ok', data: null });
+    render(DatapackRemoveDialog, {
+      props: worldsOnly([
+        place('Fine', 'enabled', 'present'),
+        place('Husk', null, 'absent'),
+        place('Old', 'disabled', 'only_old'),
+      ]),
+    });
+    const unchanged = await screen.findByTestId('datapack-remove-unchanged');
+    expect(within(unchanged).getByText(/2 worlds won't be changed/)).toBeTruthy();
+    expect(within(unchanged).getByText(/Husk/)).toBeTruthy();
+    expect(within(unchanged).getByText(/Old/)).toBeTruthy();
+    expect(within(unchanged).getByText(/no level\.dat/)).toBeTruthy();
+    expect(within(unchanged).getByText(/restore it from the backup/)).toBeTruthy();
+    const affected = screen.getByTestId('datapack-remove-affected');
+    expect(within(affected).getByText(/used in 1 world/)).toBeTruthy();
+    expect(within(affected).queryByText(/Husk/)).toBeNull();
+    expect(screen.getByText(/every world Lucerna can change/)).toBeTruthy();
+
+    await fireEvent.click(confirmBtn());
+    await waitFor(() => expect(toasts.pushSuccess).toHaveBeenCalledTimes(1));
+    expect(cmd.datapacksRemoveFromWorld).toHaveBeenCalledTimes(1);
+    expect(cmd.datapacksRemoveFromWorld).toHaveBeenCalledWith('inst-1', 'Fine', 'vm.zip');
+  });
+
+  it('offers no removal when every world is one Lucerna won’t change', async () => {
+    render(DatapackRemoveDialog, {
+      props: worldsOnly([place('Old', 'disabled', 'only_old')]),
+    });
+    await screen.findByTestId('datapack-remove-unchanged');
+    expect(screen.queryByTestId('datapack-remove-affected')).toBeNull();
+    expect(confirmBtn().disabled).toBe(true);
+  });
+});
+
 // A worlds-only row has no library copy: a world that could not be cleaned
 // must not be reported as "the library copy was kept".
 describe('DatapackRemoveDialog — worlds-only failure toast', () => {

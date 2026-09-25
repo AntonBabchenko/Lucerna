@@ -103,6 +103,19 @@ fn claimed_by_registry(facts: &WorldFacts, entry_name: &str) -> bool {
         .any(|d| d.entry_name() == entry_name)
 }
 
+/// Whether a world's own pack entries may become rows of their own ("only in
+/// worlds"). Only a world the game opens: `Present`, or `OnlyOld`, which the
+/// game restores. A folder with neither file is no world (§3 L.6), and one
+/// whose presence could not be told may not be one; every world writer
+/// refuses both, so a row adopted from them could never be removed (Fallback
+/// discipline Q1: could not tell ⟹ the restrictive answer).
+fn adopts_world_only_rows(level_dat: Option<LevelDatPresence>) -> bool {
+    match level_dat {
+        Some(LevelDatPresence::Present | LevelDatPresence::OnlyOld) => true,
+        Some(LevelDatPresence::Absent) | None => false,
+    }
+}
+
 /// Gather every world's facts with ONE presence stat, ONE list read and ONE
 /// `read_dir` per world — not one per (pack, world) pair. Synchronous: the
 /// scan may open unvouched zips, so the caller runs it in `spawn_blocking`.
@@ -215,9 +228,14 @@ pub async fn list_at(
     // cascading is gone from the registry but still loading in game; leaving
     // it out would make live content invisible. Keyed exactly (N.3); an entry
     // the game ignores is not a pack, so the world tab shows it and this
-    // screen does not (N.1 Q1).
+    // screen does not (N.1 Q1). Adopted only from a world the game opens
+    // (`adopts_world_only_rows`); such a pack still lists every folder that
+    // holds it as a placement.
     let mut names: Vec<(String, bool)> = rows.iter().map(|r| (r.filename.clone(), true)).collect();
-    for facts in &worlds {
+    for facts in worlds
+        .iter()
+        .filter(|f| adopts_world_only_rows(f.level_dat))
+    {
         for e in facts.on_disk.iter().flatten() {
             if claimed_by_registry(facts, &e.name) || !matches!(e.presence, Presence::Pack { .. }) {
                 continue;
@@ -518,6 +536,56 @@ mod tests {
     /// §3 L.6 / §0.5 A2: an only-old world's placement keeps the state
     /// `level.dat_old` holds — the one the game will load — and carries the
     /// presence that explains why it cannot be changed.
+    /// A pack found only in worlds is adopted as a row of its own only from a
+    /// world the game opens (`Present`, or `OnlyOld`, which it restores). A
+    /// folder with no level file is no world, and one whose presence could not
+    /// be told may not be either: every world writer refuses both, so a row
+    /// adopted from them offered a removal that could never succeed. A folder
+    /// still shows as a placement of a pack a real world adopted.
+    #[tokio::test]
+    async fn world_only_rows_are_adopted_only_from_worlds_the_game_opens() {
+        let td = tempfile::tempdir().unwrap();
+        let saves = td.path().join(".minecraft/saves");
+        let drop = |world: &str, file: &str| {
+            let dp = saves.join(world).join("datapacks");
+            std::fs::create_dir_all(&dp).unwrap();
+            std::fs::write(dp.join(file), datapack_zip(48)).unwrap();
+        };
+        game_world(td.path(), "Alpha");
+        drop("Alpha", "shared.zip");
+        crate::datapacks::level_dat::test_support::seed_old(&saves.join("Restoring"), &[], &[]);
+        drop("Restoring", "old.zip");
+        drop("Loose", "shared.zip");
+        drop("Loose", "stray.zip");
+        std::fs::create_dir_all(saves.join("Odd").join("level.dat")).unwrap();
+        drop("Odd", "odd.zip");
+
+        let view = list_at(td.path(), None).await.unwrap();
+
+        let names: Vec<&str> = view
+            .entries
+            .iter()
+            .map(|e| e.pack.filename.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["old.zip", "shared.zip"],
+            "no row adopted from a folder with no level file or an untellable one"
+        );
+        let shared: Vec<(&str, Option<LevelDatPresence>)> = entry_for(&view, "shared.zip")
+            .placements
+            .iter()
+            .map(|p| (p.world.as_str(), p.level_dat))
+            .collect();
+        assert_eq!(
+            shared,
+            vec![
+                ("Alpha", Some(LevelDatPresence::Present)),
+                ("Loose", Some(LevelDatPresence::Absent)),
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn an_only_old_world_reports_level_dat_old_state() {
         let td = tempfile::tempdir().unwrap();
