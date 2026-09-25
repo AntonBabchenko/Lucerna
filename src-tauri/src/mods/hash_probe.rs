@@ -124,12 +124,27 @@ impl HashProbeCache {
         // disappear before this call assembles its answer, because only the
         // next call's `retain` removes entries and it waits on the same gate.
         let now = Instant::now();
+        let latest_key = |sha: &str| (sha.to_string(), mc.to_string(), loader);
+        let missing_latest: Vec<String> = {
+            let mut latest = self.latest.lock().expect("hash probe cache mutex poisoned");
+            latest.retain(|_, (_, at)| now.saturating_duration_since(*at) < TTL);
+            wanted
+                .iter()
+                .filter(|s| !latest.contains_key(&latest_key(s)))
+                .cloned()
+                .collect()
+        };
+        // Every hash whose `latest` is fetched now gets its owner fetched now
+        // too, so an owner is never older than a `latest` it is paired with: a
+        // stale owner next to a fresh «nothing tagged» would read as «no
+        // build» (B3) for a file that is gone from the platform.
         let missing_own: Vec<String> = {
+            let refetch: HashSet<&String> = missing_latest.iter().collect();
             let mut own = self.own.lock().expect("hash probe cache mutex poisoned");
             own.retain(|_, (_, at)| now.saturating_duration_since(*at) < TTL);
             wanted
                 .iter()
-                .filter(|s| !own.contains_key(*s))
+                .filter(|s| !own.contains_key(*s) || refetch.contains(s))
                 .cloned()
                 .collect()
         };
@@ -142,16 +157,6 @@ impl HashProbeCache {
                 own.insert(sha, (v, fetched_at));
             }
         }
-        let latest_key = |sha: &str| (sha.to_string(), mc.to_string(), loader);
-        let missing_latest: Vec<String> = {
-            let mut latest = self.latest.lock().expect("hash probe cache mutex poisoned");
-            latest.retain(|_, (_, at)| now.saturating_duration_since(*at) < TTL);
-            wanted
-                .iter()
-                .filter(|s| !latest.contains_key(&latest_key(s)))
-                .cloned()
-                .collect()
-        };
         if !missing_latest.is_empty() {
             let got = client.latest_by_hashes(&missing_latest, mc, loader).await?;
             let fetched_at = Instant::now();

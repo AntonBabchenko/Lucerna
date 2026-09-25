@@ -22,10 +22,21 @@ use lucerna_lib::mods::hash_probe::HashProbeCache;
 use lucerna_lib::mods::installed::{mods_dir, registry_path};
 use lucerna_lib::mods::modrinth::ModrinthClient;
 use lucerna_lib::mods::platform::{InstalledMod, LoaderKind, ModPlatform, ModSource};
+use lucerna_lib::mods::updates::{batch_update_state, classify_update, ModUpdateState};
 use sha1::{Digest, Sha1};
 
 fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.is_empty())
+}
+
+/// An update state reduced to what must agree: its kind, and the target id.
+fn state_key(s: &ModUpdateState) -> String {
+    match s {
+        ModUpdateState::UpToDate => "up_to_date".into(),
+        ModUpdateState::UpdateAvailable { target } => format!("update:{}", target.version_id),
+        ModUpdateState::Unknown => "unknown".into(),
+        ModUpdateState::CheckFailed { .. } => "check_failed".into(),
+    }
 }
 
 #[tokio::test]
@@ -73,27 +84,52 @@ async fn batch_answers_agree_with_the_per_project_listing() {
             registry_version_id: m.version_id.as_deref(),
         };
         let own = snap.own.get(h).and_then(Option::as_ref);
-        let latest = snap.latest.get(h).map(Vec::as_slice).unwrap_or(&[]);
-        let answer = batch_answer(&file, project, &mc, loader, own, latest);
+        // An absent `latest` was declined by the snapshot (an unlisted newest
+        // build, spec S10): the listing decides, exactly as in production.
+        let latest = snap.latest.get(h);
+        let answer = match latest {
+            Some(latest) => batch_answer(&file, project, &mc, loader, own, latest),
+            None => BatchAnswer::Undecided,
+        };
         let listing = client.versions(project, Some(&mc), Some(loader)).await;
         let expected = match &listing {
             Ok(v) => live_availability(&file, ProbeAnswer::Found(v)),
             Err(_) => live_availability(&file, ProbeAnswer::Failed),
         };
-        let agrees = match &answer {
-            BatchAnswer::Exact { availability, .. } => {
+        let first = listing
+            .as_ref()
+            .ok()
+            .and_then(|v| v.first())
+            .map(|v| v.version_number.clone());
+        let mut agrees = match &answer {
+            BatchAnswer::Exact {
+                availability,
+                newest,
+            } => {
                 decided += 1;
-                *availability == expected
+                *availability == expected && *newest == first
             }
-            BatchAnswer::BuildsListed { .. } => {
+            BatchAnswer::BuildsListed { newest } => {
                 decided += 1;
-                listing.as_ref().is_ok_and(|v| !v.is_empty())
+                first.as_deref() == Some(newest.as_str())
             }
             BatchAnswer::Undecided => {
                 declined += 1;
                 true
             }
         };
+        // The update check, where the registry still describes the file on disk
+        // (it keys the batch by the registry digest).
+        if let (true, Some(current), Some(latest), Ok(versions)) = (
+            m.sha1.eq_ignore_ascii_case(h),
+            m.version_id.as_deref(),
+            latest,
+            &listing,
+        ) {
+            if let Some(state) = batch_update_state(current, project, &mc, loader, own, latest) {
+                agrees &= state_key(&state) == state_key(&classify_update(m, versions));
+            }
+        }
         println!(
             "{:<4} {:<40} batch={answer:?} listing={expected:?}",
             if agrees { "ok" } else { "DIFF" },

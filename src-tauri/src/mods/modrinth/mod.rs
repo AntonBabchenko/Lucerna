@@ -260,8 +260,10 @@ impl ModrinthClient {
     /// `POST /v2/version_files` for many hashes: the version owning each file
     /// (2026-09-21 spec, S1 — one arbitrary owner when several versions carry
     /// the same bytes). Request hashes and response keys are lower-cased: the
-    /// server's lookup is case-sensitive (S9). Unknown hashes are absent. Any
-    /// failed chunk fails the call.
+    /// server's lookup is case-sensitive (S9). Unknown hashes are absent — and
+    /// so is an owner the per-project listing does not show (S10): the bytes
+    /// then read as unknown and the listing decides. Any failed chunk fails
+    /// the call.
     pub async fn owners_by_hashes(
         &self,
         shas: &[String],
@@ -276,7 +278,9 @@ impl ModrinthClient {
                 )
                 .await?;
             for (sha, v) in map {
-                out.insert(sha.to_ascii_lowercase(), convert_version(v));
+                if in_project_listing(v.status.as_deref()) {
+                    out.insert(sha.to_ascii_lowercase(), convert_version(v));
+                }
             }
         }
         Ok(out)
@@ -285,8 +289,10 @@ impl ModrinthClient {
     /// `POST /v2/version_files/update_many` for many hashes: for each project
     /// owning each file, its newest version tagged for (`mc`, `loader`) — by
     /// TAGS only; the caller applies our filename rule (S2, D5). Absent = no
-    /// such version, or unknown bytes (S3: indistinguishable here). `/update`
-    /// is deprecated upstream in favour of this endpoint (S4).
+    /// such version, or unknown bytes (S3: indistinguishable here). A hash
+    /// whose answer names a version the per-project listing does not show is
+    /// `declined` (S10). `/update` is deprecated upstream in favour of this
+    /// endpoint (S4).
     pub async fn latest_by_hashes(
         &self,
         shas: &[String],
@@ -308,11 +314,16 @@ impl ModrinthClient {
                 )
                 .await?;
             for (sha, vs) in map {
-                // stub: review round — the status split lands in the green commit.
-                out.listed.insert(
-                    sha.to_ascii_lowercase(),
-                    vs.into_iter().map(convert_version).collect(),
-                );
+                let sha = sha.to_ascii_lowercase();
+                // One version the listing leaves out and the newest LISTED
+                // build of that project is unknown: nothing may be concluded
+                // from this hash (S10).
+                if vs.iter().all(|v| in_project_listing(v.status.as_deref())) {
+                    out.listed
+                        .insert(sha, vs.into_iter().map(convert_version).collect());
+                } else {
+                    out.declined.insert(sha);
+                }
             }
         }
         Ok(out)
@@ -813,6 +824,15 @@ fn urlencode(s: &str) -> String {
         }
     }
     out
+}
+
+/// True for the statuses the per-project listing holds. labrinth builds a
+/// project's version list from `VersionStatus::is_listed()` — `listed` and
+/// `archived` — while the hash endpoints admit every status that is not hidden,
+/// `unlisted` included (2026-09-21 spec, S10). A missing status is not assumed
+/// listed.
+fn in_project_listing(status: Option<&str>) -> bool {
+    matches!(status, Some("listed" | "archived"))
 }
 
 fn convert_version(v: types::Version) -> ModVersion {

@@ -9,6 +9,11 @@
   // say: the line's live region is rendered whenever the prop is given at all,
   // so it exists before its first update — a region created WITH its text is
   // often not announced. Leave the prop out and nothing extra is rendered.
+  //
+  // The line carries the label too, visually hidden: when work moves to a new
+  // phase only the spinner's aria-label changes, which screen readers do not
+  // announce — the polite line is what they hear, so it must say which phase
+  // the count belongs to.
   import Spinner from '$lib/ui/Spinner.svelte';
 
   interface Props {
@@ -24,7 +29,7 @@
   <Spinner {size} {delayMs} labelPlacement="below" {label} />
   {#if detail !== undefined}
     <p class="text-xs text-muted" aria-live="polite" data-testid="loading-panel-detail">
-      {detail ?? ''}
+      {#if detail}<span class="sr-only">{label} </span><span>{detail}</span>{/if}
     </p>
   {/if}
 </div>
