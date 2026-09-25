@@ -974,6 +974,11 @@
       "openBtn": "Fix incompatible mods",
       "title": "Migration plan",
       "loading": "Checking installed mods…",
+      "progress": {
+        "findingReplacements": "Looking for replacements…",
+        "resolvingDependencies": "Checking what the replacements need…",
+        "count": "{done} of {total}"
+      },
       "retryBtn": "Try again",
       "summary": "{fits} mods already fit this configuration · {replaceable} can be re-fetched · {stranded} are stranded",
       "summaryNoRelease": "{count} have no release for this version",

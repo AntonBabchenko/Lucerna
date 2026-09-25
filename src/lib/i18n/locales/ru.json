@@ -974,6 +974,11 @@
       "openBtn": "Исправить несовместимые моды",
       "title": "План миграции",
       "loading": "Проверка установленных модов…",
+      "progress": {
+        "findingReplacements": "Поиск замен…",
+        "resolvingDependencies": "Проверка зависимостей замен…",
+        "count": "{done} из {total}"
+      },
       "retryBtn": "Повторить",
       "summary": "{fits} модов уже подходят под эту конфигурацию · {replaceable} можно перекачать заново · {stranded} без решения",
       "summaryNoRelease": "{count} без релиза под эту версию",
