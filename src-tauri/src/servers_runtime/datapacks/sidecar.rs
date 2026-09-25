@@ -79,57 +79,14 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
         }
     };
 
-    // R2 (N.3): the on-disk file each row names. A row whose name could not
-    // be resolved is kept: a pruned row is provenance lost for good. A row
-    // that names its file in another case takes the on-disk spelling, which is
-    // the pack's id — the listing, the pane's row key and a client made from
-    // this server then all see the name the game loads. Two rows can name one
-    // file that way (`VM.zip` and `vm.zip` on NTFS): the one naming it exactly
-    // stays, else the first, and a duplicate is dropped rather than saved.
-    use crate::datapacks::detect::{resolve, Resolved};
-    let resolutions: Vec<Resolved> = records
-        .iter()
-        .map(|r| resolve(&dp_dir, &r.filename, &files))
-        .collect();
-    let named_exactly: Vec<String> = resolutions
-        .iter()
-        .filter_map(|res| match res {
-            Resolved::Exact(n) => Some(n.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut claimed: Vec<String> = Vec::new();
-    let mut changed = false;
-    let mut kept = Vec::with_capacity(records.len());
-    for (mut r, res) in records.into_iter().zip(resolutions) {
-        match res {
-            Resolved::Exact(n) => {
-                claimed.push(n);
-                kept.push(r);
-            }
-            Resolved::Folded(n) => {
-                changed = true;
-                if named_exactly.contains(&n) || claimed.contains(&n) {
-                    crate::diag!(
-                        "server datapacks: dropped the row for {}: another row already names {n}",
-                        r.filename
-                    );
-                    continue;
-                }
-                r.filename = n.clone();
-                claimed.push(n);
-                kept.push(r);
-            }
-            Resolved::Absent => changed = true,
-            Resolved::Unknown(e) => {
-                crate::diag!(
-                    "server datapacks: kept the row for {}, could not tell whether its file is there: {e}",
-                    r.filename
-                );
-                kept.push(r);
-            }
-        }
-    }
+    // R2 (N.3): the on-disk file each row names; see `settle`.
+    let Settled {
+        kept,
+        claimed,
+        mut changed,
+    } = settle(records, &files, &|name, names| {
+        crate::datapacks::detect::resolve(&dp_dir, name, names)
+    });
     records = kept;
 
     for name in files {
@@ -176,6 +133,101 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
         }
     }
     records
+}
+
+/// What R2 made of the sidecar's rows.
+#[derive(Debug)]
+struct Settled {
+    /// The rows to keep, each spelled as its on-disk file.
+    kept: Vec<ServerInstalledRecord>,
+    /// Every regular file a kept row names (or may name): adoption skips them.
+    claimed: Vec<String>,
+    /// Whether a row was dropped or respelled, so the sidecar must be saved.
+    changed: bool,
+}
+
+/// R2 (N.3): the on-disk file each row names. `resolve` is R2 bound to the
+/// world's `datapacks/`; a test passes its own to reach `Unknown`.
+///
+/// A row whose name could not be resolved is kept: a pruned row is provenance
+/// lost for good. Its one candidate (the entry differing from its name only in
+/// case, as `detect::join_name` finds it) is claimed, so adoption does not add
+/// a bare row for a file that may be this one.
+///
+/// A row that names its file in another case takes the on-disk spelling, which
+/// is the pack's id — the listing, the pane's row key and a client made from
+/// this server then all see the name the game loads. Two rows can name one
+/// file that way (`VM.zip` and `vm.zip` on NTFS). One stays, and the others are
+/// dropped rather than saved: the one with provenance (a dropped bare row is
+/// adopted again from the file; a dropped catalog row's provenance is gone for
+/// good), then the one naming the file exactly, then the first.
+fn settle(
+    records: Vec<ServerInstalledRecord>,
+    files: &[String],
+    resolve: &dyn Fn(&str, &[String]) -> crate::datapacks::detect::Resolved,
+) -> Settled {
+    use crate::datapacks::detect::{join_name, Joined};
+    let joins: Vec<Option<Joined>> = records
+        .iter()
+        .map(|r| join_name(&r.filename, files, resolve))
+        .collect();
+    // For each on-disk name, the index of the row that keeps it. Rows are
+    // visited in order and replace the holder only when strictly preferred,
+    // so a tie keeps the first.
+    let rank = |i: usize, n: &str| (records[i].source.is_some(), records[i].filename == n);
+    let mut holder: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, j) in joins.iter().enumerate() {
+        if let Some(Joined::Entry(n)) = j {
+            let preferred = holder
+                .get(n.as_str())
+                .is_none_or(|&h| rank(i, n) > rank(h, n));
+            if preferred {
+                holder.insert(n.as_str(), i);
+            }
+        }
+    }
+    let holder: std::collections::HashMap<String, usize> = holder
+        .into_iter()
+        .map(|(n, i)| (n.to_string(), i))
+        .collect();
+
+    let mut claimed: Vec<String> = Vec::new();
+    let mut changed = false;
+    let mut kept = Vec::with_capacity(records.len());
+    for (i, (mut r, j)) in records.into_iter().zip(joins).enumerate() {
+        match j {
+            Some(Joined::Entry(n)) => {
+                if holder.get(&n) != Some(&i) {
+                    changed = true;
+                    crate::diag!(
+                        "server datapacks: dropped the row for {}: another row already names {n}",
+                        r.filename
+                    );
+                    continue;
+                }
+                if r.filename != n {
+                    changed = true;
+                    r.filename = n.clone();
+                }
+                claimed.push(n);
+                kept.push(r);
+            }
+            None => changed = true,
+            Some(Joined::Unknown { candidate, cause }) => {
+                crate::diag!(
+                    "server datapacks: kept the row for {}, could not tell whether its file is there: {cause}",
+                    r.filename
+                );
+                claimed.extend(candidate);
+                kept.push(r);
+            }
+        }
+    }
+    Settled {
+        kept,
+        claimed,
+        changed,
+    }
 }
 
 /// The regular files among `dp_dir`'s entries, from `(name, is_file)`
@@ -585,6 +637,62 @@ mod tests {
             regular_file_names(entries).unwrap(),
             vec!["a.zip".to_string()]
         );
+    }
+
+    /// A row adopted from a hand-dropped file: no provenance.
+    fn bare(filename: &str) -> ServerInstalledRecord {
+        ServerInstalledRecord {
+            filename: filename.into(),
+            sha1: "bb".into(),
+            source: None,
+            project_id: None,
+            version_id: None,
+            name: None,
+            version_number: None,
+            enrich_attempted: false,
+        }
+    }
+
+    /// R2 could not tell whether the catalog row `Terra.zip` is the file
+    /// `terra.zip` (a stat error). The row stays, and its one candidate is
+    /// claimed: adopting `terra.zip` as a bare row would give the next pass,
+    /// which can tell, an exact row to prefer over the one with provenance.
+    #[test]
+    fn a_row_r2_could_not_resolve_claims_its_candidate_from_adoption() {
+        let files = vec!["terra.zip".to_string()];
+        let could_not_tell = |name: &str, _: &[String]| {
+            assert_eq!(name, "Terra.zip");
+            crate::datapacks::detect::Resolved::Unknown(std::io::Error::other("stat failed"))
+        };
+        let s = settle(vec![row("Terra.zip", "aa")], &files, &could_not_tell);
+        assert_eq!(s.kept, vec![row("Terra.zip", "aa")]);
+        assert_eq!(s.claimed, files, "adoption must skip the candidate");
+        assert!(!s.changed);
+    }
+
+    /// Two rows that name one file keep the one with provenance, whichever
+    /// spelling it uses: a dropped bare row is adopted again from the file, a
+    /// dropped catalog row's provenance is lost for good.
+    #[test]
+    fn of_two_rows_naming_one_file_the_one_with_provenance_stays() {
+        use crate::datapacks::detect::Resolved;
+        let files = vec!["vm.zip".to_string()];
+        let folds = |name: &str, _: &[String]| match name {
+            "vm.zip" => Resolved::Exact("vm.zip".into()),
+            _ => Resolved::Folded("vm.zip".into()),
+        };
+        let mut expected = row("VM.zip", "aa");
+        expected.filename = "vm.zip".into();
+        for records in [
+            vec![bare("vm.zip"), row("VM.zip", "aa")],
+            vec![row("VM.zip", "aa"), bare("vm.zip")],
+            vec![bare("Vm.zip"), row("VM.zip", "aa")],
+        ] {
+            let s = settle(records.clone(), &files, &folds);
+            assert_eq!(s.kept, vec![expected.clone()], "{records:?}");
+            assert_eq!(s.claimed, files);
+            assert!(s.changed);
+        }
     }
 
     /// Two rows that name one file (NTFS/APFS: `VM.zip` folds onto the file
