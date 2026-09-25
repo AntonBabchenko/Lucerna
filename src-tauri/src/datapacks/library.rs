@@ -335,6 +335,10 @@ pub async fn install_named_at(
     // failure on one world must not abort the install — the library file is
     // already in place. Per-world outcomes are RETURNED, not swallowed into a
     // `diag!` line: the catalog paths promise a precise per-world report.
+    //
+    // `Err` (`saves/` could not be listed) is reported after the row below is
+    // recorded: the library file is already in place, and a registry that
+    // disagreed with it would be a second problem.
     let refreshed = crate::datapacks::world_link::refresh_placements(
         instance_root,
         filename,
@@ -357,6 +361,7 @@ pub async fn install_named_at(
         installed_at: Utc::now().to_rfc3339(),
     };
     registry::add(instance_root, entry.clone()).await?;
+    let refreshed = refreshed?;
     Ok(crate::datapacks::LibraryInstall {
         pack: entry,
         refreshed,
@@ -402,7 +407,9 @@ pub async fn remove_from_library_at(
         });
     }
 
-    let placements = crate::datapacks::world_link::placements_of(instance_root, filename).await;
+    // `Err`: the library copy or `saves/` could not be read, so no world can
+    // be verified; the cascade fails as a whole with nothing touched.
+    let placements = crate::datapacks::world_link::placements_of(instance_root, filename).await?;
     // The orphan sweep (below) runs before any world is touched: when it
     // cannot even list `saves/`, the cascade fails as a whole with nothing
     // changed, rather than after some worlds were already cleared.
@@ -412,9 +419,24 @@ pub async fn remove_from_library_at(
         None
     };
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut worlds = Vec::with_capacity(placements.len());
+    let mut worlds = Vec::with_capacity(placements.found.len() + placements.unchecked.len());
     let mut any_failed = false;
-    for p in placements {
+    // A world that could not be checked may hold the pack (Fallback
+    // discipline Q1). A cascade reports it Failed, which keeps the library
+    // copy; the orphan sweep below must not reach it either. Without a
+    // cascade no world is touched, so there is nothing to report.
+    for (world, details) in placements.unchecked {
+        if cascade {
+            visited.insert(world.clone());
+            any_failed = true;
+            worlds.push(WorldRemoval::Failed { world, details });
+        } else {
+            crate::diag!(
+                "datapacks: library removal without cascade could not check world {world}: {details}"
+            );
+        }
+    }
+    for p in placements.found {
         // Exact: both sides come from the same `saves/` `read_dir` (N.3).
         visited.insert(p.world.clone());
         if !p.is_ours {
@@ -444,9 +466,9 @@ pub async fn remove_from_library_at(
     // the user deleted the file by hand — was invisible above. A cascade must
     // clear those names too: leaving one puts the world on Minecraft's "data
     // packs are no longer present" screen after a removal whose purpose was
-    // preventing exactly that prompt. `remove_for_cascade_at` is the
-    // documented orphan-repair path (a missing file is Ok; the name is still
-    // cleared).
+    // preventing exactly that prompt. These worlds had no verified file of
+    // ours, so `forget_for_cascade_at` only forgets the ids and never deletes
+    // a file: one that appeared under the name fails the world instead.
     if let Some(sweep) = sweep {
         // A world the sweep could not check may name the pack: "could not
         // check" is not "names nothing" (Fallback discipline Q1). It fails,
@@ -463,7 +485,7 @@ pub async fn remove_from_library_at(
             if visited.contains(&world) {
                 continue;
             }
-            match crate::datapacks::world_link::remove_for_cascade_at(
+            match crate::datapacks::world_link::forget_for_cascade_at(
                 instance_root,
                 &world,
                 filename,
@@ -1488,6 +1510,68 @@ mod tests {
                 }
             ),
             "got {err:?}"
+        );
+    }
+
+    /// Fallback Q1: a world whose `datapacks/` could not be listed may hold
+    /// the pack. The cascade reports it Failed and keeps the library copy, and
+    /// touches nothing in that world.
+    #[tokio::test]
+    async fn a_cascade_keeps_the_library_copy_when_a_world_cannot_be_checked() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let wd = crate::datapacks::world_link::test_util::game_world(td.path(), "Locked");
+        std::fs::write(wd.join("datapacks"), b"a file, not a folder").unwrap();
+        let level_before = std::fs::read(wd.join("level.dat")).unwrap();
+
+        let out = remove_from_library_at(td.path(), "vm.zip", true)
+            .await
+            .unwrap();
+
+        assert!(!out.removed_from_library);
+        assert!(
+            matches!(
+                out.worlds.as_slice(),
+                [crate::datapacks::WorldRemoval::Failed { world, .. }] if world == "Locked"
+            ),
+            "{:?}",
+            out.worlds
+        );
+        assert!(library_dir_at(td.path()).join("vm.zip").exists());
+        assert_eq!(
+            std::fs::read(wd.join("datapacks")).unwrap(),
+            b"a file, not a folder"
+        );
+        assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), level_before);
+    }
+
+    /// Fallback Q1: a same-name reinstall cannot tell whether a world it
+    /// could not list holds the stale pack, so that world is reported Failed
+    /// rather than silently left on the old bytes.
+    #[tokio::test]
+    async fn a_refresh_reports_a_world_it_cannot_check() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let wd = crate::datapacks::world_link::test_util::game_world(td.path(), "Locked");
+        std::fs::write(wd.join("datapacks"), b"a file, not a folder").unwrap();
+
+        let out = install_named_at(td.path(), "vm.zip", &datapack_zip_v2(), None)
+            .await
+            .unwrap();
+
+        assert!(
+            matches!(
+                out.refreshed.as_slice(),
+                [crate::datapacks::WorldMigration::Failed { world, .. }] if world == "Locked"
+            ),
+            "{:?}",
+            out.refreshed
         );
     }
 }

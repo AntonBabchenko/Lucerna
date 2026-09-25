@@ -83,7 +83,10 @@ pub async fn update_at(
     // covers worlds still on the OLD name. Together they are the full
     // per-world report, and a failure in EITHER half blocks the cleanup step.
     let mut migrations = install.refreshed;
-    migrations.extend(world_link::migrate_placements(instance_root, old_filename, &new_name).await);
+    // `Err`: no world could be checked (`saves/` or the old library copy is
+    // unreadable). Both library rows stay, and a retry converges.
+    migrations
+        .extend(world_link::migrate_placements(instance_root, old_filename, &new_name).await?);
     let failed = migrations
         .iter()
         .any(|m| matches!(m, WorldMigration::Failed { .. }));
@@ -488,5 +491,37 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, vec!["vm-2.zip"]);
+    }
+
+    /// Fallback Q1: a world whose `datapacks/` could not be listed is not "a
+    /// world without the old pack". The update does not complete, and the OLD
+    /// library copy stays, so a retry converges once the world can be read.
+    #[tokio::test]
+    async fn a_world_that_cannot_be_checked_leaves_the_update_incomplete() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        seed_world(td.path(), "Alpha", "vm-1.zip").await;
+        let locked = world_link::test_util::game_world(td.path(), "Locked");
+        std::fs::write(locked.join("datapacks"), b"a file, not a folder").unwrap();
+
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.zip", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+
+        assert!(!out.completed, "{:?}", out.migrations);
+        assert!(
+            out.migrations
+                .iter()
+                .any(|m| matches!(m, WorldMigration::Failed { world, .. } if world == "Locked")),
+            "{:?}",
+            out.migrations
+        );
+        assert!(
+            td.path().join("datapacks").join("vm-1.zip").exists(),
+            "the old library copy stays for a retry"
+        );
     }
 }

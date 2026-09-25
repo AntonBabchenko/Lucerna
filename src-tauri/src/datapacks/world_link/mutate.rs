@@ -293,6 +293,63 @@ pub(crate) async fn remove_for_cascade_at(
     remove_in_world(instance_root, world, filename, OnAbsent::UnlinkOnly).await
 }
 
+/// The cascade's orphan sweep: forget `filename`'s ids in a world whose
+/// level.dat names the pack but where no file of ours was verified. It never
+/// deletes a file. An entry the name resolves to now was never checked as the
+/// library's copy, so the world is refused instead (it reports `Failed`, and
+/// the library copy stays for a retry); so is one whose `datapacks/` cannot be
+/// listed. The ids go with R3 (spec §2 N.3). A world with only
+/// `level.dat_old` is refused (D2); a folder with neither file has no list.
+pub(crate) async fn forget_for_cascade_at(
+    instance_root: &Path,
+    world: &str,
+    filename: &str,
+) -> Result<()> {
+    if !crate::pathsafe::is_safe_filename(filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: filename.to_string(),
+        });
+    }
+    let (world_dir, dp_dir) = world_dirs_checked(instance_root, world)?;
+
+    let _guard = level_dat_lock().lock().await;
+
+    match presence::of(&world_dir)? {
+        LevelDatPresence::Present => {}
+        LevelDatPresence::OnlyOld => return Err(only_old(world)),
+        // No level file: no list to name the pack.
+        LevelDatPresence::Absent => return Ok(()),
+    }
+    let (names, resolved) = super::resolve_on_disk(&dp_dir, filename)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dp_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    match resolved {
+        detect::Resolved::Absent => {}
+        detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => {
+            return Err(Error::ModsInstancePath {
+                path: dp_dir.join(n).display().to_string(),
+                details: "an entry by this name was not checked as the library's copy, so \
+                          nothing was removed"
+                    .into(),
+            })
+        }
+        detect::Resolved::Unknown(e) => {
+            return Err(Error::ModsInstancePath {
+                path: dp_dir.join(filename).display().to_string(),
+                details: e.to_string(),
+            })
+        }
+    }
+    let (mut root, framing) = level_dat::read_at(&world_dir)?;
+    if level_dat::forget_with_case_ghosts(&mut root, &level_dat_entry(filename), Some(&names))? {
+        level_dat::write_at(&world_dir, &root, framing).await?;
+    }
+    Ok(())
+}
+
 /// What a removal does in a folder with neither level file.
 #[derive(Clone, Copy)]
 enum OnAbsent {
@@ -1264,5 +1321,36 @@ mod tests {
             .unwrap()
             .packs;
         assert_eq!(listed[0].state, WorldPackState::Enabled);
+    }
+
+    /// The cascade's orphan sweep never deletes a file: it reaches worlds with
+    /// no verified file of ours. An id with no file behind it is forgotten.
+    #[tokio::test]
+    async fn the_sweep_forgets_an_orphaned_id() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Alpha");
+        seed(&wd, &["file/vm.zip"], &[]);
+        forget_for_cascade_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .unwrap();
+        let (root, _) = level_dat::read_at(&wd).unwrap();
+        assert_eq!(level_dat::lists(&root).0, vec!["vanilla".to_string()]);
+    }
+
+    /// A file the sweep finds under the name was never verified as ours: it is
+    /// not deleted, its id stays, and the world reports a failure.
+    #[tokio::test]
+    async fn the_sweep_never_deletes_a_file() {
+        let td = tempfile::tempdir().unwrap();
+        let wd = game_world(td.path(), "Alpha");
+        std::fs::create_dir_all(wd.join("datapacks")).unwrap();
+        std::fs::write(wd.join("datapacks/vm.zip"), pack_zip()).unwrap();
+        seed(&wd, &["file/vm.zip"], &[]);
+        let level_before = std::fs::read(wd.join("level.dat")).unwrap();
+        assert!(forget_for_cascade_at(td.path(), "Alpha", "vm.zip")
+            .await
+            .is_err());
+        assert!(wd.join("datapacks/vm.zip").exists());
+        assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), level_before);
     }
 }

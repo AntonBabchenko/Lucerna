@@ -31,8 +31,8 @@ mod placements;
 pub use listing::list_for_world_at;
 pub(crate) use listing::vouched_by_library;
 pub(crate) use migrate::migrate_placements;
-pub(crate) use mutate::remove_for_cascade_at;
 pub use mutate::{add_to_world_at, remove_from_world_at, set_enabled_in_world_at};
+pub(crate) use mutate::{forget_for_cascade_at, remove_for_cascade_at};
 pub(crate) use placements::{placements_of, refresh_placements};
 
 use std::path::{Path, PathBuf};
@@ -146,6 +146,26 @@ fn map_removal_err(path: &Path, e: std::io::Error, world: &str) -> Error {
             details: e.to_string(),
         }
     }
+}
+
+/// R2 (spec §2 N.3) off the executor: what `name` denotes in `dp_dir`, from
+/// ONE `read_dir`, together with the names that read returned (R3's
+/// `present`). `Err` = the folder could not be listed; a missing folder is no
+/// names. Never touches the registry, so a caller holding a `level_dat_lock`
+/// may call it.
+pub(crate) async fn resolve_on_disk(
+    dp_dir: &Path,
+    name: &str,
+) -> std::io::Result<(Vec<String>, crate::datapacks::detect::Resolved)> {
+    use crate::datapacks::detect;
+    let (dp, n) = (dp_dir.to_path_buf(), name.to_string());
+    tokio::task::spawn_blocking(move || {
+        let names = detect::entry_names(&dp)?;
+        let resolved = detect::resolve(&dp, &n, &names);
+        Ok((names, resolved))
+    })
+    .await
+    .map_err(|e| std::io::Error::other(format!("join: {e}")))?
 }
 
 /// R2 + D1 for a toggle (spec §2 N.4, §0.5 A19). Resolves `filename` against

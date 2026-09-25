@@ -4,7 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::datapacks::detect::Resolved;
 use crate::datapacks::library_dir_at;
+use crate::error::{Error, Result};
 use crate::mods::store::{materialize, LinkPolicy};
 
 use super::level_dat_lock;
@@ -23,6 +25,18 @@ pub(crate) struct WorldPlacement {
     pub is_ours: bool,
 }
 
+/// What a scan of every world found for one name.
+pub(crate) struct Placements {
+    /// Worlds holding an entry by the name, each with its identity verdict.
+    pub found: Vec<WorldPlacement>,
+    /// Worlds Lucerna could not check for the name, each with the reason: its
+    /// `datapacks/` could not be listed, R2 could not tell (a stat error), or
+    /// the entry could not be read to compare. "Could not check" is not "does
+    /// not hold it" (Fallback discipline Q1): every caller reports these as a
+    /// failure, which keeps the library copy so a retry converges.
+    pub unchecked: Vec<(String, String)>,
+}
+
 /// Every world whose `datapacks/` folder holds an entry named `filename`, with
 /// world NAMES rather than paths, and an identity verdict per world.
 ///
@@ -39,10 +53,17 @@ pub(crate) struct WorldPlacement {
 ///
 /// A directory entry is never `is_ours`: a folder datapack has no file sha1 to
 /// compare against the library's zip.
-pub(crate) async fn placements_of(instance_root: &Path, filename: &str) -> Vec<WorldPlacement> {
-    let lib_sha = match tokio::fs::read(library_dir_at(instance_root).join(filename)).await {
+///
+/// `Err` = the library copy, or `saves/` itself, could not be read: no world
+/// can be verified then, and there is no world to name in a report. A missing
+/// library copy or `saves/` is a fact, not an error.
+pub(crate) async fn placements_of(instance_root: &Path, filename: &str) -> Result<Placements> {
+    let lib = library_dir_at(instance_root).join(filename);
+    let lib_sha = match tokio::fs::read(&lib).await {
         Ok(bytes) => Some(crate::datapacks::library::sha1_hex(&bytes)),
-        Err(_) => None,
+        // No library copy (a pack left only in worlds): nothing can be ours.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(Error::io(lib.display().to_string(), e)),
     };
     placements_against(instance_root, filename, lib_sha.as_deref()).await
 }
@@ -57,19 +78,26 @@ async fn placements_against(
     instance_root: &Path,
     filename: &str,
     lib_sha: Option<&str>,
-) -> Vec<WorldPlacement> {
+) -> Result<Placements> {
     let saves_dir = instance_root.join(".minecraft").join("saves");
-    let Ok(rd) = std::fs::read_dir(&saves_dir) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for entry in rd.flatten() {
-        let Ok(meta) = entry.metadata() else {
-            continue;
-        };
-        if !meta.is_dir() {
-            continue;
+    let rd = match std::fs::read_dir(&saves_dir) {
+        Ok(rd) => rd,
+        // No saves/ at all: no world can hold the pack.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Placements {
+                found: Vec::new(),
+                unchecked: Vec::new(),
+            })
         }
+        Err(e) => return Err(Error::io(saves_dir.display().to_string(), e)),
+    };
+    let mut out = Placements {
+        found: Vec::new(),
+        unchecked: Vec::new(),
+    };
+    for entry in rd {
+        // An entry that cannot be read names no world to report.
+        let entry = entry.map_err(|e| Error::io(saves_dir.display().to_string(), e))?;
         let Some(world) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
@@ -80,51 +108,77 @@ async fn placements_against(
         if crate::worlds::fs::validate_segment(&world).is_err() {
             continue;
         }
-        let dp = entry.path().join("datapacks");
-        // R2 (N.3): the entry this library name denotes in this world. A world
-        // we cannot read is skipped, the same policy as the stat it replaces.
-        let names = match crate::datapacks::detect::entry_names(&dp) {
-            Ok(n) => n,
+        let meta = match entry.metadata() {
+            Ok(meta) => meta,
             Err(e) => {
-                crate::diag!(
-                    "datapacks: skipping {} — could not list it: {e}",
-                    dp.display()
-                );
+                out.unchecked
+                    .push((world, format!("could not read its folder: {e}")));
                 continue;
             }
         };
-        let entry_name = match crate::datapacks::detect::resolve(&dp, filename, &names) {
-            crate::datapacks::detect::Resolved::Exact(n)
-            | crate::datapacks::detect::Resolved::Folded(n) => n,
-            crate::datapacks::detect::Resolved::Absent => continue,
-            crate::datapacks::detect::Resolved::Unknown(e) => {
-                crate::diag!(
-                    "datapacks: skipping {} — could not tell whether it holds {filename}: {e}",
-                    dp.display()
-                );
+        if !meta.is_dir() {
+            continue;
+        }
+        let dp = entry.path().join("datapacks");
+        // R2 (N.3): the entry this library name denotes in this world.
+        let entry_name = match super::resolve_on_disk(&dp, filename).await {
+            Ok((_, Resolved::Exact(n) | Resolved::Folded(n))) => n,
+            Ok((_, Resolved::Absent)) => continue,
+            Ok((_, Resolved::Unknown(e))) => {
+                out.unchecked.push((
+                    world,
+                    format!(
+                        "could not tell whether {} holds {filename}: {e}",
+                        dp.display()
+                    ),
+                ));
+                continue;
+            }
+            Err(e) => {
+                out.unchecked
+                    .push((world, format!("could not list {}: {e}", dp.display())));
                 continue;
             }
         };
         let candidate = dp.join(&entry_name);
-        let Ok(cand_meta) = tokio::fs::metadata(&candidate).await else {
-            continue;
-        };
-        let is_ours = if cand_meta.is_dir() {
-            false
-        } else {
-            match (lib_sha, tokio::fs::read(&candidate).await) {
-                (Some(lib), Ok(bytes)) => crate::datapacks::library::sha1_hex(&bytes) == lib,
-                _ => false,
+        let cand_meta = match tokio::fs::metadata(&candidate).await {
+            Ok(meta) => meta,
+            // Gone since the listing: the world no longer holds it.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                out.unchecked.push((
+                    world,
+                    format!("could not read {}: {e}", candidate.display()),
+                ));
+                continue;
             }
         };
-        out.push(WorldPlacement {
+        let is_ours = match (cand_meta.is_dir(), lib_sha) {
+            // A folder is never the library's zip, and with no library copy
+            // nothing can be proven ours.
+            (true, _) | (false, None) => false,
+            (false, Some(lib)) => match tokio::fs::read(&candidate).await {
+                Ok(bytes) => crate::datapacks::library::sha1_hex(&bytes) == lib,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                // Could not compare: not "not ours", which a caller would
+                // leave alone and then report the job done.
+                Err(e) => {
+                    out.unchecked.push((
+                        world,
+                        format!("could not read {}: {e}", candidate.display()),
+                    ));
+                    continue;
+                }
+            },
+        };
+        out.found.push(WorldPlacement {
             world,
             path: candidate,
             entry_name,
             is_ours,
         });
     }
-    out
+    Ok(out)
 }
 
 /// The same-name reinstall fan-out: push the library's (already replaced)
@@ -134,7 +188,8 @@ async fn placements_against(
 /// A same-named entry that does not match is a pack the user (or a world
 /// import) put there themselves; replacing it would be the F5 data loss, so it
 /// is skipped and reported. `None` (fresh install, or the old file was
-/// unreadable) skips every candidate — the safe direction.
+/// unreadable) skips every candidate — the safe direction. A world that could
+/// not be checked is reported `Failed`: it may still hold the stale bytes.
 ///
 /// level.dat is deliberately never touched: each world's own enabled/disabled
 /// choice stands, which is why the per-world outcome is
@@ -146,20 +201,22 @@ async fn placements_against(
 /// file and level.dat entry and this fan-out would then re-materialize the
 /// file from its stale snapshot, leaving it present-and-unlisted, which
 /// Minecraft auto-enables: a silently resurrected, just-removed pack.
+///
+/// `Err` = `saves/` could not be listed, so no world could be refreshed.
 pub(crate) async fn refresh_placements(
     instance_root: &Path,
     filename: &str,
     expected_sha: Option<&str>,
-) -> Vec<crate::datapacks::WorldMigration> {
+) -> Result<Vec<crate::datapacks::WorldMigration>> {
     use crate::datapacks::WorldMigration;
 
     let src = library_dir_at(instance_root).join(filename);
 
     let _guard = level_dat_lock().lock().await;
 
-    let placements = placements_against(instance_root, filename, expected_sha).await;
-    let mut report = Vec::with_capacity(placements.len());
-    for p in placements {
+    let placements = placements_against(instance_root, filename, expected_sha).await?;
+    let mut report = Vec::with_capacity(placements.found.len() + placements.unchecked.len());
+    for p in placements.found {
         if !p.is_ours {
             report.push(WorldMigration::SkippedNotOurs { world: p.world });
             continue;
@@ -172,7 +229,10 @@ pub(crate) async fn refresh_placements(
             }),
         }
     }
-    report
+    for (world, details) in placements.unchecked {
+        report.push(WorldMigration::Failed { world, details });
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -197,7 +257,7 @@ mod tests {
         )
         .unwrap();
 
-        let found = placements_of(td.path(), "vm.zip").await;
+        let found = placements_of(td.path(), "vm.zip").await.unwrap().found;
 
         let mut ours: Vec<&str> = found
             .iter()

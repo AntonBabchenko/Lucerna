@@ -28,14 +28,17 @@ use super::{level_dat_lock, map_removal_err, only_old, world_dirs_checked};
 /// here, around every world, and the module-private helpers are called
 /// directly.
 ///
-/// Never fails as a whole — every world's outcome is reported so the caller can
-/// tell the user exactly which worlds moved. Re-running converges, because a
-/// migrated world no longer holds `old_filename`.
+/// Every world's outcome is reported so the caller can tell the user exactly
+/// which worlds moved. Re-running converges, because a migrated world no
+/// longer holds `old_filename`. A world that could not be checked for the old
+/// pack is reported `Failed` (Fallback discipline Q1), which keeps the OLD
+/// library copy. `Err` only when no world could be checked at all: the old
+/// library copy or `saves/` could not be read.
 pub(crate) async fn migrate_placements(
     instance_root: &Path,
     old_filename: &str,
     new_filename: &str,
-) -> Vec<crate::datapacks::WorldMigration> {
+) -> Result<Vec<crate::datapacks::WorldMigration>> {
     use crate::datapacks::WorldMigration;
 
     let src = library_dir_at(instance_root).join(new_filename);
@@ -57,10 +60,10 @@ pub(crate) async fn migrate_placements(
     // `migrate_one` a world the user just emptied, and it would re-add the new
     // pack there, enabled. Spec §8.5 places identity verification under the
     // lock for exactly this reason.
-    let placements = placements_of(instance_root, old_filename).await;
+    let placements = placements_of(instance_root, old_filename).await?;
 
-    let mut report = Vec::with_capacity(placements.len());
-    for p in placements {
+    let mut report = Vec::with_capacity(placements.found.len() + placements.unchecked.len());
+    for p in placements.found {
         if !p.is_ours {
             report.push(WorldMigration::SkippedNotOurs { world: p.world });
             continue;
@@ -89,7 +92,11 @@ pub(crate) async fn migrate_placements(
             }),
         }
     }
-    report
+    // It may still hold the old pack: not migrated, and not "nothing to do".
+    for (world, details) in placements.unchecked {
+        report.push(WorldMigration::Failed { world, details });
+    }
+    Ok(report)
 }
 
 /// One world's half of [`migrate_placements`]. Assumes `level_dat_lock` is
@@ -293,7 +300,9 @@ mod tests {
             .unwrap();
         seed_library(td.path(), "vm-2.zip", 57).await;
 
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
 
         assert_eq!(
             report,
@@ -341,7 +350,9 @@ mod tests {
         std::fs::write(dp.join("vm-1.zip"), datapack_zip(48)).unwrap();
         seed_library(td.path(), "vm-2.zip", 57).await;
 
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
 
         assert_eq!(
             report,
@@ -370,7 +381,9 @@ mod tests {
         let before = std::fs::read(wd.join("level.dat")).unwrap();
         seed_library(td.path(), "vm-2.zip", 57).await;
 
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
 
         assert_eq!(
             report,
@@ -396,7 +409,9 @@ mod tests {
         std::fs::write(wd.join("datapacks/vm-1.zip"), datapack_zip(48)).unwrap();
         seed_library(td.path(), "vm-2.zip", 57).await;
 
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
 
         assert!(
             matches!(
@@ -434,7 +449,9 @@ mod tests {
         let wd = world_dir(td.path(), "Alpha");
         let level_before = std::fs::read(wd.join("level.dat")).unwrap();
 
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
 
         assert_eq!(report.len(), 2, "got {report:?}");
         assert!(
@@ -470,7 +487,9 @@ mod tests {
         std::fs::write(dp.join("vm-1.zip"), &foreign).unwrap();
         seed_library(td.path(), "vm-2.zip", 61).await;
 
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
 
         assert_eq!(
             report,
@@ -498,7 +517,9 @@ mod tests {
             .unwrap();
         seed(&wd, &["file/vm-1.zip"], &["file/vm-1.zip"]);
         seed_library(td.path(), "vm-2.zip", 57).await;
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
         assert_eq!(
             report,
             vec![WorldMigration::Migrated {
@@ -519,7 +540,9 @@ mod tests {
             .unwrap();
         seed(&wd, &[], &["file/VM-1.zip"]);
         seed_library(td.path(), "vm-2.zip", 57).await;
-        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip")
+            .await
+            .unwrap();
         assert_eq!(
             report,
             vec![WorldMigration::Migrated {
