@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::datapacks::detect::{self, OnDiskEntry, Presence};
+use crate::datapacks::detect::{self, OnDiskEntry, Presence, Resolved};
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
     level_dat_entry, library_dir_at, registry, state, world_link, DatapackLibraryEntry,
@@ -35,8 +35,71 @@ struct WorldFacts {
     /// `None` = the world's `datapacks/` could not be read (N.1). Every
     /// placement in that world then reports `state: None`.
     on_disk: Option<Vec<OnDiskEntry>>,
-    /// Registry filename → the on-disk entry it denotes (R2).
-    resolved: HashMap<String, String>,
+    /// Registry filename → what it denotes on disk (R2). A name that denotes
+    /// nothing is not in the map.
+    resolved: HashMap<String, Denotes>,
+}
+
+/// What a registry name denotes in one world's `datapacks/` (R2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Denotes {
+    /// The on-disk entry, by its own spelling.
+    Entry(String),
+    /// R2 could not tell (a stat error other than NotFound): the one entry
+    /// differing from the name only in case may or may not be this pack. Its
+    /// placement is unknown, and the entry is no world-only pack of its own.
+    Unknown { candidate: String },
+}
+
+impl Denotes {
+    fn entry_name(&self) -> &str {
+        match self {
+            Denotes::Entry(n) | Denotes::Unknown { candidate: n } => n,
+        }
+    }
+}
+
+/// R2 for every registry row against one world's entry names.
+fn resolve_rows(
+    dp_dir: &Path,
+    rows: &[InstalledDatapack],
+    names: &[String],
+) -> HashMap<String, Denotes> {
+    let mut out = HashMap::new();
+    for r in rows {
+        let denotes = match detect::resolve(dp_dir, &r.filename, names) {
+            Resolved::Exact(n) | Resolved::Folded(n) => Denotes::Entry(n),
+            Resolved::Absent => continue,
+            Resolved::Unknown(e) => {
+                crate::diag!(
+                    "datapacks library: could not tell whether {} holds {}: {e}; its placement \
+                     shows an unknown state",
+                    dp_dir.display(),
+                    r.filename
+                );
+                // `resolve` stats only when exactly one entry differs from the
+                // name in case, so that entry is the candidate.
+                let folded = r.filename.to_lowercase();
+                match names.iter().find(|n| n.to_lowercase() == folded) {
+                    Some(c) => Denotes::Unknown {
+                        candidate: c.clone(),
+                    },
+                    None => continue,
+                }
+            }
+        };
+        out.insert(r.filename.clone(), denotes);
+    }
+    out
+}
+
+/// Whether an on-disk entry of this world is (or may be) a library pack's,
+/// so it is not listed again as a pack found only in worlds.
+fn claimed_by_registry(facts: &WorldFacts, entry_name: &str) -> bool {
+    facts
+        .resolved
+        .values()
+        .any(|d| d.entry_name() == entry_name)
 }
 
 /// Gather every world's facts with ONE presence stat, ONE list read and ONE
@@ -112,12 +175,7 @@ fn gather(instance_root: &Path, rows: &[InstalledDatapack]) -> Vec<WorldFacts> {
         let resolved = match &on_disk {
             Some(entries) => {
                 let names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
-                rows.iter()
-                    .filter_map(|r| {
-                        detect::resolve_for_display(&dp_dir, &r.filename, &names)
-                            .map(|n| (r.filename.clone(), n))
-                    })
-                    .collect()
+                resolve_rows(&dp_dir, rows, &names)
             }
             None => HashMap::new(),
         };
@@ -154,8 +212,7 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
     let mut names: Vec<(String, bool)> = rows.iter().map(|r| (r.filename.clone(), true)).collect();
     for facts in &worlds {
         for e in facts.on_disk.iter().flatten() {
-            let claimed = facts.resolved.values().any(|n| *n == e.name);
-            if claimed || !matches!(e.presence, Presence::Pack { .. }) {
+            if claimed_by_registry(facts, &e.name) || !matches!(e.presence, Presence::Pack { .. }) {
                 continue;
             }
             if !names.iter().any(|(n, _)| *n == e.name) {
@@ -210,18 +267,35 @@ pub async fn list_at(instance_root: &Path, expected: Option<u32>) -> Result<Data
 /// the entry with exactly this name for a world-only pack. Membership is
 /// exact (R1) on the engine's id: the entry's own spelling when there is
 /// one — an id whose case drifted from the file names nothing the game loads.
+///
+/// "Could not tell" is never "not in this world" (Fallback discipline Q2):
+/// a world whose `datapacks/` could not be read, but whose lists could, gives
+/// every pack an unknown placement (it may hold it unlisted, auto-enabled),
+/// and so does a registry name R2 could not resolve.
 fn placement_in(
     f: &WorldFacts,
     filename: &str,
     row: Option<&InstalledDatapack>,
 ) -> Option<DatapackPlacementView> {
-    let entry = f.on_disk.as_ref().and_then(|entries| {
-        let on_disk_name = match row {
-            Some(_) => f.resolved.get(filename)?.as_str(),
-            None => filename,
-        };
-        entries.iter().find(|e| e.name == on_disk_name)
-    });
+    let unknown = || DatapackPlacementView {
+        world: f.world.clone(),
+        state: None,
+        ignored_reason: None,
+        level_dat: f.level_dat,
+    };
+    let Some(entries) = f.on_disk.as_ref() else {
+        // A folder with no readable list (or no level file) states nothing.
+        return f.lists.is_some().then(unknown);
+    };
+    let on_disk_name = match row {
+        Some(_) => match f.resolved.get(filename) {
+            Some(Denotes::Entry(n)) => Some(n.as_str()),
+            Some(Denotes::Unknown { .. }) => return Some(unknown()),
+            None => None,
+        },
+        None => Some(filename),
+    };
+    let entry = on_disk_name.and_then(|n| entries.iter().find(|e| e.name == n));
     let id = level_dat_entry(entry.map_or(filename, |e| e.name.as_str()));
     let listed = f
         .lists
@@ -230,11 +304,9 @@ fn placement_in(
     if entry.is_none() && !listed.is_some_and(|(e, d)| e || d) {
         return None;
     }
-    // A folder that could not be read: nothing on disk is known, so nothing is derived.
-    let lists_for_state = if f.on_disk.is_some() { listed } else { None };
     let (state, ignored_reason) = state::derive(
         entry.map(|e| &e.presence),
-        lists_for_state,
+        listed,
         state::loadable_of(row, entry),
     );
     Some(DatapackPlacementView {
@@ -634,5 +706,61 @@ mod tests {
                 Some(IgnoredReason::ZipExtensionNotLowercase)
             )
         );
+    }
+
+    /// Fallback Q1/Q2: a world whose `datapacks/` cannot be read may hold any
+    /// library pack, unlisted and auto-enabled. Every library pack gets an
+    /// unknown placement there, never none (which the picker reads as "not in
+    /// this world, add it").
+    #[tokio::test]
+    async fn an_unreadable_datapacks_folder_gives_every_library_pack_an_unknown_placement() {
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), "vm.zip", 48).await;
+        let wd = game_world(td.path(), "Alpha");
+        std::fs::write(wd.join("datapacks"), b"a file, not a folder").unwrap();
+
+        let view = list_at(td.path(), None).await.unwrap();
+
+        assert_eq!(
+            entry_for(&view, "vm.zip").placements,
+            vec![DatapackPlacementView {
+                world: "Alpha".into(),
+                state: None,
+                ignored_reason: None,
+                level_dat: Some(LevelDatPresence::Present),
+            }]
+        );
+    }
+
+    fn facts_with(resolved: HashMap<String, Denotes>, on_disk: Vec<OnDiskEntry>) -> WorldFacts {
+        WorldFacts {
+            world: "Alpha".into(),
+            level_dat: Some(LevelDatPresence::Present),
+            lists: Some((vec!["vanilla".into()], Vec::new())),
+            on_disk: Some(on_disk),
+            resolved,
+        }
+    }
+
+    /// R2 could not tell whether `VM.zip` is the library's `vm.zip` (a stat
+    /// error): the placement is unknown, not NotAdded/Orphaned, and the entry
+    /// is not listed again as a pack found only in worlds.
+    #[test]
+    fn a_name_r2_could_not_resolve_has_an_unknown_placement_and_no_duplicate_row() {
+        let entry = OnDiskEntry {
+            name: "VM.zip".into(),
+            presence: Presence::Pack { is_dir: false },
+            vouched: false,
+        };
+        let resolved = HashMap::from([(
+            "vm.zip".to_string(),
+            Denotes::Unknown {
+                candidate: "VM.zip".into(),
+            },
+        )]);
+        let facts = facts_with(resolved, vec![entry]);
+        let p = placement_in(&facts, "vm.zip", Some(&unlisted("vm.zip"))).unwrap();
+        assert_eq!((p.state, p.ignored_reason), (None, None));
+        assert!(claimed_by_registry(&facts, "VM.zip"));
     }
 }
