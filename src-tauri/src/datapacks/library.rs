@@ -154,6 +154,10 @@ pub async fn install_named_at(
     bytes: &[u8],
     provenance: Option<&crate::datapacks::DatapackProvenance>,
 ) -> Result<crate::datapacks::LibraryInstall> {
+    // N.5: the library file is Lucerna's to name, and the game loads only
+    // `*.zip` in lower case. Every later step and the returned row use this name.
+    let normalised = crate::datapacks::detect::normalise_zip_extension(filename);
+    let filename = normalised.as_str();
     if !crate::pathsafe::is_safe_filename(filename) {
         return Err(Error::ModsUnsafeFilename {
             filename: filename.to_string(),
@@ -166,7 +170,7 @@ pub async fn install_named_at(
     // loads: `registry::reconcile` adopts only `.zip` names, so the row is
     // dropped on the very next `list()` while the file stays on disk —
     // invisible in the UI and unremovable through it.
-    if !filename.to_ascii_lowercase().ends_with(".zip") {
+    if !crate::datapacks::detect::has_zip_suffix(filename) {
         return Err(Error::DatapackInvalid {
             filename: filename.to_string(),
             reason: DatapackRejection::NotAZip,
@@ -178,6 +182,21 @@ pub async fn install_named_at(
             filename: filename.to_string(),
             size_bytes: bytes.len() as f64,
             limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
+        });
+    }
+
+    // One registry read serves both the A21 check and the provenance gate below.
+    let rows = registry::list(instance_root).await?;
+    // §0.5 A21: a legacy `X.ZIP` row that this name differs from only in case
+    // is refused, never installed over, and never renamed automatically.
+    if let Some(legacy) = rows.iter().find(|r| {
+        r.filename != filename
+            && !crate::datapacks::detect::has_zip_suffix(&r.filename)
+            && r.filename.to_lowercase() == filename.to_lowercase()
+    }) {
+        return Err(Error::DatapackLegacyCaseName {
+            filename: filename.to_string(),
+            legacy: legacy.filename.clone(),
         });
     }
 
@@ -274,17 +293,12 @@ pub async fn install_named_at(
             // and friends too, so an ASCII-only match would miss the row for a
             // non-ASCII name the file system just resolved, and a same-project
             // update would fail as a spurious conflict).
-            let same_project = registry::list(instance_root)
-                .await
-                .ok()
-                .and_then(|rows| {
-                    crate::datapacks::detect::find_by_name(&rows, filename, |r| r.filename.as_str())
-                        .cloned()
-                })
-                .is_some_and(|row| {
-                    row.source == Some(prov.source)
-                        && row.project_id.as_deref() == Some(&prov.project_id)
-                });
+            let same_project =
+                crate::datapacks::detect::find_by_name(&rows, filename, |r| r.filename.as_str())
+                    .is_some_and(|row| {
+                        row.source == Some(prov.source)
+                            && row.project_id.as_deref() == Some(&prov.project_id)
+                    });
             if !same_project {
                 return Err(Error::ModsFilenameConflict {
                     filename: filename.to_string(),
@@ -1333,5 +1347,67 @@ mod tests {
             datapack_zip_v2()
         );
         assert!(!wd.join("level.dat").exists());
+    }
+
+    fn library_names(root: &Path) -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(library_dir_at(root))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[tokio::test]
+    async fn install_normalises_an_upper_case_zip_extension() {
+        let td = tempfile::tempdir().unwrap();
+        let out = install_named_at(td.path(), "Pack.ZIP", &datapack_zip(), None)
+            .await
+            .unwrap();
+        assert_eq!(out.pack.filename, "Pack.zip");
+        assert_eq!(library_names(td.path()), vec!["Pack.zip"]);
+    }
+
+    /// §0.5 A21. Asserts on `read_dir` names, so it holds on every file system.
+    #[tokio::test]
+    async fn installing_over_a_legacy_upper_case_zip_is_refused_and_keeps_the_row() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = library_dir_at(td.path());
+        std::fs::create_dir_all(&lib).unwrap();
+        let legacy = datapack_zip();
+        std::fs::write(lib.join("Pack.ZIP"), &legacy).unwrap(); // adopted by registry::reconcile
+        let err = install_named_at(td.path(), "Pack.zip", &datapack_zip_v2(), None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, Error::DatapackLegacyCaseName { legacy, .. } if legacy == "Pack.ZIP"),
+            "got {err:?}"
+        );
+        assert_eq!(library_names(td.path()), vec!["Pack.ZIP"]);
+        assert_eq!(std::fs::read(lib.join("Pack.ZIP")).unwrap(), legacy);
+        assert_eq!(list_at(td.path()).await.unwrap()[0].filename, "Pack.ZIP");
+    }
+
+    /// §0.5 A24: one root rule; `./pack.mcmeta` is not at the root.
+    #[tokio::test]
+    async fn an_install_refuses_a_dot_slash_pack_mcmeta_zip() {
+        let td = tempfile::tempdir().unwrap();
+        let bytes = crate::datapacks::detect::test_support::zip_of(&[
+            ("./pack.mcmeta", MCMETA),
+            ("data/vm/function/t.mcfunction", b"x"),
+        ]);
+        let err = install_named_at(td.path(), "dot.zip", &bytes, None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::DatapackInvalid {
+                    reason: DatapackRejection::NotAPack,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
     }
 }

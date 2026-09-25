@@ -547,6 +547,11 @@ describe('formatError', () => {
         size_bytes: 300 * 1024 * 1024,
         limit_bytes: 256 * 1024 * 1024,
       },
+      datapack_legacy_case_name: {
+        kind: 'datapack_legacy_case_name',
+        filename: 'Pack.zip',
+        legacy: 'Pack.ZIP',
+      },
       vanilla_tweaks_unavailable: {
         kind: 'vanilla_tweaks_unavailable',
         mc_version: '1.12.2',

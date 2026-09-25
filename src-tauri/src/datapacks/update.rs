@@ -75,13 +75,15 @@ pub async fn update_at(
 
     let install =
         library::install_named_at(instance_root, new_filename, bytes, Some(provenance)).await?;
+    // N.5: the install may have normalised the name (`X.ZIP` → `X.zip`); the
+    // worlds must link the name it actually wrote.
+    let new_name = install.pack.filename.clone();
     // `install.refreshed` covers worlds that already held the NEW name (rare,
     // but a re-run after a partial failure lands here); the migration below
     // covers worlds still on the OLD name. Together they are the full
     // per-world report, and a failure in EITHER half blocks the cleanup step.
     let mut migrations = install.refreshed;
-    migrations
-        .extend(world_link::migrate_placements(instance_root, old_filename, new_filename).await);
+    migrations.extend(world_link::migrate_placements(instance_root, old_filename, &new_name).await);
     let failed = migrations
         .iter()
         .any(|m| matches!(m, WorldMigration::Failed { .. }));
@@ -465,5 +467,26 @@ mod tests {
             matches!(err, Error::ModsUnsafeFilename { .. }),
             "got {err:?}"
         );
+    }
+
+    /// N.5: the migration links the name the install actually wrote.
+    #[tokio::test]
+    async fn a_renamed_update_to_an_upper_case_name_links_the_normalised_file() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        seed_world(td.path(), "Alpha", "vm-1.zip").await;
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.ZIP", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+        assert!(out.completed, "{:?}", out.migrations);
+        assert_eq!(out.pack.filename, "vm-2.zip");
+        let names: Vec<String> = std::fs::read_dir(world_dir(td.path(), "Alpha").join("datapacks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["vm-2.zip"]);
     }
 }

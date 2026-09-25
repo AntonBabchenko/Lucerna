@@ -781,6 +781,15 @@ pub enum Error {
         limit_bytes: f64,
     },
 
+    /// A library install whose (normalised) name differs from an existing
+    /// library row only in letter case, where that row is a LEGACY `X.ZIP` file
+    /// from before installs normalised the extension (§0.5 A21). Installing
+    /// over it would leave two spellings of one pack, or on NTFS/APFS replace the
+    /// legacy file under a name nobody recorded; a reinstall can also drop its
+    /// provenance. The user removes the legacy row first.
+    #[error("the library already holds '{legacy}', which differs from '{filename}' only in letter case; remove it from the library first")]
+    DatapackLegacyCaseName { filename: String, legacy: String },
+
     /// Vanilla Tweaks publishes per Minecraft family, and the family derived
     /// from this version does not exist upstream — usually a Minecraft
     /// release VT has not caught up with. Deliberately not answered by

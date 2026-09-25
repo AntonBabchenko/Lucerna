@@ -91,8 +91,10 @@ pub fn datapacks_dir(runtime: &Path, props_raw: &str) -> PathBuf {
 }
 
 /// Validate `src_zip` and install it into the world's `datapacks/`, returning
-/// the installed filename. Records a provenance-less sidecar row (so the pack
-/// lists with real state) and writes through temp-then-rename.
+/// the installed filename — the name the install wrote, which is the source
+/// name with an `X.ZIP` extension saved as `X.zip` (N.5). Records a
+/// provenance-less sidecar row (so the pack lists with real state) and writes
+/// through temp-then-rename.
 ///
 /// `world_dir` is `runtime/<level>/` — the sidecar and `level.dat` live there.
 pub async fn install_datapack(world_dir: &Path, src_zip: &Path) -> Result<String> {
@@ -102,8 +104,8 @@ pub async fn install_datapack(world_dir: &Path, src_zip: &Path) -> Result<String
         .map(str::to_string)
         .ok_or_else(|| Error::io("<datapack>", "source path has no filename"))?;
     let bytes = std::fs::read(src_zip).map_err(|e| Error::io(src_zip.display().to_string(), e))?;
-    mutate::install_bytes(world_dir, &filename, &bytes, None).await?;
-    Ok(filename)
+    let record = mutate::install_bytes(world_dir, &filename, &bytes, None).await?;
+    Ok(record.filename)
 }
 
 /// One row of a server world's datapack list.
@@ -321,5 +323,22 @@ mod tests {
         std::fs::write(&src, datapack_zip()).unwrap();
         let world = td.path().join("world");
         assert!(install_datapack(&world, &src).await.is_err());
+    }
+
+    /// N.5: the game loads only `*.zip` in lower case, so the install saves
+    /// `X.ZIP` as `X.zip` and reports the name it wrote.
+    #[tokio::test]
+    async fn install_datapack_returns_the_normalised_name() {
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("CoolPack.ZIP");
+        std::fs::write(&src, datapack_zip()).unwrap();
+        let world = td.path().join("world");
+        let name = install_datapack(&world, &src).await.unwrap();
+        assert_eq!(name, "CoolPack.zip");
+        let names: Vec<String> = std::fs::read_dir(world.join("datapacks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["CoolPack.zip"]);
     }
 }

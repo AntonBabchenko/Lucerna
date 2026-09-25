@@ -246,6 +246,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   datapack_invalid: 'clean',
   // Structured fields only (filename + two sizes) — nothing to truncate.
   datapack_too_large: 'clean',
+  // Two filenames, both ours to show — nothing to truncate.
+  datapack_legacy_case_name: 'clean',
   // Vanilla Tweaks builder. The version is ours; the build message is the
   // upstream service's own wording, kept verbatim because we do not know its
   // failure modes and paraphrasing would hide them.
@@ -895,6 +897,8 @@ export function formatError(e: IpcError): string {
         sizeMb: Math.ceil((e.size_bytes ?? 0) / (1024 * 1024)),
         limitMb: Math.floor((e.limit_bytes ?? 0) / (1024 * 1024)),
       });
+    case 'datapack_legacy_case_name':
+      return translate('errors.datapackLegacyCaseName', { filename: e.filename, legacy: e.legacy });
     case 'vanilla_tweaks_unavailable':
       return translate('errors.vanillaTweaksUnavailable', { mcVersion: e.mc_version });
     case 'vanilla_tweaks_build_failed':

@@ -189,6 +189,7 @@ export type TranslationKey =
   | 'errors.datapackInvalidReason.isAResourcePack'
   | 'errors.datapackInvalidReason.notAPack'
   | 'errors.datapackInvalidReason.notAZip'
+  | 'errors.datapackLegacyCaseName'
   | 'errors.datapackTooLarge'
   | 'errors.forgeInstallerCorrupted'
   | 'errors.forgeMappingsMissing'

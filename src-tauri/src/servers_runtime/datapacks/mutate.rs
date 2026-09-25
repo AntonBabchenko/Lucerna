@@ -176,6 +176,10 @@ pub async fn install_bytes(
     bytes: &[u8],
     provenance: Option<&DatapackProvenance>,
 ) -> Result<ServerInstalledRecord> {
+    // N.5: the file is Lucerna's to name, and the game loads only `*.zip` in
+    // lower case. Every later step and the returned row use this name.
+    let normalised = detect::normalise_zip_extension(filename);
+    let filename = normalised.as_str();
     validate_install_input(filename, bytes)?;
     // D2: a world that lost its level.dat but kept level.dat_old gets no
     // data-pack change; the next start restores level.dat from the backup.
@@ -311,11 +315,13 @@ pub(crate) fn validate_install_name(filename: &str) -> Result<()> {
             filename: filename.to_string(),
         });
     }
-    // Minecraft's pack scanner loads directories and `*.zip` only, and a
-    // non-zip name written here is worse than one that never loads: the
-    // sidecar reconcile adopts only `.zip`, so the row is dropped on the next
-    // listing while the file stays on disk — invisible and unremovable.
-    if !filename.to_ascii_lowercase().ends_with(".zip") {
+    // Minecraft's pack scanner loads directories and `*.zip` only (exact,
+    // lower case), and a non-zip name written here is worse than one that
+    // never loads: the sidecar reconcile adopts only `.zip`, so the row is
+    // dropped on the next listing while the file stays on disk — invisible and
+    // unremovable. The name that is checked is the one the install writes
+    // (N.5): `X.ZIP` is saved as `X.zip`, so it passes here.
+    if !detect::has_zip_suffix(&detect::normalise_zip_extension(filename)) {
         return Err(Error::DatapackInvalid {
             filename: filename.to_string(),
             reason: DatapackRejection::NotAZip,
@@ -864,5 +870,19 @@ mod tests {
             level_dat::lists(&root).0,
             vec!["vanilla".to_string(), "file/Foo.zip".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn install_normalises_an_upper_case_zip_extension() {
+        let td = world(&[]);
+        let rec = install_bytes(td.path(), "Pack.ZIP", &datapack_zip(b"x"), None)
+            .await
+            .unwrap();
+        assert_eq!(rec.filename, "Pack.zip");
+        let names: Vec<String> = std::fs::read_dir(td.path().join("datapacks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["Pack.zip"]);
     }
 }

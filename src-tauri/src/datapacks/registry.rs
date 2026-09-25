@@ -124,6 +124,9 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> bool {
         Ok(mut rd) => {
             while let Ok(Some(e)) = rd.next_entry().await {
                 let name = e.file_name().to_string_lossy().to_string();
+                // Case-folded on purpose (spec §2 N.3): the game never scans the
+                // library dir, and N.4/N.5 enforce exactness where a file enters
+                // a world.
                 if name.to_ascii_lowercase().ends_with(".zip") {
                     on_disk.push(name);
                 }

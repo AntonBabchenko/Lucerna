@@ -28,6 +28,10 @@ pub async fn update_one(
             filename: old_filename.to_string(),
         });
     }
+    // N.5: `install_bytes` saves `X.ZIP` as `X.zip`; every step below, the
+    // carried state included, uses the name it writes.
+    let normalised_new = detect::normalise_zip_extension(new_filename);
+    let new_filename = normalised_new.as_str();
     // The new name and bytes get the same input checks `install_bytes` runs,
     // here and not only inside it: they come before the world-state refusal
     // below (spec §0.5 A7), so a bad name is never reported as a world problem.
@@ -850,6 +854,32 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(out.was_enabled, Some(true), "both lists ⇒ loaded (N.0)");
+        assert_eq!(
+            state_of(td.path(), "vm-2.zip"),
+            Some(WorldPackState::Enabled)
+        );
+    }
+
+    /// N.5: the renamed update lands under the name the install wrote, and
+    /// the carried state follows it there.
+    #[tokio::test]
+    async fn a_renamed_update_to_an_upper_case_name_lands_normalised() {
+        let td = booted_world_with("vm-1.zip", b"v1").await;
+        let out = update_one(
+            td.path(),
+            "vm-1.zip",
+            "vm-2.ZIP",
+            &datapack_zip(b"v2"),
+            &prov("v2"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.record.filename, "vm-2.zip");
+        let names: Vec<String> = std::fs::read_dir(td.path().join("datapacks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["vm-2.zip"]);
         assert_eq!(
             state_of(td.path(), "vm-2.zip"),
             Some(WorldPackState::Enabled)

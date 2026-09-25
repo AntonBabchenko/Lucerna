@@ -2485,6 +2485,7 @@
       "notAPack": "В архиве нет pack.mcmeta или папки data."
     },
     "datapackTooLarge": "«{filename}» весит {sizeMb} МБ — больше лимита {limitMb} МБ для датапака.",
+    "datapackLegacyCaseName": "В библиотеке уже есть «{legacy}» — имя отличается от «{filename}» только регистром букв. Сначала удалите его из библиотеки, затем установите снова.",
     "vanillaTweaksUnavailable": "У Vanilla Tweaks пока нет паков для Minecraft {mcVersion}.",
     "vanillaTweaksBuildFailed": "Vanilla Tweaks не смог собрать этот набор. {message}",
     "vanillaTweaksBundleTooLarge": "Загрузка с Vanilla Tweaks весит {sizeMb} МБ — больше лимита {limitMb} МБ.",

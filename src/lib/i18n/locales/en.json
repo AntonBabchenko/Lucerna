@@ -2485,6 +2485,7 @@
       "notAPack": "It's missing pack.mcmeta or a data folder."
     },
     "datapackTooLarge": "\"{filename}\" is {sizeMb} MB — over the {limitMb} MB limit for a datapack.",
+    "datapackLegacyCaseName": "The library already has \"{legacy}\", which differs from \"{filename}\" only in capital letters. Remove it from the library first, then install again.",
     "vanillaTweaksUnavailable": "Vanilla Tweaks has no packs for Minecraft {mcVersion} yet.",
     "vanillaTweaksBuildFailed": "Vanilla Tweaks couldn't put that selection together. {message}",
     "vanillaTweaksBundleTooLarge": "The download from Vanilla Tweaks is {sizeMb} MB — over the {limitMb} MB limit.",

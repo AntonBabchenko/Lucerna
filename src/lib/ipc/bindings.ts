@@ -3672,6 +3672,15 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "datapack_too_large"; filename: string; size_bytes: number | null; limit_bytes: number | null } | 
 /**
+ *  A library install whose (normalised) name differs from an existing
+ *  library row only in letter case, where that row is a LEGACY `X.ZIP` file
+ *  from before installs normalised the extension (§0.5 A21). Installing
+ *  over it would leave two spellings of one pack, or on NTFS/APFS replace the
+ *  legacy file under a name nobody recorded; a reinstall can also drop its
+ *  provenance. The user removes the legacy row first.
+ */
+{ kind: "datapack_legacy_case_name"; filename: string; legacy: string } | 
+/**
  *  Vanilla Tweaks publishes per Minecraft family, and the family derived
  *  from this version does not exist upstream — usually a Minecraft
  *  release VT has not caught up with. Deliberately not answered by
