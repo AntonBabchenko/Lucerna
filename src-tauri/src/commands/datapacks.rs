@@ -31,7 +31,7 @@ fn guard(instance_id: &str) -> Result<(), crate::error::Error> {
 /// read from the client jar's own bundled `version.json`. `None` for any
 /// failure along the way — no instance, no `mc_version` yet, no versions
 /// dir, no client jar, an unreadable jar — this must never fail the world
-/// listing it feeds. `compat::expected_data_format` is sync (the `zip` crate
+/// listing it feeds. `compat::game_data_format` is sync (the `zip` crate
 /// is sync), so it runs in `spawn_blocking` off the IPC thread.
 async fn expected_pack_format(app: &tauri::AppHandle, instance_id: &str) -> Option<u32> {
     let versions_dir = crate::paths::versions_dir(app).ok()?;
@@ -40,7 +40,9 @@ async fn expected_pack_format(app: &tauri::AppHandle, instance_id: &str) -> Opti
         return None;
     }
     tokio::task::spawn_blocking(move || {
-        crate::datapacks::compat::expected_data_format(&versions_dir, &instance.mc_version)
+        // Transitional: the strict compat_of still compares majors until the verdict replaces it.
+        crate::datapacks::compat::game_data_format(&versions_dir, &instance.mc_version)
+            .map(|f| f.major)
     })
     .await
     .ok()
