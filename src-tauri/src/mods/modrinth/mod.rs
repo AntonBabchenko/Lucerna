@@ -5,7 +5,7 @@ mod types;
 use async_trait::async_trait;
 
 use crate::error::Error;
-use crate::mods::hash_probe::BatchFailure;
+use crate::mods::hash_probe::{classify_status, BatchFailure};
 use crate::mods::platform::*;
 use std::collections::HashMap;
 
@@ -266,8 +266,20 @@ impl ModrinthClient {
         &self,
         shas: &[String],
     ) -> Result<HashMap<String, ModVersion>, BatchFailure> {
-        let _ = shas;
-        Err(BatchFailure::Unusable) // stub: red round
+        let mut out = HashMap::new();
+        for chunk in shas.chunks(BATCH_CHUNK) {
+            let hashes: Vec<String> = chunk.iter().map(|s| s.to_ascii_lowercase()).collect();
+            let map: HashMap<String, types::Version> = self
+                .post_hash_batch(
+                    "/v2/version_files",
+                    serde_json::json!({ "hashes": hashes, "algorithm": "sha1" }),
+                )
+                .await?;
+            for (sha, v) in map {
+                out.insert(sha.to_ascii_lowercase(), convert_version(v));
+            }
+        }
+        Ok(out)
     }
 
     /// `POST /v2/version_files/update_many` for many hashes: for each project
@@ -281,8 +293,64 @@ impl ModrinthClient {
         mc: &str,
         loader: LoaderKind,
     ) -> Result<HashMap<String, Vec<ModVersion>>, BatchFailure> {
-        let _ = (shas, mc, loader);
-        Err(BatchFailure::Unusable) // stub: red round
+        let mut out = HashMap::new();
+        for chunk in shas.chunks(BATCH_CHUNK) {
+            let hashes: Vec<String> = chunk.iter().map(|s| s.to_ascii_lowercase()).collect();
+            let map: HashMap<String, Vec<types::Version>> = self
+                .post_hash_batch(
+                    "/v2/version_files/update_many",
+                    serde_json::json!({
+                        "hashes": hashes,
+                        "algorithm": "sha1",
+                        "loaders": [Self::loader_facet(loader)],
+                        "game_versions": [mc],
+                    }),
+                )
+                .await?;
+            for (sha, vs) in map {
+                out.insert(
+                    sha.to_ascii_lowercase(),
+                    vs.into_iter().map(convert_version).collect(),
+                );
+            }
+        }
+        Ok(out)
+    }
+
+    /// One batch POST through the chokepoint, classified per
+    /// [`classify_status`]. Every failure leaves one line in the launcher log:
+    /// it is the only place the reason survives.
+    async fn post_hash_batch<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<T, BatchFailure> {
+        let url = format!("{}{}", self.base, path);
+        let body = serde_json::to_vec(&body).expect("a serde_json::Value always serializes");
+        let resp = match crate::network::request::post(
+            &url,
+            &[("user-agent", UA), ("content-type", "application/json")],
+            &body,
+            "mods",
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                crate::diag!("[hash_probe] {path}: no response ({e}) — counted as unavailable");
+                return Err(BatchFailure::Unavailable);
+            }
+        };
+        if let Some(failure) = classify_status(resp.status) {
+            crate::diag!("[hash_probe] {path}: HTTP {} — {failure:?}", resp.status);
+            return Err(failure);
+        }
+        serde_json::from_slice(&resp.body).map_err(|e| {
+            crate::diag!(
+                "[hash_probe] {path}: undecodable body ({e}) — per-project listing instead"
+            );
+            BatchFailure::Unusable
+        })
     }
 }
 

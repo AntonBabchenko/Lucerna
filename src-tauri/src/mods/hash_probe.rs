@@ -35,8 +35,11 @@ pub enum BatchFailure {
 /// Status → failure class; `None` for 2xx. «Nothing known» is `200 {}` on both
 /// endpoints (measured 2026-09-21), so a 404 is never a legitimate empty answer.
 pub fn classify_status(status: u16) -> Option<BatchFailure> {
-    let _ = status;
-    None // stub: red round
+    match status {
+        200..=299 => None,
+        400 | 404 | 405 | 410 | 422 => Some(BatchFailure::Unusable),
+        _ => Some(BatchFailure::Unavailable),
+    }
 }
 
 /// The batch answers for one pass at one (mc, loader). Keys are lowercase sha1.
@@ -93,17 +96,68 @@ impl HashProbeCache {
         mc: &str,
         loader: LoaderKind,
     ) -> Result<Snapshot, BatchFailure> {
-        let _ = (
-            client,
-            shas,
-            mc,
-            loader,
-            &self.own,
-            &self.latest,
-            &self.gate,
-            TTL,
-        );
-        Err(BatchFailure::Unusable) // stub: red round
+        // Lower-case once, at the boundary: the server's lookup is
+        // case-sensitive (S9) and every key below uses this form.
+        let mut wanted: Vec<String> = shas.iter().map(|s| s.to_ascii_lowercase()).collect();
+        wanted.sort();
+        wanted.dedup();
+        if wanted.is_empty() {
+            return Ok(Snapshot::default());
+        }
+        let _gate = self.gate.lock().await;
+        // Expired entries go FIRST, under the gate: nothing present now can
+        // disappear before this call assembles its answer, because only the
+        // next call's `retain` removes entries and it waits on the same gate.
+        let now = Instant::now();
+        let missing_own: Vec<String> = {
+            let mut own = self.own.lock().expect("hash probe cache mutex poisoned");
+            own.retain(|_, (_, at)| now.saturating_duration_since(*at) < TTL);
+            wanted
+                .iter()
+                .filter(|s| !own.contains_key(*s))
+                .cloned()
+                .collect()
+        };
+        if !missing_own.is_empty() {
+            let got = client.owners_by_hashes(&missing_own).await?;
+            let fetched_at = Instant::now();
+            let mut own = self.own.lock().expect("hash probe cache mutex poisoned");
+            for sha in missing_own {
+                let v = got.get(&sha).cloned();
+                own.insert(sha, (v, fetched_at));
+            }
+        }
+        let latest_key = |sha: &str| (sha.to_string(), mc.to_string(), loader);
+        let missing_latest: Vec<String> = {
+            let mut latest = self.latest.lock().expect("hash probe cache mutex poisoned");
+            latest.retain(|_, (_, at)| now.saturating_duration_since(*at) < TTL);
+            wanted
+                .iter()
+                .filter(|s| !latest.contains_key(&latest_key(s)))
+                .cloned()
+                .collect()
+        };
+        if !missing_latest.is_empty() {
+            let got = client.latest_by_hashes(&missing_latest, mc, loader).await?;
+            let fetched_at = Instant::now();
+            let mut latest = self.latest.lock().expect("hash probe cache mutex poisoned");
+            for sha in missing_latest {
+                let vs = got.get(&sha).cloned().unwrap_or_default();
+                latest.insert(latest_key(&sha), (vs, fetched_at));
+            }
+        }
+        let own = self.own.lock().expect("hash probe cache mutex poisoned");
+        let latest = self.latest.lock().expect("hash probe cache mutex poisoned");
+        let mut snap = Snapshot::default();
+        for sha in &wanted {
+            if let Some((v, _)) = own.get(sha) {
+                snap.own.insert(sha.clone(), v.clone());
+            }
+            if let Some((vs, _)) = latest.get(&latest_key(sha)) {
+                snap.latest.insert(sha.clone(), vs.clone());
+            }
+        }
+        Ok(snap)
     }
 }
 
