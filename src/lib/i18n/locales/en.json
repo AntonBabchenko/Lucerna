@@ -1076,6 +1076,7 @@
         "toastRemoved": "Removed {name}",
         "toastFailed": "Could not remove {name}",
         "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
+        "toastFailedWorldsOnly": "{count, plural, one {# world could not be cleaned} other {# worlds could not be cleaned}}",
         "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
         "worldsOnlyNote": "This pack isn't in the library, so removing it deletes it from the listed worlds permanently. It can't be restored."
       },

@@ -150,8 +150,10 @@
       else failed.push(`${p.world}: ${formatError(res.error)}`);
     }
     if (failed.length > 0) {
+      // Not `toastFailedWorlds`: that one says the library copy was kept, and
+      // a worlds-only row has none.
       pushWarning(
-        get(t)('addons.datapacks.remove.toastFailedWorlds', { count: failed.length }),
+        get(t)('addons.datapacks.remove.toastFailedWorldsOnly', { count: failed.length }),
         failed,
       );
     } else if (removed > 0) {

@@ -262,3 +262,48 @@ describe('DatapackRemoveDialog — worlds without a usable level.dat (D2)', () =
     expect(screen.queryByText(/stays in the library until/)).toBeNull();
   });
 });
+
+// A worlds-only row has no library copy: a world that could not be cleaned
+// must not be reported as "the library copy was kept".
+describe('DatapackRemoveDialog — worlds-only failure toast', () => {
+  it('names the worlds it could not clean and claims no library copy', async () => {
+    cmd.datapacksRemoveFromWorld
+      .mockResolvedValueOnce({ status: 'ok', data: null })
+      .mockResolvedValueOnce({
+        status: 'error',
+        error: { kind: 'io', path: 'B/datapacks', details: 'denied' },
+      });
+    render(DatapackRemoveDialog, {
+      props: {
+        instanceId: 'inst-1',
+        filename: 'vm.zip',
+        packName: 'VeinMiner',
+        mode: {
+          kind: 'worlds-only' as const,
+          placements: [
+            {
+              world: 'A',
+              state: 'enabled' as const,
+              ignored_reason: null,
+              level_dat: 'present' as const,
+            },
+            {
+              world: 'B',
+              state: 'enabled' as const,
+              ignored_reason: null,
+              level_dat: 'present' as const,
+            },
+          ],
+        },
+        onClose: () => {},
+        onRemoved: () => {},
+      },
+    });
+    await fireEvent.click(await screen.findByTestId('datapack-remove-confirm'));
+    await waitFor(() => expect(toasts.pushWarning).toHaveBeenCalledTimes(1));
+    const [title, details] = toasts.pushWarning.mock.calls[0];
+    expect(title).toMatch(/1 world could not be cleaned/);
+    expect(title).not.toMatch(/library copy/);
+    expect(details).toEqual([expect.stringMatching(/^B: /)]);
+  });
+});

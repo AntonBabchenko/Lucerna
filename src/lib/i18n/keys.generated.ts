@@ -36,6 +36,7 @@ export type TranslationKey =
   | 'addons.datapacks.remove.titleThisWorld'
   | 'addons.datapacks.remove.toastFailed'
   | 'addons.datapacks.remove.toastFailedWorlds'
+  | 'addons.datapacks.remove.toastFailedWorldsOnly'
   | 'addons.datapacks.remove.toastKeptNotOurs'
   | 'addons.datapacks.remove.toastRemoved'
   | 'addons.datapacks.remove.uncheckedKeepsLibrary'
