@@ -2,10 +2,10 @@
 //! compatibility / update / dependency-graph sweeps read from here instead of
 //! re-hitting the network. Keyed by (source, project_id, mc, loader);
 //! invalidated by TTL only (a project's available versions don't change on
-//! local install).
+//! local install). Concurrent fetches of one key are joined (`get_or_fetch`).
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::time::{Duration, Instant};
 
 use crate::mods::platform::{LoaderKind, ModSource, ModVersion};
@@ -26,6 +26,14 @@ fn store() -> &'static Mutex<HashMap<Key, Entry>> {
 
 fn key(source: ModSource, project_id: &str, mc: &str, loader: LoaderKind) -> Key {
     (source, project_id.to_string(), mc.to_string(), loader)
+}
+
+/// One fetch gate per key: concurrent `get_or_fetch` callers of a key queue on
+/// it. Grows with the distinct projects of a session (a few hundred) and is
+/// never evicted, like `project_cache`.
+fn gates() -> &'static Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {
+    static G: OnceLock<Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
+    G.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Cached lookup. Returns `Some(versions)` when a fresh entry exists.
@@ -80,7 +88,19 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = crate::error::Result<Vec<ModVersion>>>,
 {
-    // stub: red round — cached, not yet coalesced.
+    if let Some(hit) = get(source, project_id, mc, loader) {
+        return Ok(hit);
+    }
+    let gate = gates()
+        .lock()
+        .expect("version cache gate mutex poisoned")
+        .entry(key(source, project_id, mc, loader))
+        .or_default()
+        .clone();
+    let _held = gate.lock().await;
+    // A caller that held the gate before us may have filled the entry. If it
+    // failed, nothing was cached and this caller fetches for itself — one
+    // waiter at a time, so a failing host is asked in sequence, never at once.
     if let Some(hit) = get(source, project_id, mc, loader) {
         return Ok(hit);
     }
