@@ -28,6 +28,18 @@ describe('datapack-load-failed copy', () => {
     }
   });
 
+  // The number alone never blocks loading, but content written for another
+  // version is a common cause of exactly this failure: "isn't the cause" said
+  // too much.
+  it('clears the format number without clearing content made for another version', () => {
+    expect(EN.explanation).toMatch(/format number alone never blocks loading/);
+    expect(EN.explanation).toMatch(/content written for another version often can't be read/);
+    expect(EN.explanation).not.toMatch(/isn't the cause/);
+    expect(RU.explanation).toMatch(/сам по себе/);
+    expect(RU.explanation).toMatch(/для другой версии/);
+    expect(RU.explanation).not.toMatch(/ни при чём/);
+  });
+
   it('names both owners of a namespace: a data pack or a mod', () => {
     expect(EN.recommendation).toMatch(/if a mod owns it/i);
     expect(RU.recommendation).toMatch(/если моду/);

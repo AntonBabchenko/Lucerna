@@ -202,9 +202,9 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         title: "This world's data packs failed to load",
         explanation: "Minecraft couldn't load the data this world needs: a file inside a data \
              pack, or in a mod's built-in data, which loads the same way, could not be read. \
-             A pack's format number isn't the cause: Minecraft loads packs made for other \
-             versions and fails only on content it can't read. The error lines just above \
-             this one name the file.",
+             A pack's format number alone never blocks loading, but content written for \
+             another version often can't be read. The error lines just above this one name \
+             the file.",
         recommendation: "Find the file in the error lines above; the part of its name before \
              the colon is its namespace. If a data pack in this world's Datapacks tab (or the \
              server's) owns the namespace, switch it off or remove it there; if a mod owns it, \
