@@ -269,15 +269,18 @@ pub async fn install_named_at(
     //     pack — two different packs competing for one name. Conflict.
     if let Some(prov) = provenance {
         if let Some(ref existing_sha) = old_sha {
-            // Full Unicode folding, not `eq_ignore_ascii_case`: NTFS folds
-            // Cyrillic and friends too, so an ASCII-only match would miss the
-            // row for a non-ASCII name the filesystem just resolved, and a
-            // same-project update would fail as a spurious conflict.
-            let want = filename.to_lowercase();
+            // N.3 provenance lookup: the exact name first, else the single
+            // case-insensitive match (full Unicode folding: NTFS folds Cyrillic
+            // and friends too, so an ASCII-only match would miss the row for a
+            // non-ASCII name the file system just resolved, and a same-project
+            // update would fail as a spurious conflict).
             let same_project = registry::list(instance_root)
                 .await
                 .ok()
-                .and_then(|rows| rows.into_iter().find(|r| r.filename.to_lowercase() == want))
+                .and_then(|rows| {
+                    crate::datapacks::detect::find_by_name(&rows, filename, |r| r.filename.as_str())
+                        .cloned()
+                })
                 .is_some_and(|row| {
                     row.source == Some(prov.source)
                         && row.project_id.as_deref() == Some(&prov.project_id)
@@ -387,7 +390,8 @@ pub async fn remove_from_library_at(
     let mut worlds = Vec::with_capacity(placements.len());
     let mut any_failed = false;
     for p in placements {
-        visited.insert(p.world.to_lowercase());
+        // Exact: both sides come from the same `saves/` `read_dir` (N.3).
+        visited.insert(p.world.clone());
         if !p.is_ours {
             worlds.push(WorldRemoval::KeptNotOurs { world: p.world });
             continue;
@@ -420,7 +424,7 @@ pub async fn remove_from_library_at(
     // cleared).
     if cascade {
         for world in worlds_naming(instance_root, filename).await {
-            if visited.contains(&world.to_lowercase()) {
+            if visited.contains(&world) {
                 continue;
             }
             match crate::datapacks::world_link::remove_for_cascade_at(
@@ -541,13 +545,19 @@ async fn worlds_naming(instance_root: &Path, filename: &str) -> Vec<String> {
             }
         };
         let (enabled, disabled) = crate::datapacks::level_dat::lists(&root);
-        if crate::datapacks::world_link::contains_ci(&enabled, &entry)
-            || crate::datapacks::world_link::contains_ci(&disabled, &entry)
-        {
+        if names_ci(&enabled, &entry) || names_ci(&disabled, &entry) {
             out.push(world);
         }
     }
     out
+}
+
+/// Case-folded on purpose (§0.5 A18): it only NOMINATES worlds for the
+/// cascade's orphan sweep, and the removal it calls applies R3, which never
+/// drops an id whose exact spelling is a present entry.
+fn names_ci(list: &[String], entry: &str) -> bool {
+    let e = entry.to_lowercase();
+    list.iter().any(|s| s.to_lowercase() == e)
 }
 
 /// Remove a datapack from the instance's library, then drop its registry

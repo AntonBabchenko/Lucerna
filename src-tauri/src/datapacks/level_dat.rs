@@ -352,6 +352,69 @@ pub fn forget(root: &mut Value, entry: &str) -> Result<bool> {
     Ok(removed_enabled || removed_disabled)
 }
 
+/// Returns whether any entry matching `pred` was removed.
+fn drop_where(list: &mut Vec<Value>, pred: &dyn Fn(&str) -> bool) -> bool {
+    let before = list.len();
+    list.retain(|v| !matches!(v, Value::String(s) if pred(s)));
+    list.len() != before
+}
+
+/// R3 (spec §2 N.3): drop the exact `id` from both lists, plus every entry
+/// that differs from it only in case AND whose name is not an exact on-disk
+/// entry name in `present`. The engine already ignores such ids (its id is
+/// the exact on-disk spelling), so they are ghosts. With `present == None`
+/// (the `read_dir` failed) only the exact id goes: the restrictive answer.
+///
+/// A present entry spelled like a case variant is a different pack on a
+/// case-sensitive file system, and its id stays.
+pub fn forget_with_case_ghosts(
+    root: &mut Value,
+    id: &str,
+    present: Option<&[String]>,
+) -> Result<bool> {
+    let folded = id.to_lowercase();
+    let is_ghost = |s: &str| -> bool {
+        if s == id {
+            return true;
+        }
+        let Some(present) = present else {
+            return false;
+        };
+        s.to_lowercase() == folded
+            && s.strip_prefix("file/")
+                .is_some_and(|name| !present.iter().any(|p| p == name))
+    };
+    // Mirrors `forget`: nothing is listed when `DataPacks` is absent, and an
+    // empty compound created here would replace the engine default.
+    let Some(dp) = datapacks_mut(data_mut(root)?)? else {
+        return Ok(false);
+    };
+    let removed_enabled = drop_where(list_mut(dp, "Enabled")?, &is_ghost);
+    let removed_disabled = drop_where(list_mut(dp, "Disabled")?, &is_ghost);
+    Ok(removed_enabled || removed_disabled)
+}
+
+/// The enabled state to carry from `old_id` to `new_id` (N.3 shared helper).
+/// If `new_id` is exactly listed, it wins: a retried migration already wrote
+/// it. Otherwise the old id is read. Both use the engine's rule: enabled
+/// unless listed ONLY in `Disabled` (exact `List.contains`), so both lists ⇒
+/// enabled, and a present, unlisted pack is enabled (the game auto-adds it).
+#[must_use]
+pub fn carried_enabled(
+    enabled: &[String],
+    disabled: &[String],
+    old_id: &str,
+    new_id: &str,
+) -> bool {
+    let has = |list: &[String], id: &str| list.iter().any(|s| s == id);
+    let id = if has(enabled, new_id) || has(disabled, new_id) {
+        new_id
+    } else {
+        old_id
+    };
+    has(enabled, id) || !has(disabled, id)
+}
+
 /// Case-insensitive [`drop_entry`].
 fn drop_entry_ci(list: &mut Vec<Value>, entry: &str) -> bool {
     let needle = entry.to_lowercase();
@@ -1371,5 +1434,93 @@ mod tests {
         // Missing is not corrupt: LevelDatParse would tell a user their
         // world is broken when there is simply no world there yet.
         assert!(matches!(err, crate::error::Error::Io { .. }));
+    }
+
+    /// A root whose DataPacks lists hold exactly these ids, built by hand so
+    /// the fixture does not depend on `set_enabled`'s seeding rules (§0.5 A15).
+    fn raw_root(enabled: &[&str], disabled: &[&str]) -> Value {
+        let list = |ids: &[&str]| {
+            Value::List(
+                ids.iter()
+                    .map(|s| Value::String((*s).to_string()))
+                    .collect(),
+            )
+        };
+        let mut dp = HashMap::new();
+        dp.insert("Enabled".to_string(), list(enabled));
+        dp.insert("Disabled".to_string(), list(disabled));
+        let mut data = HashMap::new();
+        data.insert("LevelName".to_string(), Value::String("Survival".into()));
+        data.insert("DataPacks".to_string(), Value::Compound(dp));
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::Compound(data));
+        Value::Compound(root)
+    }
+
+    #[test]
+    fn forgetting_one_pack_keeps_a_present_pack_differing_only_in_case() {
+        let mut root = raw_root(&["vanilla", "file/Foo.zip", "file/foo.zip"], &[]);
+        let present = vec!["Foo.zip".to_string()];
+        assert!(forget_with_case_ghosts(&mut root, "file/foo.zip", Some(&present)).unwrap());
+        assert_eq!(
+            lists(&root).0,
+            vec!["vanilla".to_string(), "file/Foo.zip".to_string()]
+        );
+    }
+
+    /// Rewritten from `forget_ci_removes_an_entry_whose_case_differs` (N.9 #7).
+    /// A case variant that no present entry spells exactly is a ghost the
+    /// engine already drops (`WARN Missing data pack`), so it goes too.
+    #[test]
+    fn forget_with_case_ghosts_drops_a_case_variant_no_entry_spells() {
+        let mut root = raw_root(&["file/VeinMiner.zip"], &["file/VEINMINER.zip"]);
+        assert!(forget_with_case_ghosts(&mut root, "file/veinminer.zip", Some(&[])).unwrap());
+        let (en, dis) = lists(&root);
+        assert!(en.is_empty() && dis.is_empty(), "{en:?} {dis:?}");
+    }
+
+    #[test]
+    fn forget_with_case_ghosts_reports_no_change_when_nothing_matched() {
+        let mut root = raw_root(&["file/other.zip"], &[]);
+        assert!(!forget_with_case_ghosts(&mut root, "file/veinminer.zip", Some(&[])).unwrap());
+        assert_eq!(lists(&root).0, vec!["file/other.zip".to_string()]);
+    }
+
+    /// `present == None` (the `read_dir` failed): the exact id only (R3).
+    #[test]
+    fn forget_with_case_ghosts_without_a_listing_drops_the_exact_id_only() {
+        let mut root = raw_root(&["file/vm.zip", "file/VM.zip"], &[]);
+        assert!(forget_with_case_ghosts(&mut root, "file/vm.zip", None).unwrap());
+        assert_eq!(lists(&root).0, vec!["file/VM.zip".to_string()]);
+    }
+
+    #[test]
+    fn carried_enabled_treats_both_lists_as_enabled() {
+        let en = vec!["vanilla".to_string(), "file/a.zip".to_string()];
+        let dis = vec!["file/a.zip".to_string()];
+        assert!(carried_enabled(&en, &dis, "file/a.zip", "file/b.zip"));
+    }
+
+    #[test]
+    fn carried_enabled_ignores_a_case_drifted_disabled_entry() {
+        let dis = vec!["file/A.zip".to_string()];
+        assert!(carried_enabled(
+            &["vanilla".to_string()],
+            &dis,
+            "file/a.zip",
+            "file/b.zip"
+        ));
+    }
+
+    #[test]
+    fn carried_enabled_prefers_an_already_listed_new_id() {
+        // A retried migration: the new id is already Disabled; a stale old id must not flip it on.
+        let dis = vec!["file/b.zip".to_string()];
+        assert!(!carried_enabled(
+            &["file/a.zip".to_string()],
+            &dis,
+            "file/a.zip",
+            "file/b.zip"
+        ));
     }
 }

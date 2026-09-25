@@ -16,7 +16,7 @@
 //!   longer holds the old filename.
 //!
 //! The per-world half (delete-old-entry, three-case enabled reading,
-//! `forget_ci`, identity verification) lives in
+//! `forget_with_case_ghosts`, identity verification) lives in
 //! [`world_link::migrate_placements`], which takes `level_dat_lock` itself —
 //! see its doc for why it cannot be composed from the public entry points.
 

@@ -14,6 +14,9 @@ use super::level_dat_lock;
 pub(crate) struct WorldPlacement {
     pub world: String,
     pub path: PathBuf,
+    /// The on-disk spelling (R2). The engine's id is `file/` + this, not the
+    /// library's spelling.
+    pub entry_name: String,
     /// The world-side entry's sha1 equals the library entry's. `false` means a
     /// same-named entry the user (or a world import) put there — replacing it
     /// would be data loss, so every MUTATING caller must skip it and say so.
@@ -77,7 +80,32 @@ async fn placements_against(
         if crate::worlds::fs::validate_segment(&world).is_err() {
             continue;
         }
-        let candidate = entry.path().join("datapacks").join(filename);
+        let dp = entry.path().join("datapacks");
+        // R2 (N.3): the entry this library name denotes in this world. A world
+        // we cannot read is skipped, the same policy as the stat it replaces.
+        let names = match crate::datapacks::detect::entry_names(&dp) {
+            Ok(n) => n,
+            Err(e) => {
+                crate::diag!(
+                    "datapacks: skipping {} — could not list it: {e}",
+                    dp.display()
+                );
+                continue;
+            }
+        };
+        let entry_name = match crate::datapacks::detect::resolve(&dp, filename, &names) {
+            crate::datapacks::detect::Resolved::Exact(n)
+            | crate::datapacks::detect::Resolved::Folded(n) => n,
+            crate::datapacks::detect::Resolved::Absent => continue,
+            crate::datapacks::detect::Resolved::Unknown(e) => {
+                crate::diag!(
+                    "datapacks: skipping {} — could not tell whether it holds {filename}: {e}",
+                    dp.display()
+                );
+                continue;
+            }
+        };
+        let candidate = dp.join(&entry_name);
         let Ok(cand_meta) = tokio::fs::metadata(&candidate).await else {
             continue;
         };
@@ -92,6 +120,7 @@ async fn placements_against(
         out.push(WorldPlacement {
             world,
             path: candidate,
+            entry_name,
             is_ours,
         });
     }

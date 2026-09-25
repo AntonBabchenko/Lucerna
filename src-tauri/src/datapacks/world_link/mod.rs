@@ -148,6 +148,42 @@ fn map_removal_err(path: &Path, e: std::io::Error, world: &str) -> Error {
     }
 }
 
+/// R2 + D1 for a toggle (spec §2 N.4, §0.5 A19). Resolves `filename` against
+/// ONE `read_dir` of `dp_dir` and classifies only the entry it resolves to,
+/// off the executor, with no vouch. `Ok(Some(name))` = a pack, spelled as on
+/// disk. `Ok(None)` = nothing on disk by that name; the caller writes its own
+/// spelling, as before. A non-pack is refused with the matching
+/// `DatapackInvalid` reason, and an unreadable entry is `Error::io` with its
+/// cause. Never touches the registry, so a caller holding a `level_dat_lock`
+/// may call it.
+pub(crate) async fn pack_name_for_write(dp_dir: &Path, filename: &str) -> Result<Option<String>> {
+    use crate::datapacks::detect::{self, Presence, WriteTarget};
+    let (dp, name) = (dp_dir.to_path_buf(), filename.to_string());
+    let target = tokio::task::spawn_blocking(move || detect::target_for_write(&dp, &name))
+        .await
+        .map_err(|e| Error::io(dp_dir.display().to_string(), format!("join: {e}")))?
+        .map_err(|e| Error::io(dp_dir.join(filename).display().to_string(), e))?;
+    match target {
+        WriteTarget::Absent => Ok(None),
+        WriteTarget::Present {
+            name,
+            presence: Some(Presence::Pack { .. }),
+        } => Ok(Some(name)),
+        WriteTarget::Present {
+            presence: Some(Presence::Unusable { reason, .. }),
+            ..
+        } => Err(Error::DatapackInvalid {
+            filename: filename.to_string(),
+            reason: detect::rejection_for(reason),
+        }),
+        // A plain file that is not a zip: the game never scans it as a pack.
+        WriteTarget::Present { presence: None, .. } => Err(Error::DatapackInvalid {
+            filename: filename.to_string(),
+            reason: crate::error::DatapackRejection::NotAZip,
+        }),
+    }
+}
+
 /// Case-insensitive membership check against a level.dat name list (the
 /// `Enabled`/`Disabled` lists `level_dat::lists` returns). The spelling
 /// [`union_names`] picked for a pack may differ in case from what level.dat

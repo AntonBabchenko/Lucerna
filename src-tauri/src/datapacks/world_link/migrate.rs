@@ -5,12 +5,12 @@
 use std::path::Path;
 
 use crate::datapacks::presence::{self, LevelDatPresence};
-use crate::datapacks::{level_dat, level_dat_entry, library_dir_at};
+use crate::datapacks::{detect, level_dat, level_dat_entry, library_dir_at};
 use crate::error::{Error, Result};
 use crate::mods::store::{materialize, LinkPolicy};
 
 use super::placements::{placements_of, WorldPlacement};
-use super::{contains_ci, level_dat_lock, map_removal_err, only_old, world_dirs_checked};
+use super::{level_dat_lock, map_removal_err, only_old, world_dirs_checked};
 
 /// Move every world holding `old_filename` onto `new_filename`, preserving each
 /// world's own enabled/disabled choice.
@@ -75,7 +75,7 @@ pub(crate) async fn migrate_placements(
                 continue;
             }
         };
-        match migrate_one(instance_root, &src, src_sha, &p, old_filename, new_filename).await {
+        match migrate_one(instance_root, &src, src_sha, &p, new_filename).await {
             Ok(Some(was_enabled)) => report.push(WorldMigration::Migrated {
                 world: p.world,
                 was_enabled,
@@ -117,7 +117,6 @@ async fn migrate_one(
     src: &Path,
     src_sha: &str,
     placement: &WorldPlacement,
-    old_filename: &str,
     new_filename: &str,
 ) -> Result<Option<bool>> {
     let (world_dir, dp_dir) = world_dirs_checked(instance_root, &placement.world)?;
@@ -135,37 +134,41 @@ async fn migrate_one(
         LevelDatPresence::Absent => None,
     };
 
-    let old_entry = level_dat_entry(old_filename);
+    // The engine's id for the old pack is `file/` + its ON-DISK spelling
+    // (N.0), which `placements_of` resolved by R2 — not the library's spelling.
+    let old_entry = level_dat_entry(&placement.entry_name);
     let new_entry = level_dat_entry(new_filename);
-    // Read the CURRENT state before changing anything.
-    //
-    // Enabled-ness is `!in_disabled`, NOT `in_enabled`. A pack present on disk
-    // and named in neither list is ENABLED — Minecraft auto-enables a
-    // present-but-unlisted pack, which is what `state::derive`'s
-    // `(true, _, false) => Enabled` arm encodes. Reading this as two-valued
-    // silently writes such a pack into `Disabled`, turning off a pack the user
-    // had on.
-    //
-    // But the NEW entry wins when it is already listed: a previous partial run
-    // may have written it (and forgotten the old entry) before failing at the
-    // old-file removal. Deriving from the old entry on that retry would read
-    // "in neither list" = enabled and flip a disabled pack back on — the exact
-    // reversal this whole function exists to prevent.
+    // Read the CURRENT state before changing anything, with the engine's rule
+    // (`level_dat::carried_enabled`): enabled unless listed ONLY in Disabled,
+    // on exact ids. A present pack named in neither list is ENABLED (the game
+    // auto-adds it), and one in both lists is ENABLED (an available Enabled id
+    // stays selected). But the NEW entry wins when it is already listed: a
+    // previous partial run may have written it (and forgotten the old entry)
+    // before failing at the old-file removal. Deriving from the old entry on
+    // that retry would read "in neither list" = enabled and flip a disabled
+    // pack back on — the exact reversal this whole function exists to prevent.
     let (was_enabled, edit) = match level {
         Some((mut root, framing)) => {
             let (enabled, disabled) = level_dat::lists(&root);
-            let was_enabled = if contains_ci(&disabled, &new_entry) {
-                false
-            } else if contains_ci(&enabled, &new_entry) {
-                true
-            } else {
-                !contains_ci(&disabled, &old_entry)
-            };
+            let was_enabled =
+                level_dat::carried_enabled(&enabled, &disabled, &old_entry, &new_entry);
             // Apply the level.dat edit in memory now, so a malformed DataPacks
-            // refuses before the new file is linked. `forget_ci`, not
-            // `forget`: the old entry is known only by the library's filename,
-            // and level.dat may hold a different case for the same file.
-            let changed_forget = level_dat::forget_ci(&mut root, &old_entry)?;
+            // refuses before the new file is linked. R3 (N.3): the old id, plus
+            // any case variant of it no present entry spells exactly — a ghost
+            // the engine already drops. A listing failure clears the exact
+            // old id only.
+            let present = match detect::entry_names(&dp_dir) {
+                Ok(n) => Some(n),
+                Err(e) => {
+                    crate::diag!(
+                        "datapacks: could not list {}: {e}; clearing the exact old id only",
+                        dp_dir.display()
+                    );
+                    None
+                }
+            };
+            let changed_forget =
+                level_dat::forget_with_case_ghosts(&mut root, &old_entry, present.as_deref())?;
             let changed_set = level_dat::set_enabled(&mut root, &new_entry, was_enabled)?;
             (
                 Some(was_enabled),
@@ -237,8 +240,8 @@ async fn migrate_one(
 
     // Delete the OLD world-side entry, LAST (see the fn doc for why). Not a
     // tidiness step: left permanently, the stale file is present-and-unlisted
-    // after the `forget_ci` above, which Minecraft auto-enables — the world
-    // would load BOTH versions.
+    // after the forget above, which Minecraft auto-enables — the world would
+    // load BOTH versions.
     match tokio::fs::metadata(&placement.path).await {
         Ok(meta) => {
             // Same type-directed removal `remove_from_world_at` uses: Minecraft
@@ -269,8 +272,10 @@ async fn migrate_one(
 mod tests {
     use super::*;
     use crate::datapacks::level_dat;
+    use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::world_link::test_util::*;
     use crate::datapacks::world_link::{add_to_world_at, set_enabled_in_world_at};
+    use crate::datapacks::WorldMigration;
 
     #[tokio::test]
     async fn migrate_preserves_a_disabled_pack_and_removes_the_old_file() {
@@ -479,5 +484,48 @@ mod tests {
             "a same-named pack the user installed must survive untouched"
         );
         assert!(!dp.join("vm-2.zip").exists());
+    }
+
+    /// Engine (N.0): both lists ⇒ loaded ⇒ the update carries "enabled".
+    #[tokio::test]
+    async fn an_update_keeps_a_both_lists_pack_enabled() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        let wd = game_world(td.path(), "Alpha");
+        add_to_world_at(td.path(), "Alpha", "vm-1.zip")
+            .await
+            .unwrap();
+        seed(&wd, &["file/vm-1.zip"], &["file/vm-1.zip"]);
+        seed_library(td.path(), "vm-2.zip", 57).await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        assert_eq!(
+            report,
+            vec![WorldMigration::Migrated {
+                world: "Alpha".into(),
+                was_enabled: true
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_update_ignores_a_drifted_disabled_entry() {
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        let wd = game_world(td.path(), "Alpha");
+        add_to_world_at(td.path(), "Alpha", "vm-1.zip")
+            .await
+            .unwrap();
+        seed(&wd, &[], &["file/VM-1.zip"]);
+        seed_library(td.path(), "vm-2.zip", 57).await;
+        let report = migrate_placements(td.path(), "vm-1.zip", "vm-2.zip").await;
+        assert_eq!(
+            report,
+            vec![WorldMigration::Migrated {
+                world: "Alpha".into(),
+                was_enabled: true
+            }]
+        );
     }
 }
