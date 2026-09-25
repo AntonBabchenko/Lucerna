@@ -73,7 +73,7 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
     // the file goes, so an unreadable level.dat refuses with the pack in place.
     {
         let _guard = level_dat_lock().lock().await;
-        let level_dat_present = match presence::of(world_dir)? {
+        let edits_level_dat = match presence::of(world_dir)? {
             LevelDatPresence::Present => true,
             LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
             // Never generated: a pack installed before the first boot has no
@@ -94,7 +94,7 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
             }
         };
 
-        let edit = if level_dat_present {
+        let edit = if edits_level_dat {
             let (mut root, framing) = level_dat::read_at(world_dir)?;
             // R3's `present`: what is left after the removal — the one
             // `read_dir` above, minus the entry removed.

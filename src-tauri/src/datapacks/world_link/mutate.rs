@@ -426,7 +426,7 @@ async fn remove_in_world(
 
     // D2 first (§0.5 A7): an only-old world and a refused folder leave the
     // file where it is.
-    let level_dat_present = match presence::of(&world_dir)? {
+    let edits_level_dat = match presence::of(&world_dir)? {
         LevelDatPresence::Present => true,
         LevelDatPresence::OnlyOld => return Err(only_old(world)),
         LevelDatPresence::Absent => match on_absent {
@@ -457,7 +457,7 @@ async fn remove_in_world(
     // The level.dat edit, before the removal, so an unreadable or malformed
     // level.dat leaves the file where it is. R3's `present` is what is left
     // after the removal: the one `read_dir` above, minus the entry removed.
-    let edit = if level_dat_present {
+    let edit = if edits_level_dat {
         let (mut root, framing) = level_dat::read_at(&world_dir)?;
         let present: Vec<String> = names
             .iter()
