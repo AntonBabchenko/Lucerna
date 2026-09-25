@@ -785,8 +785,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Check every eligible installed user-mod for a newer version. For
 	 *  each mod with platform identity that is not a modpack-origin mod,
-	 *  query its source platform for the versions available on the
-	 *  instance's MC + loader and classify the result. A single mod's
+	 *  ask for the versions available on the instance's MC + loader and
+	 *  classify the result. Modrinth mods are answered from one hash batch
+	 *  wherever that answer is provably the per-project listing's
+	 *  (2026-09-21 spec, D7); the rest ask per project. A single mod's
 	 *  query failure becomes that mod's `CheckFailed` state — the command
 	 *  fails wholesale only on a catastrophic error (instance missing,
 	 *  registry unreadable). Modpack-origin and hand-dropped mods are
@@ -842,8 +844,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	assetUpdateOne: (instanceId: string, kind: ContentKind, oldFilename: string, target: ModVersion_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("asset_update_one", { instanceId, kind, oldFilename, target })),
 	/**
 	 *  For each installed mod in `id`, report whether any platform version
-	 *  exists for the given target `mc` + `loader`. Non-destructive — no
-	 *  files are modified.
+	 *  exists for the given target `mc` + `loader` — asked in one hash batch
+	 *  per probe loader where that answer is exact, per project otherwise.
+	 *  Non-destructive — no files are modified.
 	 * 
 	 *  Mods with no platform identity (hand-dropped jars) and pack-origin
 	 *  mods report [`ModCompatStatus::Unknown`]. A single mod's query
@@ -883,8 +886,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  confirms an undeclared jar, a page listing nothing flags only a jar that
 	 *  makes no bounded statement of its own. Never applies anything: this command
 	 *  only reads and queries.
+	 * 
+	 *  Reports progress on `on_progress` — the phase and `done / total` — so the
+	 *  dialog can say how far along it is. Runs at interactive priority: a modal
+	 *  the user is waiting on outranks a background sweep in the host queue.
 	 */
-	modsPlanMcMigration: (instanceId: string) => typedError<McMigrationPlan_Serialize, Error>(__TAURI_INVOKE("mods_plan_mc_migration", { instanceId })),
+	modsPlanMcMigration: (instanceId: string, onProgress: Channel<MigrationPlanProgress>) => typedError<McMigrationPlan_Serialize, Error>(__TAURI_INVOKE("mods_plan_mc_migration", { instanceId, onProgress })),
 	/**
 	 *  Apply a Minecraft-version-change mod migration the user has already
 	 *  reviewed via `mods_plan_mc_migration` and settled into `selections`.
@@ -5213,6 +5220,19 @@ export type MigrationPlan = {
 	datapacks: DatapackPlan[],
 	/**  Folder packs: copied as they are, never adopted or linked. */
 	datapacks_folders: number,
+};
+
+/**  Which part of planning is running — the dialog's loading label. */
+export type MigrationPlanPhase = "checking_installed" | "finding_replacements" | "resolving_dependencies";
+
+/**
+ *  One progress tick of `mods_plan_mc_migration`. Every phase with work opens
+ *  with `done = 0`; a phase with nothing to do sends nothing.
+ */
+export type MigrationPlanProgress = {
+	phase: MigrationPlanPhase,
+	done: number,
+	total: number,
 };
 
 /**  `f64`, not `u64`: specta-typescript rejects `u64` (A10). */
