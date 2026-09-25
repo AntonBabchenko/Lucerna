@@ -229,7 +229,7 @@ pub async fn install_bytes(
     }
 
     if let Some(prov) = provenance {
-        if let Ok(meta_dest) = std::fs::metadata(&dest) {
+        if let Some(meta_dest) = occupant(&dest, std::fs::metadata(&dest))? {
             // N.3 provenance lookup: the exact name, else the single
             // case-insensitive match.
             let existing_row = {
@@ -292,6 +292,22 @@ pub async fn install_bytes(
     Ok(record)
 }
 
+/// What the stat of a destination slot says before a write: `Some` —
+/// something is there; `None` — nothing is (NotFound, a fact). Any other
+/// stat error is "could not tell" and an `Err` (Fallback discipline Q2): the
+/// write that follows replaces its destination unconditionally, so reading
+/// ignorance as a free slot could replace a pack that was never identified.
+pub(super) fn occupant(
+    path: &Path,
+    stat: std::io::Result<std::fs::Metadata>,
+) -> Result<Option<std::fs::Metadata>> {
+    match stat {
+        Ok(meta) => Ok(Some(meta)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Error::io(path.display().to_string(), e)),
+    }
+}
+
 /// The input checks every server pack placement runs first (spec §0.5 A7,
 /// step 1): the name checks of [`validate_install_name`], then the size cap.
 /// Shared by [`install_bytes`] and `update::update_one`, which must report a
@@ -340,6 +356,33 @@ mod tests {
     use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::{level_dat, WorldPackState};
     use std::io::Write;
+
+    /// Fallback Q2: a destination that could not be stated is not a free
+    /// slot. The install and the update's new-name check write over their
+    /// destination unconditionally, so "free" out of ignorance could replace a
+    /// pack that was never identified. Only NotFound is free.
+    #[test]
+    fn a_slot_that_cannot_be_stated_is_never_free() {
+        let td = tempfile::tempdir().unwrap();
+        let file = td.path().join("vm.zip");
+        std::fs::write(&file, b"x").unwrap();
+
+        assert!(
+            occupant(&file, Err(std::io::Error::other("access denied"))).is_err(),
+            "could not tell must not read as free"
+        );
+        assert!(matches!(
+            occupant(
+                &file,
+                Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            ),
+            Ok(None)
+        ));
+        assert!(matches!(
+            occupant(&file, std::fs::metadata(&file)),
+            Ok(Some(_))
+        ));
+    }
 
     #[test]
     fn the_name_check_refuses_an_unsafe_name_and_a_non_zip_before_any_bytes() {

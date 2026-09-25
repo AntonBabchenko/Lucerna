@@ -102,7 +102,8 @@ pub async fn update_one(
     // (a) The NEW-name slot. An entry that is not byte-identical to the target
     // — a directory always is not — is a conflict; the client's §8.5 defect 6
     // re-enters through this slot otherwise.
-    if let Ok(meta) = std::fs::metadata(dp_dir.join(new_filename)) {
+    let new_slot = dp_dir.join(new_filename);
+    if let Some(meta) = mutate::occupant(&new_slot, std::fs::metadata(&new_slot))? {
         let incoming = crate::datapacks::library::sha1_hex(bytes);
         let existing = if meta.is_dir() {
             String::new()
