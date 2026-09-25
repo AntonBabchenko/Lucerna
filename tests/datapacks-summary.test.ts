@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { datapackWorldSummary } from '$lib/worlds/datapacks-gating';
 
 type P = Parameters<typeof datapackWorldSummary>[0][number];
-const p = (state: P['state'], level_dat: P['level_dat'] = 'present'): P => ({ state, level_dat });
+const p = (
+  state: P['state'],
+  level_dat: P['level_dat'] = 'present',
+  ignored_reason: P['ignored_reason'] = null,
+): P => ({ state, level_dat, ignored_reason });
 
 describe('datapackWorldSummary', () => {
   it('zero placements is the accent "in no world" state, not an absent value', () => {
@@ -59,5 +63,20 @@ describe('datapackWorldSummary', () => {
 
   it('a pack whose every placement is ignored is in no world', () => {
     expect(datapackWorldSummary([p('ignored')]).key).toBe('addons.datapacks.summaryInNoWorld');
+  });
+
+  // Fallback Q2: "Couldn't check" is not "the game ignores it". Like an unknown
+  // state, it counts toward the total and blocks both the "disabled
+  // everywhere" and the "in no world" claims.
+  it('an entry Lucerna could not read counts as unknown, not as ignored', () => {
+    const alone = datapackWorldSummary([p('ignored', 'present', 'unreadable')]);
+    expect(alone.key).toBe('addons.datapacks.summaryEnabledIn');
+    expect(alone.args).toEqual({ enabled: 0, total: 1 });
+    const withDisabled = datapackWorldSummary([
+      p('disabled'),
+      p('ignored', 'present', 'unreadable'),
+    ]);
+    expect(withDisabled.key).toBe('addons.datapacks.summaryEnabledIn');
+    expect(withDisabled.args).toEqual({ enabled: 0, total: 2 });
   });
 });

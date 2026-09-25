@@ -36,17 +36,22 @@ export function datapacksDisabledKey(s: DatapacksGateState): TranslationKey | nu
  * the game ignores (`state === 'ignored'`), or a folder whose level.dat is
  * missing (`absent`) or only `level.dat_old` (`only_old`). `level_dat ===
  * null` (could not tell) still counts, as an unknown state, so it keeps
- * blocking "disabled everywhere".
+ * blocking "disabled everywhere". So does an entry Lucerna could not read
+ * (`ignored_reason === 'unreadable'`): that is "could not tell", not "the game
+ * ignores it" (Fallback discipline Q2).
  */
 export function datapackWorldSummary(
-  placements: Pick<DatapackPlacementView, 'state' | 'level_dat'>[],
+  placements: Pick<DatapackPlacementView, 'state' | 'level_dat' | 'ignored_reason'>[],
 ): {
   key: TranslationKey;
   args: { enabled: number; total: number };
   emphasis: 'accent' | 'muted' | 'normal';
 } {
   const counted = placements.filter(
-    (p) => p.state !== 'ignored' && p.level_dat !== 'absent' && p.level_dat !== 'only_old',
+    (p) =>
+      (p.state !== 'ignored' || p.ignored_reason === 'unreadable') &&
+      p.level_dat !== 'absent' &&
+      p.level_dat !== 'only_old',
   );
   const total = counted.length;
   if (total === 0) {

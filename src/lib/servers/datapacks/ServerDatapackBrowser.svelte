@@ -262,8 +262,10 @@
       // installed pane deliberately offers it no toggle either. Rendering it
       // as "Installed" here would draw a live enable/disable control that,
       // on click, flips a level.dat entry for a file that does not exist —
-      // and an entry the game ignores is not installed either (§0.5 A22).
-      if (e.present && e.state !== 'ignored' && e.record.source && e.record.project_id) {
+      // and an entry the game ignores is not installed either (§0.5 A22). One
+      // Lucerna could not read is "could not tell", not ignored (Fallback Q2).
+      const ignored = e.state === 'ignored' && e.ignored_reason !== 'unreadable';
+      if (e.present && !ignored && e.record.source && e.record.project_id) {
         m.set(`${e.record.source}:${e.record.project_id}`, e);
       }
     }

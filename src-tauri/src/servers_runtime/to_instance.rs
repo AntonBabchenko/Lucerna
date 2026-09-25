@@ -3,6 +3,7 @@
 //! pre-registering the server in the instance's multiplayer list. The server
 //! is read-only; nothing under it is written.
 
+use crate::datapacks::detect::IgnoredReason;
 use crate::error::{Error, Result};
 use crate::instances::schema::InstanceWithStatus;
 use serde::Serialize;
@@ -209,10 +210,13 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
 /// from the mandatory mod copy, so a pack that fails is logged and the rest
 /// proceed — and an UNREADABLE `server.properties` skips the carry outright
 /// (logged) rather than guessing the world.
+///
+/// Returns what it did, for its tests; the caller has nothing to add to the log.
 pub(crate) async fn copy_server_datapacks(
     runtime: &std::path::Path,
     instance_root: &std::path::Path,
-) {
+) -> DatapackCarry {
+    let mut carry = DatapackCarry::default();
     // Absent props (never-started server) read as "" and resolve to the
     // default `world` — correct, and what the carry tests above pin. An
     // unreadable file is ignorance: guessing `world` could carry another
@@ -225,7 +229,8 @@ pub(crate) async fn copy_server_datapacks(
             crate::diag!(
                 "instance-from-server: server.properties unreadable — datapack carry skipped: {e}"
             );
-            return;
+            carry.skipped = Some(format!("server.properties unreadable: {e}"));
+            return carry;
         }
     };
     let world = crate::servers_runtime::datapacks::world_dir(runtime, &props);
@@ -233,14 +238,23 @@ pub(crate) async fn copy_server_datapacks(
 
     // A listing error means the server's world could not be read: carry
     // nothing rather than a partial guess, and say so — the instance is
-    // already usable from the mandatory mod copy (§0.5 A4).
-    let listing = match crate::servers_runtime::datapacks::listing::entries(&world) {
+    // already usable from the mandatory mod copy (§0.5 A4). The listing scans
+    // the folder and may open zips and hash files: off the executor.
+    let world_for_listing = world.clone();
+    let listing = match tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::datapacks::listing::entries(&world_for_listing)
+    })
+    .await
+    .map_err(|e| Error::io(world.display().to_string(), format!("join: {e}")))
+    .and_then(|listing| listing)
+    {
         Ok(listing) => listing,
         Err(e) => {
             crate::diag!(
                 "instance-from-server: server world datapacks unreadable — datapack carry skipped: {e}"
             );
-            return;
+            carry.skipped = Some(format!("server world datapacks unreadable: {e}"));
+            return carry;
         }
     };
     for entry in listing.entries {
@@ -256,8 +270,12 @@ pub(crate) async fn copy_server_datapacks(
         // §0.5 A4: an entry the game ignores was never loaded by the server.
         // Carrying it would hand the client content the server never ran — an
         // `X.ZIP` would even arrive as a working `X.zip` (N.5 normalises it).
-        if entry.ignored_reason.is_some() {
-            continue;
+        // `Unreadable` is not that: Lucerna could not check it (Fallback
+        // discipline Q2), so it is tried like any pack, and a failure is
+        // logged as "not carried" below rather than skipped in silence.
+        match entry.ignored_reason {
+            None | Some(IgnoredReason::Unreadable) => {}
+            Some(_) => continue,
         }
         let r = &entry.record;
         let src = dp_dir.join(&r.filename);
@@ -299,8 +317,20 @@ pub(crate) async fn copy_server_datapacks(
                 "instance-from-server: datapack {} not carried: {e}",
                 r.filename
             );
+            carry.not_carried.push(r.filename.clone());
         }
     }
+    carry
+}
+
+/// What [`copy_server_datapacks`] did. The caller only logs; the tests read it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct DatapackCarry {
+    /// The carry did not run, and why: `server.properties` or the server
+    /// world's `datapacks/` could not be read.
+    pub skipped: Option<String>,
+    /// Entries that were tried and not carried (each also logged).
+    pub not_carried: Vec<String>,
 }
 
 #[cfg(test)]
@@ -455,17 +485,44 @@ mod tests {
     }
 
     /// §0.5 A4: a server world whose `datapacks/` cannot be read is a listing
-    /// error; the carry logs it and carries nothing rather than a guess.
+    /// error; the carry is skipped (and logged) rather than a guess.
     #[tokio::test]
-    async fn an_unreadable_server_datapacks_folder_carries_nothing() {
+    async fn an_unreadable_server_datapacks_folder_skips_the_carry() {
         let d = tempfile::tempdir().unwrap();
         let runtime = d.path().join("runtime");
         let inst = d.path().join("instance");
         let world = runtime.join("world");
         std::fs::create_dir_all(&world).unwrap();
         std::fs::write(world.join("datapacks"), b"a file, not a folder").unwrap();
-        copy_server_datapacks(&runtime, &inst).await;
+        let carry = copy_server_datapacks(&runtime, &inst).await;
+        assert!(
+            carry
+                .skipped
+                .as_deref()
+                .is_some_and(|why| why.contains("datapacks unreadable")),
+            "{carry:?}"
+        );
         assert!(library_rows(&inst).await.is_empty());
+    }
+
+    /// Fallback Q2: an entry Lucerna could not read is "could not tell", not
+    /// "the server ignored it". It is tried, and a failure is reported as not
+    /// carried, never skipped in silence.
+    #[tokio::test]
+    async fn an_entry_that_could_not_be_checked_is_tried_and_reported() {
+        let d = tempfile::tempdir().unwrap();
+        let runtime = d.path().join("runtime");
+        let inst = d.path().join("instance");
+        let world = server_world(&runtime, "world");
+        std::fs::write(world.join("datapacks/broken.zip"), b"not a zip").unwrap();
+        std::fs::write(world.join("datapacks/real.zip"), datapack_zip()).unwrap();
+        let carry = copy_server_datapacks(&runtime, &inst).await;
+        assert_eq!(carry.not_carried, vec!["broken.zip".to_string()]);
+        let rows = library_rows(&inst).await;
+        assert_eq!(
+            rows.iter().map(|r| r.filename.as_str()).collect::<Vec<_>>(),
+            vec!["real.zip"]
+        );
     }
 
     #[tokio::test]
