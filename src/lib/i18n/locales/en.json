@@ -1045,6 +1045,7 @@
       "summaryDisabledEverywhere": "Disabled everywhere",
       "summaryEnabledIn": "Enabled in {enabled} of {total, plural, one {# world} other {# worlds}}",
       "updateIncomplete": "{count, plural, one {# world did not receive the update — the old version was kept so a retry can finish} other {# worlds did not receive the update — the old version was kept so a retry can finish}}",
+      "refreshIncomplete": "{count, plural, one {# world could not be switched to the new version and may still be using the old one} other {# worlds could not be switched to the new version and may still be using the old one}}",
       "picker": {
         "title": "Add “{name}” to worlds",
         "noWorlds": "This instance has no worlds yet. Worlds are created in-game — the pack is saved in the library and will appear here once a world exists.",

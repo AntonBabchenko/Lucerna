@@ -19,6 +19,7 @@ export type TranslationKey =
   | 'addons.datapacks.picker.toastFailed'
   | 'addons.datapacks.placementNoLevelDat'
   | 'addons.datapacks.placementOnlyOld'
+  | 'addons.datapacks.refreshIncomplete'
   | 'addons.datapacks.remove.affectedWorlds'
   | 'addons.datapacks.remove.bodyLibraryCopy'
   | 'addons.datapacks.remove.bodyMissing'
