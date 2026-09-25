@@ -149,9 +149,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   could leave a world naming a pack that no longer existed. Such a world is now
   reported as not updated, the removal dialog lists it separately, and the
   library keeps its copy for another try. An update whose new file can't be
-  read keeps the old copy too. Installing a pack from a file or from Vanilla
-  Tweaks over one the library already holds now names each world that didn't
-  get the new version, as an install from the catalog does.
+  read keeps the old copy too. If the new version keeps the old file name, the
+  library copy is replaced at once and there is nothing to retry: the update
+  names each world that may still have the old version. Installing a pack
+  from a file or from Vanilla Tweaks over one the library already holds now
+  names each world that didn't get the new version, as an install from the
+  catalog does.
 - **If an instance's data pack library can't be read, the world picker no
   longer opens as if the pack were in no world.** It used to show every world
   without the pack. A warning now says the library couldn't be read, and the

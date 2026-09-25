@@ -60,8 +60,13 @@ pub async fn update_at(
         // already carries the new version_id (so the update check will answer
         // UpToDate and never re-offer), and the failed world sits on stale
         // bytes. `completed: false` is the only surface that can tell the
-        // user, and it must behave exactly like the renamed branch's
-        // per-world failure.
+        // user which worlds those are.
+        //
+        // Unlike the renamed branch below, nothing is kept for a retry: the
+        // library file was replaced in place. A re-run would compare the
+        // world's stale copy with the NEW library bytes, find it foreign and
+        // skip it (`SkippedNotOurs`), so it cannot finish the job. Hence
+        // `old_copy_kept: false`, which tells the UI not to promise a retry.
         let failed = install
             .refreshed
             .iter()
@@ -70,6 +75,7 @@ pub async fn update_at(
             pack: install.pack,
             migrations: install.refreshed,
             completed: !failed,
+            old_copy_kept: false,
         });
     }
 
@@ -111,6 +117,7 @@ pub async fn update_at(
             pack: install.pack,
             migrations,
             completed: false,
+            old_copy_kept: true,
         });
     }
 
@@ -119,6 +126,7 @@ pub async fn update_at(
         pack: install.pack,
         migrations,
         completed: true,
+        old_copy_kept: false,
     })
 }
 
@@ -310,12 +318,52 @@ mod tests {
             "a failed world refresh must not report a completed update"
         );
         assert!(
+            !out.old_copy_kept,
+            "the library file was replaced in place: no old copy is left for a \
+             retry, and the UI must not promise one"
+        );
+        assert!(
             matches!(
                 out.migrations.as_slice(),
                 [WorldMigration::Failed { world, .. }] if world == "Alpha"
             ),
             "got {:?}",
             out.migrations
+        );
+    }
+
+    /// The same-name counterpart of the renamed case above, and the one that
+    /// runs on every platform: the library file is replaced in place, so no
+    /// old copy survives for a retry, and the outcome must say so. The UI
+    /// reads `old_copy_kept` to decide whether it may promise that a retry
+    /// can finish.
+    #[tokio::test]
+    async fn a_same_name_update_that_cannot_list_saves_keeps_no_old_copy() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        std::fs::create_dir_all(td.path().join(".minecraft")).unwrap();
+        std::fs::write(td.path().join(".minecraft").join("saves"), b"a file").unwrap();
+
+        let out = update_at(td.path(), "vm.zip", "vm.zip", &v2_zip(), &prov("v2"))
+            .await
+            .expect("the new copy is installed; the refresh is only incomplete");
+
+        assert!(!out.completed, "{:?}", out.migrations);
+        assert!(
+            matches!(out.migrations.as_slice(), [WorldMigration::Failed { .. }]),
+            "{:?}",
+            out.migrations
+        );
+        assert!(
+            !out.old_copy_kept,
+            "the library already holds the new bytes; no old copy was kept"
+        );
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks/vm.zip")).unwrap(),
+            v2_zip()
         );
     }
 
@@ -337,6 +385,10 @@ mod tests {
             .unwrap();
 
         assert!(out.completed);
+        assert!(
+            !out.old_copy_kept,
+            "a completed update removed the old copy"
+        );
         assert!(
             !td.path().join("datapacks/vm-1.zip").exists(),
             "the old library file must be gone after a completed update"
@@ -401,6 +453,7 @@ mod tests {
             .unwrap();
 
         assert!(!out.completed);
+        assert!(out.old_copy_kept, "the retry needs the old copy");
         assert!(
             out.migrations
                 .iter()
@@ -555,6 +608,7 @@ mod tests {
             .expect("the new copy is installed; the update is only incomplete");
 
         assert!(!out.completed);
+        assert!(out.old_copy_kept);
         assert!(
             matches!(out.migrations.as_slice(), [WorldMigration::Failed { .. }]),
             "{:?}",

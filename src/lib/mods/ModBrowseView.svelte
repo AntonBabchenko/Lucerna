@@ -41,7 +41,7 @@
     warnLibraryReadBlockedPicker,
     warnLibraryReadFailed,
   } from '$lib/mods/datapack-library-warning';
-  import { warnFailedRefresh } from '$lib/mods/datapack-refresh-warning';
+  import { failedRefreshLines, warnFailedRefresh } from '$lib/mods/datapack-refresh-warning';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import {
     offPlatformFactsOfError,
@@ -940,13 +940,15 @@
           });
           return;
         }
-        const failedWorlds = updated.data.migrations.filter((m) => m.kind === 'failed');
-        if (!updated.data.completed && failedWorlds.length > 0) {
-          pushWarning(
-            get(t)('addons.datapacks.updateIncomplete', { count: failedWorlds.length }),
-            failedWorlds.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
-          );
+        // Only a renamed update keeps the old library copy a retry needs
+        // (`old_copy_kept`). A same-name update replaced the library copy in
+        // place: the new version is installed, and a world it could not
+        // refresh gets the reinstall warning, which promises no retry.
+        if (!updated.data.completed && updated.data.old_copy_kept) {
+          const lines = failedRefreshLines(updated.data.migrations);
+          pushWarning(get(t)('addons.datapacks.updateIncomplete', { count: lines.length }), lines);
         } else {
+          warnFailedRefresh(updated.data.migrations);
           pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
         }
         // No world picker: the worlds moved with the update. Placement changes

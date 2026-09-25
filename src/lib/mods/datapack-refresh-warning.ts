@@ -3,10 +3,12 @@
 // it, and the worlds linked to the old copy are refreshed
 // (`LibraryInstall.refreshed`). A world that could not be refreshed may still
 // be on the old bytes, so every install path (catalog, local file, Vanilla
-// Tweaks) names it here, in the same words. Not `updateIncomplete`: that one
-// promises a retry can finish, which holds for a renamed update (the old
-// library copy is kept) but not here — the library already holds the new
-// bytes, so a retry reads the world's old file as not ours and skips it.
+// Tweaks) names it here, in the same words, and so does an update whose new
+// version kept the filename (`DatapackUpdateOutcome.old_copy_kept` false).
+// Not `updateIncomplete`: that one promises a retry can finish, which holds
+// only for a renamed update (the old library copy is kept) — here the library
+// already holds the new bytes, so a retry reads the world's old file as not
+// ours and skips it.
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import type { WorldMigration } from '$lib/ipc/bindings';

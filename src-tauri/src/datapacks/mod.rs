@@ -334,11 +334,20 @@ pub struct DatapackUpdateOutcome {
     pub pack: InstalledDatapack,
     /// Per-world outcomes: same-name refreshes plus cross-name migrations.
     pub migrations: Vec<WorldMigration>,
-    /// `false` ⟹ at least one world failed to migrate. The OLD library file
-    /// and its registry row were kept — both versions sit in the library until
-    /// a re-run converges, which it does because a migrated world no longer
-    /// holds the old filename (§8.5: no rollback by design).
+    /// `false` ⟹ at least one world was not moved to the new version (a
+    /// `Failed` entry in `migrations` names it). Whether a retry can still
+    /// finish the job is [`Self::old_copy_kept`], not this flag.
     pub completed: bool,
+    /// `true` ⟹ the update changed the filename and did not complete, so the
+    /// OLD library file and its registry row were kept: both versions sit in
+    /// the library until a re-run converges, which it does because a migrated
+    /// world no longer holds the old filename (§8.5: no rollback by design).
+    ///
+    /// Always `false` when the filename did not change (or changed only in
+    /// case): the library file was replaced in place, so a world left on the
+    /// old bytes no longer matches the library and a retry skips it as not
+    /// ours. Also `false` after a completed update, which removed the old copy.
+    pub old_copy_kept: bool,
 }
 
 /// One world's outcome of a library removal.

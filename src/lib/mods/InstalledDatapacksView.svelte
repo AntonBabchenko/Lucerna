@@ -52,7 +52,7 @@
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
-  import { warnFailedRefresh } from './datapack-refresh-warning';
+  import { failedRefreshLines, warnFailedRefresh } from './datapack-refresh-warning';
 
   let {
     instanceId,
@@ -284,10 +284,13 @@
     }
   }
 
-  // One update, with the per-world report the backend returns. `completed:
-  // false` means at least one world failed and the OLD library file was kept
-  // for a retry — the user must hear which worlds, or the failure is silent
-  // staleness.
+  // One update, with the per-world report the backend returns. A world left
+  // behind must be named, or the failure is silent staleness. What may be
+  // promised about a retry depends on `old_copy_kept`: a renamed update kept
+  // the OLD library file, so a retry can finish and the badge stays for it; a
+  // same-name update replaced the library file in place, so the library is on
+  // the new version (the badge goes) and the worlds get the reinstall warning,
+  // which promises nothing.
   async function update(entry: DatapackLibraryEntry, latest: ModVersion) {
     if (instanceId === null) return;
     busy = true;
@@ -298,13 +301,11 @@
         pushWarning(get(t)('addons.installed.updateFailedToast'), [formatError(res.error)]);
         return;
       }
-      const failed = res.data.migrations.filter((m) => m.kind === 'failed');
-      if (!res.data.completed && failed.length > 0) {
-        pushWarning(
-          get(t)('addons.datapacks.updateIncomplete', { count: failed.length }),
-          failed.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
-        );
+      if (!res.data.completed && res.data.old_copy_kept) {
+        const lines = failedRefreshLines(res.data.migrations);
+        pushWarning(get(t)('addons.datapacks.updateIncomplete', { count: lines.length }), lines);
       } else {
+        warnFailedRefresh(res.data.migrations);
         pushSuccess(get(t)('addons.installed.updatedToast', { name: entry.pack.name }));
         const next = new Map(updateStates);
         next.delete(entry.pack.filename);
@@ -335,10 +336,14 @@
           tgt.entry.pack.filename,
           tgt.latest,
         );
-        if (res.status === 'error' || !res.data.completed) {
+        // Only a renamed update that kept the old library copy can be retried,
+        // so only that one keeps its badge. A same-name update put the new
+        // version in the library, and names any world it could not refresh.
+        if (res.status === 'error' || (!res.data.completed && res.data.old_copy_kept)) {
           failed++;
           continue;
         }
+        warnFailedRefresh(res.data.migrations);
         updated++;
         const next = new Map(updateStates);
         next.delete(tgt.entry.pack.filename);
