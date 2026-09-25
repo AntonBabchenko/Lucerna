@@ -314,7 +314,8 @@ pub enum WorldRemoval {
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct LibraryRemoval {
     pub worlds: Vec<WorldRemoval>,
-    /// `false` ⟹ a world failed to clean up, so the library copy and its
+    /// `false` ⟹ a world failed to clean up, or the cascade could not check
+    /// whether a world names the pack, so the library copy and its
     /// registry row were kept: `placements_of`'s identity check needs the
     /// library bytes, and deleting them would make every remaining world look
     /// foreign to a retry, which could then never finish the job.

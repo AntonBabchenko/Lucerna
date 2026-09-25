@@ -184,7 +184,10 @@ pub async fn server_update_datapack_one(
     // Spec §0.5 A7 order: the name checks come first, so a bad name is never
     // reported as a world problem. A Vanilla Tweaks target's real filename is
     // known only after the build (its `primary_file` name is never written),
-    // so `update_one` checks that one; it repeats every check as the backstop.
+    // so `update_one` checks that one. As the backstop, `update_one` repeats
+    // the safe-name check on `old_filename` and the full input check (safe
+    // name, `.zip`, size) on the new name and bytes; it does NOT re-check the
+    // `.zip` rule on `old_filename`, which only this line enforces.
     mutate::validate_install_name(&old_filename)?;
     if target.source != crate::mods::platform::ModSource::VanillaTweaks {
         mutate::validate_install_name(&target.primary_file.filename)?;
@@ -212,7 +215,12 @@ pub async fn server_update_datapack_one(
         None
     };
     // D2 after the name checks, the gates and the version check above (spec
-    // §0.5 A7), and before the download or the Vanilla Tweaks build.
+    // §0.5 A7), and before the download or the Vanilla Tweaks build. For a
+    // Vanilla Tweaks target this is the one exception to that order, and it
+    // is intended: the build supplies the real filename, so the check on the
+    // built file's name (inside `update_one`) can only come after this
+    // refusal — running the build first would download for a world that is
+    // refused anyway.
     datapacks::refuse_only_old(&world)?;
     crate::network::throttle::with_interactive(async move {
         let (filename, bytes) = match vt_family {

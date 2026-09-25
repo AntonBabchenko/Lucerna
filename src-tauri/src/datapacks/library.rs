@@ -385,7 +385,10 @@ pub async fn list_at(instance_root: &Path) -> Result<Vec<InstalledDatapack>> {
 /// cannot deadlock. A same-named file that is not ours is left alone either
 /// way. A per-world failure does not abort the others, but it does keep the
 /// library copy and registry row — see
-/// [`crate::datapacks::LibraryRemoval::removed_from_library`].
+/// [`crate::datapacks::LibraryRemoval::removed_from_library`]. A world the
+/// orphan sweep cannot check ([`worlds_naming`]) counts as such a failure;
+/// a `saves/` that cannot be listed fails the whole call before any world is
+/// touched.
 pub async fn remove_from_library_at(
     instance_root: &Path,
     filename: &str,
@@ -400,6 +403,14 @@ pub async fn remove_from_library_at(
     }
 
     let placements = crate::datapacks::world_link::placements_of(instance_root, filename).await;
+    // The orphan sweep (below) runs before any world is touched: when it
+    // cannot even list `saves/`, the cascade fails as a whole with nothing
+    // changed, rather than after some worlds were already cleared.
+    let sweep = if cascade {
+        Some(worlds_naming(instance_root, filename).await?)
+    } else {
+        None
+    };
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut worlds = Vec::with_capacity(placements.len());
     let mut any_failed = false;
@@ -436,8 +447,19 @@ pub async fn remove_from_library_at(
     // preventing exactly that prompt. `remove_for_cascade_at` is the
     // documented orphan-repair path (a missing file is Ok; the name is still
     // cleared).
-    if cascade {
-        for world in worlds_naming(instance_root, filename).await {
+    if let Some(sweep) = sweep {
+        // A world the sweep could not check may name the pack: "could not
+        // check" is not "names nothing" (Fallback discipline Q1). It fails,
+        // which keeps the library copy for a retry. A world the loop above
+        // already handled has its own answer.
+        for (world, details) in sweep.unchecked {
+            if visited.contains(&world) {
+                continue;
+            }
+            any_failed = true;
+            worlds.push(WorldRemoval::Failed { world, details });
+        }
+        for world in sweep.naming {
             if visited.contains(&world) {
                 continue;
             }
@@ -473,65 +495,63 @@ pub async fn remove_from_library_at(
     })
 }
 
+/// What the cascade's orphan sweep found in `saves/`.
+struct Sweep {
+    /// Worlds whose `level.dat` names the pack in either list.
+    naming: Vec<String>,
+    /// Worlds the sweep could not check, each with why. Any of them may name
+    /// the pack, so the cascade reports each as `Failed` — which keeps the
+    /// library copy — rather than as naming nothing (Fallback discipline Q1).
+    unchecked: Vec<(String, String)>,
+}
+
 /// Worlds whose `level.dat` names `filename` in either list — regardless of
 /// whether the file is on disk, which is exactly what `placements_of` cannot
-/// answer. Only worlds whose level.dat is a regular file are considered; see
-/// the comment inside.
-async fn worlds_naming(instance_root: &Path, filename: &str) -> Vec<String> {
+/// answer — plus the worlds that could not be checked.
+///
+/// `Err` when `saves/` itself cannot be listed, or one of its entries cannot
+/// be read: no world name is known there to report as `Failed`, so the
+/// cascade fails as a whole. A missing `saves/` is not that: no world can
+/// name the pack.
+///
+/// Only a world whose `level.dat` is a regular file holds a list Lucerna may
+/// edit (D2). `Absent` has no list, and the game loads nothing from such a
+/// folder. `OnlyOld` is skipped, as spec §3 L.4 has it, and logged: every
+/// writer refuses it, and its names stay until the world is restored.
+async fn worlds_naming(instance_root: &Path, filename: &str) -> Result<Sweep> {
     let entry = crate::datapacks::level_dat_entry(filename);
     let saves_dir = instance_root.join(".minecraft").join("saves");
+    let mut sweep = Sweep {
+        naming: Vec::new(),
+        unchecked: Vec::new(),
+    };
     let rd = match std::fs::read_dir(&saves_dir) {
         Ok(rd) => rd,
         // No saves/ at all: no world can name the pack.
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
-        Err(err) => {
-            crate::diag!(
-                "datapacks: removal sweep skipped: could not list {}: {err}",
-                saves_dir.display()
-            );
-            return Vec::new();
-        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(sweep),
+        Err(err) => return Err(Error::io(saves_dir.display().to_string(), err)),
     };
-    let mut out = Vec::new();
     for e in rd {
-        let e = match e {
-            Ok(e) => e,
-            Err(err) => {
-                crate::diag!(
-                    "datapacks: removal sweep skips an entry of {}: {err}",
-                    saves_dir.display()
-                );
-                continue;
-            }
-        };
-        let meta = match e.metadata() {
-            Ok(meta) => meta,
-            Err(err) => {
-                crate::diag!(
-                    "datapacks: removal sweep skips {}: could not read its metadata: {err}",
-                    e.path().display()
-                );
-                continue;
-            }
-        };
-        if !meta.is_dir() {
-            continue;
-        }
+        let e = e.map_err(|err| Error::io(saves_dir.display().to_string(), err))?;
         let Some(world) = e.file_name().to_str().map(str::to_string) else {
             continue;
         };
         if crate::worlds::fs::validate_segment(&world).is_err() {
             continue;
         }
-        // Only a world whose level.dat is a regular file holds a list Lucerna
-        // may edit (D2). Every writer refuses `OnlyOld`, and `Absent` has no
-        // list. "Could not tell" is skipped like an unreadable file, which is
-        // the listing's degradation policy: one locked world must not block
-        // the sweep.
-        match crate::datapacks::presence::of(&e.path()) {
+        let path = e.path();
+        match e.metadata() {
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => continue,
+            Err(err) => {
+                let details = Error::io(path.display().to_string(), err).to_string();
+                crate::diag!("datapacks: removal sweep cannot check world {world}: {details}");
+                sweep.unchecked.push((world, details));
+                continue;
+            }
+        }
+        match crate::datapacks::presence::of(&path) {
             Ok(crate::datapacks::presence::LevelDatPresence::Present) => {}
-            // No level file: no list to name the pack, and the game loads
-            // nothing from this folder.
             Ok(crate::datapacks::presence::LevelDatPresence::Absent) => continue,
             Ok(crate::datapacks::presence::LevelDatPresence::OnlyOld) => {
                 crate::diag!(
@@ -541,32 +561,36 @@ async fn worlds_naming(instance_root: &Path, filename: &str) -> Vec<String> {
                 continue;
             }
             Err(err) => {
+                let details = err.to_string();
                 crate::diag!(
-                    "datapacks: removal sweep skips world {world}: could not tell whether it \
-                     has a level.dat: {err}"
+                    "datapacks: removal sweep cannot check world {world}: could not tell \
+                     whether it has a level.dat: {details}"
                 );
+                sweep.unchecked.push((world, details));
                 continue;
             }
         }
-        let (root, _framing) = match crate::datapacks::level_dat::read_at(&e.path()) {
+        let (root, _framing) = match crate::datapacks::level_dat::read_at(&path) {
             Ok(read) => read,
             Err(err) => {
+                let details = err.to_string();
                 crate::diag!(
-                    "datapacks: removal sweep skips world {world}: level.dat could not be \
-                     read: {err}"
+                    "datapacks: removal sweep cannot check world {world}: level.dat could not \
+                     be read: {details}"
                 );
+                sweep.unchecked.push((world, details));
                 continue;
             }
         };
         let (enabled, disabled) = crate::datapacks::level_dat::lists(&root);
         if names_ci(&enabled, &entry) || names_ci(&disabled, &entry) {
-            out.push(world);
+            sweep.naming.push(world);
         }
     }
-    out
+    Ok(sweep)
 }
 
-/// Case-folded on purpose (§0.5 A18): it only NOMINATES worlds for the
+// Case-folded on purpose (§0.5 A18): it only NOMINATES worlds for the
 /// cascade's orphan sweep, and the removal it calls applies R3, which never
 /// drops an id whose exact spelling is a present entry.
 fn names_ci(list: &[String], entry: &str) -> bool {
@@ -1286,6 +1310,62 @@ mod tests {
         assert!(td.path().join("datapacks/vm.zip").exists());
         assert!(wd.join("datapacks/vm.zip").exists());
         assert!(!wd.join("level.dat").exists());
+    }
+
+    /// Fallback Q1/Q3: the orphan sweep could not tell whether this world
+    /// names the pack (its level.dat is a directory). "Could not check" is not
+    /// "names nothing": deleting the library copy here would leave the world
+    /// to open with a missing pack if it did name it. The world reports
+    /// `Failed`, and the library copy stays for a retry.
+    #[tokio::test]
+    async fn a_cascade_that_cannot_check_a_world_keeps_the_library_copy() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        let odd = td.path().join(".minecraft/saves/Odd");
+        std::fs::create_dir_all(odd.join("level.dat")).unwrap();
+
+        let out = remove_from_library_at(td.path(), "vm.zip", true)
+            .await
+            .unwrap();
+
+        assert!(
+            matches!(
+                out.worlds.as_slice(),
+                [crate::datapacks::WorldRemoval::Failed { world, .. }] if world == "Odd"
+            ),
+            "got {:?}",
+            out.worlds
+        );
+        assert!(!out.removed_from_library);
+        assert!(td.path().join("datapacks/vm.zip").exists());
+        assert_eq!(list_at(td.path()).await.unwrap().len(), 1);
+    }
+
+    /// An unreadable `saves/` listing names no world at all, so there is no
+    /// world to report `Failed` for: the cascade fails as a whole, before it
+    /// has touched anything.
+    #[tokio::test]
+    async fn a_cascade_that_cannot_list_saves_fails_and_keeps_the_library_copy() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        install_named_at(td.path(), "vm.zip", &datapack_zip(), None)
+            .await
+            .unwrap();
+        // A file where the saves/ directory should be: listing it fails with
+        // something other than NotFound on every platform.
+        std::fs::create_dir_all(td.path().join(".minecraft")).unwrap();
+        std::fs::write(td.path().join(".minecraft/saves"), b"not a directory").unwrap();
+
+        let err = remove_from_library_at(td.path(), "vm.zip", true)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::Io { .. }), "got {err:?}");
+        assert!(td.path().join("datapacks/vm.zip").exists());
+        assert_eq!(list_at(td.path()).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
