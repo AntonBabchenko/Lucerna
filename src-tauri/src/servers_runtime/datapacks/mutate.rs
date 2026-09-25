@@ -81,9 +81,10 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
 
         // R2 (N.4): delete only the entry `filename` actually denotes. On a
         // case-sensitive file system a case variant is a different pack.
-        let names =
-            detect::entry_names(&dp_dir).map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
-        let on_disk = match detect::resolve(&dp_dir, filename, &names) {
+        let (names, resolved) = crate::datapacks::world_link::resolve_on_disk(&dp_dir, filename)
+            .await
+            .map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+        let on_disk = match resolved {
             detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => Some(n),
             detect::Resolved::Absent => None,
             detect::Resolved::Unknown(e) => {

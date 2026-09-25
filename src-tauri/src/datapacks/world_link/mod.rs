@@ -168,6 +168,15 @@ pub(crate) async fn resolve_on_disk(
     .map_err(|e| std::io::Error::other(format!("join: {e}")))?
 }
 
+/// The names in `dp_dir` from one `read_dir`, off the executor (R3's
+/// `present`). A missing folder is no names.
+pub(crate) async fn entry_names_of(dp_dir: &Path) -> std::io::Result<Vec<String>> {
+    let dp = dp_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || crate::datapacks::detect::entry_names(&dp))
+        .await
+        .map_err(|e| std::io::Error::other(format!("join: {e}")))?
+}
+
 /// R2 + D1 for a toggle (spec §2 N.4, §0.5 A19). Resolves `filename` against
 /// ONE `read_dir` of `dp_dir` and classifies only the entry it resolves to,
 /// off the executor, with no vouch. `Ok(Some(name))` = a pack, spelled as on

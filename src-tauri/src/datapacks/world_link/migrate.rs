@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use crate::datapacks::presence::{self, LevelDatPresence};
-use crate::datapacks::{detect, level_dat, level_dat_entry, library_dir_at};
+use crate::datapacks::{level_dat, level_dat_entry, library_dir_at};
 use crate::error::{Error, Result};
 use crate::mods::store::{materialize, LinkPolicy};
 
@@ -164,7 +164,7 @@ async fn migrate_one(
             // any case variant of it no present entry spells exactly — a ghost
             // the engine already drops. A listing failure clears the exact
             // old id only.
-            let present = match detect::entry_names(&dp_dir) {
+            let present = match super::entry_names_of(&dp_dir).await {
                 Ok(n) => Some(n),
                 Err(e) => {
                     crate::diag!(

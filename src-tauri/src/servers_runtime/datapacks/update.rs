@@ -132,9 +132,10 @@ pub async fn update_one(
     // does not prune this row out from under the check.
     // R2 (N.4): the entry the old name denotes. On a case-sensitive file
     // system a case variant is a different pack, and is never touched.
-    let names =
-        detect::entry_names(&dp_dir).map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
-    let old_on_disk = match detect::resolve(&dp_dir, old_filename, &names) {
+    let (_, resolved) = crate::datapacks::world_link::resolve_on_disk(&dp_dir, old_filename)
+        .await
+        .map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+    let old_on_disk = match resolved {
         detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => Some(n),
         detect::Resolved::Absent => None,
         detect::Resolved::Unknown(e) => {
@@ -252,7 +253,7 @@ async fn carry_state(world_dir: &Path, old_name: &str, new_name: &str) -> Result
     let (old_id, new_id) = (level_dat_entry(old_name), level_dat_entry(new_name));
     let was_enabled = level_dat::carried_enabled(&enabled, &disabled, &old_id, &new_id);
     let dp_dir = world_dir.join("datapacks");
-    let present = match detect::entry_names(&dp_dir) {
+    let present = match crate::datapacks::world_link::entry_names_of(&dp_dir).await {
         Ok(n) => Some(n),
         Err(e) => {
             crate::diag!(

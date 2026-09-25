@@ -165,22 +165,25 @@ pub async fn add_to_world_at(
         }
     }
 
+    // D1 (N.4): a library file with no root `pack.mcmeta` is refused. This
+    // closes the vouch rule's only hole (`registry::reconcile` never
+    // classifies). The zip is read here, before the lock, so no other world's
+    // change waits on it; the verdict is reported after the level.dat presence
+    // check below (§0.5 A7 step 5).
+    let src_check = src.clone();
+    let has_root: Result<bool> =
+        tokio::task::spawn_blocking(move || detect::zip_has_root_pack_mcmeta(&src_check))
+            .await
+            .map_err(|e| Error::io(src.display().to_string(), format!("join: {e}")))
+            .and_then(|r| r.map_err(|e| Error::io(src.display().to_string(), e)));
+
     let _guard = level_dat_lock().lock().await;
 
     // D2 (spec §3 L.4): only a world whose level.dat is a regular file. This
     // comes after the input checks above (§0.5 A7) and before this call's
     // first write.
     require_level_dat(&world_dir, world)?;
-    // D1 (N.4): a library file with no root `pack.mcmeta` is refused. This
-    // closes the vouch rule's only hole (`registry::reconcile` never
-    // classifies). After the level.dat presence check (§0.5 A7 step 5).
-    let src_check = src.clone();
-    let has_root =
-        tokio::task::spawn_blocking(move || detect::zip_has_root_pack_mcmeta(&src_check))
-            .await
-            .map_err(|e| Error::io(src.display().to_string(), format!("join: {e}")))?
-            .map_err(|e| Error::io(src.display().to_string(), e))?;
-    if !has_root {
+    if !has_root? {
         return Err(Error::DatapackInvalid {
             filename: filename.to_string(),
             reason: DatapackRejection::NotAPack,
@@ -404,11 +407,13 @@ async fn remove_in_world(
 
     // R2 (N.4): delete only the entry `filename` actually denotes. On a
     // case-sensitive file system a case variant is a different pack.
-    let names = detect::entry_names(&dp_dir).map_err(|e| Error::ModsInstancePath {
-        path: dp_dir.display().to_string(),
-        details: e.to_string(),
-    })?;
-    let on_disk = match detect::resolve(&dp_dir, filename, &names) {
+    let (names, resolved) = super::resolve_on_disk(&dp_dir, filename)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dp_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    let on_disk = match resolved {
         detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => Some(n),
         detect::Resolved::Absent => None,
         detect::Resolved::Unknown(e) => {
