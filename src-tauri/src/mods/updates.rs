@@ -87,8 +87,37 @@ pub fn batch_update_state(
     own: Option<&ModVersion>,
     latest: &[ModVersion],
 ) -> Option<ModUpdateState> {
-    let _ = (current_version_id, project_id, mc, loader, own, latest);
-    None // stub: red round
+    use crate::mods::platform::{listed_for, tagged_for};
+    // U1: unknown bytes, or bytes of another project.
+    let own = own.filter(|o| o.project_id == project_id)?;
+    let Some(latest_p) = latest.iter().find(|v| v.project_id == project_id) else {
+        // U2: nothing listed and the file itself not tagged — the listing is
+        // empty, and `classify_update` says Unknown on an empty list.
+        // U3: tagged yet nothing listed — a contradiction; ask.
+        return (!tagged_for(own, mc, loader)).then_some(ModUpdateState::Unknown);
+    };
+    // U3: a newest build our filename rule drops is not «the newest» of the
+    // listing. Checked BEFORE U4 on purpose.
+    if !listed_for(latest_p, mc, loader) {
+        return None;
+    }
+    // U4
+    if latest_p.version_id == current_version_id {
+        return Some(ModUpdateState::UpToDate);
+    }
+    // U5: the bytes are the registered version — a statement about a version
+    // id, so S1's «which owner» ambiguity does not apply.
+    if own.version_id == current_version_id {
+        return Some(if listed_for(own, mc, loader) {
+            ModUpdateState::UpdateAvailable {
+                target: latest_p.clone(),
+            }
+        } else {
+            ModUpdateState::Unknown
+        });
+    }
+    // U6: the bytes are filed under another version than the registered one.
+    None
 }
 
 /// `true` iff `installed` is one of the modpack's bundled mods — its
