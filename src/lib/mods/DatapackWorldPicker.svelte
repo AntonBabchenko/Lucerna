@@ -102,9 +102,13 @@
 
   $effect(() => {
     const reqInstance = instanceId;
+    // Set when the picker closes (or the instance changes) mid-load: the
+    // answer is dropped before any prop is read, since a closed picker's props
+    // may already point at nothing.
+    let cancelled = false;
     void (async () => {
       const res = await commands.listWorldNames(reqInstance);
-      if (instanceId !== reqInstance) return;
+      if (cancelled || instanceId !== reqInstance) return;
       if (res.status !== 'ok') {
         loadError = formatError(res.error);
         rows = [];
@@ -151,6 +155,9 @@
       out.sort((a, b) => a.world.localeCompare(b.world));
       rows = out;
     })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   /**

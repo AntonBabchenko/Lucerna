@@ -116,6 +116,10 @@
     const reqWorld = mode.world;
     const reqFile = filename;
     verdict = null;
+    // Set when the dialog closes (or its target changes) mid-check: the
+    // answer is dropped before any prop is read, since a closed dialog's
+    // props may already point at nothing.
+    let cancelled = false;
     void (async () => {
       let next: Verdict;
       try {
@@ -126,6 +130,7 @@
         next = 'unchecked';
       }
       if (
+        cancelled ||
         instanceId !== reqInstance ||
         filename !== reqFile ||
         mode.kind !== 'this-world' ||
@@ -134,6 +139,9 @@
         return;
       verdict = next;
     })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   // Only the library's copy LEAVES the world; a missing file deletes nothing

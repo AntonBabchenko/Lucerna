@@ -186,6 +186,14 @@
     if (id !== lastFetchedId) {
       updateStates = new Map();
       summaries = new Map();
+      // A dialog opened for the previous instance must not survive the
+      // switch: its Confirm would act on THIS instance with the previous
+      // instance's pack name and world list.
+      removeFor = null;
+      removeFromWorldFor = null;
+      pickerFor = null;
+      detail = null;
+      detailFor = null;
     }
     lastFetchedId = id;
     if (id === null) {
