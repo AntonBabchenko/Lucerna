@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::datapacks::detect::{self, OnDiskEntry, Presence, Resolved};
+use crate::datapacks::detect::{self, IgnoredReason, OnDiskEntry, Presence, Resolved};
 use crate::datapacks::format::FormatVersion;
 use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::datapacks::{
@@ -34,7 +34,7 @@ struct WorldFacts {
     /// told, or for a folder with neither file — no world, no state.
     lists: Option<(Vec<String>, Vec<String>)>,
     /// `None` = the world's `datapacks/` could not be read (N.1). Every
-    /// placement in that world then reports `state: None`.
+    /// pack then gets a could-not-tell placement in that world.
     on_disk: Option<Vec<OnDiskEntry>>,
     /// Registry filename → what it denotes on disk (R2). A name that denotes
     /// nothing is not in the map.
@@ -299,9 +299,11 @@ pub async fn list_at(
 /// one — an id whose case drifted from the file names nothing the game loads.
 ///
 /// "Could not tell" is never "not in this world" (Fallback discipline Q2):
-/// a world whose `datapacks/` could not be read, but whose lists could, gives
-/// every pack an unknown placement (it may hold it unlisted, auto-enabled),
-/// and so does a registry name R2 could not resolve.
+/// a world whose `datapacks/` could not be read gives every pack a
+/// could-not-tell placement (it may hold it unlisted, auto-enabled) — whether
+/// or not its lists could be read, and in a folder with no level file too,
+/// where the cascade still unlinks files (§0.5 A3) — and so does a registry
+/// name R2 could not resolve. See [`could_not_tell`] for its shape.
 ///
 /// `library` is the library copy's verdict; it decides whether the game loads
 /// this world's entry only when the scan vouched that entry as the library's
@@ -312,20 +314,13 @@ fn placement_in(
     row: Option<&InstalledDatapack>,
     library: &PackCompat,
 ) -> Option<DatapackPlacementView> {
-    let unknown = || DatapackPlacementView {
-        world: f.world.clone(),
-        state: None,
-        ignored_reason: None,
-        level_dat: f.level_dat,
-    };
     let Some(entries) = f.on_disk.as_ref() else {
-        // A folder with no readable list (or no level file) states nothing.
-        return f.lists.is_some().then(unknown);
+        return Some(could_not_tell(f));
     };
     let on_disk_name = match row {
         Some(_) => match f.resolved.get(filename) {
             Some(Denotes::Entry(n)) => Some(n.as_str()),
-            Some(Denotes::Unknown { .. }) => return Some(unknown()),
+            Some(Denotes::Unknown { .. }) => return Some(could_not_tell(f)),
             None => None,
         },
         None => Some(filename),
@@ -350,6 +345,24 @@ fn placement_in(
         ignored_reason,
         level_dat: f.level_dat,
     })
+}
+
+/// A placement Lucerna could not check: its entry, or the world's whole
+/// `datapacks/`, could not be read or resolved. `state: None` with the reason
+/// an unreadable entry carries, `Unreadable`, and the world's real presence.
+/// The reason is what tells it apart from a folder with no level file, whose
+/// `state: None` is a fact (no list to hold a state), so the removal dialog
+/// lists it under "couldn't check". The one place `ignored_reason` is set
+/// without `state == Ignored`: an `Unreadable` entry the scan saw is `Ignored`
+/// (`state::derive`), but here there may be no entry to ignore, and the game
+/// may well load the pack.
+fn could_not_tell(f: &WorldFacts) -> DatapackPlacementView {
+    DatapackPlacementView {
+        world: f.world.clone(),
+        state: None,
+        ignored_reason: Some(IgnoredReason::Unreadable),
+        level_dat: f.level_dat,
+    }
 }
 
 /// A placeholder row for a pack that exists only in worlds. Everything the
@@ -874,7 +887,7 @@ mod tests {
             vec![DatapackPlacementView {
                 world: "Alpha".into(),
                 state: None,
-                ignored_reason: None,
+                ignored_reason: Some(IgnoredReason::Unreadable),
                 level_dat: Some(LevelDatPresence::Present),
             }]
         );
@@ -906,7 +919,7 @@ mod tests {
                 candidate: "VM.zip".into(),
             },
         )]);
-        let facts = facts_with(resolved, vec![entry]);
+        let facts = facts_with(resolved.clone(), vec![entry.clone()]);
         let p = placement_in(
             &facts,
             "vm.zip",
@@ -914,7 +927,76 @@ mod tests {
             &PackCompat::Unknown,
         )
         .unwrap();
-        assert_eq!((p.state, p.ignored_reason), (None, None));
+        assert_eq!(
+            (p.state, p.ignored_reason, p.level_dat),
+            (
+                None,
+                Some(IgnoredReason::Unreadable),
+                Some(LevelDatPresence::Present)
+            ),
+            "could not tell, marked as such, with the world's own presence"
+        );
         assert!(claimed_by_registry(&facts, "VM.zip"));
+
+        // In a folder with no level file, `state: None` alone reads as "no
+        // world to hold a state"; the mark is what says "could not tell".
+        let loose = WorldFacts {
+            level_dat: Some(LevelDatPresence::Absent),
+            lists: None,
+            ..facts_with(resolved, vec![entry])
+        };
+        let p = placement_in(
+            &loose,
+            "vm.zip",
+            Some(&unlisted("vm.zip")),
+            &PackCompat::Unknown,
+        )
+        .unwrap();
+        assert_eq!(
+            (p.state, p.ignored_reason, p.level_dat),
+            (
+                None,
+                Some(IgnoredReason::Unreadable),
+                Some(LevelDatPresence::Absent)
+            )
+        );
+    }
+
+    /// Fallback Q2: a world whose `datapacks/` AND lists could not be read may
+    /// hold any library pack. It gets a could-not-tell placement, never none
+    /// (which the removal dialog reads as "not in this world"): the cascade
+    /// fails such a world and keeps the library copy. So does a folder with
+    /// no level file whose `datapacks/` could not be read: the cascade unlinks
+    /// files there (§0.5 A3), and cannot check it either.
+    #[tokio::test]
+    async fn a_world_whose_datapacks_and_lists_cannot_be_read_is_could_not_tell() {
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), "vm.zip", 48).await;
+        let wd = game_world(td.path(), "Sealed");
+        std::fs::write(wd.join("level.dat"), b"not nbt at all").unwrap();
+        std::fs::write(wd.join("datapacks"), b"a file, not a folder").unwrap();
+        let loose = td.path().join(".minecraft/saves/Loose");
+        std::fs::create_dir_all(&loose).unwrap();
+        std::fs::write(loose.join("datapacks"), b"a file, not a folder").unwrap();
+
+        let view = list_at(td.path(), None).await.unwrap();
+
+        assert_eq!(
+            entry_for(&view, "vm.zip").placements,
+            vec![
+                DatapackPlacementView {
+                    world: "Loose".into(),
+                    state: None,
+                    ignored_reason: Some(IgnoredReason::Unreadable),
+                    level_dat: Some(LevelDatPresence::Absent),
+                },
+                DatapackPlacementView {
+                    world: "Sealed".into(),
+                    state: None,
+                    ignored_reason: Some(IgnoredReason::Unreadable),
+                    level_dat: Some(LevelDatPresence::Present),
+                },
+            ]
+        );
     }
 }

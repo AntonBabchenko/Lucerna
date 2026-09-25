@@ -177,6 +177,23 @@ describe('DatapackRemoveDialog — worlds Lucerna could not check', () => {
     expect(within(screen.getByTestId('datapack-remove-affected')).getByText('Loose')).toBeTruthy();
   });
 
+  // A placement Lucerna could not check at all (the world's datapacks/ could
+  // not be read, or R2 could not tell) is `state: null` + `unreadable`, with
+  // the world's real presence. The mark is what sets it apart from a folder
+  // with no level file, whose `state: null` is a fact: the cascade fails it.
+  it('a could-not-tell placement is unchecked, even in a folder with no level file', async () => {
+    render(DatapackRemoveDialog, {
+      props: libraryProps([
+        { ...view('Husk', null, 'absent'), ignored_reason: 'unreadable' },
+        { ...view('Sealed', null), ignored_reason: 'unreadable' },
+      ]),
+    });
+    const unchecked = await screen.findByTestId('datapack-remove-unchecked');
+    expect(within(unchecked).getByText('Husk')).toBeTruthy();
+    expect(within(unchecked).getByText('Sealed')).toBeTruthy();
+    expect(screen.queryByTestId('datapack-remove-affected')).toBeNull();
+  });
+
   it('a folder with neither level file is an affected world, not an unchecked one', async () => {
     render(DatapackRemoveDialog, { props: libraryProps([view('Husk', null, 'absent')]) });
     const affected = await screen.findByTestId('datapack-remove-affected');

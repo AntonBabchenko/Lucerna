@@ -182,7 +182,12 @@ pub struct DatapackPlacementView {
     /// `level_dat`) — unknown, or no world to hold a state, rather than
     /// guessed.
     pub state: Option<WorldPackState>,
-    /// `Some` exactly when `state` is `Ignored`. Both come from `state::derive`.
+    /// `Some` when `state` is `Ignored`; both come from `state::derive`.
+    /// Also `Some(Unreadable)` with `state: None` for a placement Lucerna
+    /// could not check at all — the world's `datapacks/` could not be read,
+    /// or R2 could not tell which entry the name denotes. That mark is what
+    /// tells "could not tell" apart from a folder with no level file, where
+    /// `state: None` is a fact.
     pub ignored_reason: Option<crate::datapacks::detect::IgnoredReason>,
     /// This world's `level.dat` presence; `None` when it could not be told.
     /// Anything but `Some(Present)` means Lucerna adds, toggles or removes

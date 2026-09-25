@@ -6,7 +6,9 @@ import { wontLoadKey } from './datapack-compat';
  * The badge label for a row whose state is `ignored`. `unreadable` is not a
  * claim about the game (Lucerna could not read the entry), so it says
  * "Couldn't check" (spec §2 N.1, fallback honesty). `null` cannot arrive
- * while the backend keeps `state === 'ignored' ⟺ ignored_reason !== null`.
+ * while the backend keeps `state === 'ignored' ⟹ ignored_reason !== null`.
+ * (The converse no longer holds for a library placement: one Lucerna could
+ * not check at all is `state: null` + `unreadable`, and never reaches here.)
  */
 export function ignoredLabelKey(reason: IgnoredReason | null): TranslationKey {
   switch (reason) {

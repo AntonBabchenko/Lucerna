@@ -70,8 +70,9 @@
     /** null ⟹ the world does not reference the pack at all (addable). */
     state: WorldPackState | null;
     /**
-     * The world's placement has no state: its lists could not be read, or the
-     * folder has no level file (see `levelDat`) — no safe action exists.
+     * The world's placement has no state: its lists or its datapacks folder
+     * could not be read, or the folder has no level file (see `levelDat`) —
+     * no safe action exists.
      */
     unknown: boolean;
     /**
@@ -80,7 +81,10 @@
      * the backend refuses the picker's add and toggle there.
      */
     levelDat: LevelDatPresence | null;
-    /** Why the game ignores this world's entry; set exactly when `state` is 'ignored'. */
+    /**
+     * Why the game ignores this world's entry when `state` is 'ignored'. Also
+     * 'unreadable' on an `unknown` row Lucerna could not check at all.
+     */
     ignoredReason: IgnoredReason | null;
   };
 
