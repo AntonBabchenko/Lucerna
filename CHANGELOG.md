@@ -131,7 +131,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   write its own `level.dat` into both, which could stop that restore. Data
   packs there can no longer be added or switched on or off, and the page says
   what to do. A server that has never started shows why its packs can't be
-  switched on or off yet.
+  switched on or off yet. After a server restores `level.dat` that way, its
+  log no longer makes Lucerna report the world's data as corrupted.
 - **Enabling a pack in a world with no data pack list no longer puts vanilla
   above the pack.** Lucerna used to write a list with vanilla above the pack.
   Now it writes nothing, and the game places the pack itself, after vanilla
