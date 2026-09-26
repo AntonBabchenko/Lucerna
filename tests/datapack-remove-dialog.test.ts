@@ -549,4 +549,25 @@ describe('DatapackRemoveDialog — RU copy', () => {
       /убрать датапак и из этих миров/,
     );
   });
+
+  // "…чтобы повтор мог завершить" left the verb without its object — the
+  // slip already fixed once in `updateIncomplete`. Every plural branch says
+  // what a retry finishes.
+  it('the cascade failure toast says what a retry finishes', () => {
+    const branches = [
+      ...ru.addons.datapacks.remove.toastFailedWorlds.matchAll(/\{(# [^{}]*)\}/g),
+    ].map((m) => m[1]);
+    expect(branches).toHaveLength(4);
+    for (const b of branches) expect(b).toMatch(/завершить удаление$/);
+  });
+
+  it('no Russian string leaves "завершить" without an object', () => {
+    const all: string[] = [];
+    const walk = (o: unknown) => {
+      if (typeof o === 'string') all.push(o);
+      else if (o && typeof o === 'object') for (const v of Object.values(o)) walk(v);
+    };
+    walk(ru);
+    expect(all.filter((s) => /мог(?:ла|ли)? завершить\s*(?:[}.,:;—]|$)/.test(s))).toEqual([]);
+  });
 });
