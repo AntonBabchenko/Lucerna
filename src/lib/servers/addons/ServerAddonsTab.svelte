@@ -10,7 +10,7 @@
   import { onDestroy, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { commands, type ModSource } from '$lib/ipc/bindings';
+  import { commands, type LevelDatPresence, type ModSource } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import TabBar from '$lib/ui/TabBar.svelte';
@@ -29,6 +29,7 @@
   import ServerPluginBrowser from '$lib/servers/plugins/ServerPluginBrowser.svelte';
   import ServerDatapackBrowser from '$lib/servers/datapacks/ServerDatapackBrowser.svelte';
   import ServerDatapacksInstalled from '$lib/servers/datapacks/ServerDatapacksInstalled.svelte';
+  import { serverWorldBlockedKey } from '$lib/servers/datapacks/datapack-rows';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { SERVER_ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
   import ServerModsInstalled from './ServerModsInstalled.svelte';
@@ -130,8 +131,29 @@
   let reloadToken = $state(0);
   let dropError = $state<string | null>(null);
 
+  // The server world's level.dat presence, from the data pack Installed pane's
+  // own read (bound below; that pane is mounted whenever the kind is
+  // datapack). A world with only level.dat_old refuses every data pack change
+  // until a server run restores level.dat (D2), so every add path here — the
+  // zone's click, a window drop, the catalog — is off and says why, as the
+  // pane's own controls are. Null (not read yet, or could not tell) is not a
+  // verdict: the backend re-checks before writing.
+  let datapackLevelDat = $state<LevelDatPresence | null>(null);
+  const datapackBlock = $derived(
+    kind === 'datapack' ? serverWorldBlockedKey(datapackLevelDat) : null,
+  );
+  // Why nothing can be added right now, or null: the running server first
+  // (it owns the world), then the world itself.
+  const addBlockedLabel = $derived(
+    !canMutate
+      ? $t('servers.mods.stopToManage')
+      : datapackBlock !== null
+        ? $t(datapackBlock)
+        : null,
+  );
+
   async function installLocalPaths(paths: string[]): Promise<void> {
-    if (!canMutate) return;
+    if (addBlockedLabel !== null) return;
     dropError = null;
     for (const p of paths) {
       const res =
@@ -252,8 +274,8 @@
     <div data-tour-ctx="server-addons-dropzone">
       <FileDropzone
         label={dropzoneLabel}
-        disabled={!canMutate}
-        disabledLabel={$t('servers.mods.stopToManage')}
+        disabled={addBlockedLabel !== null}
+        disabledLabel={addBlockedLabel ?? undefined}
         onClick={() => void pickAndInstall()}
       />
     </div>
@@ -294,6 +316,7 @@
               mcVersion={server.mc_version}
               bind:source
               showSourcePicker={false}
+              blockedReason={datapackBlock !== null ? $t(datapackBlock) : null}
               onInstalled={() => reloadToken++}
             />
           {/if}
@@ -314,6 +337,7 @@
             mcVersion={server.mc_version}
             disabled={running}
             {reloadToken}
+            bind:levelDat={datapackLevelDat}
           />
         {/if}
       </div>

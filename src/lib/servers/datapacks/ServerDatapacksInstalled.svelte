@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import {
     commands,
     type AssetUpdateState,
@@ -43,18 +44,23 @@
     mcVersion,
     disabled = false,
     reloadToken = 0,
+    levelDat = $bindable(null),
   }: {
     serverId: string;
     /** Needed by the Vanilla Tweaks builder, which publishes per MC family. */
     mcVersion: string;
     disabled?: boolean;
     reloadToken?: number;
+    /**
+     * The world's level.dat presence (D2); null until loaded, or could not
+     * tell. Null is not a verdict: every writer re-checks presence before
+     * writing. Bindable so the host gates its own add paths (the tab-level
+     * drop zone, the catalog) on the one read this pane makes.
+     */
+    levelDat?: LevelDatPresence | null;
   } = $props();
 
   let rows = $state<ServerDatapackEntry[]>([]);
-  // The world's level.dat presence (D2); null until loaded, or could not tell.
-  // Null is not a verdict: every writer re-checks presence before writing.
-  let levelDat = $state<LevelDatPresence | null>(null);
   const worldBlock = $derived(serverWorldBlockedKey(levelDat));
   let loading = $state(false);
   let loadError = $state<string | null>(null);
@@ -145,6 +151,18 @@
     levelDat = null;
     loadError = null;
     void load();
+  });
+
+  // A server run rewrites the world: a start restores level.dat from
+  // level.dat_old — what the only-old note asks for — and every save rewrites
+  // the pack lists. So the list is read again when the server stops, rather
+  // than only after the user leaves the tab and comes back. `disabled` is the
+  // host's running flag.
+  let wasRunning = untrack(() => disabled);
+  $effect(() => {
+    const running = disabled;
+    if (wasRunning && !running) void load();
+    wasRunning = running;
   });
 
   const updatableCount = $derived(
