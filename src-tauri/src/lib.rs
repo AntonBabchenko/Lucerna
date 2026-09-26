@@ -8,6 +8,7 @@ pub mod datapacks;
 pub mod deeplink;
 pub mod diag;
 pub mod error;
+pub mod file_identity;
 pub mod forge;
 pub mod gpu_pref;
 pub mod instances;
@@ -394,6 +395,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::datapacks_list_for_world,
             commands::datapacks_add_to_world,
             commands::datapacks_remove_from_world,
+            commands::datapacks_world_entry_kind,
             commands::datapacks_set_enabled_in_world,
             // Client-side datapacks (slice 2: catalog + library screen backend):
             commands::instance_supports_datapacks,

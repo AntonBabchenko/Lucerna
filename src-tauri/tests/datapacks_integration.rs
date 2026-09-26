@@ -37,16 +37,18 @@ use tempfile::TempDir;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
+use lucerna_lib::datapacks::format::{Fact, PackMcmeta};
 use lucerna_lib::datapacks::pack_meta::{self, PackKind};
 use lucerna_lib::datapacks::{
-    level_dat, library, library_dir_at, world_datapacks_dir_at, world_link, WorldPackState,
+    level_dat, library, library_dir_at, registry, world_datapacks_dir_at, world_link,
+    WorldPackState,
 };
 use lucerna_lib::mods::store::Placement;
 
 /// Spin up an isolated instance tree: `<td>/instances/<instance_id>/` with
-/// `.minecraft/saves/<world>/` pre-created for each named world. The library
-/// dir (`<inst>/datapacks/`) is deliberately NOT created here — it is created
-/// by the code under test on first install.
+/// `.minecraft/saves/<world>/level.dat` of a played world pre-created for each
+/// named world. The library dir (`<inst>/datapacks/`) is deliberately NOT
+/// created here — it is created by the code under test on first install.
 fn make_fixture(instance_id: &str, worlds: &[&str]) -> (TempDir, PathBuf) {
     let td = TempDir::new().unwrap();
     let inst_dir = td.path().join("instances").join(instance_id);
@@ -54,8 +56,30 @@ fn make_fixture(instance_id: &str, worlds: &[&str]) -> (TempDir, PathBuf) {
     fs::create_dir_all(&saves_dir).unwrap();
     for world in worlds {
         fs::create_dir_all(saves_dir.join(world)).unwrap();
+        fs::write(saves_dir.join(world).join("level.dat"), game_level_dat()).unwrap();
     }
     (td, inst_dir)
+}
+
+/// A played world's level.dat: `Data` with `LevelName`, `DataVersion`,
+/// `version` and `DataPacks { Enabled: ["vanilla"], Disabled: [] }`. It is the
+/// same shape as the crate's `level_dat::test_support::game_root`, which this
+/// binary cannot reach (`#[cfg(test)]`).
+fn game_level_dat() -> Vec<u8> {
+    let mut dp = HashMap::new();
+    dp.insert(
+        "Enabled".to_string(),
+        Value::List(vec![Value::String("vanilla".into())]),
+    );
+    dp.insert("Disabled".to_string(), Value::List(Vec::new()));
+    let mut data = HashMap::new();
+    data.insert("LevelName".to_string(), Value::String("Fixture".into()));
+    data.insert("DataVersion".to_string(), Value::Int(3955));
+    data.insert("version".to_string(), Value::Int(19133));
+    data.insert("DataPacks".to_string(), Value::Compound(dp));
+    let mut root = HashMap::new();
+    root.insert("Data".to_string(), Value::Compound(data));
+    level_dat::serialize(&Value::Compound(root), level_dat::Framing::Gzip).unwrap()
 }
 
 /// Build a minimal, real datapack zip in memory: `pack.mcmeta` at the root
@@ -262,7 +286,8 @@ async fn removing_from_the_library_does_not_break_a_world_using_it() {
 
     let listed = world_link::list_for_world_at(&inst, "Alpha", None)
         .await
-        .unwrap();
+        .unwrap()
+        .packs;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].filename, "vm.zip");
     assert!(
@@ -325,8 +350,11 @@ async fn a_disable_survives_a_level_dat_round_trip_alongside_unmodelled_tags() {
         Some(&Value::IntArray(fastnbt::IntArray::new(vec![10, 64, -10])))
     );
 
+    // This seed has no DataPacks compound. The add wrote nothing (the game adds
+    // the pack itself), and the disable seeded the engine default with the
+    // pack switched off, so vanilla stays enabled (spec §0.5 A15).
     let (enabled, disabled) = level_dat::lists(&after);
-    assert!(enabled.is_empty());
+    assert_eq!(enabled, vec!["vanilla".to_string()]);
     assert_eq!(disabled, vec!["file/vm.zip".to_string()]);
 }
 
@@ -352,7 +380,8 @@ async fn an_orphan_is_repairable_end_to_end() {
 
     let listed = world_link::list_for_world_at(&inst, "Alpha", None)
         .await
-        .unwrap();
+        .unwrap()
+        .packs;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].filename, "vm.zip");
     assert_eq!(listed[0].state, WorldPackState::Orphaned);
@@ -364,12 +393,17 @@ async fn an_orphan_is_repairable_end_to_end() {
     let world_dir = inst.join(".minecraft").join("saves").join("Alpha");
     let (root, _framing) = level_dat::read_at(&world_dir).unwrap();
     let (enabled, disabled) = level_dat::lists(&root);
-    assert!(enabled.is_empty(), "the orphaned name must be cleared");
+    assert_eq!(
+        enabled,
+        vec!["vanilla".to_string()],
+        "the orphaned name must be cleared, vanilla kept"
+    );
     assert!(disabled.is_empty());
 
     let listed_after = world_link::list_for_world_at(&inst, "Alpha", None)
         .await
-        .unwrap();
+        .unwrap()
+        .packs;
     assert_eq!(listed_after.len(), 1);
     assert_eq!(listed_after[0].filename, "vm.zip");
     assert_eq!(listed_after[0].state, WorldPackState::NotAdded);
@@ -391,7 +425,12 @@ async fn a_hand_dropped_library_file_is_adopted() {
         listed[0].source, None,
         "no provenance for a hand-dropped file"
     );
-    assert_eq!(listed[0].pack_format, Some(48));
+    let rows = registry::list_rows(&inst).await.unwrap();
+    assert!(
+        matches!(&rows[0].mcmeta, Some(PackMcmeta::Read(d)) if d.pack_format == Fact::Present(48)),
+        "{:?}",
+        rows[0].mcmeta
+    );
     assert_eq!(listed[0].name, "Vein Miner");
 }
 

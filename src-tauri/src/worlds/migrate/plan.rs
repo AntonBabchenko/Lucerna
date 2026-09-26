@@ -4,9 +4,11 @@
 
 use std::path::Path;
 
+use crate::datapacks::detect::{self, Presence};
 use crate::datapacks::level_dat::{self, WorldVersion};
+use crate::datapacks::pack_meta::PackKind;
 use crate::datapacks::{compat, library, library_dir_at};
-use crate::error::{Error, Result};
+use crate::error::{DatapackRejection, Error, Result};
 use crate::instances::schema::LoaderKind;
 use crate::mods::installed;
 
@@ -153,9 +155,11 @@ fn verdict_of(
     }
 }
 
-/// Regular `*.zip` files (case-insensitive) directly under the world's
-/// `datapacks/` get a prediction; directories are counted as folder packs;
-/// symlinks and other files are ignored (the §5 scope rule).
+/// Regular files directly under the world's `datapacks/` whose name ends in
+/// `.zip` exactly (the game's own rule, `datapacks::detect`) get a
+/// prediction; a folder with `pack.mcmeta` directly inside is counted as a
+/// folder pack; symlinks, other folders and other files are ignored (the §5
+/// scope rule, spec §2 N.1).
 fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackPlan>, u32)> {
     let entries = match std::fs::read_dir(dp_dir) {
         Ok(entries) => entries,
@@ -175,17 +179,24 @@ fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackP
             // `copy_tree` skips it; the stage step counts it in `links_skipped`.
             continue;
         }
-        if ft.is_dir() {
-            folders = folders.saturating_add(1);
-            continue;
-        }
         let Some(name) = entry.file_name().to_str().map(String::from) else {
             continue;
         };
-        if !ft.is_file() || !name.to_ascii_lowercase().ends_with(".zip") {
+        if ft.is_dir() {
+            // A folder PACK has `pack.mcmeta` directly inside it (spec §2 N.1).
+            if matches!(
+                detect::classify_one(dp_dir, &name, false),
+                Some(Presence::Pack { is_dir: true })
+            ) {
+                folders = folders.saturating_add(1);
+            }
             continue;
         }
-        let predicted = predict_one(&entry.path(), &library_dir.join(&name));
+        // The game's `endsWith(".zip")` is exact (N.0): `X.ZIP` stays world content.
+        if !ft.is_file() || !detect::has_zip_suffix(&name) {
+            continue;
+        }
+        let predicted = predict_one(&entry.path(), &library_dir.join(&name), &name);
         packs.push(DatapackPlan {
             filename: name,
             predicted,
@@ -194,6 +205,42 @@ fn predict_datapacks(dp_dir: &Path, library_dir: &Path) -> Result<(Vec<DatapackP
     // `read_dir` order is unspecified; the dialog and the tests want one order.
     packs.sort_by(|a, b| a.filename.cmp(&b.filename));
     Ok((packs, folders))
+}
+
+/// The name is free in the target library, so the relink will try to adopt
+/// the world's file: predict what `install_named_at` will say about these
+/// bytes (size cap, then `pack_meta::classify`, whose root rule is the
+/// game's own, §0.5 A24), rather than promising an adoption it may refuse.
+fn predict_adoption(world_file: &Path, name: &str) -> DatapackResult {
+    // The size cap first, from metadata: an oversized pack is never read whole.
+    match std::fs::metadata(world_file) {
+        Ok(meta) if meta.len() > crate::datapacks::MAX_DATAPACK_BYTES as u64 => {
+            return left_as_copy(LeftReason::TooLarge)
+        }
+        Ok(_) => {}
+        Err(e) => return unreadable(world_file, e),
+    }
+    let bytes = match std::fs::read(world_file) {
+        Ok(bytes) => bytes,
+        Err(e) => return unreadable(world_file, e),
+    };
+    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
+        return left_as_copy(LeftReason::TooLarge);
+    }
+    match crate::datapacks::pack_meta::classify(&bytes) {
+        PackKind::Datapack => DatapackResult::Adopted,
+        PackKind::ResourcePack => left_as_copy(LeftReason::NotADatapack {
+            reason: DatapackRejection::IsAResourcePack,
+        }),
+        PackKind::Neither => {
+            crate::diag!(
+                "world migration plan: {name} is not a datapack; predicted left as a copy"
+            );
+            left_as_copy(LeftReason::NotADatapack {
+                reason: DatapackRejection::NotAPack,
+            })
+        }
+    }
 }
 
 fn left_as_copy(reason: LeftReason) -> DatapackResult {
@@ -216,9 +263,9 @@ fn unreadable(path: &Path, e: std::io::Error) -> DatapackResult {
 /// be checked is `LeftAsCopy` too — the direction is the same, no adopt, no
 /// link — but the reason must say what happened: a stat failure is `Io` and a
 /// file that could not be read is `Unreadable`, never a different pack.
-fn predict_one(world_file: &Path, library_file: &Path) -> DatapackResult {
+fn predict_one(world_file: &Path, library_file: &Path, name: &str) -> DatapackResult {
     match library_file.try_exists() {
-        Ok(false) => return DatapackResult::Adopted,
+        Ok(false) => return predict_adoption(world_file, name),
         Ok(true) => {}
         // "Could not tell" keeps the plain copy: the restrictive direction
         // (Fallback discipline Q1/Q2) — predicting `Adopted` here would
@@ -563,9 +610,15 @@ mod tests {
         install_jar(&fx.versions_dir, "1.20.1", Some(3465));
         let dp = fx.world.join("datapacks");
         fs::create_dir_all(dp.join("folderpack").join("data")).unwrap();
+        // A folder pack has `pack.mcmeta` directly inside it (spec §2 N.0).
+        fs::write(dp.join("folderpack").join("pack.mcmeta"), b"{}").unwrap();
         fs::write(dp.join("keep.zip"), b"same bytes").unwrap();
         fs::write(dp.join("clash.zip"), b"world has v1").unwrap();
-        fs::write(dp.join("new.zip"), b"only in the world").unwrap();
+        fs::write(
+            dp.join("new.zip"),
+            crate::datapacks::detect::test_support::pack_zip(),
+        )
+        .unwrap();
         fs::write(dp.join("notes.txt"), b"ignored").unwrap();
         let lib = library_dir_at(&fx.loc.dst_root);
         fs::create_dir_all(&lib).unwrap();
@@ -640,7 +693,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            predict_one(&world_file, &library_dir.join("pack.zip")),
+            predict_one(&world_file, &library_dir.join("pack.zip"), "pack.zip"),
             DatapackResult::LeftAsCopy {
                 reason: LeftReason::Io
             }
@@ -648,7 +701,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missing_datapacks_folder_is_zero_packs_and_an_upper_case_zip_counts() {
+    async fn a_missing_datapacks_folder_is_zero_packs_and_an_upper_case_zip_is_not_planned() {
         let fx = fixture();
         install_jar(&fx.versions_dir, "1.20.1", Some(3465));
         let p = plan(&fx, "1.20.1").await.unwrap();
@@ -659,8 +712,95 @@ mod tests {
         fs::create_dir_all(&dp).unwrap();
         fs::write(dp.join("Loud.ZIP"), b"x").unwrap();
         let p = plan(&fx, "1.20.1").await.unwrap();
-        assert_eq!(p.datapacks.len(), 1);
-        assert_eq!(p.datapacks[0].filename, "Loud.ZIP");
-        assert_eq!(p.datapacks[0].predicted, DatapackResult::Adopted);
+        // Engine `endsWith(".zip")` is case-sensitive (spec §2 N.0):
+        // `Loud.ZIP` stays world content.
+        assert!(p.datapacks.is_empty(), "{:?}", p.datapacks);
+    }
+
+    /// §0.5 A13: a folder is a pack only with `pack.mcmeta` directly inside.
+    #[tokio::test]
+    async fn a_folder_without_pack_mcmeta_is_not_counted() {
+        let fx = fixture();
+        install_jar(&fx.versions_dir, "1.20.1", Some(3465));
+        let dp = fx.world.join("datapacks");
+        fs::create_dir_all(dp.join("Loose").join("data")).unwrap();
+        fs::create_dir_all(dp.join("Real").join("data")).unwrap();
+        fs::write(dp.join("Real").join("pack.mcmeta"), b"{}").unwrap();
+        let p = plan(&fx, "1.20.1").await.unwrap();
+        assert_eq!(p.datapacks_folders, 1);
+    }
+
+    /// The plan predicts what the relink will do: a zip the library would
+    /// refuse (no root `pack.mcmeta`, or a resource pack) is left as a copy,
+    /// never promised as adopted.
+    #[tokio::test]
+    async fn a_zip_the_library_would_refuse_is_not_predicted_adopted() {
+        let fx = fixture();
+        install_jar(&fx.versions_dir, "1.20.1", Some(3465));
+        let dp = fx.world.join("datapacks");
+        fs::create_dir_all(&dp).unwrap();
+        fs::write(
+            dp.join("rootless.zip"),
+            crate::datapacks::detect::test_support::zip_of(&[("Inner/pack.mcmeta", b"{}")]),
+        )
+        .unwrap();
+        fs::write(dp.join("broken.zip"), b"not a zip").unwrap();
+
+        let p = plan(&fx, "1.20.1").await.unwrap();
+
+        let not_a_pack = DatapackResult::LeftAsCopy {
+            reason: LeftReason::NotADatapack {
+                reason: crate::error::DatapackRejection::NotAPack,
+            },
+        };
+        assert_eq!(
+            p.datapacks,
+            vec![
+                DatapackPlan {
+                    filename: "broken.zip".into(),
+                    predicted: not_a_pack.clone(),
+                },
+                DatapackPlan {
+                    filename: "rootless.zip".into(),
+                    predicted: not_a_pack,
+                },
+            ]
+        );
+    }
+
+    /// The size cap is checked from metadata before the file is read: an
+    /// oversized pack is predicted "too large" without reading hundreds of
+    /// megabytes, even when its bytes cannot be read at all (Windows: a
+    /// handle held with no sharing blocks reads, not attribute queries).
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn an_oversized_zip_is_predicted_too_large_from_its_size_alone() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let fx = fixture();
+        install_jar(&fx.versions_dir, "1.20.1", Some(3465));
+        let dp = fx.world.join("datapacks");
+        fs::create_dir_all(&dp).unwrap();
+        let big = dp.join("big.zip");
+        fs::File::create(&big)
+            .unwrap()
+            .set_len(crate::datapacks::MAX_DATAPACK_BYTES as u64 + 1)
+            .unwrap();
+        let _held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&big)
+            .unwrap();
+
+        let p = plan(&fx, "1.20.1").await.unwrap();
+
+        assert_eq!(
+            p.datapacks,
+            vec![DatapackPlan {
+                filename: "big.zip".into(),
+                predicted: DatapackResult::LeftAsCopy {
+                    reason: LeftReason::TooLarge
+                },
+            }]
+        );
     }
 }

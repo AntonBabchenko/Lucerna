@@ -20,6 +20,7 @@
     onToggle,
     onUninstall,
     installedLabelFor = () => null,
+    actionsBlockedReason = null,
   }: {
     hits: ModSummary[];
     layout: 'grid' | 'list';
@@ -34,6 +35,9 @@
     // Per-hit override for the card's installed meta line — see ModCard's
     // `installedLabel`. Default: no override (mods/assets keep `vX`).
     installedLabelFor?: (h: ModSummary) => string | null;
+    // Why no card action can run right now, or null — see ModCard's
+    // `actionsBlockedReason`.
+    actionsBlockedReason?: string | null;
   } = $props();
 </script>
 
@@ -51,6 +55,7 @@
         canToggle={isMod}
         {placeholderIcon}
         installedLabel={installedLabelFor(hit)}
+        {actionsBlockedReason}
         layout="grid"
       />
     {/each}
@@ -69,6 +74,7 @@
         canToggle={isMod}
         {placeholderIcon}
         installedLabel={installedLabelFor(hit)}
+        {actionsBlockedReason}
         layout="list"
       />
     {/each}

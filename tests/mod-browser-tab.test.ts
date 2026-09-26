@@ -12,9 +12,10 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     // AddonsTab's 1.13 gate queries this on every mount with an instance.
     instanceSupportsDatapacks: vi.fn().mockResolvedValue({ status: 'ok', data: true }),
-    datapacksListLibrary: vi
-      .fn()
-      .mockResolvedValue({ status: 'ok', data: { expected_pack_format: null, entries: [] } }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { entries: [], worlds: [] },
+    }),
     modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsSearch: vi

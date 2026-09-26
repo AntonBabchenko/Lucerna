@@ -3,6 +3,7 @@
     commands,
     events,
     type DatapackLibraryEntry,
+    type DatapackWorldView,
     type Error as IpcError,
     type InstalledAsset,
     type InstalledMod,
@@ -33,7 +34,14 @@
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
-  import { installFailureToast } from '$lib/mods/install-failure';
+  import { installFailureToast, installFailureWarning } from '$lib/mods/install-failure';
+  import {
+    dismissLibraryReadWarning,
+    libraryReadSucceeded,
+    warnLibraryReadBlockedPicker,
+    warnLibraryReadFailed,
+  } from '$lib/mods/datapack-library-warning';
+  import { warnFailedRefresh, warnUpdateIncomplete } from '$lib/mods/datapack-refresh-warning';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import {
     offPlatformFactsOfError,
@@ -42,7 +50,7 @@
     type OffPlatformRow,
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
-  import { dismiss, pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { dismiss, pushActionToast, pushSuccess } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
     cfKeyVersion,
@@ -279,20 +287,42 @@
   // The datapack twin of `installedAssets`: library entries (registry ∪
   // worlds-only packs), matched to cards by source + project_id below.
   let installedDatapacks = $state<DatapackLibraryEntry[]>([]);
+  // Every world folder the same listing saw, with its level.dat presence —
+  // the world picker needs the worlds a pack is not in yet.
+  let installedDatapackWorlds = $state<DatapackWorldView[]>([]);
 
-  async function refreshInstalledDatapacks() {
+  /**
+   * Reload the library listing. `true` only when `installedDatapacks` and
+   * `installedDatapackWorlds` now hold this instance's current listing. A
+   * failed read leaves the previous listing in place for the badges and says
+   * so (one shared warning — see `datapack-library-warning`); a caller about
+   * to act on the listing must not use it. `forPicker`: the read feeds the
+   * world picker, so a failure says the picker did not open.
+   */
+  async function refreshInstalledDatapacks(opts: { forPicker?: boolean } = {}): Promise<boolean> {
     if (!isDatapack) {
       installedDatapacks = [];
-      return;
+      installedDatapackWorlds = [];
+      return false;
     }
     const reqId = instanceId;
     if (!reqId) {
       installedDatapacks = [];
-      return;
+      installedDatapackWorlds = [];
+      return false;
     }
     const r = await commands.datapacksListLibrary(reqId);
-    if (instanceId !== reqId || r.status !== 'ok') return;
+    // Superseded by an instance switch: that instance's own refresh answers.
+    if (instanceId !== reqId) return false;
+    if (r.status === 'error') {
+      if (opts.forPicker) warnLibraryReadBlockedPicker(reqId, r.error);
+      else warnLibraryReadFailed(reqId, r.error);
+      return false;
+    }
+    libraryReadSucceeded(reqId);
     installedDatapacks = r.data.entries;
+    installedDatapackWorlds = r.data.worlds;
+    return true;
   }
 
   async function refreshInstalled() {
@@ -854,6 +884,8 @@
     filename: string;
     packName: string;
     placements: DatapackLibraryEntry['placements'];
+    worlds: DatapackWorldView[];
+    compat: DatapackLibraryEntry['compat'] | null;
   } | null>(null);
   let removeDialogFor = $state<DatapackLibraryEntry | null>(null);
 
@@ -866,7 +898,11 @@
   async function startDatapackInstall(card: ModSummary, pinnedVersion?: ModVersion) {
     installingProjectIds.add(card.project_id);
     try {
-      if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
+      // The instance this click was for. Every step below acts on it, and a
+      // switch away mid-flight must not land its result, or its world picker,
+      // on the instance the user switched to.
+      const id = instanceId;
+      if (!id || !canInstallContent(kind, id, loader)) {
         error = get(t)('mods.browse.errorNoInstance');
         return;
       }
@@ -889,6 +925,9 @@
         }
         version = versions.data[0]!;
       }
+      // Nothing is written yet, and the library snapshot below now describes
+      // the other instance: drop the click.
+      if (instanceId !== id) return;
       // A version picked for a project whose pack is ALREADY in the library is
       // a version SWITCH, and datapacks_update_one owns switch semantics: it
       // replaces the library file, migrates every world holding the old
@@ -897,24 +936,21 @@
       // old one — two versions in the library, every world still on the old.
       const existing = datapackById.get(`${card.source}:${card.project_id}`);
       if (existing && existing.in_library) {
-        const updated = await commands.datapacksUpdateOne(
-          instanceId,
-          existing.pack.filename,
-          version,
-        );
+        const updated = await commands.datapacksUpdateOne(id, existing.pack.filename, version);
         if (updated.status === 'error') {
-          showInstallFailure(card.name, updated.error, () => {
+          showDatapackInstallFailure(id, card.name, updated.error, () => {
             void startDatapackInstall(card, pinnedVersion);
           });
           return;
         }
-        const failedWorlds = updated.data.migrations.filter((m) => m.kind === 'failed');
-        if (!updated.data.completed && failedWorlds.length > 0) {
-          pushWarning(
-            get(t)('addons.datapacks.updateIncomplete', { count: failedWorlds.length }),
-            failedWorlds.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
-          );
+        // Only a renamed update keeps the old library copy a retry needs
+        // (`old_copy_kept`). A same-name update replaced the library copy in
+        // place: the new version is installed, and a world it could not
+        // refresh gets the reinstall warning, which promises no retry.
+        if (!updated.data.completed && updated.data.old_copy_kept) {
+          warnUpdateIncomplete(updated.data.pack.name, updated.data.migrations);
         } else {
+          warnFailedRefresh(updated.data.pack.name, updated.data.migrations);
           pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
         }
         // No world picker: the worlds moved with the update. Placement changes
@@ -924,9 +960,9 @@
         return;
       }
 
-      const installed = await commands.datapacksInstallFromVersion(instanceId, version);
+      const installed = await commands.datapacksInstallFromVersion(id, version);
       if (installed.status === 'error') {
-        showInstallFailure(card.name, installed.error, () => {
+        showDatapackInstallFailure(id, card.name, installed.error, () => {
           void startDatapackInstall(card, pinnedVersion);
         });
         return;
@@ -934,16 +970,20 @@
       // A same-name reinstall fans out to worlds already holding the pack;
       // per-world failures come back in `refreshed` and must not be silent —
       // that world stays on stale bytes.
-      const failedWorlds = installed.data.refreshed.filter((m) => m.kind === 'failed');
-      if (failedWorlds.length > 0) {
-        pushWarning(
-          get(t)('addons.datapacks.updateIncomplete', { count: failedWorlds.length }),
-          failedWorlds.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
-        );
-      }
+      warnFailedRefresh(installed.data.pack.name, installed.data.refreshed);
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
-      await refreshInstalledDatapacks();
+      // Switched away while it ran: the pack went into the first instance's
+      // library, which nothing here shows any more, and the switch has already
+      // read the new instance's. Reading it again for the picker could only
+      // warn there about a picker that instance never asked for.
+      if (instanceId !== id) return;
+      const fresh = await refreshInstalledDatapacks({ forPicker: true });
       datapacksChanged.value++;
+      // No picker on a snapshot whose refresh failed: its placements and
+      // worlds predate this install. The failure is already on screen, and
+      // the pack is in the library, which can place it once the read works.
+      // Nor on another instance: the pack went into this one's library.
+      if (!fresh || instanceId !== id) return;
       const entry = installedDatapacks.find(
         (e) => e.pack.filename === installed.data.pack.filename,
       );
@@ -951,6 +991,8 @@
         filename: installed.data.pack.filename,
         packName: installed.data.pack.name,
         placements: entry?.placements ?? [],
+        worlds: installedDatapackWorlds,
+        compat: entry?.compat ?? null,
       };
     } finally {
       installingProjectIds.delete(card.project_id);
@@ -1008,18 +1050,34 @@
   // this mounted view) they were created for. If the user switches instance or
   // the view unmounts, that context is stale — a Retry click could install
   // into the wrong instance — so dismiss any still-visible failure toasts
-  // instead of letting them outlive their context.
+  // instead of letting them outlive their context. The warning about the
+  // instance's unreadable data pack library goes the same way: it describes
+  // the instance this view has just left. So do the data pack dialogs: left
+  // open, their Confirm would act on the NEW instance with the old
+  // instance's pack name and world list.
   let installFailureToastIds: number[] = [];
   function showInstallFailure(name: string, err: IpcError, retry: () => void) {
     installFailureToastIds.push(installFailureToast(name, err, retry));
   }
+  // A data pack install acts on the instance it started on (`id`), but its
+  // Retry re-runs on the instance shown when it is clicked. A failure that
+  // arrives after a switch lands after the teardown below has already run, so
+  // nothing would take its toast down: it gets no Retry. Its Retry would
+  // otherwise install into the other instance, or switch the version of the
+  // same pack in that instance's library and move its worlds.
+  function showDatapackInstallFailure(id: string, name: string, err: IpcError, retry: () => void) {
+    if (instanceId === id) showInstallFailure(name, err, retry);
+    else installFailureWarning(name, err);
+  }
   $effect(() => {
-    // biome-ignore lint/correctness/noUnusedVariables: reactive read
-    const _id = instanceId;
+    const leaving = instanceId;
     return () => {
       for (const id of installFailureToastIds) dismiss(id);
       installFailureToastIds = [];
       offPlatformPrompt = null;
+      pickerTarget = null;
+      removeDialogFor = null;
+      if (leaving) dismissLibraryReadWarning(leaving);
     };
   });
 
@@ -1438,6 +1496,8 @@
       filename={pickerTarget.filename}
       packName={pickerTarget.packName}
       placements={pickerTarget.placements}
+      worlds={pickerTarget.worlds}
+      compat={pickerTarget.compat}
       onClose={() => (pickerTarget = null)}
       onApplied={() => {
         void refreshInstalledDatapacks();
@@ -1450,8 +1510,10 @@
       {instanceId}
       filename={removeDialogFor.pack.filename}
       packName={removeDialogFor.pack.name}
-      placements={removeDialogFor.placements}
-      inLibrary={removeDialogFor.in_library}
+      mode={{
+        kind: removeDialogFor.in_library ? 'library' : 'worlds-only',
+        placements: removeDialogFor.placements,
+      }}
       onClose={() => (removeDialogFor = null)}
       onRemoved={() => {
         void refreshInstalledDatapacks();

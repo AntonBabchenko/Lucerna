@@ -20,7 +20,7 @@ use tauri::AppHandle;
 use crate::error::{Error, Result};
 use crate::mods::platform::{AssetUpdateCheck, AssetUpdateState, ModVersion};
 use crate::servers_runtime::datapacks::{
-    self, guard, listing, mutate, update, ServerDatapackEntry, ServerDatapackUpdateOutcome,
+    self, guard, listing, mutate, update, ServerDatapackListing, ServerDatapackUpdateOutcome,
 };
 
 /// `runtime/<level>/` for a server, resolved from its live `server.properties`.
@@ -34,10 +34,11 @@ fn world_dir_of(app: &AppHandle, id: &str) -> Result<std::path::PathBuf> {
 }
 
 /// Every datapack this server's world knows about, with its real enabled
-/// state read from `level.dat`.
+/// state — read from `level.dat`, or from `level.dat_old` when only the
+/// backup is left — plus the world's `level.dat` presence.
 #[tauri::command]
 #[specta::specta]
-pub async fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<ServerDatapackEntry>> {
+pub async fn server_list_datapacks(app: AppHandle, id: String) -> Result<ServerDatapackListing> {
     let world = world_dir_of(&app, &id)?;
     // Off the main thread: the listing reconciles the world's sidecar, which
     // hashes every unadopted zip and waits on the sidecar lock while another
@@ -45,7 +46,7 @@ pub async fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<Ser
     // `tests/structural_no_heavy_sync_command.rs`.
     tokio::task::spawn_blocking(move || listing::entries(&world))
         .await
-        .map_err(|e| Error::io("<datapack-listing>", e))
+        .map_err(|e| Error::io("<datapack-listing>", e))?
 }
 
 /// Install a datapack `.zip` chosen from disk. Records a provenance-less
@@ -95,9 +96,18 @@ pub async fn server_install_datapack_version(
     id: String,
     version: ModVersion,
 ) -> Result<crate::servers_runtime::installed::ServerInstalledRecord> {
+    // Spec §0.5 A7 order: the name checks come first, so a bad catalog name is
+    // never reported as a world problem; then the gates; then D2, before the
+    // download. `install_bytes` repeats both checks as the backstop, and adds
+    // the size cap once the bytes exist.
+    mutate::validate_install_name(&version.primary_file.filename)?;
     let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
     let world = world_dir_of(&app, &id)?;
+    // D2 before the download: a world that lost its level.dat and kept
+    // level.dat_old gets no data-pack change, so fetching the pack first is
+    // wasted work.
+    datapacks::refuse_only_old(&world)?;
     let dd = super::data_dir(&app)?;
     let bytes = super::fetch_datapack_bytes(&dd, &version).await?;
     mutate::install_bytes(
@@ -171,6 +181,17 @@ pub async fn server_update_datapack_one(
     old_filename: String,
     target: ModVersion,
 ) -> Result<ServerDatapackUpdateOutcome> {
+    // Spec §0.5 A7 order: the name checks come first, so a bad name is never
+    // reported as a world problem. A Vanilla Tweaks target's real filename is
+    // known only after the build (its `primary_file` name is never written),
+    // so `update_one` checks that one. As the backstop, `update_one` repeats
+    // the safe-name check on `old_filename` and the full input check (safe
+    // name, `.zip`, size) on the new name and bytes; it does NOT re-check the
+    // `.zip` rule on `old_filename`, which only this line enforces.
+    mutate::validate_install_name(&old_filename)?;
+    if target.source != crate::mods::platform::ModSource::VanillaTweaks {
+        mutate::validate_install_name(&target.primary_file.filename)?;
+    }
     let _claim = guard::UpdateGuard::acquire(&id).ok_or(Error::ServerContentStale)?;
     let _write = crate::servers_runtime::maintenance::claim_shared_write(&id)?;
     guard::gate(&id)?;
@@ -193,6 +214,14 @@ pub async fn server_update_datapack_one(
     } else {
         None
     };
+    // D2 after the name checks, the gates and the version check above (spec
+    // §0.5 A7), and before the download or the Vanilla Tweaks build. For a
+    // Vanilla Tweaks target this is the one exception to that order, and it
+    // is intended: the build supplies the real filename, so the check on the
+    // built file's name (inside `update_one`) can only come after this
+    // refusal — running the build first would download for a world that is
+    // refused anyway.
+    datapacks::refuse_only_old(&world)?;
     crate::network::throttle::with_interactive(async move {
         let (filename, bytes) = match vt_family {
             Some(family) => {

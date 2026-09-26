@@ -24,6 +24,10 @@ use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 /// * **Directories are listed but never adopted.** A folder pack has no bytes
 ///   to hash and no provenance to record; `listing` synthesizes an ephemeral
 ///   row for it instead.
+/// * **Only what the game loads is adopted (D1):** a file whose name ends in
+///   exactly `.zip` and whose zip has `pack.mcmeta` at its root. A row is
+///   RETAINED against every regular file, so a legacy row for a file the game
+///   ignores keeps its provenance.
 ///
 /// Holds the sidecar lock for the whole pass, the dir listing included — same
 /// reason as `installed::reconcile_on_list`: a catalog install whose zip lands
@@ -48,26 +52,24 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
         }
     };
 
-    let on_disk: Vec<String> = match std::fs::read_dir(&dp_dir) {
-        Ok(rd) => rd
-            .flatten()
-            .filter(|e| {
-                e.file_type().map(|ft| ft.is_file()).unwrap_or(false)
-                    && e.file_name()
-                        .to_string_lossy()
-                        .to_ascii_lowercase()
-                        .ends_with(".zip")
+    let files: Vec<String> = match std::fs::read_dir(&dp_dir).and_then(|rd| {
+        regular_file_names(rd.map(|e| {
+            e.map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                (name, e.file_type().map(|ft| ft.is_file()))
             })
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect(),
+        }))
+    }) {
+        Ok(files) => files,
         // A world that has never had a pack added really does hold none, so
         // retaining against an empty list is the right answer.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         // Anything else — permission denied, a relocated data root caught
-        // mid-move, a path that is a file — is NOT proof the dir is empty.
-        // Treating it as one would retain every row away and persist that,
-        // permanently losing provenance over a problem that was never about
-        // the packs. Skip reconciling entirely.
+        // mid-move, a path that is a file, one entry (or its type) that could
+        // not be read — is NOT proof the files are gone. Treating it as one
+        // would retain rows away and persist that, permanently losing
+        // provenance over a problem that was never about the packs. Skip
+        // reconciling entirely.
         Err(e) => {
             crate::diag!(
                 "server datapacks: reconcile skipped, could not read {}: {e}",
@@ -77,17 +79,31 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
         }
     };
 
-    let folded: Vec<String> = on_disk.iter().map(|n| n.to_lowercase()).collect();
-    let before = records.len();
-    records.retain(|r| folded.contains(&r.filename.to_lowercase()));
-    let mut changed = records.len() != before;
+    // R2 (N.3): the on-disk file each row names; see `settle`.
+    let Settled {
+        kept,
+        claimed,
+        mut changed,
+    } = settle(records, &files, &|name, names| {
+        crate::datapacks::detect::resolve(&dp_dir, name, names)
+    });
+    records = kept;
 
-    for name in on_disk {
-        if records
-            .iter()
-            .any(|r| r.filename.to_lowercase() == name.to_lowercase())
-        {
+    for name in files {
+        // D1: adopt only what the game loads: exact `.zip` with a root pack.mcmeta.
+        if claimed.contains(&name) || !crate::datapacks::detect::has_zip_suffix(&name) {
             continue;
+        }
+        match crate::datapacks::detect::zip_has_root_pack_mcmeta(&dp_dir.join(&name)) {
+            Ok(true) => {}
+            // World content, not a pack; the listing shows it Ignored.
+            Ok(false) => continue,
+            Err(e) => {
+                crate::diag!(
+                    "server datapacks: skipping adoption of {name}, could not check its root: {e}"
+                );
+                continue;
+            }
         }
         // A merely-unreadable file (AV hold, deleted between the listing and
         // this read) must not be adopted as a fabricated zero-byte row — that
@@ -119,32 +135,194 @@ pub fn reconcile(world_dir: &Path) -> Vec<ServerInstalledRecord> {
     records
 }
 
-/// Insert or replace the row for `record.filename`, matching case-insensitively
-/// with FULL Unicode folding — NTFS folds Cyrillic too, so `Пак.zip` and
-/// `пак.zip` address one file and must never produce two rows.
+/// What R2 made of the sidecar's rows.
+#[derive(Debug)]
+struct Settled {
+    /// The rows to keep, each spelled as its on-disk file.
+    kept: Vec<ServerInstalledRecord>,
+    /// Every regular file a kept row names (or may name): adoption skips them.
+    claimed: Vec<String>,
+    /// Whether a row was dropped or respelled, so the sidecar must be saved.
+    changed: bool,
+}
+
+/// R2 (N.3): the on-disk file each row names. `resolve` is R2 bound to the
+/// world's `datapacks/`; a test passes its own to reach `Unknown`.
+///
+/// A row whose name could not be resolved is kept: a pruned row is provenance
+/// lost for good. Its one candidate (the entry differing from its name only in
+/// case, as `detect::join_name` finds it) is claimed, so adoption does not add
+/// a bare row for a file that may be this one.
+///
+/// A row that names its file in another case takes the on-disk spelling, which
+/// is the pack's id — the listing, the pane's row key and a client made from
+/// this server then all see the name the game loads. Two rows can name one
+/// file that way (`VM.zip` and `vm.zip` on NTFS). One stays, and the others are
+/// dropped rather than saved: the one with provenance (a dropped bare row is
+/// adopted again from the file; a dropped catalog row's provenance is gone for
+/// good), then the one naming the file exactly, then the first.
+fn settle(
+    records: Vec<ServerInstalledRecord>,
+    files: &[String],
+    resolve: &dyn Fn(&str, &[String]) -> crate::datapacks::detect::Resolved,
+) -> Settled {
+    use crate::datapacks::detect::{join_name, Joined};
+    let joins: Vec<Option<Joined>> = records
+        .iter()
+        .map(|r| join_name(&r.filename, files, resolve))
+        .collect();
+    // For each on-disk name, the index of the row that keeps it. Rows are
+    // visited in order and replace the holder only when strictly preferred,
+    // so a tie keeps the first.
+    let rank = |i: usize, n: &str| (records[i].source.is_some(), records[i].filename == n);
+    let mut holder: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, j) in joins.iter().enumerate() {
+        if let Some(Joined::Entry(n)) = j {
+            let preferred = holder
+                .get(n.as_str())
+                .is_none_or(|&h| rank(i, n) > rank(h, n));
+            if preferred {
+                holder.insert(n.as_str(), i);
+            }
+        }
+    }
+    let holder: std::collections::HashMap<String, usize> = holder
+        .into_iter()
+        .map(|(n, i)| (n.to_string(), i))
+        .collect();
+
+    let mut claimed: Vec<String> = Vec::new();
+    let mut changed = false;
+    let mut kept = Vec::with_capacity(records.len());
+    for (i, (mut r, j)) in records.into_iter().zip(joins).enumerate() {
+        match j {
+            Some(Joined::Entry(n)) => {
+                if holder.get(&n) != Some(&i) {
+                    changed = true;
+                    crate::diag!(
+                        "server datapacks: dropped the row for {}: another row already names {n}",
+                        r.filename
+                    );
+                    continue;
+                }
+                if r.filename != n {
+                    changed = true;
+                    r.filename = n.clone();
+                }
+                claimed.push(n);
+                kept.push(r);
+            }
+            None => changed = true,
+            Some(Joined::Unknown { candidate, cause }) => {
+                crate::diag!(
+                    "server datapacks: kept the row for {}, could not tell whether its file is there: {cause}",
+                    r.filename
+                );
+                claimed.extend(candidate);
+                kept.push(r);
+            }
+        }
+    }
+    Settled {
+        kept,
+        claimed,
+        changed,
+    }
+}
+
+/// The regular files among `dp_dir`'s entries, from `(name, is_file)`
+/// pairs. Any entry, or its type, that could not be read is an `Err`: the
+/// caller must not prune rows against a partial list (Fallback discipline Q2).
+fn regular_file_names<I>(entries: I) -> std::io::Result<Vec<String>>
+where
+    I: IntoIterator<Item = std::io::Result<(String, std::io::Result<bool>)>>,
+{
+    let mut out = Vec::new();
+    for entry in entries {
+        let (name, is_file) = entry?;
+        if is_file? {
+            out.push(name);
+        }
+    }
+    Ok(out)
+}
+
+/// Insert or replace the row for `record.filename`. A row is replaced when it
+/// has the same name, or when R2 (spec §2 N.3) resolves it to the same
+/// on-disk entry (NTFS/APFS: `Пак.zip` and `пак.zip` address one file and
+/// must never produce two rows), or when it differs only in case and names a
+/// file that is gone. On a case-sensitive file system a present case variant
+/// is a different pack, and its row stays.
 ///
 /// Deliberately not `installed::upsert`, which dedups by sha1: the datapack
 /// case is one filename whose bytes just changed.
 pub fn upsert_by_filename(world_dir: &Path, record: ServerInstalledRecord) -> Result<()> {
     let sidecar = installed::lock(world_dir);
-    let key = record.filename.to_lowercase();
+    let dp_dir = world_dir.join("datapacks");
+    let names = entry_names_or_log(&dp_dir);
     let mut records = sidecar.load()?;
-    records.retain(|r| r.filename.to_lowercase() != key);
+    records.retain(|r| !same_or_gone(&dp_dir, names.as_deref(), &record.filename, &r.filename));
     records.push(record);
     sidecar.save(&records)
 }
 
-/// Drop the row for `filename`. Idempotent; writes only when something went.
+/// Drop the row for `filename`, matched as in [`upsert_by_filename`].
+/// Idempotent; writes only when something went.
 pub fn forget(world_dir: &Path, filename: &str) -> Result<()> {
     let sidecar = installed::lock(world_dir);
-    let key = filename.to_lowercase();
+    let dp_dir = world_dir.join("datapacks");
+    let names = entry_names_or_log(&dp_dir);
     let mut records = sidecar.load()?;
     let before = records.len();
-    records.retain(|r| r.filename.to_lowercase() != key);
+    records.retain(|r| !same_or_gone(&dp_dir, names.as_deref(), filename, &r.filename));
     if records.len() != before {
         sidecar.save(&records)?;
     }
     Ok(())
+}
+
+/// The world's `datapacks/` names for [`same_or_gone`]. `None` when they
+/// could not be read: then only the exact name matches, the restrictive answer.
+fn entry_names_or_log(dp_dir: &Path) -> Option<Vec<String>> {
+    match crate::datapacks::detect::entry_names(dp_dir) {
+        Ok(n) => Some(n),
+        Err(e) => {
+            crate::diag!(
+                "server datapacks: could not list {}: {e}; matching the exact name only",
+                dp_dir.display()
+            );
+            None
+        }
+    }
+}
+
+/// N.3 for sidecar rows: does `row_name` denote the same on-disk entry as
+/// `name`, or no entry at all? Only a row equal to `name` case-insensitively
+/// is ever a candidate. On a case-sensitive file system a present case
+/// variant is a different pack, and its row stays. Could not tell ⇒ the row stays.
+fn same_or_gone(dp_dir: &Path, names: Option<&[String]>, name: &str, row_name: &str) -> bool {
+    use crate::datapacks::detect::{resolve, Resolved};
+    if row_name == name {
+        return true;
+    }
+    let Some(names) = names else {
+        return false;
+    };
+    if row_name.to_lowercase() != name.to_lowercase() {
+        return false;
+    }
+    let entry = |n: &str| match resolve(dp_dir, n, names) {
+        Resolved::Exact(e) | Resolved::Folded(e) => Ok(Some(e)),
+        Resolved::Absent => Ok(None),
+        Resolved::Unknown(e) => Err(e),
+    };
+    match (entry(row_name), entry(name)) {
+        // The row's file is gone.
+        (Ok(None), _) => true,
+        // One entry, two spellings (NTFS/APFS).
+        (Ok(Some(r)), Ok(Some(t))) => r == t,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -256,22 +434,36 @@ mod tests {
         );
     }
 
+    /// R2 (N.3). NTFS/APFS resolve `Terralith.zip` to the file
+    /// `terralith.zip`, so a sidecar row whose spelling drifted from the
+    /// directory entry keeps its provenance. On a case-sensitive file system
+    /// the row names an absent file: it is pruned, and the file is adopted bare.
     #[test]
     fn reconcile_folds_case_when_matching_a_row_to_its_file() {
-        // NTFS resolves `Terralith.zip` and `terralith.zip` to one file, so a
-        // sidecar row whose spelling drifted from the directory entry must be
-        // retained with its provenance — not pruned and re-adopted bare.
         let td = world_with(&[("terralith.zip", b"v1")]);
         crate::servers_runtime::installed::lock(td.path())
             .save(&[row("Terralith.zip", "aa")])
             .unwrap();
         let rows = reconcile(td.path());
         assert_eq!(rows.len(), 1, "one file must never yield two rows");
-        assert_eq!(
-            rows[0].project_id.as_deref(),
-            Some("terralith"),
-            "the drifted-spelling row keeps its provenance"
-        );
+        if crate::datapacks::detect::test_support::fs_folds_case(td.path()) {
+            assert_eq!(
+                rows[0].project_id.as_deref(),
+                Some("terralith"),
+                "the drifted-spelling row keeps its provenance"
+            );
+            // The row takes the on-disk spelling, which is the pack's id, so
+            // the listing, the pane's row key and a client made from this
+            // server all see the name the game loads — and it is saved.
+            assert_eq!(rows[0].filename, "terralith.zip");
+            let saved = crate::servers_runtime::installed::lock(td.path())
+                .load()
+                .unwrap();
+            assert_eq!(saved[0].filename, "terralith.zip");
+        } else {
+            assert_eq!(rows[0].project_id, None);
+            assert_eq!(rows[0].filename, "terralith.zip");
+        }
     }
 
     #[test]
@@ -297,9 +489,12 @@ mod tests {
         );
     }
 
+    /// R2 (N.3) with the file present: NTFS/APFS fold Cyrillic, so `Пак.zip`
+    /// and `пак.zip` are one file and one row. On a case-sensitive file
+    /// system the new spelling is a different pack, and both rows stay.
     #[test]
     fn upsert_by_filename_replaces_the_row_for_that_name_case_insensitively() {
-        let td = world_with(&[]);
+        let td = world_with(&[("Пак.zip", b"a")]);
         crate::servers_runtime::installed::lock(td.path())
             .save(&[row("Пак.zip", "aa")])
             .unwrap();
@@ -309,8 +504,12 @@ mod tests {
         let rows = crate::servers_runtime::installed::lock(td.path())
             .load()
             .unwrap();
-        assert_eq!(rows.len(), 1, "NTFS folds Cyrillic — one file, one row");
-        assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
+        if crate::datapacks::detect::test_support::fs_folds_case(td.path()) {
+            assert_eq!(rows.len(), 1, "one file, one row");
+            assert_eq!(rows[0].version_id.as_deref(), Some("v2"));
+        } else {
+            assert_eq!(rows.len(), 2, "two spellings are two packs here");
+        }
     }
 
     /// The datapack browser installs several catalog packs at once (a per-card
@@ -356,5 +555,173 @@ mod tests {
             .unwrap()
             .is_empty());
         forget(td.path(), "a.zip").unwrap();
+    }
+
+    #[test]
+    fn a_rootless_zip_is_not_adopted() {
+        let td = world_with(&[]);
+        std::fs::write(
+            td.path().join("datapacks/rootless.zip"),
+            crate::datapacks::detect::test_support::zip_of(&[("readme.txt", b"x")]),
+        )
+        .unwrap();
+        assert!(reconcile(td.path()).is_empty());
+    }
+
+    #[test]
+    fn an_upper_case_zip_is_not_adopted() {
+        let td = world_with(&[("Upper.ZIP", b"x")]);
+        assert!(
+            reconcile(td.path()).is_empty(),
+            "the game ignores it; the listing shows it Ignored"
+        );
+    }
+
+    /// A legacy row for a file the game ignores keeps its provenance: retain
+    /// runs against every regular file, and only adoption is exact.
+    #[test]
+    fn a_legacy_upper_case_row_keeps_its_provenance() {
+        let td = world_with(&[("Old.ZIP", b"x")]);
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("Old.ZIP", "aa")])
+            .unwrap();
+        let rows = reconcile(td.path());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project_id.as_deref(), Some("terralith"));
+    }
+
+    #[test]
+    fn upsert_keeps_a_present_case_variant_row() {
+        let td = world_with(&[("Terra.zip", b"a")]);
+        if crate::datapacks::detect::test_support::fs_folds_case(td.path()) {
+            return;
+        }
+        std::fs::write(td.path().join("datapacks/terra.zip"), datapack_zip(b"b")).unwrap();
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("Terra.zip", "aa")])
+            .unwrap();
+        upsert_by_filename(td.path(), row("terra.zip", "bb")).unwrap();
+        assert_eq!(
+            crate::servers_runtime::installed::lock(td.path())
+                .load()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    /// Fallback Q2: an entry of `datapacks/` that cannot be read (or whose
+    /// type cannot) is not "no such file". Pruning against a partial list
+    /// would drop that pack's row and its provenance for good, so the pass is
+    /// skipped instead.
+    #[test]
+    fn an_entry_that_cannot_be_read_fails_the_file_list() {
+        let entries: Vec<std::io::Result<(String, std::io::Result<bool>)>> = vec![
+            Ok(("a.zip".into(), Ok(true))),
+            Ok((
+                "b.zip".into(),
+                Err(std::io::Error::other("type unreadable")),
+            )),
+        ];
+        assert!(regular_file_names(entries).is_err());
+        let entries: Vec<std::io::Result<(String, std::io::Result<bool>)>> = vec![
+            Ok(("a.zip".into(), Ok(true))),
+            Err(std::io::Error::other("entry unreadable")),
+        ];
+        assert!(regular_file_names(entries).is_err());
+        let entries: Vec<std::io::Result<(String, std::io::Result<bool>)>> = vec![
+            Ok(("a.zip".into(), Ok(true))),
+            Ok(("dir".into(), Ok(false))),
+        ];
+        assert_eq!(
+            regular_file_names(entries).unwrap(),
+            vec!["a.zip".to_string()]
+        );
+    }
+
+    /// A row adopted from a hand-dropped file: no provenance.
+    fn bare(filename: &str) -> ServerInstalledRecord {
+        ServerInstalledRecord {
+            filename: filename.into(),
+            sha1: "bb".into(),
+            source: None,
+            project_id: None,
+            version_id: None,
+            name: None,
+            version_number: None,
+            enrich_attempted: false,
+        }
+    }
+
+    /// R2 could not tell whether the catalog row `Terra.zip` is the file
+    /// `terra.zip` (a stat error). The row stays, and its one candidate is
+    /// claimed: adopting `terra.zip` as a bare row would give the next pass,
+    /// which can tell, an exact row to prefer over the one with provenance.
+    #[test]
+    fn a_row_r2_could_not_resolve_claims_its_candidate_from_adoption() {
+        let files = vec!["terra.zip".to_string()];
+        let could_not_tell = |name: &str, _: &[String]| {
+            assert_eq!(name, "Terra.zip");
+            crate::datapacks::detect::Resolved::Unknown(std::io::Error::other("stat failed"))
+        };
+        let s = settle(vec![row("Terra.zip", "aa")], &files, &could_not_tell);
+        assert_eq!(s.kept, vec![row("Terra.zip", "aa")]);
+        assert_eq!(s.claimed, files, "adoption must skip the candidate");
+        assert!(!s.changed);
+    }
+
+    /// Two rows that name one file keep the one with provenance, whichever
+    /// spelling it uses: a dropped bare row is adopted again from the file, a
+    /// dropped catalog row's provenance is lost for good.
+    #[test]
+    fn of_two_rows_naming_one_file_the_one_with_provenance_stays() {
+        use crate::datapacks::detect::Resolved;
+        let files = vec!["vm.zip".to_string()];
+        let folds = |name: &str, _: &[String]| match name {
+            "vm.zip" => Resolved::Exact("vm.zip".into()),
+            _ => Resolved::Folded("vm.zip".into()),
+        };
+        let mut expected = row("VM.zip", "aa");
+        expected.filename = "vm.zip".into();
+        for records in [
+            vec![bare("vm.zip"), row("VM.zip", "aa")],
+            vec![row("VM.zip", "aa"), bare("vm.zip")],
+            vec![bare("Vm.zip"), row("VM.zip", "aa")],
+        ] {
+            let s = settle(records.clone(), &files, &folds);
+            assert_eq!(s.kept, vec![expected.clone()], "{records:?}");
+            assert_eq!(s.claimed, files);
+            assert!(s.changed);
+        }
+    }
+
+    /// Two rows that name one file (NTFS/APFS: `VM.zip` folds onto the file
+    /// `vm.zip`, which `vm.zip` names exactly) must not both take its spelling
+    /// and be saved as duplicates. The exact row wins; with no exact row, the
+    /// first one does. On a case-sensitive file system `VM.zip` names no file
+    /// and is pruned. Either way: one row, spelled as on disk.
+    #[test]
+    fn two_rows_naming_one_file_leave_one_row() {
+        let td = world_with(&[("vm.zip", b"a")]);
+        let mut exact = row("vm.zip", "bb");
+        exact.project_id = Some("exact".into());
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("VM.zip", "aa"), exact])
+            .unwrap();
+        let rows = reconcile(td.path());
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].filename, "vm.zip");
+        assert_eq!(rows[0].project_id.as_deref(), Some("exact"));
+
+        let td = world_with(&[("vm.zip", b"a")]);
+        crate::servers_runtime::installed::lock(td.path())
+            .save(&[row("VM.zip", "aa"), row("Vm.zip", "cc")])
+            .unwrap();
+        let rows = reconcile(td.path());
+        assert!(rows.len() <= 1, "{rows:?}");
+        let saved = crate::servers_runtime::installed::lock(td.path())
+            .load()
+            .unwrap();
+        assert_eq!(saved.len(), rows.len(), "{saved:?}");
     }
 }

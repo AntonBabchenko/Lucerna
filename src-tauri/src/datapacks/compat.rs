@@ -22,6 +22,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use crate::datapacks::format::{FormatVersion, PackSide};
+
 /// Whether this Minecraft version can load data packs at all.
 ///
 /// Data packs were introduced in **1.13**. On a 1.12.2 instance the entire
@@ -58,6 +60,19 @@ pub fn supports_datapacks(mc_version: &str) -> bool {
     }
 }
 
+/// [`supports_datapacks`] as a refusal, for the commands that WRITE datapacks.
+/// Same rule, same "unparseable ⟹ allowed": a wrongly-allowed write is inert
+/// data, never data loss.
+pub fn require_support(mc_version: &str) -> crate::error::Result<()> {
+    if supports_datapacks(mc_version) {
+        Ok(())
+    } else {
+        Err(crate::error::Error::DatapacksUnsupportedVersion {
+            mc_version: mc_version.to_string(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod supports_tests {
     use super::supports_datapacks;
@@ -91,6 +106,25 @@ mod supports_tests {
         assert!(supports_datapacks("26w14a"));
         assert!(supports_datapacks("garbage"));
     }
+
+    #[test]
+    fn require_support_refuses_1_12_2_and_passes_1_13_and_unparseable() {
+        use crate::error::Error;
+        match super::require_support("1.12.2") {
+            Err(Error::DatapacksUnsupportedVersion { mc_version }) => {
+                assert_eq!(
+                    mc_version, "1.12.2",
+                    "the refusal names the version it refused"
+                );
+            }
+            other => panic!("1.12.2 must be refused as DatapacksUnsupportedVersion, got {other:?}"),
+        }
+        assert!(super::require_support("1.13").is_ok());
+        assert!(super::require_support("26.1").is_ok());
+        // Uncertainty never refuses: the worst case of a wrong allow is inert data.
+        assert!(super::require_support("").is_ok());
+        assert!(super::require_support("26w14a").is_ok());
+    }
 }
 
 /// `{versions_dir}/{mc_version}/{mc_version}.jar` — the vanilla client jar.
@@ -101,7 +135,7 @@ mod supports_tests {
 /// `instances::status::ready_status` and `launch::spawn`, which both resolve
 /// the same path the same way.
 ///
-/// `pub(crate)`: besides [`expected_data_format`] below, `l10n::pack_format`
+/// `pub(crate)`: besides [`game_data_format`] below, `l10n::pack_format`
 /// resolves the SAME jar (to read its `pack_version` for the resource-pack
 /// format rather than the datapack format) and reuses this instead of a
 /// second copy of the path formula.
@@ -110,6 +144,36 @@ pub(crate) fn client_jar_path(versions_dir: &Path, mc_version: &str) -> PathBuf 
     versions_dir
         .join(mc_version)
         .join(format!("{mc_version}.jar"))
+}
+
+/// `pack_version` of a client jar's `version.json`, for one side — the ONE
+/// reader both [`game_data_format`] (data packs) and `l10n::pack_format`
+/// (resource packs) go through, so the two can never drift. Shapes read from
+/// the real jars: a bare integer (pre-divergence; both sides share it),
+/// `{resource, data}` (≤ 1.21.8, minor 0), and `{resource_major,
+/// resource_minor, data_major, data_minor}` (1.21.9+). Precedence is
+/// l10n's, kept: `<side>_major` (a missing `<side>_minor` reads as 0), then
+/// `<side>`, then a bare integer. Anything else — a string, an array, an
+/// object with neither key, a number past `u32` — is `None`, never a guess.
+pub(crate) fn pack_version(v: &serde_json::Value, side: PackSide) -> Option<FormatVersion> {
+    let (major_key, minor_key, plain_key) = match side {
+        PackSide::Resource => ("resource_major", "resource_minor", "resource"),
+        PackSide::Data => ("data_major", "data_minor", "data"),
+    };
+    if let Some(major) = v.get(major_key).and_then(serde_json::Value::as_u64) {
+        let minor = v
+            .get(minor_key)
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        return Some(FormatVersion::new(
+            u32::try_from(major).ok()?,
+            u32::try_from(minor).ok()?,
+        ));
+    }
+    if let Some(major) = v.get(plain_key).and_then(serde_json::Value::as_u64) {
+        return Some(FormatVersion::new(u32::try_from(major).ok()?, 0));
+    }
+    Some(FormatVersion::new(u32::try_from(v.as_u64()?).ok()?, 0))
 }
 
 /// The whole `version.json` entry of a client jar, parsed as untyped JSON.
@@ -132,31 +196,19 @@ fn version_json_from_archive<R: Read + std::io::Seek>(
 /// Extract the datapack format from a `version.json` entry already read out
 /// of a zip archive. Shared by the bytes-based and file-backed entry points
 /// below so the two can never drift on how they interpret `pack_version`.
-fn data_format_from_archive<R: Read + std::io::Seek>(zip: zip::ZipArchive<R>) -> Option<u32> {
+fn data_format_from_archive<R: Read + std::io::Seek>(
+    zip: zip::ZipArchive<R>,
+) -> Option<FormatVersion> {
     let v = version_json_from_archive(zip)?;
-    parse_pack_version(v.get("pack_version")?)
-}
-
-/// `pack_version` is an object `{resource_major, resource_minor, data_major,
-/// data_minor}` in modern jars — the datapack format is `data_major`. Older
-/// jars shipped a bare integer instead. Any other shape (string, array,
-/// missing `data_major`, out-of-range number) is not a format we recognise —
-/// `None`, not a guess.
-fn parse_pack_version(v: &serde_json::Value) -> Option<u32> {
-    let raw = match v {
-        serde_json::Value::Object(_) => v.get("data_major")?.as_u64()?,
-        serde_json::Value::Number(_) => v.as_u64()?,
-        _ => return None,
-    };
-    u32::try_from(raw).ok()
+    pack_version(v.get("pack_version")?, PackSide::Data)
 }
 
 /// Read the datapack format out of an in-memory client jar. Exists
-/// separately from [`expected_data_format`] purely for testability — tests
+/// separately from [`game_data_format`] purely for testability — tests
 /// build a jar in memory rather than on disk.
 ///
 /// `#[cfg(test)]`, not `pub(crate)`: verified against reality (not assumed)
-/// that [`expected_data_format`] does NOT call this — it reads the shared
+/// that [`game_data_format`] does NOT call this — it reads the shared
 /// `data_format_from_archive` helper directly instead — so this has no
 /// production caller at all, only its own unit tests below. Compiling it out
 /// of a non-test build is what a `pub(crate)` fn with the same zero callers
@@ -164,7 +216,7 @@ fn parse_pack_version(v: &serde_json::Value) -> Option<u32> {
 /// items on the assumption they may be used externally, so once this drops
 /// below `pub` a normal build would otherwise flag it as unused.
 #[cfg(test)]
-fn data_format_from_jar_bytes(jar: &[u8]) -> Option<u32> {
+fn data_format_from_jar_bytes(jar: &[u8]) -> Option<FormatVersion> {
     let zip = zip::ZipArchive::new(std::io::Cursor::new(jar)).ok()?;
     data_format_from_archive(zip)
 }
@@ -191,8 +243,9 @@ fn open_client_jar(
     zip::ZipArchive::new(file).ok()
 }
 
-/// Read the datapack format out of the client jar at
-/// `{versions_dir}/{mc_version}/{mc_version}.jar`.
+/// The data-pack format this instance's Minecraft reports, read from its
+/// client jar's own `version.json`: `None` for a missing, unreadable or
+/// pre-1.14 jar.
 ///
 /// File-backed and reads only the `version.json` entry — never the whole
 /// jar. Sync because the `zip` crate is sync; a caller on the async IPC
@@ -203,7 +256,7 @@ fn open_client_jar(
 /// [`open_client_jar`] and [`version_json_from_archive`], goes through
 /// `.ok()?`, not `unwrap`/`expect`.
 #[must_use]
-pub fn expected_data_format(versions_dir: &Path, mc_version: &str) -> Option<u32> {
+pub fn game_data_format(versions_dir: &Path, mc_version: &str) -> Option<FormatVersion> {
     data_format_from_archive(open_client_jar(versions_dir, mc_version)?)
 }
 
@@ -247,12 +300,12 @@ pub(crate) enum JarWorldVersion {
     Version(i32),
 }
 
-/// Same jar, same entry and same decoding as [`expected_data_format`] — only
+/// Same jar, same entry and same decoding as [`game_data_format`] — only
 /// the field differs. Never an error, never a panic.
 ///
 /// Sync because the `zip` crate is sync; the caller on the async IPC path
 /// wraps it in `spawn_blocking` exactly as `commands::datapacks` wraps
-/// [`expected_data_format`].
+/// [`game_data_format`].
 ///
 /// `pub(crate)`: read by `worlds::migrate::plan`, the first caller, which
 /// lands with the migration core.
@@ -285,6 +338,90 @@ mod tests {
     }
 
     #[test]
+    fn game_format_reads_every_real_version_json_shape() {
+        // Shapes read with `unzip -p` from the real client jars (spec §1).
+        let cases: &[(&str, &str, Option<FormatVersion>)] = &[
+            (
+                "pre-divergence bare int",
+                r#"{"pack_version":6}"#,
+                Some(FormatVersion::new(6, 0)),
+            ),
+            (
+                "1.20.1",
+                r#"{"pack_version":{"resource":15,"data":15}}"#,
+                Some(FormatVersion::new(15, 0)),
+            ),
+            (
+                "1.20.6",
+                r#"{"pack_version":{"resource":32,"data":41}}"#,
+                Some(FormatVersion::new(41, 0)),
+            ),
+            (
+                "1.21.1",
+                r#"{"pack_version":{"resource":34,"data":48}}"#,
+                Some(FormatVersion::new(48, 0)),
+            ),
+            (
+                "1.21.11",
+                r#"{"pack_version":{"resource_major":75,"resource_minor":0,"data_major":94,"data_minor":1}}"#,
+                Some(FormatVersion::new(94, 1)),
+            ),
+            (
+                "26.1.1",
+                r#"{"pack_version":{"resource_major":84,"resource_minor":0,"data_major":101,"data_minor":1}}"#,
+                Some(FormatVersion::new(101, 1)),
+            ),
+            (
+                "26.2",
+                r#"{"pack_version":{"resource_major":88,"resource_minor":0,"data_major":107,"data_minor":1}}"#,
+                Some(FormatVersion::new(107, 1)),
+            ),
+        ];
+        for (label, body, want) in cases {
+            assert_eq!(
+                data_format_from_jar_bytes(&jar_with_version_json(body)),
+                *want,
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_data_minor_reads_as_zero() {
+        let v: serde_json::Value = serde_json::from_str(r#"{"data_major":82}"#).unwrap();
+        assert_eq!(
+            pack_version(&v, PackSide::Data),
+            Some(FormatVersion::new(82, 0))
+        );
+    }
+
+    #[test]
+    fn the_resource_side_reads_by_the_rules_l10n_always_used() {
+        // Twin of l10n::pack_format's parse tests, runnable in this module:
+        // l10n now delegates here, so these pin that delegation locally.
+        let read = |s: &str| {
+            let v: serde_json::Value = serde_json::from_str(s).unwrap();
+            pack_version(&v, PackSide::Resource)
+        };
+        assert_eq!(
+            read(r#"{"resource":22,"data":26}"#),
+            Some(FormatVersion::new(22, 0))
+        );
+        assert_eq!(
+            read(r#"{"resource_major":75,"resource_minor":0,"data_major":94,"data_minor":1}"#),
+            Some(FormatVersion::new(75, 0))
+        );
+        assert_eq!(
+            read(r#"{"resource_major":65,"data_major":82}"#),
+            Some(FormatVersion::new(65, 0))
+        );
+        assert_eq!(read("6"), Some(FormatVersion::new(6, 0)));
+        assert_eq!(read(r#"{"data":26}"#), None);
+        assert_eq!(read(r#""22""#), None);
+        assert_eq!(read("[22,26]"), None);
+    }
+
+    #[test]
     fn client_jar_path_is_versions_dir_mc_version_mc_version_jar() {
         let dir = Path::new("/inst/.minecraft/versions");
         assert_eq!(
@@ -294,17 +431,12 @@ mod tests {
     }
 
     #[test]
-    fn object_form_yields_data_major() {
-        let jar = jar_with_version_json(
-            r#"{"id":"1.21.5","pack_version":{"resource_major":34,"resource_minor":0,"data_major":48,"data_minor":0}}"#,
-        );
-        assert_eq!(data_format_from_jar_bytes(&jar), Some(48));
-    }
-
-    #[test]
     fn legacy_integer_form_works() {
         let jar = jar_with_version_json(r#"{"id":"1.16.5","pack_version":6}"#);
-        assert_eq!(data_format_from_jar_bytes(&jar), Some(6));
+        assert_eq!(
+            data_format_from_jar_bytes(&jar),
+            Some(FormatVersion::new(6, 0))
+        );
     }
 
     #[test]
@@ -336,32 +468,35 @@ mod tests {
     }
 
     #[test]
-    fn expected_data_format_reads_the_file_backed_jar() {
+    fn game_data_format_reads_the_file_backed_jar() {
         let td = tempfile::tempdir().unwrap();
         let versions_dir = td.path().join("versions");
         std::fs::create_dir_all(versions_dir.join("1.20.4")).unwrap();
-        let jar = jar_with_version_json(r#"{"pack_version":{"data_major":26}}"#);
+        let jar = jar_with_version_json(r#"{"pack_version":{"resource":22,"data":26}}"#);
         std::fs::write(versions_dir.join("1.20.4/1.20.4.jar"), jar).unwrap();
 
-        assert_eq!(expected_data_format(&versions_dir, "1.20.4"), Some(26));
+        assert_eq!(
+            game_data_format(&versions_dir, "1.20.4"),
+            Some(FormatVersion::new(26, 0))
+        );
     }
 
     #[test]
-    fn expected_data_format_is_none_for_a_missing_jar() {
+    fn game_data_format_is_none_for_a_missing_jar() {
         let td = tempfile::tempdir().unwrap();
         let versions_dir = td.path().join("versions");
-        assert_eq!(expected_data_format(&versions_dir, "1.20.4"), None);
+        assert_eq!(game_data_format(&versions_dir, "1.20.4"), None);
     }
 
     #[test]
-    fn expected_data_format_is_none_and_does_not_panic_for_a_truncated_jar() {
+    fn game_data_format_is_none_and_does_not_panic_for_a_truncated_jar() {
         let td = tempfile::tempdir().unwrap();
         let versions_dir = td.path().join("versions");
         std::fs::create_dir_all(versions_dir.join("1.20.4")).unwrap();
         // A handful of bytes that are not a valid zip end-of-central-directory.
         std::fs::write(versions_dir.join("1.20.4/1.20.4.jar"), b"PK\x03\x04garbage").unwrap();
 
-        assert_eq!(expected_data_format(&versions_dir, "1.20.4"), None);
+        assert_eq!(game_data_format(&versions_dir, "1.20.4"), None);
     }
 
     // ---- world_version_of_jar ----
@@ -390,7 +525,8 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let versions_dir = td.path().join("versions");
         std::fs::create_dir_all(versions_dir.join("1.20.4")).unwrap();
-        let jar = jar_with_version_json(r#"{"id":"1.20.4","pack_version":{"data_major":26}}"#);
+        let jar =
+            jar_with_version_json(r#"{"id":"1.20.4","pack_version":{"resource":22,"data":26}}"#);
         std::fs::write(versions_dir.join("1.20.4/1.20.4.jar"), jar).unwrap();
 
         assert_eq!(
@@ -474,7 +610,7 @@ mod tests {
     #[test]
     fn both_readers_read_the_same_version_json_entry() {
         // One jar answers both questions: the factored entry reader feeds
-        // `expected_data_format` (pack_version) and `world_version_of_jar`
+        // `game_data_format` (pack_version) and `world_version_of_jar`
         // (world_version) alike, and neither disturbs the other. The shape
         // is the live 26.2 jar's.
         let td = tempfile::tempdir().unwrap();
@@ -485,7 +621,10 @@ mod tests {
         );
         std::fs::write(versions_dir.join("26.2/26.2.jar"), jar).unwrap();
 
-        assert_eq!(expected_data_format(&versions_dir, "26.2"), Some(107));
+        assert_eq!(
+            game_data_format(&versions_dir, "26.2"),
+            Some(FormatVersion::new(107, 1))
+        );
         assert_eq!(
             world_version_of_jar(&versions_dir, "26.2"),
             JarWorldVersion::Version(4903)

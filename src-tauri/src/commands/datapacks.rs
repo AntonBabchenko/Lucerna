@@ -10,7 +10,9 @@
 //! cannot race or corrupt anything Minecraft touches. Every command that
 //! writes to `level.dat` or the library dir's *content* opens with [`guard`]
 //! — see `datapacks::guard`'s module doc for why this feature needs a hard
-//! gate the mods commands don't.
+//! gate the mods commands don't. `world_entry_kind` is read-only in the
+//! strict sense: it reads one world entry and the library copy and persists
+//! nothing.
 
 /// The gate every datapack writer in this file opens with — a one-line
 /// delegate to `instances::maintenance::write_allowed`, the single definition
@@ -27,20 +29,40 @@ fn guard(instance_id: &str) -> Result<(), crate::error::Error> {
     crate::instances::maintenance::write_allowed(instance_id)
 }
 
-/// Best-effort expected pack_format for `instance_id`'s installed Minecraft,
-/// read from the client jar's own bundled `version.json`. `None` for any
-/// failure along the way — no instance, no `mc_version` yet, no versions
-/// dir, no client jar, an unreadable jar — this must never fail the world
-/// listing it feeds. `compat::expected_data_format` is sync (the `zip` crate
+/// The version gate every datapack WRITER below calls right after [`guard`]
+/// (spec 2026-09-24 §4 U2; order A7: running/maintenance first, then this).
+/// A pre-1.13 Minecraft has no data-pack system, so anything written would
+/// be inert. Reads a FRESH `instance.json`: the UI's gate answers "supported"
+/// on an IPC error (uncertainty must not hide the feature), and this refusal
+/// is what keeps that permissive fallback from ever writing. A read error
+/// propagates, so a writer that cannot tell the version refuses. Removals are
+/// deliberately not gated (A10). Pinned by
+/// `tests/structural_datapack_version_gate.rs`.
+fn require_datapack_support(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<(), crate::error::Error> {
+    let instance = crate::instances::read_instance(app, instance_id)?;
+    crate::datapacks::compat::require_support(&instance.mc_version)
+}
+
+/// The data-pack format `instance_id`'s Minecraft reports, from its client
+/// jar's own `version.json`. `None` for any failure along the way — no
+/// instance, no `mc_version` yet, no versions dir, no client jar, an
+/// unreadable jar — every verdict is then `Unknown`, the restrictive answer;
+/// this must never fail the listing it feeds. `compat::game_data_format` is sync (the `zip` crate
 /// is sync), so it runs in `spawn_blocking` off the IPC thread.
-async fn expected_pack_format(app: &tauri::AppHandle, instance_id: &str) -> Option<u32> {
+async fn game_data_format(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Option<crate::datapacks::format::FormatVersion> {
     let versions_dir = crate::paths::versions_dir(app).ok()?;
     let instance = crate::instances::read_instance(app, instance_id).ok()?;
     if instance.mc_version.is_empty() {
         return None;
     }
     tokio::task::spawn_blocking(move || {
-        crate::datapacks::compat::expected_data_format(&versions_dir, &instance.mc_version)
+        crate::datapacks::compat::game_data_format(&versions_dir, &instance.mc_version)
     })
     .await
     .ok()
@@ -49,31 +71,37 @@ async fn expected_pack_format(app: &tauri::AppHandle, instance_id: &str) -> Opti
 
 /// The instance-level library view: every datapack Lucerna knows about —
 /// the registry UNION the packs still linked in worlds — each with its state
-/// in every world and one per-instance compat verdict. Unguarded — read-only.
+/// in every world and one per-instance compat verdict, plus every world
+/// folder with its `level.dat` presence. Unguarded — read-only.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_list_library(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<crate::datapacks::DatapackLibraryView, crate::error::Error> {
-    let expected = expected_pack_format(&app, &instance_id).await;
-    crate::datapacks::overview::list_at(
-        &crate::datapacks::instance_root(&app, &instance_id)?,
-        expected,
-    )
-    .await
+    let game = game_data_format(&app, &instance_id).await;
+    crate::datapacks::overview::list_at(&crate::datapacks::instance_root(&app, &instance_id)?, game)
+        .await
 }
 
 /// Install a `.zip` file or folder datapack from `src_path` (a file-picker
 /// result) into the instance's library.
+///
+/// `refreshed` is what the same-name fan-out did to each world holding that
+/// filename: refreshed to the new bytes, skipped as not ours (the world's file
+/// is not the library's old copy, which after a fresh install is true of every
+/// such world), or failed (a reinstall that could not refresh or check a
+/// world, or list `saves/`). It is empty when no world holds the name and
+/// `saves/` was listable.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_install_from_file(
     app: tauri::AppHandle,
     instance_id: String,
     src_path: String,
-) -> Result<crate::datapacks::InstalledDatapack, crate::error::Error> {
+) -> Result<crate::datapacks::LibraryInstall, crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     crate::datapacks::library::install_local_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         std::path::Path::new(&src_path),
@@ -104,21 +132,23 @@ pub async fn datapacks_remove_from_library(
 }
 
 /// List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
-/// names), with each entry's enabled/disabled/orphaned state and pack_format
-/// compatibility against the instance's installed Minecraft. Unguarded —
-/// read-only.
+/// names), with each entry's enabled/disabled/orphaned state and the game's
+/// own compatibility verdict for the instance's installed Minecraft, plus the
+/// world's `level.dat` presence: a world with only `level.dat_old` lists the
+/// backup's states, and a folder with neither file lists nothing.
+/// Unguarded — read-only.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_list_for_world(
     app: tauri::AppHandle,
     instance_id: String,
     world: String,
-) -> Result<Vec<crate::datapacks::WorldDatapack>, crate::error::Error> {
-    let expected = expected_pack_format(&app, &instance_id).await;
+) -> Result<crate::datapacks::WorldDatapackListing, crate::error::Error> {
+    let game = game_data_format(&app, &instance_id).await;
     crate::datapacks::world_link::list_for_world_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,
-        expected,
+        game,
     )
     .await
 }
@@ -134,6 +164,7 @@ pub async fn datapacks_add_to_world(
     filename: String,
 ) -> Result<crate::mods::store::Placement, crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     crate::datapacks::world_link::add_to_world_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,
@@ -154,6 +185,26 @@ pub async fn datapacks_remove_from_world(
 ) -> Result<(), crate::error::Error> {
     guard(&instance_id)?;
     crate::datapacks::world_link::remove_from_world_at(
+        &crate::datapacks::instance_root(&app, &instance_id)?,
+        &world,
+        &filename,
+    )
+    .await
+}
+
+/// What "remove from this world" would do to one entry: the library's own
+/// copy, a file or folder only this world holds, or nothing on disk (spec
+/// 2026-09-24 §4 U1). Read-only and unguarded: it reads two files and writes
+/// nothing; the removal it words is guarded.
+#[tauri::command]
+#[specta::specta]
+pub async fn datapacks_world_entry_kind(
+    app: tauri::AppHandle,
+    instance_id: String,
+    world: String,
+    filename: String,
+) -> Result<crate::datapacks::WorldEntryKind, crate::error::Error> {
+    crate::datapacks::world_link::world_entry_kind_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,
         &filename,
@@ -228,9 +279,9 @@ pub(super) fn datapack_provenance_of(
 
 /// Download a datapack version from the catalog into the instance's library,
 /// recording provenance. Placement into worlds is the world picker's separate
-/// step (`datapacks_add_to_world`) — a fresh install touches no world; the
-/// returned fan-out is non-empty only when a same-named pack was already
-/// linked somewhere (the reinstall path).
+/// step (`datapacks_add_to_world`): a fresh install writes into no world.
+/// `refreshed` reports the same-name fan-out exactly as
+/// `datapacks_install_from_file` describes it.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_install_from_version(
@@ -239,6 +290,7 @@ pub async fn datapacks_install_from_version(
     version: crate::mods::platform::ModVersion,
 ) -> Result<crate::datapacks::LibraryInstall, crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     let root = crate::datapacks::instance_root(&app, &instance_id)?;
     let dd = super::data_dir(&app)?;
     let bytes = fetch_datapack_bytes(&dd, &version).await?;
@@ -321,6 +373,7 @@ pub async fn datapacks_update_one(
     let _update_guard = crate::datapacks::guard::DatapackUpdateGuard::acquire()
         .ok_or(crate::error::Error::InstanceBusy)?;
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     let root = crate::datapacks::instance_root(&app, &instance_id)?;
     let dd = super::data_dir(&app)?;
     // A Vanilla Tweaks pack has no direct URL — its bytes exist only after a
@@ -371,6 +424,7 @@ pub async fn datapacks_set_enabled_in_world(
     enabled: bool,
 ) -> Result<(), crate::error::Error> {
     guard(&instance_id)?;
+    require_datapack_support(&app, &instance_id)?;
     crate::datapacks::world_link::set_enabled_in_world_at(
         &crate::datapacks::instance_root(&app, &instance_id)?,
         &world,

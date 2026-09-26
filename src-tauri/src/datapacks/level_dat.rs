@@ -205,26 +205,50 @@ fn int_of(v: Option<&Value>) -> Option<i32> {
     }
 }
 
-/// Mutable access to `Data.DataPacks`, creating the compounds when absent and
-/// rejecting a key that exists with the wrong tag type. Mirrors
-/// `servers::nbt::servers_list_mut`.
-fn datapacks_mut(root: &mut Value) -> Result<&mut HashMap<String, Value>> {
+/// The `Data` compound, which must already exist. A root without one is not
+/// a world: the game reads `getCompoundOrEmpty("Data")` and its world summary
+/// then fails, so creating `Data` here would dress a non-world up as one
+/// (spec §3 L.5.3).
+fn data_mut(root: &mut Value) -> Result<&mut HashMap<String, Value>> {
     let Value::Compound(map) = root else {
         return Err(parse_err("level.dat root is not a compound"));
     };
-    let data_slot = map
-        .entry("Data".to_string())
-        .or_insert_with(|| Value::Compound(HashMap::new()));
-    let Value::Compound(data) = data_slot else {
-        return Err(parse_err("level.dat Data is not a compound"));
-    };
-    let dp_slot = data
-        .entry("DataPacks".to_string())
-        .or_insert_with(|| Value::Compound(HashMap::new()));
-    match dp_slot {
-        Value::Compound(dp) => Ok(dp),
-        _ => Err(parse_err("level.dat Data.DataPacks is not a compound")),
+    match map.get_mut("Data") {
+        Some(Value::Compound(data)) => Ok(data),
+        Some(_) => Err(parse_err("level.dat Data is not a compound")),
+        None => Err(parse_err("level.dat has no Data compound")),
     }
+}
+
+/// Mutable access to `Data.DataPacks`, or `None` when the key is absent. A
+/// key that exists with the wrong tag type is refused. Mirrors
+/// `servers::nbt::servers_list_mut`.
+///
+/// Absent has a known meaning and is never filled with an empty compound: the
+/// game reads it as `DataPackConfig.DEFAULT` (`Enabled:["vanilla"]`,
+/// `Disabled:[]`) and appends every auto-added pack after it, including the
+/// mod packs Forge and NeoForge add on every load (spec §3 L.1, §0.5 A15).
+fn datapacks_mut(data: &mut HashMap<String, Value>) -> Result<Option<&mut HashMap<String, Value>>> {
+    match data.get_mut("DataPacks") {
+        Some(Value::Compound(dp)) => Ok(Some(dp)),
+        Some(_) => Err(parse_err("level.dat Data.DataPacks is not a compound")),
+        None => Ok(None),
+    }
+}
+
+/// What a DISABLE seeds when `DataPacks` is absent: the engine's own default
+/// with this one entry switched off.
+fn default_with_disabled(entry: &str) -> Value {
+    let mut dp = HashMap::new();
+    dp.insert(
+        "Enabled".to_string(),
+        Value::List(vec![Value::String("vanilla".to_string())]),
+    );
+    dp.insert(
+        "Disabled".to_string(),
+        Value::List(vec![Value::String(entry.to_string())]),
+    );
+    Value::Compound(dp)
 }
 
 fn list_mut<'a>(dp: &'a mut HashMap<String, Value>, key: &str) -> Result<&'a mut Vec<Value>> {
@@ -272,11 +296,33 @@ fn push_unique(list: &mut Vec<Value>, entry: &str) -> bool {
 }
 
 /// Put `entry` (a `file/<filename>` value) in exactly one of the two lists.
-/// Idempotent. Returns whether the lists actually changed, so a caller that
-/// reconciles state on every refresh can skip `write_at` — and skip rolling
-/// the backup forward — on a call that changed nothing.
+/// Idempotent. Returns whether the entry moved, so a caller that reconciles
+/// state on every refresh can skip `write_at` (and skip rolling the backup
+/// forward) on a call that moved nothing. `false` does not promise an
+/// identical root: `list_mut` may add a missing, empty `Enabled` /
+/// `Disabled` list without reporting it, which reads back the same.
+///
+/// For a world with no `DataPacks` compound yet (spec §0.5 A15):
+///   * an ENABLE changes nothing and returns `false`. The file is placed, and
+///     the game adds `file/<name>` itself, after `vanilla` and after the mod
+///     packs Forge/NeoForge append at load. That is the game's own order on
+///     every loader. A seeded `[vanilla, file/<name>]` would load mod data
+///     above the pack.
+///   * a DISABLE must be recorded, so it seeds `Enabled:["vanilla"]`,
+///     `Disabled:[entry]`: the engine default with this entry switched off.
 pub fn set_enabled(root: &mut Value, entry: &str, enabled: bool) -> Result<bool> {
-    let dp = datapacks_mut(root)?;
+    let data = data_mut(root)?;
+    if let Some(dp) = datapacks_mut(data)? {
+        return set_in_lists(dp, entry, enabled);
+    }
+    if enabled {
+        return Ok(false);
+    }
+    data.insert("DataPacks".to_string(), default_with_disabled(entry));
+    Ok(true)
+}
+
+fn set_in_lists(dp: &mut HashMap<String, Value>, entry: &str, enabled: bool) -> Result<bool> {
     // Take both lists in turn — the borrow checker will not hand out two
     // mutable borrows of the same map at once.
     let removed = {
@@ -290,46 +336,84 @@ pub fn set_enabled(root: &mut Value, entry: &str, enabled: bool) -> Result<bool>
     Ok(removed || added)
 }
 
-/// Remove `entry` from both lists. Idempotent — this is what clears the
-/// "data packs are no longer present" screen after a pack is removed. Returns
-/// whether anything was actually removed; see `set_enabled` for why that
-/// matters to the caller.
+/// Remove `entry` from both lists. Idempotent — this is what clears the name
+/// of a removed pack. (The game would only log "Missing data pack", skip the id
+/// and drop it at its next save; clearing it just tidies the list sooner.)
+/// Returns whether anything was actually removed; see `set_enabled` for why
+/// that matters to the caller.
 pub fn forget(root: &mut Value, entry: &str) -> Result<bool> {
-    let dp = datapacks_mut(root)?;
+    // Nothing is listed when `DataPacks` is absent, so there is nothing to
+    // forget. An empty compound created here would replace the engine
+    // default (see `datapacks_mut`).
+    let Some(dp) = datapacks_mut(data_mut(root)?)? else {
+        return Ok(false);
+    };
     let removed_enabled = drop_entry(list_mut(dp, "Enabled")?, entry);
     let removed_disabled = drop_entry(list_mut(dp, "Disabled")?, entry);
     Ok(removed_enabled || removed_disabled)
 }
 
-/// Case-insensitive [`drop_entry`].
-fn drop_entry_ci(list: &mut Vec<Value>, entry: &str) -> bool {
-    let needle = entry.to_lowercase();
+/// Returns whether any entry matching `pred` was removed.
+fn drop_where(list: &mut Vec<Value>, pred: &dyn Fn(&str) -> bool) -> bool {
     let before = list.len();
-    list.retain(|v| !matches!(v, Value::String(s) if s.to_lowercase() == needle));
+    list.retain(|v| !matches!(v, Value::String(s) if pred(s)));
     list.len() != before
 }
 
-/// [`forget`], matching case-insensitively.
+/// R3 (spec §2 N.3): drop the exact `id` from both lists, plus every entry
+/// that differs from it only in case AND whose name is not an exact on-disk
+/// entry name in `present`. The engine already ignores such ids (its id is
+/// the exact on-disk spelling), so they are ghosts. With `present == None`
+/// (the `read_dir` failed) only the exact id goes: the restrictive answer.
 ///
-/// NTFS is case-insensitive, so a level.dat entry spelled `file/VeinMiner.zip`
-/// and an on-disk file named `veinminer.zip` are the SAME file — the reason
-/// `world_link::contains_ci` exists, with a regression test there
-/// (`a_case_mismatched_disabled_entry_still_reports_disabled`) proving the
-/// drift is real and encountered, not hypothetical. `forget`'s exact
-/// comparison silently removes nothing in that case, leaving a name in
-/// level.dat with no file behind it: a permanent `Orphaned` row and Minecraft's
-/// "data packs are no longer present" screen, forever.
-///
-/// Use this wherever the entry being removed was DERIVED from a filename that
-/// may not match level.dat's own spelling — notably
-/// `world_link::migrate_placements`, which renames an entry it only knows by
-/// the library's filename. `forget` stays for callers holding level.dat's own
-/// exact string.
-pub fn forget_ci(root: &mut Value, entry: &str) -> Result<bool> {
-    let dp = datapacks_mut(root)?;
-    let removed_enabled = drop_entry_ci(list_mut(dp, "Enabled")?, entry);
-    let removed_disabled = drop_entry_ci(list_mut(dp, "Disabled")?, entry);
+/// A present entry spelled like a case variant is a different pack on a
+/// case-sensitive file system, and its id stays.
+pub fn forget_with_case_ghosts(
+    root: &mut Value,
+    id: &str,
+    present: Option<&[String]>,
+) -> Result<bool> {
+    let folded = id.to_lowercase();
+    let is_ghost = |s: &str| -> bool {
+        if s == id {
+            return true;
+        }
+        let Some(present) = present else {
+            return false;
+        };
+        s.to_lowercase() == folded
+            && s.strip_prefix("file/")
+                .is_some_and(|name| !present.iter().any(|p| p == name))
+    };
+    // Mirrors `forget`: nothing is listed when `DataPacks` is absent, and an
+    // empty compound created here would replace the engine default.
+    let Some(dp) = datapacks_mut(data_mut(root)?)? else {
+        return Ok(false);
+    };
+    let removed_enabled = drop_where(list_mut(dp, "Enabled")?, &is_ghost);
+    let removed_disabled = drop_where(list_mut(dp, "Disabled")?, &is_ghost);
     Ok(removed_enabled || removed_disabled)
+}
+
+/// The enabled state to carry from `old_id` to `new_id` (N.3 shared helper).
+/// If `new_id` is exactly listed, it wins: a retried migration already wrote
+/// it. Otherwise the old id is read. Both use the engine's rule: enabled
+/// unless listed ONLY in `Disabled` (exact `List.contains`), so both lists ⇒
+/// enabled, and a present, unlisted pack is enabled (the game auto-adds it).
+#[must_use]
+pub fn carried_enabled(
+    enabled: &[String],
+    disabled: &[String],
+    old_id: &str,
+    new_id: &str,
+) -> bool {
+    let has = |list: &[String], id: &str| list.iter().any(|s| s == id);
+    let id = if has(enabled, new_id) || has(disabled, new_id) {
+        new_id
+    } else {
+        old_id
+    };
+    has(enabled, id) || !has(disabled, id)
 }
 
 /// The world folder's own name, for user-facing messages. `world_dir` is
@@ -373,11 +457,26 @@ pub fn read_at(world_dir: &Path) -> Result<(Value, Framing)> {
     parse(&bytes)
 }
 
+/// Read `<world_dir>/level.dat_old`, Minecraft's own backup, which the game
+/// reads (and restores `level.dat` from) when `level.dat` is missing. Same
+/// error mapping and parsing as [`read_at`].
+///
+/// Read-only: it hands back no [`Framing`] to pass to [`write_at`], and
+/// nothing in Lucerna ever writes `level.dat_old` (see `write_at`'s doc).
+pub fn read_old_at(world_dir: &Path) -> Result<Value> {
+    let path = world_dir.join("level.dat_old");
+    let bytes = std::fs::read(&path).map_err(|e| map_read_err(&path, e, world_dir))?;
+    parse(&bytes).map(|(root, _framing)| root)
+}
+
 /// Rewrite `<world_dir>/level.dat`, keeping the pre-edit bytes in
 /// `level.dat_lucerna.bak`.
 ///
 /// Deliberately NOT `level.dat_old` — that is Minecraft's own recovery copy
 /// and overwriting it would trade away the user's fallback.
+///
+/// Refuses with an I/O error when no `level.dat` exists: this function edits
+/// a world and never creates one.
 ///
 /// Both writes go through `store::place_bytes` (temp + rename), so a
 /// *process* crash can never leave a half-written level.dat. `place_bytes`
@@ -404,8 +503,8 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
         ));
     }
 
-    // Never overwrite level.dat unless the pre-edit bytes are either safely
-    // copied to the backup, or provably absent. `if let Ok(old) = read(..)`
+    // Never overwrite level.dat unless the pre-edit bytes are safely copied to
+    // the backup; a missing level.dat is refused below. `if let Ok(old) = read(..)`
     // would treat every non-`NotFound` read failure — permission denied, a
     // lock, a bad sector — the same as "no file yet" and overwrite anyway: on
     // POSIX, `rename(2)` needs write+execute on the *directory* and no
@@ -423,8 +522,21 @@ pub async fn write_at(world_dir: &Path, root: &Value, framing: Framing) -> Resul
             // recovery copy.
             crate::diag!("datapacks: backed up {} before rewriting", bak.display());
         }
-        // Absent is the only benign case: a world with no level.dat yet.
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // Never create a level.dat (spec §3 L.5.1). A missing one means either
+        // a folder that is not a world, or a world that lost its level.dat and
+        // kept level.dat_old, where a new file would stop Minecraft's own
+        // restore from the backup. Every caller checks `presence::of` first;
+        // this is the backstop for one that forgets, or for a level.dat that
+        // vanished since. It runs after the serialize/reparse above and before
+        // any disk write of its own, but a caller may already have linked or
+        // deleted a pack file, so it is a plain I/O error and not
+        // `WorldLevelDatMissing`, whose copy says nothing was changed.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Error::io(
+                path.display().to_string(),
+                "level.dat is missing; not creating one",
+            ));
+        }
         // The file exists and we could not read it to back it up. Never
         // overwrite what we could not preserve.
         Err(e) => return Err(map_read_err(&path, e, world_dir)),
@@ -456,6 +568,111 @@ fn map_store_err(e: &crate::mods::store::StoreIoError, world_dir: &Path) -> Erro
 }
 
 #[cfg(test)]
+pub mod test_support {
+    //! Fixtures for a world Minecraft has actually played: the shape of the
+    //! corpus files. `Data` holds `LevelName`, `DataVersion`, `version`
+    //! (19133, Anvil) and a `DataPacks` compound whose `Enabled` starts with
+    //! `vanilla`, as in every world the game writes.
+    //!
+    //! `pub mod`, not `pub(crate) mod`: `structural_no_inplace_mods_write`
+    //! masks a test region only when `#[cfg(test)]` is followed on the next
+    //! line by `mod ` / `pub mod `, and this module writes files (spec §0.5
+    //! A17; precedent `worlds/migrate/finalise.rs`). For the same reason these
+    //! docs are inner docs: an outer doc between the attribute and `pub mod`
+    //! would unmask the module.
+    //!
+    //! A `tests/` binary cannot reach this, because `#[cfg(test)]` is not
+    //! compiled into the rlib it links. `tests/datapacks_integration.rs`
+    //! builds the same root inline.
+
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    use fastnbt::Value;
+
+    use super::{serialize, Framing};
+
+    /// 1.21.1's data version. Any real one works: the fixture only has to look
+    /// like a file Minecraft wrote, and nothing here compares versions.
+    const DATA_VERSION: i32 = 3955;
+    /// `Data.version`, the storage-format number every world carries.
+    const ANVIL: i32 = 19133;
+
+    fn strings<'a>(items: impl IntoIterator<Item = &'a str>) -> Value {
+        Value::List(
+            items
+                .into_iter()
+                .map(|s| Value::String(s.to_string()))
+                .collect(),
+        )
+    }
+
+    fn game_data() -> HashMap<String, Value> {
+        let mut data = HashMap::new();
+        data.insert("LevelName".to_string(), Value::String("Fixture".into()));
+        data.insert("DataVersion".to_string(), Value::Int(DATA_VERSION));
+        data.insert("version".to_string(), Value::Int(ANVIL));
+        data
+    }
+
+    fn wrap(data: HashMap<String, Value>) -> Value {
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::Compound(data));
+        Value::Compound(root)
+    }
+
+    /// The root of a played world with NO `DataPacks` compound: an old world
+    /// carried to a newer Minecraft and not opened there since. The game reads
+    /// the missing compound as `Enabled:["vanilla"], Disabled:[]`.
+    pub fn game_root_without_datapacks() -> Value {
+        wrap(game_data())
+    }
+
+    /// The root of a played world. `enabled` / `disabled` are level.dat
+    /// entries exactly as the game writes them (`file/<name>`, `fabric`, …);
+    /// `vanilla` always comes first in `Enabled`.
+    pub fn game_root(enabled: &[&str], disabled: &[&str]) -> Value {
+        let mut dp = HashMap::new();
+        dp.insert(
+            "Enabled".to_string(),
+            strings(std::iter::once("vanilla").chain(enabled.iter().copied())),
+        );
+        dp.insert("Disabled".to_string(), strings(disabled.iter().copied()));
+        let mut data = game_data();
+        data.insert("DataPacks".to_string(), Value::Compound(dp));
+        wrap(data)
+    }
+
+    /// Writes `root` as `<world_dir>/<file>` in gzip framing (every real
+    /// level.dat uses gzip), creating `world_dir`.
+    fn write(world_dir: &Path, file: &str, root: &Value) {
+        std::fs::create_dir_all(world_dir).unwrap();
+        std::fs::write(
+            world_dir.join(file),
+            serialize(root, Framing::Gzip).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// `<world_dir>/level.dat` holding exactly `root`.
+    pub fn seed_root(world_dir: &Path, root: &Value) {
+        write(world_dir, "level.dat", root);
+    }
+
+    /// `<world_dir>/level.dat` of a played world; see [`game_root`].
+    pub fn seed(world_dir: &Path, enabled: &[&str], disabled: &[&str]) {
+        seed_root(world_dir, &game_root(enabled, disabled));
+    }
+
+    /// Only Minecraft's backup copy `<world_dir>/level.dat_old`, and no
+    /// `level.dat`: a world that lost its level.dat. The game restores the
+    /// file from this copy, and Lucerna must not write a new one first.
+    pub fn seed_old(world_dir: &Path, enabled: &[&str], disabled: &[&str]) {
+        write(world_dir, "level.dat_old", &game_root(enabled, disabled));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use fastnbt::Value;
@@ -474,7 +691,7 @@ mod tests {
     /// `set_enabled` rather than by hand so the fixture can never disagree with
     /// the shape the production code actually writes.
     fn root_with_lists(enabled: &[&str], disabled: &[&str]) -> Value {
-        let mut root = sample_root();
+        let mut root = test_support::game_root(&[], &[]);
         for e in enabled {
             set_enabled(&mut root, e, true).unwrap();
         }
@@ -482,34 +699,6 @@ mod tests {
             set_enabled(&mut root, d, false).unwrap();
         }
         root
-    }
-
-    #[test]
-    fn forget_ci_removes_an_entry_whose_case_differs() {
-        // The exact-match `forget` is what leaves a permanent orphan here: the
-        // name stays in level.dat with no file behind it, and Minecraft shows
-        // "data packs are no longer present" on every load.
-        let mut root = root_with_lists(&["file/VeinMiner.zip"], &[]);
-        assert!(forget_ci(&mut root, "file/veinminer.zip").unwrap());
-        let (enabled, disabled) = lists(&root);
-        assert!(enabled.is_empty(), "enabled still holds: {enabled:?}");
-        assert!(disabled.is_empty(), "disabled still holds: {disabled:?}");
-    }
-
-    #[test]
-    fn forget_ci_clears_a_case_mismatched_disabled_entry_too() {
-        let mut root = root_with_lists(&[], &["file/VeinMiner.zip"]);
-        assert!(forget_ci(&mut root, "file/veinminer.zip").unwrap());
-        let (_enabled, disabled) = lists(&root);
-        assert!(disabled.is_empty(), "disabled still holds: {disabled:?}");
-    }
-
-    #[test]
-    fn forget_ci_reports_no_change_when_nothing_matched() {
-        let mut root = root_with_lists(&["file/other.zip"], &[]);
-        assert!(!forget_ci(&mut root, "file/veinminer.zip").unwrap());
-        let (enabled, _disabled) = lists(&root);
-        assert_eq!(enabled, vec!["file/other.zip".to_string()]);
     }
 
     #[test]
@@ -850,50 +1039,56 @@ mod tests {
 
     #[test]
     fn set_enabled_true_adds_to_enabled_and_removes_from_disabled() {
-        let mut root = root_with_unknown_keys();
+        let mut root = test_support::game_root(&[], &[]);
         set_enabled(&mut root, "file/vm.zip", false).unwrap();
         set_enabled(&mut root, "file/vm.zip", true).unwrap();
         let (enabled, disabled) = lists(&root);
-        assert_eq!(enabled, vec!["file/vm.zip".to_string()]);
+        assert_eq!(
+            enabled,
+            vec!["vanilla".to_string(), "file/vm.zip".to_string()]
+        );
         assert!(disabled.is_empty());
     }
 
     #[test]
     fn set_enabled_false_moves_the_entry_to_disabled() {
-        let mut root = root_with_unknown_keys();
+        let mut root = test_support::game_root(&[], &[]);
         set_enabled(&mut root, "file/vm.zip", true).unwrap();
         set_enabled(&mut root, "file/vm.zip", false).unwrap();
         let (enabled, disabled) = lists(&root);
-        assert!(enabled.is_empty());
+        assert_eq!(enabled, vec!["vanilla".to_string()]);
         assert_eq!(disabled, vec!["file/vm.zip".to_string()]);
     }
 
     #[test]
     fn set_enabled_is_idempotent() {
-        let mut root = root_with_unknown_keys();
+        let mut root = test_support::game_root(&[], &[]);
         // First call actually changes the lists...
         assert!(set_enabled(&mut root, "file/vm.zip", true).unwrap());
         // ...the repeat does not, so a caller reconciling on every refresh
         // can skip rewriting level.dat and rolling the backup forward.
         assert!(!set_enabled(&mut root, "file/vm.zip", true).unwrap());
-        assert_eq!(lists(&root).0, vec!["file/vm.zip".to_string()]);
+        assert_eq!(
+            lists(&root).0,
+            vec!["vanilla".to_string(), "file/vm.zip".to_string()]
+        );
     }
 
     #[test]
     fn forget_removes_the_entry_from_both_lists() {
-        let mut root = root_with_unknown_keys();
+        let mut root = test_support::game_root(&[], &[]);
         set_enabled(&mut root, "file/vm.zip", true).unwrap();
         set_enabled(&mut root, "file/other.zip", false).unwrap();
         forget(&mut root, "file/vm.zip").unwrap();
         forget(&mut root, "file/other.zip").unwrap();
         let (enabled, disabled) = lists(&root);
-        assert!(enabled.is_empty());
+        assert_eq!(enabled, vec!["vanilla".to_string()]);
         assert!(disabled.is_empty());
     }
 
     #[test]
     fn forget_reports_whether_anything_was_removed() {
-        let mut root = root_with_unknown_keys();
+        let mut root = test_support::game_root(&[], &[]);
         // Nothing to forget yet: this must report false, not silently create
         // empty Enabled/Disabled lists and call that "no change".
         assert!(!forget(&mut root, "file/never-added.zip").unwrap());
@@ -905,7 +1100,10 @@ mod tests {
     #[test]
     fn an_edit_preserves_every_unmodelled_key_through_a_gzip_round_trip() {
         let mut root = realistic_root();
-        set_enabled(&mut root, "file/vm.zip", true).unwrap();
+        // `realistic_root` has no DataPacks compound, so after A15 only a
+        // DISABLE edits it (it seeds the default). That seeding is the edit
+        // under test.
+        assert!(set_enabled(&mut root, "file/vm.zip", false).unwrap());
         let bytes = serialize(&root, Framing::Gzip).unwrap();
         let (back, _) = parse(&bytes).unwrap();
 
@@ -978,7 +1176,7 @@ mod tests {
     async fn write_at_creates_a_backup_and_keeps_the_original_readable() {
         let td = tempfile::tempdir().unwrap();
         let world = td.path();
-        let original = serialize(&root_with_unknown_keys(), Framing::Gzip).unwrap();
+        let original = serialize(&test_support::game_root(&[], &[]), Framing::Gzip).unwrap();
         std::fs::write(world.join("level.dat"), &original).unwrap();
 
         let (mut root, framing) = read_at(world).unwrap();
@@ -991,18 +1189,111 @@ mod tests {
             original
         );
         let (after, _) = read_at(world).unwrap();
-        assert_eq!(lists(&after).0, vec!["file/vm.zip".to_string()]);
+        assert_eq!(
+            lists(&after).0,
+            vec!["vanilla".to_string(), "file/vm.zip".to_string()]
+        );
     }
 
     #[tokio::test]
-    async fn write_at_without_an_existing_file_writes_no_backup() {
+    async fn write_at_refuses_to_create_a_level_dat() {
+        // Replaces a test that pinned creation. A level.dat written into a
+        // folder that had none either makes a non-world look like one, or,
+        // beside a surviving level.dat_old, switches off the game's restore.
         let td = tempfile::tempdir().unwrap();
-        let world = td.path();
-        write_at(world, &sample_root(), Framing::Gzip)
+        let world = td.path().join("Survival");
+        std::fs::create_dir_all(&world).unwrap();
+
+        let err = write_at(&world, &test_support::game_root(&[], &[]), Framing::Gzip)
             .await
-            .unwrap();
+            .unwrap_err();
+
+        // The backstop fires only after a writer has already linked or deleted
+        // a file, so it must not claim "data packs were not changed" the way
+        // the pre-write `WorldLevelDatMissing` refusal does.
+        assert!(is_backstop_refusal(&err, &world), "got {err:?}");
+        assert!(!world.join("level.dat").exists());
         assert!(!world.join("level.dat_lucerna.bak").exists());
-        assert!(world.join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn write_at_beside_only_a_level_dat_old_refuses_and_leaves_the_backup_alone() {
+        let td = tempfile::tempdir().unwrap();
+        test_support::seed_old(td.path(), &[], &[]);
+        let old = std::fs::read(td.path().join("level.dat_old")).unwrap();
+
+        let err = write_at(
+            td.path(),
+            &test_support::game_root(&["file/x.zip"], &[]),
+            Framing::Gzip,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(is_backstop_refusal(&err, td.path()), "got {err:?}");
+        assert!(!td.path().join("level.dat").exists());
+        assert_eq!(std::fs::read(td.path().join("level.dat_old")).unwrap(), old);
+    }
+
+    /// `write_at`'s NotFound backstop: an I/O error naming the level.dat path.
+    fn is_backstop_refusal(err: &Error, world: &Path) -> bool {
+        let want = world.join("level.dat").display().to_string();
+        matches!(err, Error::Io { path, details }
+            if *path == want && details.contains("not creating one"))
+    }
+
+    #[test]
+    fn enabling_without_a_datapacks_compound_changes_nothing() {
+        // §0.5 A15: the game adds the pack itself, after vanilla and after the
+        // mod packs Forge/NeoForge append on every load.
+        let mut root = test_support::game_root_without_datapacks();
+        let before = root.clone();
+        assert!(!set_enabled(&mut root, "file/x.zip", true).unwrap());
+        assert_eq!(
+            root, before,
+            "an enable must not create a DataPacks compound"
+        );
+    }
+
+    #[test]
+    fn disabling_without_a_datapacks_compound_keeps_vanilla_enabled() {
+        let mut root = test_support::game_root_without_datapacks();
+        assert!(set_enabled(&mut root, "file/x.zip", false).unwrap());
+        assert_eq!(
+            lists(&root),
+            (vec!["vanilla".to_string()], vec!["file/x.zip".to_string()])
+        );
+    }
+
+    #[test]
+    fn forgetting_without_a_datapacks_compound_changes_nothing() {
+        // An empty compound created here would replace the engine default, and
+        // a following enable would then list the pack with no vanilla below it.
+        let mut root = test_support::game_root_without_datapacks();
+        let before = root.clone();
+        assert!(!forget(&mut root, "file/x.zip").unwrap());
+        assert!(!forget_with_case_ghosts(&mut root, "file/X.zip", Some(&[])).unwrap());
+        assert_eq!(root, before);
+    }
+
+    #[test]
+    fn an_edit_refuses_a_level_dat_without_a_data_compound() {
+        // Such a file is not a world: the game's summary of it fails.
+        let empty = Value::Compound(HashMap::new());
+        let mut root = empty.clone();
+        let results = [
+            set_enabled(&mut root, "file/x.zip", true),
+            set_enabled(&mut root, "file/x.zip", false),
+            forget(&mut root, "file/x.zip"),
+            forget_with_case_ghosts(&mut root, "file/x.zip", Some(&[])),
+        ];
+        for result in results {
+            assert!(
+                matches!(result, Err(Error::LevelDatParse { .. })),
+                "got {result:?}"
+            );
+        }
+        assert_eq!(root, empty, "no Data compound may be created");
     }
 
     #[tokio::test]
@@ -1026,7 +1317,7 @@ mod tests {
     async fn write_at_never_touches_level_dat_old() {
         let td = tempfile::tempdir().unwrap();
         let world = td.path();
-        let original = serialize(&root_with_unknown_keys(), Framing::Gzip).unwrap();
+        let original = serialize(&test_support::game_root(&[], &[]), Framing::Gzip).unwrap();
         std::fs::write(world.join("level.dat"), &original).unwrap();
         // Minecraft's OWN recovery copy — not ours, and never to be touched.
         let old_recovery = b"MINECRAFT-OWNED-RECOVERY-COPY".to_vec();
@@ -1043,11 +1334,123 @@ mod tests {
     }
 
     #[test]
+    fn read_old_at_reads_the_backup_copy() {
+        let td = tempfile::tempdir().unwrap();
+        test_support::seed_old(td.path(), &[], &["file/vm.zip"]);
+        let root = read_old_at(td.path()).unwrap();
+        assert_eq!(
+            lists(&root),
+            (vec!["vanilla".to_string()], vec!["file/vm.zip".to_string()])
+        );
+        assert!(
+            !td.path().join("level.dat").exists(),
+            "reading the backup creates nothing"
+        );
+    }
+
+    #[test]
+    fn read_old_at_reports_a_missing_backup_as_an_io_error() {
+        let td = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            read_old_at(td.path()),
+            Err(crate::error::Error::Io { .. })
+        ));
+    }
+
+    #[test]
     fn read_at_reports_a_missing_file_as_an_io_error_not_corruption() {
         let td = tempfile::tempdir().unwrap();
         let err = read_at(td.path()).unwrap_err();
         // Missing is not corrupt: LevelDatParse would tell a user their
         // world is broken when there is simply no world there yet.
         assert!(matches!(err, crate::error::Error::Io { .. }));
+    }
+
+    /// A root whose DataPacks lists hold exactly these ids, built by hand so
+    /// the fixture does not depend on `set_enabled`'s seeding rules (§0.5 A15).
+    fn raw_root(enabled: &[&str], disabled: &[&str]) -> Value {
+        let list = |ids: &[&str]| {
+            Value::List(
+                ids.iter()
+                    .map(|s| Value::String((*s).to_string()))
+                    .collect(),
+            )
+        };
+        let mut dp = HashMap::new();
+        dp.insert("Enabled".to_string(), list(enabled));
+        dp.insert("Disabled".to_string(), list(disabled));
+        let mut data = HashMap::new();
+        data.insert("LevelName".to_string(), Value::String("Survival".into()));
+        data.insert("DataPacks".to_string(), Value::Compound(dp));
+        let mut root = HashMap::new();
+        root.insert("Data".to_string(), Value::Compound(data));
+        Value::Compound(root)
+    }
+
+    #[test]
+    fn forgetting_one_pack_keeps_a_present_pack_differing_only_in_case() {
+        let mut root = raw_root(&["vanilla", "file/Foo.zip", "file/foo.zip"], &[]);
+        let present = vec!["Foo.zip".to_string()];
+        assert!(forget_with_case_ghosts(&mut root, "file/foo.zip", Some(&present)).unwrap());
+        assert_eq!(
+            lists(&root).0,
+            vec!["vanilla".to_string(), "file/Foo.zip".to_string()]
+        );
+    }
+
+    /// Rewritten from `forget_ci_removes_an_entry_whose_case_differs` (N.9 #7).
+    /// A case variant that no present entry spells exactly is a ghost the
+    /// engine already drops (`WARN Missing data pack`), so it goes too.
+    #[test]
+    fn forget_with_case_ghosts_drops_a_case_variant_no_entry_spells() {
+        let mut root = raw_root(&["file/VeinMiner.zip"], &["file/VEINMINER.zip"]);
+        assert!(forget_with_case_ghosts(&mut root, "file/veinminer.zip", Some(&[])).unwrap());
+        let (en, dis) = lists(&root);
+        assert!(en.is_empty() && dis.is_empty(), "{en:?} {dis:?}");
+    }
+
+    #[test]
+    fn forget_with_case_ghosts_reports_no_change_when_nothing_matched() {
+        let mut root = raw_root(&["file/other.zip"], &[]);
+        assert!(!forget_with_case_ghosts(&mut root, "file/veinminer.zip", Some(&[])).unwrap());
+        assert_eq!(lists(&root).0, vec!["file/other.zip".to_string()]);
+    }
+
+    /// `present == None` (the `read_dir` failed): the exact id only (R3).
+    #[test]
+    fn forget_with_case_ghosts_without_a_listing_drops_the_exact_id_only() {
+        let mut root = raw_root(&["file/vm.zip", "file/VM.zip"], &[]);
+        assert!(forget_with_case_ghosts(&mut root, "file/vm.zip", None).unwrap());
+        assert_eq!(lists(&root).0, vec!["file/VM.zip".to_string()]);
+    }
+
+    #[test]
+    fn carried_enabled_treats_both_lists_as_enabled() {
+        let en = vec!["vanilla".to_string(), "file/a.zip".to_string()];
+        let dis = vec!["file/a.zip".to_string()];
+        assert!(carried_enabled(&en, &dis, "file/a.zip", "file/b.zip"));
+    }
+
+    #[test]
+    fn carried_enabled_ignores_a_case_drifted_disabled_entry() {
+        let dis = vec!["file/A.zip".to_string()];
+        assert!(carried_enabled(
+            &["vanilla".to_string()],
+            &dis,
+            "file/a.zip",
+            "file/b.zip"
+        ));
+    }
+
+    #[test]
+    fn carried_enabled_prefers_an_already_listed_new_id() {
+        // A retried migration: the new id is already Disabled; a stale old id must not flip it on.
+        let dis = vec!["file/b.zip".to_string()];
+        assert!(!carried_enabled(
+            &["file/a.zip".to_string()],
+            &dis,
+            "file/a.zip",
+            "file/b.zip"
+        ));
     }
 }

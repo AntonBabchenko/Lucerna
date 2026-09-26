@@ -264,9 +264,21 @@ mod tests {
             AnnotateSide::Client,
             "overlay-render-crash",
         ),
+        // The lines the game really logs (spec 2026-09-24 §4 U6): the client's
+        // WorldOpenFlows, both phrasings, and the dedicated server's --safeMode line.
         (
-            "[main/ERROR]: Errors in currently selected datapacks prevented the world from loading",
+            "[12:00:00] [Render thread/WARN]: Failed to load level data or datapacks, can't proceed with server load",
             AnnotateSide::Client,
+            "datapack-load-failed",
+        ),
+        (
+            "[12:00:00] [Render thread/WARN]: Failed to load datapacks, can't proceed with server load",
+            AnnotateSide::Client,
+            "datapack-load-failed",
+        ),
+        (
+            "[12:00:00] [main/WARN]: Failed to load datapacks, can't proceed with server load. You can either fix your datapacks or reset to vanilla with --safeMode",
+            AnnotateSide::Server,
             "datapack-load-failed",
         ),
         (
@@ -506,6 +518,21 @@ mod tests {
         // stack frames mentioning session classes must not fire session-lock
         (
             "\tat net.minecraft.server.MinecraftServer.run(MinecraftServer.java:666)",
+            AnnotateSide::Server,
+        ),
+        // "Failed to load" alone is not a datapack failure: the matcher must
+        // keep the datapack wording, not just the verb
+        (
+            "[Render thread/ERROR]: Failed to load options",
+            AnnotateSide::Client,
+        ),
+        // benign engine lines about packs must never read as a load failure
+        (
+            "[Server thread/WARN]: Missing data pack file/x.zip",
+            AnnotateSide::Server,
+        ),
+        (
+            "[Server thread/INFO]: Found new data pack file/x.zip, loading it automatically",
             AnnotateSide::Server,
         ),
     ];

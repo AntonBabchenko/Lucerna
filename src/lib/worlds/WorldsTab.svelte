@@ -23,6 +23,11 @@
   import { droppedWorld } from '$lib/settings/state.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
+  import {
+    cachedDatapackSupport,
+    rememberDatapackSupport,
+    resolveDatapackSupport,
+  } from '$lib/mods/datapack-support';
 
   let {
     instanceId,
@@ -60,6 +65,27 @@
   // The world a MigrateWorldDialog is open for; set from the detail dialog's
   // footer action, cleared on close or completion.
   let migrateFor = $state<World | null>(null);
+  // The 1.13 datapack gate for the detail dialog's Datapacks tab (spec
+  // 2026-09-24 §4 U2) — the same cache and stale-answer guard as AddonsTab's
+  // kind switch. `true` with no instance: uncertainty must not hide the
+  // feature; every datapack writer re-checks the version itself.
+  const mcVersion = $derived(instances.find((i) => i.id === instanceId)?.mc_version ?? null);
+  let datapacksSupported = $state(true);
+  $effect(() => {
+    const id = instanceId;
+    const mc = mcVersion;
+    if (id === null) {
+      datapacksSupported = true;
+      return;
+    }
+    datapacksSupported = cachedDatapackSupport(id, mc);
+    void (async () => {
+      const v = await resolveDatapackSupport(id);
+      if (instanceId !== id || mcVersion !== mc) return;
+      rememberDatapackSupport(id, mc, v);
+      datapacksSupported = v;
+    })();
+  });
   // What a failed restore can leave behind. Both are invisible to listWorlds —
   // their names start with a dot, which validate_segment rejects — so they need
   // their own queries. Failures here are non-fatal: they leave the recovery
@@ -407,6 +433,7 @@
   <WorldDetailDialog
     {instanceId}
     world={detailFor}
+    {datapacksSupported}
     {running}
     {migrateDisabledReason}
     onMigrate={() => (migrateFor = detailFor)}

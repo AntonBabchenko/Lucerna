@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { commands, type AssetUpdateState, type ServerDatapackEntry } from '$lib/ipc/bindings';
+  import { untrack } from 'svelte';
+  import {
+    commands,
+    type AssetUpdateState,
+    type LevelDatPresence,
+    type ServerDatapackEntry,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
@@ -15,14 +21,22 @@
   import Modal from '$lib/ui/Modal.svelte';
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
-  import { badgeOf, isUpdatable, rowKey } from './datapack-rows';
+  import { ignoredHintKey } from '$lib/worlds/datapack-state';
+  import {
+    badgeOf,
+    isUpdatable,
+    rowKey,
+    serverToggleBlockedKey,
+    serverWorldBlockedKey,
+  } from './datapack-rows';
 
   // Installed pane for a server world's datapacks (Task 11). Modeled on
   // ServerPluginsInstalled — same toolbar/error-line/ConfirmDialog shape — but
   // diverges where datapacks genuinely differ: rows key on filename (not
-  // sha1 — see datapack-rows.ts), a ghost row has no toggle, a folder pack has
-  // no update affordance, and update-all must apply serially because every
-  // update rewrites level.dat. `disabled` is handed down by the host
+  // sha1 — see datapack-rows.ts), a ghost row has no toggle and is cleared,
+  // not removed (its file is already gone; the game drops the id itself), a
+  // folder pack has no update affordance, and update-all must apply serially
+  // because every update rewrites level.dat. `disabled` is handed down by the host
   // (ServerAddonsTab) already resolved from the server's running state, so
   // this component holds no server-state lookup of its own.
   let {
@@ -30,15 +44,24 @@
     mcVersion,
     disabled = false,
     reloadToken = 0,
+    levelDat = $bindable(null),
   }: {
     serverId: string;
     /** Needed by the Vanilla Tweaks builder, which publishes per MC family. */
     mcVersion: string;
     disabled?: boolean;
     reloadToken?: number;
+    /**
+     * The world's level.dat presence (D2); null until loaded, or could not
+     * tell. Null is not a verdict: every writer re-checks presence before
+     * writing. Bindable so the host gates its own add paths (the tab-level
+     * drop zone, the catalog) on the one read this pane makes.
+     */
+    levelDat?: LevelDatPresence | null;
   } = $props();
 
   let rows = $state<ServerDatapackEntry[]>([]);
+  const worldBlock = $derived(serverWorldBlockedKey(levelDat));
   let loading = $state(false);
   let loadError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
@@ -80,7 +103,7 @@
     }
   }
 
-  // Per-pack update-check results, keyed by rowKey (lower-cased filename) so
+  // Per-pack update-check results, keyed by rowKey (exact filename) so
   // they line up with the row identity — NOT sha1, which two of the three row
   // provenances leave empty (see datapack-rows.ts).
   let updateChecks = $state(new Map<string, AssetUpdateState>());
@@ -106,8 +129,18 @@
     loadError = null;
     const res = await commands.serverListDatapacks(serverId);
     if (my !== gen) return; // superseded by a newer serverId/reloadToken change
-    if (res.status === 'ok') rows = res.data;
-    else loadError = formatError(res.error);
+    if (res.status === 'ok') {
+      rows = res.data.entries;
+      levelDat = res.data.level_dat;
+    } else {
+      // Clear the rows too, as WorldDatapacks.reload does: rows kept from the
+      // last good load with `levelDat` gone would lift the level.dat gates
+      // (a never-started world's toggles would turn live), and an error and a
+      // stale, still-interactive list must never render together.
+      rows = [];
+      levelDat = null;
+      loadError = formatError(res.error);
+    }
     loading = false;
   }
 
@@ -115,8 +148,21 @@
     void reloadToken;
     void serverId;
     rows = [];
+    levelDat = null;
     loadError = null;
     void load();
+  });
+
+  // A server run rewrites the world: a start restores level.dat from
+  // level.dat_old — what the only-old note asks for — and every save rewrites
+  // the pack lists. So the list is read again when the server stops, rather
+  // than only after the user leaves the tab and comes back. `disabled` is the
+  // host's running flag.
+  let wasRunning = untrack(() => disabled);
+  $effect(() => {
+    const running = disabled;
+    if (wasRunning && !running) void load();
+    wasRunning = running;
   });
 
   const updatableCount = $derived(
@@ -125,7 +171,7 @@
   );
 
   function rowAccent(entry: ServerDatapackEntry, key: string): CardAccent {
-    if (!entry.present) return 'danger';
+    if (entry.state === 'ignored') return 'warning';
     const state = updateChecks.get(key);
     if (state?.kind === 'update_available' || state?.kind === 'check_failed') return 'warning';
     return 'none';
@@ -139,7 +185,7 @@
       const res = await commands.serverCheckDatapackUpdates(serverId);
       if (res.status === 'ok') {
         const m = new Map<string, AssetUpdateState>();
-        for (const c of res.data) m.set(c.filename.toLowerCase(), c.state);
+        for (const c of res.data) m.set(c.filename, c.state);
         updateChecks = m;
       } else actionError = formatError(res.error);
     } finally {
@@ -230,7 +276,8 @@
   }
 
   // Enable/disable in level.dat. A ghost row (present === false) never renders
-  // this control — there is no file to enable.
+  // this control — there is no file to enable — and neither does a row the
+  // game ignores: switching it on would change nothing it loads.
   async function toggle(row: ServerDatapackEntry) {
     if (disabled) {
       actionError = $t('servers.mods.stopToManage');
@@ -285,7 +332,7 @@
       class="btn-warning btn-sm"
       data-testid="server-datapacks-update-all"
       busy={updatingAll}
-      disabled={disabled || updatableCount === 0}
+      disabled={disabled || worldBlock !== null || updatableCount === 0}
       onclick={() => void updateAll()}
     >
       {$t('mods.installed.updateAll', { count: updatableCount })}
@@ -294,7 +341,7 @@
       type="button"
       class="btn-secondary btn-sm"
       data-testid="server-open-vt-builder"
-      {disabled}
+      disabled={disabled || worldBlock !== null}
       onclick={() => (vtOpen = true)}
     >
       {$t('addons.datapacks.vt.open')}
@@ -317,6 +364,16 @@
   {/if}
 
   <p class="text-xs text-secondary">{$t('servers.datapacks.note')}</p>
+
+  {#if levelDat === 'absent'}
+    <p class="text-xs text-secondary" data-testid="server-datapacks-level-dat-note">
+      {$t('servers.datapacks.notGenerated')}
+    </p>
+  {:else if levelDat === 'only_old'}
+    <p class="text-xs text-warning-text" data-testid="server-datapacks-level-dat-note">
+      {$t('servers.datapacks.onlyOldLevelDat')}
+    </p>
+  {/if}
 
   {#if loadError}
     <p class="text-sm text-danger" role="alert">{loadError}</p>
@@ -362,51 +419,98 @@
                 <span class="ml-2">{row.record.version_number}</span>
               {/if}
             </div>
+            {#if row.state === 'ignored'}
+              {@const hint = ignoredHintKey(row.ignored_reason)}
+              {#if hint}<p
+                  class="text-xs text-warning-text"
+                  data-testid="server-datapack-ignored-hint"
+                >
+                  {$t(hint)}
+                </p>{/if}
+            {/if}
           </div>
 
+          <!-- Each tooltip rides a wrapping span, so a control disabled by the
+               world's level.dat (D2) still explains itself, keyboard included —
+               the WorldDatapacks shape. -->
           {#if canUpdateRow}
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm btn-icon-warning"
-              disabled={disabled || checkingUpdates || updatingAll || rowBusy}
-              onclick={() => void updateOne(row)}
-              aria-label={$t('addons.installed.update')}
-              use:tooltip={$t('addons.installed.update')}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <span
+              class="inline-flex"
+              tabindex={worldBlock !== null ? 0 : undefined}
+              use:tooltip={{
+                text: worldBlock !== null ? $t(worldBlock) : $t('addons.installed.update'),
+                describe: false,
+              }}
             >
-              <Icon name="refresh" size={15} />
-            </button>
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm btn-icon-warning"
+                data-testid="server-datapack-update"
+                disabled={disabled ||
+                  worldBlock !== null ||
+                  checkingUpdates ||
+                  updatingAll ||
+                  rowBusy}
+                onclick={() => void updateOne(row)}
+                aria-label={$t('addons.installed.update')}
+              >
+                <Icon name="refresh" size={15} />
+              </button>
+            </span>
           {/if}
 
-          {#if row.present}
-            <button
-              type="button"
-              class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
-              {disabled}
-              onclick={() => void toggle(row)}
-              aria-label={row.state === 'enabled'
+          {#if row.present && row.state !== 'ignored'}
+            {@const toggleBlock = serverToggleBlockedKey(levelDat, row.state)}
+            {@const toggleLabel =
+              row.state === 'enabled'
                 ? $t('servers.datapacks.disable')
                 : $t('servers.datapacks.enable')}
-              use:tooltip={row.state === 'enabled'
-                ? $t('servers.datapacks.disable')
-                : $t('servers.datapacks.enable')}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <span
+              class="inline-flex"
+              tabindex={toggleBlock !== null ? 0 : undefined}
+              use:tooltip={{
+                text: toggleBlock !== null ? $t(toggleBlock) : toggleLabel,
+                describe: false,
+              }}
             >
-              <Icon name="power" size={15} />
-            </button>
+              <button
+                type="button"
+                class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
+                data-testid="server-datapack-toggle"
+                disabled={disabled || toggleBlock !== null}
+                onclick={() => void toggle(row)}
+                aria-label={toggleLabel}
+              >
+                <Icon name="power" size={15} />
+              </button>
+            </span>
           {/if}
 
-          <button
-            type="button"
-            class="btn-icon btn-icon-sm btn-icon-danger"
-            {disabled}
-            onclick={() => {
-              actionError = null;
-              pendingRemove = row;
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <span
+            class="inline-flex"
+            tabindex={worldBlock !== null ? 0 : undefined}
+            use:tooltip={{
+              text: worldBlock !== null ? $t(worldBlock) : $t('servers.datapacks.remove'),
+              describe: false,
             }}
-            aria-label={$t('servers.datapacks.remove')}
-            use:tooltip={$t('servers.datapacks.remove')}
           >
-            <Icon name="trash" size={15} />
-          </button>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm btn-icon-danger"
+              data-testid="server-datapack-remove"
+              disabled={disabled || worldBlock !== null}
+              onclick={() => {
+                actionError = null;
+                pendingRemove = row;
+              }}
+              aria-label={$t('servers.datapacks.remove')}
+            >
+              <Icon name="trash" size={15} />
+            </button>
+          </span>
         </CardShell>
       {/each}
     </div>
@@ -414,7 +518,9 @@
 
   {#if pendingRemove}
     <ConfirmDialog
-      title={$t('servers.datapacks.remove')}
+      title={pendingRemove.present
+        ? $t('servers.datapacks.remove')
+        : $t('worlds.datapacks.clearEntry')}
       bodyText={pendingRemove.present
         ? $t('servers.datapacks.removeConfirm', {
             name: pendingRemove.record.name ?? pendingRemove.record.filename,
@@ -422,8 +528,10 @@
         : $t('servers.datapacks.removeGhostConfirm', {
             name: pendingRemove.record.name ?? pendingRemove.record.filename,
           })}
-      confirmLabel={$t('servers.datapacks.remove')}
-      variant="danger"
+      confirmLabel={pendingRemove.present
+        ? $t('servers.datapacks.remove')
+        : $t('worlds.datapacks.clearEntry')}
+      variant={pendingRemove.present ? 'danger' : 'primary'}
       busy={removing}
       error={actionError}
       onCancel={() => (pendingRemove = null)}

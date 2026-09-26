@@ -38,6 +38,7 @@
     installing = false,
     placeholderIcon = 'puzzle',
     installedLabel = null,
+    actionsBlockedReason = null,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -66,7 +67,19 @@
     // vX», never the bare `vX` this card renders for installed mods/assets
     // (the #4083 wrong-belief hazard — slice-2 design §6).
     installedLabel?: string | null;
+    // Why no action on this card can run right now, or null. Set, every
+    // action button is disabled under one wrapper whose tooltip gives the
+    // reason (a disabled button fires no pointer events — DESIGN.md §5), and
+    // the context menu shows it under each item. Details stays open. The
+    // server data pack catalog sets it for a world with only level.dat_old,
+    // which refuses every add, switch and removal.
+    actionsBlockedReason?: string | null;
   } = $props();
+
+  const blocked = $derived(actionsBlockedReason !== null);
+  const blockedMenu = $derived(
+    blocked ? { disabled: true, disabledReason: actionsBlockedReason ?? undefined } : {},
+  );
 
   const crossPlatform = $derived(
     summary !== null &&
@@ -133,14 +146,24 @@
 
   // Context menu (right-click / Shift+F10) — the full action set.
   const menuItems = $derived.by((): ContextMenuItem[] => {
-    if (!installed) return [{ label: $t('common.install'), icon: 'download', onSelect: onInstall }];
+    if (!installed)
+      return [
+        { label: $t('common.install'), icon: 'download', onSelect: onInstall, ...blockedMenu },
+      ];
     const out: ContextMenuItem[] = [];
-    if (hasUpdate) out.push({ label: $t('mods.card.update'), icon: 'refresh', onSelect: onUpdate });
+    if (hasUpdate)
+      out.push({
+        label: $t('mods.card.update'),
+        icon: 'refresh',
+        onSelect: onUpdate,
+        ...blockedMenu,
+      });
     if (canToggle)
       out.push({
         label: installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable'),
         icon: 'power',
         onSelect: onToggle,
+        ...blockedMenu,
       });
     if (summary) out.push({ label: $t('mods.card.details'), icon: 'info', onSelect: onOpenDetail });
     out.push({
@@ -149,6 +172,7 @@
       danger: true,
       separatorBefore: out.length > 0,
       onSelect: onUninstall,
+      ...blockedMenu,
     });
     return out;
   });
@@ -159,11 +183,30 @@
 </script>
 
 {#snippet iconActions()}
+  {#if blocked}
+    <!-- One focusable wrapper names why every action is off; the buttons keep
+         their own aria-labels. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <span
+      class="inline-flex items-center gap-1"
+      tabindex="0"
+      data-testid="card-actions-blocked"
+      use:tooltip={{ text: actionsBlockedReason ?? '', describe: false }}
+    >
+      {@render actionButtons()}
+    </span>
+  {:else}
+    {@render actionButtons()}
+  {/if}
+{/snippet}
+
+{#snippet actionButtons()}
   {#if installed}
     {#if hasUpdate}
       <button
         type="button"
         class="btn-icon btn-icon-sm btn-icon-warning"
+        disabled={blocked}
         onclick={onUpdate}
         aria-label={$t('mods.card.update')}
         use:tooltip={$t('mods.card.update')}><Icon name="refresh" size={15} /></button
@@ -173,6 +216,7 @@
       <button
         type="button"
         class={`btn-icon btn-icon-sm ${installed.enabled ? 'btn-icon-success' : '!text-muted'}`}
+        disabled={blocked}
         onclick={onToggle}
         aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
         use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
@@ -182,6 +226,7 @@
     <button
       type="button"
       class="btn-icon btn-icon-sm btn-icon-danger"
+      disabled={blocked}
       onclick={onUninstall}
       aria-label={$t('mods.card.uninstall')}
       use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
@@ -191,7 +236,7 @@
       type="button"
       class="btn-icon btn-icon-sm !text-accent"
       onclick={onInstall}
-      disabled={installing}
+      disabled={installing || blocked}
       aria-label={$t('common.install')}
       use:tooltip={$t('common.install')}
     >

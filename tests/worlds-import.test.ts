@@ -20,6 +20,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     recoverStrandedWorld: vi.fn(),
+    // The 1.13 datapack gate for the detail dialog's Datapacks tab.
+    instanceSupportsDatapacks: vi.fn().mockResolvedValue({ status: 'ok', data: true }),
     worldImport: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { folder_name: 'Skyblock', size_bytes: 1024, modified_unix_ms: 1, backup_count: 0 },

@@ -16,8 +16,18 @@ use crate::mods::platform::ModSource;
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct VtInstallOutcome {
     pub filename: String,
+    /// The pack's display name: the installed row's name, so a warning names
+    /// the pack the way its list does; the filename when the install failed
+    /// (there is no row) or the server row carries no name.
+    pub name: String,
     pub installed: bool,
     pub error: Option<String>,
+    /// An instance install's same-name fan-out (`LibraryInstall.refreshed`):
+    /// what it did to each world holding this filename (refreshed, skipped as
+    /// not ours, or failed). Empty when no world holds the name and `saves/`
+    /// was listable. Always empty for a server install, which has one world
+    /// and no fan-out.
+    pub refreshed: Vec<crate::datapacks::WorldMigration>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -100,15 +110,21 @@ pub async fn vt_install_to_instance(
         )
         .await;
         outcomes.push(match res {
-            Ok(_) => VtInstallOutcome {
-                filename,
+            // The name the install wrote (N.5 may have normalised it), which
+            // is the one the world picker must add.
+            Ok(install) => VtInstallOutcome {
+                filename: install.pack.filename,
+                name: install.pack.name,
                 installed: true,
                 error: None,
+                refreshed: install.refreshed,
             },
             Err(e) => VtInstallOutcome {
+                name: filename.clone(),
                 filename,
                 installed: false,
                 error: Some(e.to_string()),
+                refreshed: Vec::new(),
             },
         });
     }
@@ -135,6 +151,11 @@ pub async fn vt_install_to_server(
     let family = family_for(&file.mc_version).ok_or_else(|| Error::VanillaTweaksUnavailable {
         mc_version: file.mc_version.clone(),
     })?;
+    // D2 for the whole call, before the bundle is downloaded. An only-old
+    // world would refuse every pack, and each refusal would reach the report
+    // as an untranslated `e.to_string()`. After the version gate above, per
+    // the spec's check order (§0.5 A7).
+    crate::servers_runtime::datapacks::refuse_only_old(&world)?;
 
     let packs = crate::network::throttle::with_interactive(vanillatweaks::build_selection(
         &family, &selection,
@@ -152,15 +173,20 @@ pub async fn vt_install_to_server(
         )
         .await;
         outcomes.push(match res {
-            Ok(_) => VtInstallOutcome {
-                filename,
+            // The name the install wrote (N.5 may have normalised it).
+            Ok(record) => VtInstallOutcome {
+                name: record.name.unwrap_or_else(|| record.filename.clone()),
+                filename: record.filename,
                 installed: true,
                 error: None,
+                refreshed: Vec::new(),
             },
             Err(e) => VtInstallOutcome {
+                name: filename.clone(),
                 filename,
                 installed: false,
                 error: Some(e.to_string()),
+                refreshed: Vec::new(),
             },
         });
     }

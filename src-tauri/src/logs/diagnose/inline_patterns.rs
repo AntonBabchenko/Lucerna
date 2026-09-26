@@ -106,6 +106,18 @@ static SERVER_PORT_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("regex compiles — covered by `inline_regexes_compile`")
 });
 
+// The lines the game LOGS when a world's data can't load — never the on-screen
+// text ("Errors in currently selected datapacks…" is `datapackFailure.title` in
+// en_us.json and is not logged). Read with javap in 1.20.1, 1.21.1, 1.21.11 and
+// 26.2: the client's WorldOpenFlows (create, open, optimize) and the dedicated
+// server's Main (the --safeMode line). Spec 2026-09-24 §4 U6.
+static DATAPACK_LOAD_FAILED_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"Failed to load (?:level data or )?datapacks, can't (?:proceed with server load|optimize world)",
+    )
+    .expect("regex compiles — covered by `inline_regexes_compile`")
+});
+
 // --- The inline-only knowledge base --------------------------------
 
 pub const INLINE_PATTERNS: &[Pattern] = &[
@@ -186,15 +198,20 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
     },
     Pattern {
         id: "datapack-load-failed",
-        matcher: Matcher::Substring(
-            "Errors in currently selected datapacks prevented the world from loading",
-        ),
-        title: "Datapacks blocked the world from loading",
-        explanation: "A datapack in this world is broken or was made for a different \
-             Minecraft version, so the world refused to load.",
-        recommendation: "Remove or update the offending datapack in the world's datapacks \
-             folder. Choosing 'safe mode' when Minecraft offers it disables \
-             them temporarily.",
+        matcher: Matcher::Regex(&DATAPACK_LOAD_FAILED_RE),
+        title: "This world's data packs failed to load",
+        explanation: "Minecraft couldn't load the data this world needs: a file inside a data \
+             pack, or in a mod's built-in data, which loads the same way, could not be read. \
+             A pack's format number alone never blocks loading, but content written for \
+             another version often can't be read. The error lines just above this one name \
+             the file.",
+        recommendation: "Find the file in the error lines above; the part of its name before \
+             the colon is its namespace. If a data pack in this world's Datapacks tab (or the \
+             server's) owns the namespace, switch it off or remove it there; if a mod owns it, \
+             update or remove the mod. Don't treat Safe Mode (the game's button, or --safeMode \
+             on a server) as a fix: it loads vanilla data only, and a world saved in Safe Mode \
+             forgets which packs you had switched off, so the next normal load turns every \
+             pack in its folder back on, the broken one included.",
         source_hint: SourceHint::Any,
         side: Side::Any,
     },
@@ -577,6 +594,22 @@ mod tests {
                 p.title
             );
         }
+    }
+
+    #[test]
+    fn the_datapack_hint_points_above_and_never_blames_the_format() {
+        let p = INLINE_PATTERNS
+            .iter()
+            .find(|p| p.id == "datapack-load-failed")
+            .expect("the pattern exists");
+        // The game names the file in the ERROR block ABOVE the matched WARN line.
+        for s in [p.explanation, p.recommendation] {
+            assert!(s.contains("above") && !s.contains("below"), "{s}");
+        }
+        // An out-of-range pack_format is never refused (engine truth).
+        assert!(!p.explanation.contains("different Minecraft version"));
+        // Saving in Safe Mode clears Disabled, so every pack comes back on.
+        assert!(p.recommendation.contains("forgets which packs"));
     }
 
     #[test]

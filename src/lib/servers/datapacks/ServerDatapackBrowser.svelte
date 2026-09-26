@@ -63,12 +63,20 @@
     // picker with the local default.
     source = $bindable<ModSource>('modrinth'),
     showSourcePicker = true,
+    blockedReason = null,
   }: {
     serverId: string;
     mcVersion: string;
     onInstalled: () => void;
     source?: ModSource;
     showSourcePicker?: boolean;
+    /**
+     * Why the world takes no data pack change right now (a world with only
+     * level.dat_old), or null. Every card action and the detail's Install are
+     * then off and say why; browsing and reading stay open. The host words
+     * it — it owns the one level.dat read.
+     */
+    blockedReason?: string | null;
   } = $props();
 
   let sort = $state<ModSort>('downloads');
@@ -210,6 +218,7 @@
   }
 
   async function install(card: ModSummary): Promise<void> {
+    if (blockedReason !== null) return;
     installing.add(card.project_id);
     error = null;
     try {
@@ -257,12 +266,15 @@
     const res = await commands.serverListDatapacks(serverId);
     if (res.status !== 'ok') return; // best-effort; leave the map as-is
     const m = new Map<string, ServerDatapackEntry>();
-    for (const e of res.data) {
+    for (const e of res.data.entries) {
       // A ghost (level.dat names it, the file is gone) is not installed — the
       // installed pane deliberately offers it no toggle either. Rendering it
       // as "Installed" here would draw a live enable/disable control that,
-      // on click, flips a level.dat entry for a file that does not exist.
-      if (e.present && e.record.source && e.record.project_id) {
+      // on click, flips a level.dat entry for a file that does not exist —
+      // and an entry the game ignores is not installed either (§0.5 A22). One
+      // Lucerna could not read is "could not tell", not ignored (Fallback Q2).
+      const ignored = e.state === 'ignored' && e.ignored_reason !== 'unreadable';
+      if (e.present && !ignored && e.record.source && e.record.project_id) {
         m.set(`${e.record.source}:${e.record.project_id}`, e);
       }
     }
@@ -304,6 +316,7 @@
   // runs (surfaces via `error`), consistent with install already behaving that
   // way on this tab — no extra gating needed.
   async function toggleInstalled(card: ModSummary): Promise<void> {
+    if (blockedReason !== null) return;
     const e = installedByKey.get(`${card.source}:${card.project_id}`);
     if (!e) return;
     const res = await commands.serverSetDatapackEnabled(
@@ -320,6 +333,7 @@
   }
 
   async function uninstallInstalled(card: ModSummary): Promise<void> {
+    if (blockedReason !== null) return;
     const e = installedByKey.get(`${card.source}:${card.project_id}`);
     if (!e) return;
     const res = await commands.serverRemoveDatapack(serverId, e.record.filename);
@@ -435,6 +449,7 @@
       onOpenDetail={(h) => (detail = h)}
       onToggle={(h) => void toggleInstalled(h)}
       onUninstall={(h) => void uninstallInstalled(h)}
+      actionsBlockedReason={blockedReason}
     />
     <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
       <Pagination {page} {pageCount} disabled={loading} {onPage} />
@@ -450,6 +465,7 @@
     loadProject={() => commands.modsProject(d.source, d.project_id)}
     loadVersions={() => loadDetailVersions(d.source, d.project_id)}
     installVersion={installDetailVersion}
+    installBlockedReason={blockedReason}
     externalOf={(v) => externalOf(d, v)}
     openExternal={openUrl}
     projectUrl={modProjectUrl(d.source, d.slug ?? d.project_id, d.author)}

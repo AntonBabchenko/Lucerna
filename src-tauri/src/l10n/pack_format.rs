@@ -54,9 +54,9 @@
 //! which JSON shape produced it, still renders correctly.
 //!
 //! A third shape, older still: pre-divergence jars carry `pack_version` as a
-//! bare integer (see `datapacks::compat::parse_pack_version`, which reads
-//! this same shape for the *data* side). This module reads it too, as the
-//! resource format directly — INFERRED, not verified against a real jar
+//! bare integer (see `datapacks::compat::pack_version`, the shared reader
+//! this module delegates to, which reads this same shape for the *data* side
+//! too). This module reads it as the resource format directly — INFERRED, not verified against a real jar
 //! (nothing this old was available to check), but the inference is safe for
 //! a reason the two-key shapes above are not: a bare integer is *by
 //! construction* from the era when resource and data shared one number, so
@@ -138,41 +138,13 @@ pub fn supports_apply(fmt: PackFormat) -> bool {
 /// guess.
 pub fn parse_version_json(body: &[u8]) -> Option<PackFormat> {
     let v: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let pack_version = v.get("pack_version")?;
-
-    if let Some(major) = pack_version.get("resource_major").and_then(|n| n.as_u64()) {
-        // ≥ resource format 65: `resource_minor` is absent only if a caller
-        // hand-built this JSON — every jar verified against carries it — so
-        // defaulting to 0 costs nothing on real input and keeps this branch
-        // from rejecting a value it could otherwise read correctly.
-        let minor = pack_version
-            .get("resource_minor")
-            .and_then(|n| n.as_u64())
-            .unwrap_or(0);
-        return Some(PackFormat {
-            major: u32::try_from(major).ok()?,
-            minor: u32::try_from(minor).ok()?,
-        });
-    }
-
-    if let Some(major) = pack_version.get("resource").and_then(|n| n.as_u64()) {
-        return Some(PackFormat {
-            major: u32::try_from(major).ok()?,
-            minor: 0,
-        });
-    }
-
-    // Pre-divergence jars: `pack_version` is a bare integer that served as
-    // BOTH the resource and data format before the two could disagree — see
-    // the module docs for why that makes this branch safe despite being
-    // unverified against a real jar. `.get(...)` on a bare `Value::Number`
-    // already returned `None` for both keys above, so reaching here means
-    // `pack_version` is either that bare number or something unrecognised
-    // (string/array/object-without-either-key); `.as_u64()` sorts the two.
-    let major = pack_version.as_u64()?;
+    let f = crate::datapacks::compat::pack_version(
+        v.get("pack_version")?,
+        crate::datapacks::format::PackSide::Resource,
+    )?;
     Some(PackFormat {
-        major: u32::try_from(major).ok()?,
-        minor: 0,
+        major: f.major,
+        minor: f.minor,
     })
 }
 
@@ -189,7 +161,7 @@ pub fn from_client_jar(jar_bytes: &[u8]) -> PackFormat {
 /// Read the format out of an instance's client jar FILE at `path`, without
 /// loading the whole jar into memory — only the central directory and the
 /// (tiny) `version.json` entry are read, mirroring
-/// `datapacks::compat::expected_data_format` (which reads the same jar for
+/// `datapacks::compat::game_data_format` (which reads the same jar for
 /// the datapack format). [`PackFormat::UNKNOWN`] on any failure: missing or
 /// unreadable file, not a zip, absent `version.json`, or an unrecognised
 /// `pack_version` shape — never a panic, never a guess.

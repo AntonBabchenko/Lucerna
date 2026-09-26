@@ -16,7 +16,7 @@
 //!   longer holds the old filename.
 //!
 //! The per-world half (delete-old-entry, three-case enabled reading,
-//! `forget_ci`, identity verification) lives in
+//! `forget_with_case_ghosts`, identity verification) lives in
 //! [`world_link::migrate_placements`], which takes `level_dat_lock` itself —
 //! see its doc for why it cannot be composed from the public entry points.
 
@@ -60,31 +60,48 @@ pub async fn update_at(
         // already carries the new version_id (so the update check will answer
         // UpToDate and never re-offer), and the failed world sits on stale
         // bytes. `completed: false` is the only surface that can tell the
-        // user, and it must behave exactly like the renamed branch's
-        // per-world failure.
-        let failed = install
-            .refreshed
-            .iter()
-            .any(|m| matches!(m, WorldMigration::Failed { .. }));
+        // user which worlds those are.
+        //
+        // Unlike the renamed branch below, nothing is kept for a retry: the
+        // library file was replaced in place. A re-run would compare the
+        // world's stale copy with the NEW library bytes, find it foreign and
+        // skip it (`SkippedNotOurs`), so it cannot finish the job. Hence
+        // `old_copy_kept: false`, which tells the UI not to promise a retry.
+        let failed = install.refreshed.iter().any(WorldMigration::is_failure);
         return Ok(DatapackUpdateOutcome {
             pack: install.pack,
             migrations: install.refreshed,
             completed: !failed,
+            old_copy_kept: false,
         });
     }
 
     let install =
         library::install_named_at(instance_root, new_filename, bytes, Some(provenance)).await?;
+    // N.5: the install may have normalised the name (`X.ZIP` → `X.zip`); the
+    // worlds must link the name it actually wrote.
+    let new_name = install.pack.filename.clone();
     // `install.refreshed` covers worlds that already held the NEW name (rare,
     // but a re-run after a partial failure lands here); the migration below
     // covers worlds still on the OLD name. Together they are the full
     // per-world report, and a failure in EITHER half blocks the cleanup step.
     let mut migrations = install.refreshed;
-    migrations
-        .extend(world_link::migrate_placements(instance_root, old_filename, new_filename).await);
-    let failed = migrations
-        .iter()
-        .any(|m| matches!(m, WorldMigration::Failed { .. }));
+    // `Err`: no world could be checked (`saves/` or the old library copy is
+    // unreadable). The new library file and its row are already written, so
+    // this is an incomplete update, not a failed one: one `WorldsUnchecked`
+    // entry says so, both library rows stay, and a retry converges (as
+    // `refresh_placements` reports a `saves/` it cannot list).
+    match world_link::migrate_placements(instance_root, old_filename, &new_name).await {
+        Ok(moved) => migrations.extend(moved),
+        Err(e) => {
+            crate::diag!(
+                "datapacks: update of {old_filename} to {new_name} could not check the worlds; \
+                 none was moved: {e}"
+            );
+            migrations.push(WorldMigration::WorldsUnchecked { error: e });
+        }
+    }
+    let failed = migrations.iter().any(WorldMigration::is_failure);
 
     if failed {
         // No rollback (§8.5). The old library file also cannot be cleaned up
@@ -95,6 +112,7 @@ pub async fn update_at(
             pack: install.pack,
             migrations,
             completed: false,
+            old_copy_kept: true,
         });
     }
 
@@ -103,6 +121,7 @@ pub async fn update_at(
         pack: install.pack,
         migrations,
         completed: true,
+        old_copy_kept: false,
     })
 }
 
@@ -148,7 +167,7 @@ mod tests {
     }
 
     async fn seed_world(root: &Path, world: &str, filename: &str) {
-        std::fs::create_dir_all(world_dir(root, world)).unwrap();
+        world_link::test_util::game_world(root, world);
         world_link::add_to_world_at(root, world, filename)
             .await
             .unwrap();
@@ -294,12 +313,55 @@ mod tests {
             "a failed world refresh must not report a completed update"
         );
         assert!(
+            !out.old_copy_kept,
+            "the library file was replaced in place: no old copy is left for a \
+             retry, and the UI must not promise one"
+        );
+        assert!(
             matches!(
                 out.migrations.as_slice(),
                 [WorldMigration::Failed { world, .. }] if world == "Alpha"
             ),
             "got {:?}",
             out.migrations
+        );
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
+    }
+
+    /// The same-name counterpart of the renamed case above, and the one that
+    /// runs on every platform: the library file is replaced in place, so no
+    /// old copy survives for a retry, and the outcome must say so. The UI
+    /// reads `old_copy_kept` to decide whether it may promise that a retry
+    /// can finish.
+    #[tokio::test]
+    async fn a_same_name_update_that_cannot_list_saves_keeps_no_old_copy() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        std::fs::create_dir_all(td.path().join(".minecraft")).unwrap();
+        std::fs::write(td.path().join(".minecraft").join("saves"), b"a file").unwrap();
+
+        let out = update_at(td.path(), "vm.zip", "vm.zip", &v2_zip(), &prov("v2"))
+            .await
+            .expect("the new copy is installed; the refresh is only incomplete");
+
+        assert!(!out.completed, "{:?}", out.migrations);
+        // One entry saying the worlds could not be listed — not a "world"
+        // named after the `saves` folder — carrying the typed cause.
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        assert_eq!(wire.as_array().map(Vec::len), Some(1), "{wire}");
+        assert_eq!(wire[0]["kind"], "worlds_unchecked", "{wire}");
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
+        assert!(
+            !out.old_copy_kept,
+            "the library already holds the new bytes; no old copy was kept"
+        );
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks/vm.zip")).unwrap(),
+            v2_zip()
         );
     }
 
@@ -321,6 +383,10 @@ mod tests {
             .unwrap();
 
         assert!(out.completed);
+        assert!(
+            !out.old_copy_kept,
+            "a completed update removed the old copy"
+        );
         assert!(
             !td.path().join("datapacks/vm-1.zip").exists(),
             "the old library file must be gone after a completed update"
@@ -385,6 +451,7 @@ mod tests {
             .unwrap();
 
         assert!(!out.completed);
+        assert!(out.old_copy_kept, "the retry needs the old copy");
         assert!(
             out.migrations
                 .iter()
@@ -418,6 +485,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_update_is_not_blocked_by_a_folder_without_level_dat() {
+        // §0.5 A3: a folder under saves/ with neither level file is not a world
+        // to the game. The update moves the FILE there and never reads or
+        // writes a level.dat; otherwise the library row could never be updated.
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        let loose = world_dir(td.path(), "Loose");
+        std::fs::create_dir_all(loose.join("datapacks")).unwrap();
+        std::fs::write(loose.join("datapacks/vm-1.zip"), v1_zip()).unwrap();
+
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.zip", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+
+        assert!(out.completed, "got {:?}", out.migrations);
+        assert_eq!(
+            out.migrations,
+            vec![WorldMigration::Relinked {
+                world: "Loose".into(),
+            }],
+            "no level file was read, so no enabled state may be claimed"
+        );
+        assert_eq!(
+            std::fs::read(loose.join("datapacks/vm-2.zip")).unwrap(),
+            v2_zip()
+        );
+        assert!(!loose.join("datapacks/vm-1.zip").exists());
+        assert!(
+            !loose.join("level.dat").exists(),
+            "the folder must not be made into a world"
+        );
+        assert!(!td.path().join("datapacks/vm-1.zip").exists());
+    }
+
+    #[tokio::test]
     async fn an_unsafe_old_filename_is_rejected_at_the_boundary() {
         let td = tempfile::tempdir().unwrap();
         let err = update_at(td.path(), "../escape.zip", "vm.zip", &v2_zip(), &prov("v2"))
@@ -427,5 +532,96 @@ mod tests {
             matches!(err, Error::ModsUnsafeFilename { .. }),
             "got {err:?}"
         );
+    }
+
+    /// N.5: the migration links the name the install actually wrote.
+    #[tokio::test]
+    async fn a_renamed_update_to_an_upper_case_name_links_the_normalised_file() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        seed_world(td.path(), "Alpha", "vm-1.zip").await;
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.ZIP", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+        assert!(out.completed, "{:?}", out.migrations);
+        assert_eq!(out.pack.filename, "vm-2.zip");
+        let names: Vec<String> = std::fs::read_dir(world_dir(td.path(), "Alpha").join("datapacks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["vm-2.zip"]);
+    }
+
+    /// Fallback Q1: a world whose `datapacks/` could not be listed is not "a
+    /// world without the old pack". The update does not complete, and the OLD
+    /// library copy stays, so a retry converges once the world can be read.
+    #[tokio::test]
+    async fn a_world_that_cannot_be_checked_leaves_the_update_incomplete() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        seed_world(td.path(), "Alpha", "vm-1.zip").await;
+        let locked = world_link::test_util::game_world(td.path(), "Locked");
+        std::fs::write(locked.join("datapacks"), b"a file, not a folder").unwrap();
+
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.zip", &v2_zip(), &prov("v2"))
+            .await
+            .unwrap();
+
+        assert!(!out.completed, "{:?}", out.migrations);
+        assert!(
+            out.migrations
+                .iter()
+                .any(|m| matches!(m, WorldMigration::Failed { world, .. } if world == "Locked")),
+            "{:?}",
+            out.migrations
+        );
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        let locked = wire
+            .as_array()
+            .and_then(|a| a.iter().find(|m| m["world"] == "Locked"))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(locked["error"]["kind"], "io", "{wire}");
+        assert!(
+            td.path().join("datapacks").join("vm-1.zip").exists(),
+            "the old library copy stays for a retry"
+        );
+    }
+
+    /// When no world can be checked at all (`saves/` cannot be listed), the
+    /// new library file and its row are already written. That is an
+    /// incomplete update with both copies kept, reported as one `Failed`
+    /// entry, never an error that makes callers say "not installed".
+    #[tokio::test]
+    async fn an_update_that_cannot_list_saves_is_incomplete_not_an_error() {
+        let _lock = crate::test_env_lock();
+        let td = tempfile::tempdir().unwrap();
+        library::install_named_at(td.path(), "vm-1.zip", &v1_zip(), Some(&prov("v1")))
+            .await
+            .unwrap();
+        std::fs::create_dir_all(td.path().join(".minecraft")).unwrap();
+        std::fs::write(td.path().join(".minecraft").join("saves"), b"a file").unwrap();
+
+        let out = update_at(td.path(), "vm-1.zip", "vm-2.zip", &v2_zip(), &prov("v2"))
+            .await
+            .expect("the new copy is installed; the update is only incomplete");
+
+        assert!(!out.completed);
+        assert!(out.old_copy_kept);
+        // One entry saying the worlds could not be listed — not a "world"
+        // named after the `saves` folder — carrying the typed cause.
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        assert_eq!(wire.as_array().map(Vec::len), Some(1), "{wire}");
+        assert_eq!(wire[0]["kind"], "worlds_unchecked", "{wire}");
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
+        assert_eq!(out.pack.filename, "vm-2.zip");
+        assert!(td.path().join("datapacks").join("vm-1.zip").exists());
+        assert!(td.path().join("datapacks").join("vm-2.zip").exists());
     }
 }

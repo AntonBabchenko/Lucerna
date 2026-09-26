@@ -67,6 +67,39 @@ fn server_started(log: &str) -> bool {
     log.contains("! For help, type")
 }
 
+/// The server could not load the world's data — not merely a `level.dat` it
+/// recovered from on its own.
+///
+/// When `level.dat` cannot be read, the dedicated server (1.20.5+, `Main`)
+/// logs `Failed to load world data from <level.dat>` and `Attempting to use
+/// fallback`, then reads `level.dat_old`, restores `level.dat` from it and
+/// goes on starting. That is the normal restore of a world left with only
+/// `level.dat_old` — the very one the launcher's own note asks the user to
+/// run by starting the server — and nothing is corrupt. Only when the
+/// fallback fails too does the server log a second `Failed to load world
+/// data from <level.dat_old>` after the fallback line, then `… World files
+/// may be corrupted. Shutting down.` (26.x: `Failed to load world data.
+/// World files may be corrupted. …`). Verified in the 1.21.1 and 26.2 server
+/// strings. A failure logged with no fallback line at all (another path, an
+/// older server) still counts.
+fn world_load_failed(log: &str) -> bool {
+    const FAILED: &str = "Failed to load world";
+    if !log.contains(FAILED) {
+        return false;
+    }
+    if log.contains("World files may be corrupted") {
+        return true;
+    }
+    match log.rfind("Attempting to use fallback") {
+        // Recovered only when the server evidently came up after the
+        // fallback line and no second failure followed it. A log that stops
+        // there (a crash the fallback does not catch, a killed process) could
+        // not tell, so it keeps the advisory.
+        Some(at) => log[at..].contains(FAILED) || !server_started(&log[at..]),
+        None => true,
+    }
+}
+
 /// First matching server-log diagnosis, if any. Order = specificity.
 pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
     // NOTE: the client-only-mod check is deliberately NOT first. The bare
@@ -156,7 +189,7 @@ pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
         });
     }
     // B12: world corruption — ADVISORY ONLY (data-loss risk). No fix button.
-    if log.contains("Failed to load world")
+    if world_load_failed(log)
         || log.contains("corrupt chunk")
         || (log.contains("Chunk file at")
             && (log.contains("is missing") || log.contains("corrupt")))
@@ -1177,6 +1210,99 @@ mod tests {
         let benign =
             "[Server thread/WARN]: Chunk file at 0, 0 has been saved with a mismatched level\n";
         assert!(diagnose_server_log(benign).is_none());
+    }
+
+    /// A real 1.21.1 dedicated-server log (trimmed stack trace): the world had
+    /// only `level.dat_old` left, the server read it instead, restored
+    /// `level.dat` from it and started. Nothing is corrupt — this is the very
+    /// restore the launcher's own only-old note tells the user to run.
+    const LEVEL_DAT_FALLBACK_RECOVERED: &str = r#"[15:18:32] [ServerMain/WARN]: Failed to load world data from .\world\level.dat
+java.nio.file.NoSuchFileException: .\world\level.dat
+	at java.base/sun.nio.fs.WindowsException.translateToIOException(WindowsException.java:85) ~[?:?]
+	at java.base/java.nio.file.Files.newInputStream(Files.java:160) ~[?:?]
+	at uo.a(SourceFile:34) ~[server-1.21.1.jar:?]
+	at net.minecraft.server.Main.main(SourceFile:143) ~[server-1.21.1.jar:?]
+[15:18:32] [ServerMain/INFO]: Attempting to use fallback
+[15:18:33] [ServerMain/WARN]: Missing data pack file/lib-new.zip
+[15:18:40] [Server thread/INFO]: Preparing level "world"
+[15:18:45] [Server thread/INFO]: Done (4.943s)! For help, type "help"
+[15:18:55] [Server thread/INFO]: Stopping the server
+"#;
+
+    /// The same start when `level.dat_old` could not be read either: the
+    /// server logs the second failure after the fallback line and shuts down.
+    /// The lines are the 1.21.1 server's own (`Main`); 26.x words the last one
+    /// "Failed to load world data. World files may be corrupted. Shutting down."
+    const LEVEL_DAT_FALLBACK_FAILED: &str = r#"[ServerMain/WARN]: Failed to load world data from .\world\level.dat
+java.nio.file.NoSuchFileException: .\world\level.dat
+[ServerMain/INFO]: Attempting to use fallback
+[ServerMain/ERROR]: Failed to load world data from .\world\level.dat_old
+net.minecraft.nbt.NbtException: Invalid tag id: 99
+[ServerMain/ERROR]: Failed to load world data from .\world\level.dat and .\world\level.dat_old. World files may be corrupted. Shutting down.
+"#;
+
+    #[test]
+    fn world_corruption_negative_on_a_level_dat_fallback_the_server_recovered_from() {
+        assert!(
+            diagnose_server_log(LEVEL_DAT_FALLBACK_RECOVERED).is_none(),
+            "{:?}",
+            diagnose_server_log(LEVEL_DAT_FALLBACK_RECOVERED).map(|d| d.pattern_id)
+        );
+    }
+
+    #[test]
+    fn detects_world_corruption_when_the_level_dat_fallback_fails_too() {
+        let d = diagnose_server_log(LEVEL_DAT_FALLBACK_FAILED).unwrap();
+        assert_eq!(d.pattern_id, "server-world-corrupt");
+        let v26 = LEVEL_DAT_FALLBACK_FAILED.replace(
+            "Failed to load world data from .\\world\\level.dat and .\\world\\level.dat_old.",
+            "Failed to load world data.",
+        );
+        assert_eq!(
+            diagnose_server_log(&v26).unwrap().pattern_id,
+            "server-world-corrupt"
+        );
+        // Cut off before the shutdown line (a killed process, a fork wording
+        // it differently): the old file's failure after the fallback line is
+        // proof enough that the fallback did not recover the world.
+        let cut = LEVEL_DAT_FALLBACK_FAILED
+            .lines()
+            .filter(|l| !l.contains("World files may be corrupted"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            diagnose_server_log(&cut).unwrap().pattern_id,
+            "server-world-corrupt"
+        );
+    }
+
+    #[test]
+    fn a_fallback_the_server_never_got_past_still_counts_as_a_failed_world_load() {
+        // Cut right after the fallback line: a crash reading level.dat_old
+        // that the fallback does not catch, or a killed process. Neither file
+        // loaded, and nothing says the world came up, so the advisory stays.
+        let cut: String = LEVEL_DAT_FALLBACK_RECOVERED
+            .lines()
+            .take_while(|l| !l.contains("Missing data pack"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert!(cut.contains("Attempting to use fallback"));
+        assert!(!cut.contains("For help, type"));
+        assert_eq!(
+            diagnose_server_log(&cut).map(|d| d.pattern_id),
+            Some("server-world-corrupt".to_string())
+        );
+    }
+
+    #[test]
+    fn a_recovered_level_dat_fallback_does_not_hide_a_corrupt_chunk() {
+        let log = format!(
+            "{LEVEL_DAT_FALLBACK_RECOVERED}[Server thread/ERROR]: Chunk file at [3, -1] is missing level data, skipping\n"
+        );
+        assert_eq!(
+            diagnose_server_log(&log).unwrap().pattern_id,
+            "server-world-corrupt"
+        );
     }
     #[test]
     fn detects_session_lock() {

@@ -1,19 +1,12 @@
-<script module lang="ts">
-  // Session-lived answers for the 1.13 datapack gate, keyed by instanceId
-  // and mcVersion joined with a newline — a character that can appear in
-  // neither half, so the key can never be ambiguous. Module-level so it
-  // survives the remount AddonsTab goes through on every top-level tab
-  // switch — see the supportsDatapacks effect for why that matters.
-  const supportsDatapacksCache = new Map<string, boolean>();
-</script>
-
 <script lang="ts">
   import type {
     CompatVerdict,
     ContentKind,
     DatapackPlacementView,
+    DatapackWorldView,
     InstalledMod,
     ModSource,
+    PackCompat,
   } from '$lib/ipc/bindings';
   import {
     modBrowseOpenProject,
@@ -45,6 +38,13 @@
   import { commands, events } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { libraryReadSucceeded, warnLibraryReadBlockedPicker } from './datapack-library-warning';
+  import { warnFailedRefresh } from './datapack-refresh-warning';
+  import {
+    cachedDatapackSupport,
+    rememberDatapackSupport,
+    resolveDatapackSupport,
+  } from './datapack-support';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { canInstallMods } from './install-eligibility';
   import { get } from 'svelte/store';
@@ -144,7 +144,7 @@
   // changes), so an id-only dependency would leave the gate stale after a
   // 1.21 → 1.12.2 downgrade with the tab still mounted.
   //
-  // The module-level cache (below the component in module context) kills the
+  // The module-level cache in `datapack-support.ts` kills the
   // paint-then-vanish flash: AddonsTab remounts on every top-level tab
   // switch, and without a remembered answer a pre-1.13 instance would render
   // the Data packs tab for one frame on EVERY visit before the IPC answer
@@ -159,13 +159,11 @@
       supportsDatapacks = true;
       return;
     }
-    const key = `${id}\n${mc ?? ''}`;
-    supportsDatapacks = supportsDatapacksCache.get(key) ?? true;
+    supportsDatapacks = cachedDatapackSupport(id, mc);
     void (async () => {
-      const r = await commands.instanceSupportsDatapacks(id);
+      const v = await resolveDatapackSupport(id);
       if (instanceId !== id || mcVersion !== mc) return;
-      const v = r.status === 'ok' ? r.data : true;
-      supportsDatapacksCache.set(key, v);
+      rememberDatapackSupport(id, mc, v);
       supportsDatapacks = v;
     })();
   });
@@ -408,22 +406,38 @@
     filename: string;
     packName: string;
     placements: DatapackPlacementView[];
+    worlds: DatapackWorldView[];
+    compat: PackCompat | null;
   } | null>(null);
+  // The picker belongs to the instance it was opened for. Left open across a
+  // switch, its Apply would add the old instance's pack to the NEW instance's
+  // worlds, so an instance change closes it.
+  $effect(() => {
+    void instanceId;
+    return () => {
+      datapackPickerTarget = null;
+    };
+  });
 
   // Local datapack zips (file picker + drag-drop) go into the instance's
   // LIBRARY; the world picker then opens ONCE per batch, targeting the last
   // successful install (a multi-zip drop is rare, and each pack stays
   // reachable through the library screen's own «Add to worlds…»).
   async function installDatapacksFromFiles(paths: string[]) {
-    if (instanceId === null) return;
+    // The instance the batch was dropped on. Every install goes there, and a
+    // switch away mid-batch must not open its picker on the other instance.
+    const id = instanceId;
+    if (id === null) return;
     let ok = 0;
     let last: { filename: string; packName: string } | null = null;
     const failed: string[] = [];
     for (const path of paths) {
-      const r = await commands.datapacksInstallFromFile(instanceId, path);
+      const r = await commands.datapacksInstallFromFile(id, path);
       if (r.status === 'ok') {
         ok += 1;
-        last = { filename: r.data.filename, packName: r.data.name };
+        last = { filename: r.data.pack.filename, packName: r.data.pack.name };
+        // A same-named pack was replaced: a world left on its old bytes is named.
+        warnFailedRefresh(r.data.pack.name, r.data.refreshed);
       } else {
         failed.push(`${filenameOf(path)}: ${formatError(r.error)}`);
       }
@@ -434,17 +448,34 @@
     // Refresh the Installed-datapacks view + Browse badges (no Tauri events).
     if (ok > 0) {
       datapacksChanged.value++;
-      if (last !== null) {
+      if (last !== null && instanceId === id) {
         // Real placements, not [] — a reinstall over a pack already linked in
         // worlds must show each world's CURRENT state, or the picker would
         // route a present-but-disabled world through add (which re-enables)
         // instead of the explicit toggle.
-        const lib = await commands.datapacksListLibrary(instanceId);
-        const entry =
-          lib.status === 'ok'
-            ? lib.data.entries.find((e) => e.pack.filename === last.filename)
-            : undefined;
-        datapackPickerTarget = { ...last, placements: entry?.placements ?? [] };
+        const lib = await commands.datapacksListLibrary(id);
+        // Switched away while reading: the view now shows another instance,
+        // and neither this picker nor this listing's warning belongs there.
+        if (instanceId !== id) return;
+        if (lib.status === 'error') {
+          // No picker on a listing we could not read: empty placements would
+          // route a present-but-disabled world through add, and empty worlds
+          // would show every world's level.dat as unknown. The pack is in the
+          // library, so the library screen can place it once the read works.
+          // The warning is shared with the embedded browse view, whose refresh
+          // of the same listing this install also triggers: one failed read,
+          // one warning.
+          warnLibraryReadBlockedPicker(id, lib.error);
+          return;
+        }
+        libraryReadSucceeded(id);
+        const entry = lib.data.entries.find((e) => e.pack.filename === last.filename);
+        datapackPickerTarget = {
+          ...last,
+          placements: entry?.placements ?? [],
+          worlds: lib.data.worlds,
+          compat: entry?.compat ?? null,
+        };
       }
     }
   }
@@ -740,6 +771,8 @@
     filename={datapackPickerTarget.filename}
     packName={datapackPickerTarget.packName}
     placements={datapackPickerTarget.placements}
+    worlds={datapackPickerTarget.worlds}
+    compat={datapackPickerTarget.compat}
     onClose={() => (datapackPickerTarget = null)}
     onApplied={() => {
       datapacksChanged.value++;

@@ -6,6 +6,7 @@
 //! only installs zips). Pure-of-network; I/O around a plain directory,
 //! mirroring [`super::quarantine`]'s style.
 
+use crate::datapacks::presence::{self, LevelDatPresence};
 use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 
@@ -32,24 +33,21 @@ pub(super) fn level_dat_lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-/// Whether the world's `level.dat` exists — `Err` when that cannot be told.
+/// D2 for the server writers that proceed on a never-generated world. A
+/// world that lost its `level.dat` and kept `level.dat_old` is refused with
+/// [`Error::ServerWorldOnlyOld`]: the next start restores `level.dat` from
+/// the backup, and a file written here first would switch that recovery off.
+/// `Present` and `Absent` pass; a caller that needs to tell them apart
+/// reads `presence::of` itself, under the lock. `Err` from `presence::of`
+/// means the state could not be told, and it is refused too.
 ///
-/// Absent is a real state — normally a world the server has never
-/// generated — and every caller acts on it: the update and the removal leave
-/// `level.dat` alone, the toggle refuses. `Path::exists` folds a failed stat
-/// into "absent", which would let those callers act on a guess: the toggle
-/// would say the world was never created, and an update would skip carrying a
-/// disabled pack's state, so the game would switch the new file back on.
-///
-/// Not distinguished yet: a generated world whose `level.dat` was lost while
-/// `level.dat_old` survives (the game recovers from the latter). It reads as
-/// absent here.
-pub(super) fn level_dat_present(world_dir: &Path) -> Result<bool> {
-    let path = world_dir.join("level.dat");
-    match std::fs::symlink_metadata(&path) {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(Error::io(path.display().to_string(), e)),
+/// `pub(crate)`: the server datapack commands and
+/// `commands::vanillatweaks::vt_install_to_server` check it once, before
+/// downloading anything.
+pub(crate) fn refuse_only_old(world_dir: &Path) -> Result<()> {
+    match presence::of(world_dir)? {
+        LevelDatPresence::Present | LevelDatPresence::Absent => Ok(()),
+        LevelDatPresence::OnlyOld => Err(Error::ServerWorldOnlyOld),
     }
 }
 
@@ -93,8 +91,10 @@ pub fn datapacks_dir(runtime: &Path, props_raw: &str) -> PathBuf {
 }
 
 /// Validate `src_zip` and install it into the world's `datapacks/`, returning
-/// the installed filename. Records a provenance-less sidecar row (so the pack
-/// lists with real state) and writes through temp-then-rename.
+/// the installed filename — the name the install wrote, which is the source
+/// name with an `X.ZIP` extension saved as `X.zip` (N.5). Records a
+/// provenance-less sidecar row (so the pack lists with real state) and writes
+/// through temp-then-rename.
 ///
 /// `world_dir` is `runtime/<level>/` — the sidecar and `level.dat` live there.
 pub async fn install_datapack(world_dir: &Path, src_zip: &Path) -> Result<String> {
@@ -104,8 +104,8 @@ pub async fn install_datapack(world_dir: &Path, src_zip: &Path) -> Result<String
         .map(str::to_string)
         .ok_or_else(|| Error::io("<datapack>", "source path has no filename"))?;
     let bytes = std::fs::read(src_zip).map_err(|e| Error::io(src_zip.display().to_string(), e))?;
-    mutate::install_bytes(world_dir, &filename, &bytes, None).await?;
-    Ok(filename)
+    let record = mutate::install_bytes(world_dir, &filename, &bytes, None).await?;
+    Ok(record.filename)
 }
 
 /// One row of a server world's datapack list.
@@ -118,19 +118,38 @@ pub struct ServerDatapackEntry {
     /// ghost whose file is gone. Two of the three carry an empty `sha1` —
     /// which is why the UI keys rows on the filename.
     pub record: crate::servers_runtime::installed::ServerInstalledRecord,
-    /// `None` ⟹ `level.dat` exists but could not be read, so enabled-ness is
-    /// genuinely unknown rather than guessed. An ABSENT `level.dat` is NOT
-    /// this case: a world that has never booted reads as two empty lists,
-    /// which is a real answer.
+    /// `None` ⟹ the lists could not be read — the `level.dat` presence could
+    /// not be told, or `level.dat` (for an only-old world, `level.dat_old`)
+    /// did not parse — so enabled-ness is genuinely unknown rather than
+    /// guessed. A world the server has not generated yet is NOT this case:
+    /// it reads as two empty lists, a real answer (see
+    /// [`ServerDatapackListing::level_dat`]).
     pub state: Option<crate::datapacks::WorldPackState>,
+    /// `Some` exactly when `state` is `Ignored`. Both come from `state::derive`.
+    pub ignored_reason: Option<crate::datapacks::detect::IgnoredReason>,
     /// Something is on disk under this name. Independent of `state`, which
     /// can be `None` for a pack that is plainly present.
     pub present: bool,
-    /// The on-disk entry is a directory. Minecraft loads folder packs and
-    /// `level.dat` does not distinguish them, so they are listed, toggleable
-    /// and removable — but they carry no sha1 and no provenance, so the UI
-    /// offers them no update or catalog affordance.
+    /// The on-disk entry is a directory. A folder is a pack only when
+    /// `pack.mcmeta` sits directly inside it; otherwise the row is `Ignored`
+    /// (N.1). Folder packs carry no sha1 and no provenance, so the UI offers
+    /// them no update or catalog affordance.
     pub is_folder: bool,
+}
+
+/// What `server_list_datapacks` returns: the world's `level.dat` presence,
+/// and its rows.
+#[derive(Debug, Clone, serde::Serialize, specta::Type, PartialEq)]
+pub struct ServerDatapackListing {
+    /// `Present`: rows carry `level.dat`'s states. `OnlyOld`: rows carry
+    /// `level.dat_old`'s — the copy the server boots from, restoring
+    /// `level.dat` on its next start — and every change is refused until
+    /// then. `Absent`: a world the server has not generated yet; a present
+    /// pack is `Enabled`, because the first boot enables it. `None`: the
+    /// presence could not be told, so every `state` is `None` and the
+    /// listing is otherwise intact (§0.2 I2).
+    pub level_dat: Option<crate::datapacks::presence::LevelDatPresence>,
+    pub entries: Vec<ServerDatapackEntry>,
 }
 
 /// The result of one server datapack update.
@@ -161,6 +180,59 @@ pub struct ServerDatapackUpdateOutcome {
     /// `false` ⟹ something needs attention; the row is not done. `update_one`
     /// currently never returns `Ok` with this `false` — see `old_removed`.
     pub completed: bool,
+}
+
+/// FIFO fixtures for the server datapack tests. The server checks read with
+/// blocking `std::fs`, so a check that opened a FIFO would block the test's
+/// own runtime, and no async timeout could fire: the code under test runs on
+/// a thread of its own instead. `cfg(unix)`: Windows has no FIFO in a
+/// folder, so these tests run in CI only.
+#[cfg(all(test, unix))]
+pub(crate) mod fifo_test_util {
+    use std::path::Path;
+
+    /// A FIFO at `path`.
+    pub(crate) fn mkfifo(path: &Path) {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    }
+
+    /// Runs the future `job` makes to completion on a thread and runtime of
+    /// its own, failing the test if it takes longer than five seconds: the
+    /// time a check that opened `fifo` would spend blocked. On a timeout the
+    /// FIFO's write end is opened, which releases the blocked reader, before
+    /// the test fails. The future is made on that thread, so it need not be
+    /// `Send`.
+    pub(crate) fn within_budget<T, F, Fut>(fifo: &Path, job: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = T>,
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            // The receiver is gone only after a timeout, which fails the test.
+            tx.send(rt.block_on(job())).ok();
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(out) => out,
+            Err(_) => {
+                drop(
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(fifo)
+                        .expect("open the FIFO's write end"),
+                );
+                panic!("the check opened the FIFO and blocked");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +313,8 @@ mod tests {
         assert_eq!(name, "CoolPack.zip");
         assert!(world.join("datapacks").join("CoolPack.zip").exists());
         let names: Vec<String> = listing::entries(&world)
+            .unwrap()
+            .entries
             .into_iter()
             .map(|e| e.record.filename)
             .collect();
@@ -302,5 +376,22 @@ mod tests {
         std::fs::write(&src, datapack_zip()).unwrap();
         let world = td.path().join("world");
         assert!(install_datapack(&world, &src).await.is_err());
+    }
+
+    /// N.5: the game loads only `*.zip` in lower case, so the install saves
+    /// `X.ZIP` as `X.zip` and reports the name it wrote.
+    #[tokio::test]
+    async fn install_datapack_returns_the_normalised_name() {
+        let td = tempfile::tempdir().unwrap();
+        let src = td.path().join("CoolPack.ZIP");
+        std::fs::write(&src, datapack_zip()).unwrap();
+        let world = td.path().join("world");
+        let name = install_datapack(&world, &src).await.unwrap();
+        assert_eq!(name, "CoolPack.zip");
+        let names: Vec<String> = std::fs::read_dir(world.join("datapacks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["CoolPack.zip"]);
     }
 }

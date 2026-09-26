@@ -8,10 +8,13 @@
 //! `pack.mcmeta` is `Neither`, not a datapack.
 //!
 //! Everything here is best-effort by design: an unreadable zip is `Neither`
-//! and unreadable metadata is all-`None`, never an error. Same house style as
+//! and unreadable metadata is `PackMcmeta::Unreadable`, never an error. Same house style as
 //! `mods::local::read_jar_meta`.
 
-use std::io::Read;
+use std::io::{Read, Seek};
+use std::path::Path;
+
+use crate::datapacks::format::{self, PackMcmeta};
 
 /// What a pack zip's top-level tree identifies it as. See the module doc for
 /// the exact discriminator.
@@ -26,15 +29,23 @@ pub enum PackKind {
     Neither,
 }
 
-/// Fields read from a pack's `pack.mcmeta`. Every field is `None` when the
-/// zip is unreadable or the field is absent/malformed — never an error.
-#[derive(Debug, Clone, Default, PartialEq)]
+/// What Lucerna reads from a pack zip's `pack.mcmeta`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackMeta {
-    /// `pack.pack_format`.
-    pub pack_format: Option<u32>,
-    /// `pack.description`, only when it is a plain JSON string (a raw text
-    /// component is dropped rather than half-rendered — see `read_meta`).
+    /// What the pack declares — facts for `datapacks::verdict`, never a verdict.
+    pub mcmeta: PackMcmeta,
+    /// Plain text of `pack.description` (rich text flattened, `§` codes
+    /// stripped); `None` when absent or empty. The pack's display name.
     pub description: Option<String>,
+}
+
+impl PackMeta {
+    fn unreadable() -> Self {
+        Self {
+            mcmeta: PackMcmeta::Unreadable,
+            description: None,
+        }
+    }
 }
 
 /// True when `name` (already stripped of a leading `./`) is a direct child of
@@ -61,10 +72,14 @@ pub fn classify(bytes: &[u8]) -> PackKind {
     let mut has_data = false;
     let mut has_assets = false;
     for name in zip.file_names() {
-        let name = name.trim_start_matches("./");
-        if name == "pack.mcmeta" {
+        // §0.5 A24: the root rule is `detect`'s, exact, with no `./`
+        // trimming — the game's `ZipFile.getEntry("pack.mcmeta")` is exact.
+        if crate::datapacks::detect::is_root_pack_mcmeta(name) {
             has_meta = true;
-        } else if under_top_level(name, "data") {
+            continue;
+        }
+        let name = name.trim_start_matches("./");
+        if under_top_level(name, "data") {
             has_data = true;
         } else if under_top_level(name, "assets") {
             has_assets = true;
@@ -83,46 +98,70 @@ pub fn classify(bytes: &[u8]) -> PackKind {
     }
 }
 
-/// Read `pack.mcmeta` out of a pack zip. Best-effort at two different levels:
-/// a document-level failure (unreadable zip, missing entry, invalid UTF-8,
-/// invalid JSON) returns [`PackMeta::default`] immediately; a per-field shape
-/// mismatch (e.g. a non-string `description`) instead degrades only that
-/// field to `None` through the `.and_then` chain below, leaving any other
-/// field that parsed fine intact. Neither case is ever an error.
+/// Read `pack.mcmeta` out of an in-memory pack zip. Never an error.
 #[must_use]
 pub fn read_meta(bytes: &[u8]) -> PackMeta {
     let Ok(mut zip) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
-        return PackMeta::default();
+        return PackMeta::unreadable();
     };
-    let Ok(mut entry) = zip.by_name("pack.mcmeta") else {
-        return PackMeta::default();
-    };
-    let mut text = String::new();
-    if entry.read_to_string(&mut text).is_err() {
-        return PackMeta::default();
+    // In memory there is no I/O that can fail: an "I/O" error out of a cursor
+    // is a corrupt archive, a stable fact about the bytes — Unreadable too.
+    meta_from_archive(&mut zip).unwrap_or_else(|_| PackMeta::unreadable())
+}
+
+/// Read `pack.mcmeta` out of the pack zip at `path`, file-backed: only the
+/// central directory and that one entry are read. Tells the two failure
+/// kinds apart (Fallback discipline, question 2): `Ok` carries a real
+/// answer about the bytes (`Missing`, `Unreadable`, a declaration); `Err` is
+/// "could not tell" — the file could not be opened or read, or is not a
+/// regular file — and callers must not record it as an answer.
+pub fn read_meta_file(path: &Path) -> std::io::Result<PackMeta> {
+    let file = std::fs::File::open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other(format!(
+            "{} is not a regular file",
+            path.display()
+        )));
     }
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return PackMeta::default();
+    let mut zip = match zip::ZipArchive::new(file) {
+        Ok(zip) => zip,
+        Err(zip::result::ZipError::Io(e)) => return Err(e),
+        // Not a zip (or one this crate cannot open): a fact about the bytes.
+        Err(_) => return Ok(PackMeta::unreadable()),
     };
-    let pack = v.get("pack");
-    PackMeta {
-        pack_format: pack
-            .and_then(|p| p.get("pack_format"))
-            .and_then(|f| f.as_u64())
-            .and_then(|f| u32::try_from(f).ok()),
-        // A description can also be a raw JSON text component; we only surface
-        // the plain-string form rather than half-rendering rich text.
-        description: pack
-            .and_then(|p| p.get("description"))
-            .and_then(|d| d.as_str())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()),
+    meta_from_archive(&mut zip)
+}
+
+fn meta_from_archive<R: Read + Seek>(zip: &mut zip::ZipArchive<R>) -> std::io::Result<PackMeta> {
+    let mut entry = match zip.by_name("pack.mcmeta") {
+        Ok(entry) => entry,
+        Err(zip::result::ZipError::FileNotFound) => {
+            return Ok(PackMeta {
+                mcmeta: PackMcmeta::Missing,
+                description: None,
+            })
+        }
+        Err(zip::result::ZipError::Io(e)) => return Err(e),
+        Err(_) => return Ok(PackMeta::unreadable()),
+    };
+    let mut body = Vec::new();
+    match entry.read_to_end(&mut body) {
+        Ok(_) => {}
+        // A corrupt entry (bad deflate stream) is a fact about the bytes.
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => return Ok(PackMeta::unreadable()),
+        Err(e) => return Err(e),
     }
+    let read = format::read_mcmeta_bytes(&body);
+    Ok(PackMeta {
+        mcmeta: read.mcmeta,
+        description: read.name,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::format::{Fact, PackMcmeta};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
@@ -185,15 +224,21 @@ mod tests {
     }
 
     #[test]
-    fn reads_pack_format_and_description() {
+    fn reads_the_declaration_and_the_plain_text_name() {
         let z = zip_with(&[("pack.mcmeta", MCMETA), ("data/x/f.mcfunction", b"")]);
         let m = read_meta(&z);
-        assert_eq!(m.pack_format, Some(48));
+        assert!(
+            matches!(&m.mcmeta, PackMcmeta::Read(d) if d.pack_format == Fact::Present(48)),
+            "{:?}",
+            m.mcmeta
+        );
         assert_eq!(m.description.as_deref(), Some("Vein Miner"));
     }
 
     #[test]
-    fn a_non_string_description_is_dropped_not_stringified() {
+    fn a_rich_text_description_is_named_by_its_plain_text() {
+        // Was `a_non_string_description_is_dropped_not_stringified`: the game
+        // renders rich text, so the name is its plain text (§1 C2).
         let z = zip_with(&[
             (
                 "pack.mcmeta",
@@ -201,14 +246,48 @@ mod tests {
             ),
             ("data/x/f.mcfunction", b""),
         ]);
-        assert_eq!(read_meta(&z).description, None);
-        assert_eq!(read_meta(&z).pack_format, Some(48));
+        assert_eq!(read_meta(&z).description.as_deref(), Some("a"));
     }
 
     #[test]
-    fn missing_meta_yields_all_none_never_an_error() {
+    fn garbage_bytes_are_unreadable_never_an_error() {
         let m = read_meta(b"garbage");
-        assert_eq!(m.pack_format, None);
+        assert_eq!(m.mcmeta, PackMcmeta::Unreadable);
         assert_eq!(m.description, None);
+    }
+
+    #[test]
+    fn a_zip_without_pack_mcmeta_is_missing() {
+        let z = zip_with(&[("data/x/f.mcfunction", b"")]);
+        assert_eq!(read_meta(&z).mcmeta, PackMcmeta::Missing);
+    }
+
+    #[test]
+    fn a_file_backed_read_matches_the_in_memory_read() {
+        let td = tempfile::tempdir().unwrap();
+        let z = zip_with(&[("pack.mcmeta", MCMETA), ("data/x/f.mcfunction", b"")]);
+        std::fs::write(td.path().join("p.zip"), &z).unwrap();
+        assert_eq!(
+            read_meta_file(&td.path().join("p.zip")).unwrap(),
+            read_meta(&z)
+        );
+    }
+
+    #[test]
+    fn a_non_zip_file_is_unreadable_not_an_io_failure() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(td.path().join("p.zip"), b"PACK").unwrap();
+        assert_eq!(
+            read_meta_file(&td.path().join("p.zip")).unwrap().mcmeta,
+            PackMcmeta::Unreadable
+        );
+    }
+
+    #[test]
+    fn a_directory_or_a_missing_file_is_an_io_failure_not_an_answer() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir(td.path().join("d.zip")).unwrap();
+        assert!(read_meta_file(&td.path().join("d.zip")).is_err());
+        assert!(read_meta_file(&td.path().join("gone.zip")).is_err());
     }
 }

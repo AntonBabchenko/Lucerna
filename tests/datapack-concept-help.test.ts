@@ -44,9 +44,15 @@ import ServerDatapacksInstalled from '$lib/servers/datapacks/ServerDatapacksInst
 const TRIGGER = /what are data packs\?/i;
 
 beforeEach(() => {
-  datapacksListLibrary.mockResolvedValue({ status: 'ok', data: { entries: [] } });
+  datapacksListLibrary.mockResolvedValue({
+    status: 'ok',
+    data: { entries: [], worlds: [] },
+  });
   runningInstances.mockResolvedValue([]);
-  serverListDatapacks.mockResolvedValue({ status: 'ok', data: [] });
+  serverListDatapacks.mockResolvedValue({
+    status: 'ok',
+    data: { level_dat: 'present', entries: [] },
+  });
   spawnListen.mockResolvedValue(() => {});
   exitListen.mockResolvedValue(() => {});
 });

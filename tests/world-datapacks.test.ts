@@ -1,6 +1,6 @@
 // WorldDatapacks panel — unit coverage for the empty state, each WorldPackState
 // row shape (enabled/disabled toggle, orphaned removal, not_added add), the
-// format-mismatch warning, the unknown-compatibility indicator, the
+// game's compatibility verdicts, the unknown-compatibility indicator, the
 // running-instance gate, error surfacing (including a reload that fails AFTER
 // a successful action — the stale-row bug), and a mixed-state list rendering
 // all four states at once.
@@ -10,33 +10,66 @@
 // tests/worlds-tab.test.ts and tests/intent/worlds.test.ts, no
 // markSeen('worlds') call is needed here: the panel alone cannot trigger it.
 
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorldDatapack } from '$lib/ipc/bindings';
+import type {
+  LevelDatPresence,
+  PackCompat,
+  WorldDatapack,
+  WorldDatapackListing,
+} from '$lib/ipc/bindings';
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
 import WorldDatapacks from '$lib/worlds/WorldDatapacks.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    datapacksListForWorld: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    datapacksListLibrary: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksListForWorld: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { level_dat: 'present', packs: [] } }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { entries: [], worlds: [] },
+    }),
     datapacksInstallFromFile: vi.fn(),
     datapacksAddToWorld: vi.fn().mockResolvedValue({ status: 'ok', data: 'linked' }),
     datapacksRemoveFromWorld: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // What the this-world removal confirmation asks before it offers its button (U1).
+    datapacksWorldEntryKind: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { kind: 'library_copy' } }),
     datapacksRemoveFromLibrary: vi.fn(),
     datapacksSetEnabledInWorld: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
 }));
 
-afterEach(() => vi.clearAllMocks());
+const openMock = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: (...a: unknown[]) => openMock(...a) }));
+
+afterEach(() => {
+  hideTooltip();
+  for (const toast of toastList()) dismiss(toast.id);
+  vi.clearAllMocks();
+});
 
 function makePack(over: Partial<WorldDatapack> = {}): WorldDatapack {
   return {
     filename: 'test-pack.zip',
     state: 'enabled',
+    ignored_reason: null,
     in_library: true,
     compat: { kind: 'compatible' },
     ...over,
   };
+}
+
+/** The `datapacksListForWorld` payload: the rows plus the world's level.dat presence. */
+function listing(
+  packs: WorldDatapack[],
+  level_dat: LevelDatPresence = 'present',
+): WorldDatapackListing {
+  return { level_dat, packs };
 }
 
 // The explainer is the shared DatapackConceptHelp component; its copy and
@@ -48,6 +81,133 @@ describe('WorldDatapacks — datapack concept explainer', () => {
   it('renders the "What are data packs?" help trigger beside the panel title', async () => {
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     expect(await screen.findByRole('button', { name: /what are data packs\?/i })).toBeTruthy();
+  });
+});
+
+// A local install replaces a same-named library pack and refreshes the worlds
+// linked to the old copy. A world it could not refresh stays on the old
+// bytes, and is named, as a catalog install names it.
+describe('WorldDatapacks — adding a pack from a file', () => {
+  it('names each world a same-name refresh could not update, and adds the installed name', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    openMock.mockResolvedValue('/picked/vm.zip');
+    vi.mocked(commands.datapacksInstallFromFile).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        pack: {
+          filename: 'vm.zip',
+          sha1: 'a'.repeat(40),
+          size_bytes: 1,
+          name: 'VeinMiner',
+          source: null,
+          project_id: null,
+          version_id: null,
+          version_number: null,
+          installed_at: '2026-09-25T00:00:00Z',
+        },
+        refreshed: [
+          {
+            kind: 'failed',
+            world: 'Other',
+            error: { kind: 'io', path: 'saves/Other', details: 'locked' },
+          },
+        ],
+      },
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    // Add waits for the world's listing; click once it has arrived.
+    const add = screen.getByTestId('world-datapack-add-library') as HTMLButtonElement;
+    await waitFor(() => expect(add.disabled).toBe(false));
+    await fireEvent.click(add);
+
+    await waitFor(() => expect(toastList().some((x) => x.kind === 'warning')).toBe(true));
+    const [warning] = toastList().filter((x) => x.kind === 'warning');
+    expect(warning.title).toMatch(/^The new version of VeinMiner didn't reach every world/);
+    expect(warning.title).not.toMatch(/retry/i);
+    expect(warning.lines).toEqual(['Other: IO error at saves/Other: locked']);
+    expect(commands.datapacksAddToWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'vm.zip');
+  });
+});
+
+// Add installs into the library FIRST and only then adds to this world, so a
+// permissive answer while the world's level.dat is unknown would write the
+// library even where the world add is then refused. Add waits for a listing.
+describe('WorldDatapacks — Add while the world is not known yet', () => {
+  const addButtons = () => [
+    screen.getByTestId('world-datapack-add-library') as HTMLButtonElement,
+    screen.getByTestId('world-datapack-add-library-folder') as HTMLButtonElement,
+  ];
+
+  it('is disabled while the listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise<never>(() => {}));
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    for (const b of addButtons()) expect(b.disabled).toBe(true);
+  });
+
+  // "No datapacks yet" is a claim about a listing that has not arrived.
+  it('shows the list loading, not "No datapacks yet", while the listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise<never>(() => {}));
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(screen.getByTestId('world-datapacks-loading')).toBeTruthy();
+    expect(screen.queryByText(/No datapacks yet/i)).toBeNull();
+  });
+
+  // A disabled control says why and stays reachable by keyboard (DESIGN.md §5),
+  // like the running and level.dat gates on the same buttons.
+  function expectAddSaysWhy(): void {
+    for (const b of addButtons()) {
+      const wrapper = b.closest('span') as HTMLElement;
+      expect(wrapper.getAttribute('tabindex')).toBe('0');
+      revealTooltip(wrapper);
+      expect(tooltipState.text).toBe("Available once this world's data pack list has been read");
+      hideTooltip();
+    }
+  }
+
+  it('says why it is disabled while the listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise<never>(() => {}));
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expectAddSaysWhy();
+  });
+
+  it('says why it is disabled when the listing failed', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: 'saves/MyWorld/level.dat', details: 'locked' },
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText(/locked/);
+    expectAddSaysWhy();
+  });
+
+  it('a world switch drops the previous world’s rows while the new listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld)
+      .mockResolvedValueOnce({ status: 'ok', data: listing([makePack({ filename: 'a.zip' })]) })
+      .mockReturnValueOnce(new Promise<never>(() => {}));
+    const r = render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'First' } });
+    await screen.findByText('a.zip');
+    await r.rerender({ instanceId: 'inst-1', world: 'Second' });
+    expect(screen.queryByText('a.zip')).toBeNull();
+    for (const b of addButtons()) expect(b.disabled).toBe(true);
+  });
+
+  it('is disabled when the listing failed', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: 'saves/MyWorld/level.dat', details: 'locked' },
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText(/locked/);
+    for (const b of addButtons()) expect(b.disabled).toBe(true);
+    await fireEvent.click(addButtons()[0]);
+    expect(openMock).not.toHaveBeenCalled();
+    expect(commands.datapacksInstallFromFile).not.toHaveBeenCalled();
   });
 });
 
@@ -64,7 +224,7 @@ describe('WorldDatapacks — toggling an enabled pack', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'enabled-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'enabled-pack.zip', state: 'enabled' })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     const toggleBtn = await screen.findByRole('button', { name: /^disable in this world$/i });
@@ -79,25 +239,56 @@ describe('WorldDatapacks — toggling an enabled pack', () => {
 });
 
 describe('WorldDatapacks — orphaned row', () => {
-  it('shows the missing-state hint and offers removal instead of a toggle', async () => {
+  it('explains the game drops the name itself and offers Clear entry instead of a toggle', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'gone-pack.zip', state: 'orphaned' })],
+      data: listing([makePack({ filename: 'gone-pack.zip', state: 'orphaned' })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
-    await screen.findByText(/Minecraft will ask about this pack/i);
-    // Orphaned rows offer removal only — no enable/disable toggle (there is
-    // nothing to read a pack_format from once the file is gone).
+    // Engine truth: Minecraft logs "Missing data pack", skips the id and drops
+    // it at its next save — there is no prompt (spec 2026-09-24 §4 U3).
+    await screen.findByText(/drops the name the next time the world is saved/i);
+    expect(screen.queryByText(/will ask/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /^enable in this world$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^disable in this world$/i })).toBeNull();
-    const removeBtn = screen.getByTestId('world-datapack-remove-orphaned');
-    await fireEvent.click(removeBtn);
+    const clear = screen.getByTestId('world-datapack-remove-orphaned');
+    expect(clear.textContent).toMatch(/clear entry/i);
+    await fireEvent.click(clear);
+    // It deletes no file, so it needs no confirmation.
+    expect(screen.queryByTestId('datapack-remove-dialog')).toBeNull();
     expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith(
       'inst-1',
       'MyWorld',
       'gone-pack.zip',
     );
+  });
+
+  it('an orphaned row is a quiet, self-healing state', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([makePack({ filename: 'gone-pack.zip', state: 'orphaned' })]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    const hint = await screen.findByText(/drops the name the next time the world is saved/i);
+    expect(hint.className).toContain('text-muted');
+    const row = screen.getByText('gone-pack.zip').closest('[data-card-shell]') as HTMLElement;
+    expect(row.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
+    expect(row.innerHTML).not.toMatch(/bg-danger|text-danger/);
+    expect(within(row).getByText('File missing')).toBeTruthy();
+  });
+
+  it('a Disabled-only ghost not in the library offers Clear entry, not Add to this world', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([makePack({ filename: 'gone.zip', state: 'not_added', in_library: false })]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    const clear = await screen.findByTestId('world-datapack-remove-orphaned');
+    expect(clear.textContent).toMatch(/clear entry/i);
+    expect(screen.queryByTestId('world-datapack-add-world')).toBeNull();
   });
 });
 
@@ -106,7 +297,7 @@ describe('WorldDatapacks — not_added row', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'library-pack.zip', state: 'not_added' })],
+      data: listing([makePack({ filename: 'library-pack.zip', state: 'not_added' })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     // The header's own "Add datapack" (library-install) button now has its
@@ -123,23 +314,88 @@ describe('WorldDatapacks — not_added row', () => {
   });
 });
 
-describe('WorldDatapacks — format mismatch', () => {
-  it('renders the format-mismatch warning for a mismatched compat kind', async () => {
+describe('WorldDatapacks — compatibility is the game’s own verdict (§1 C5)', () => {
+  async function renderWith(compat: PackCompat, state: WorldDatapack['state'] = 'enabled') {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [
-        makePack({
-          filename: 'mismatch-pack.zip',
-          state: 'enabled',
-          compat: { kind: 'mismatch', pack_format: 5, expected: 6 },
-        }),
-      ],
+      data: listing([makePack({ filename: 'p.zip', state, compat })]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
-    const warning = await screen.findByText(/Made for data pack format 5/i);
-    expect(warning.textContent).toContain('6');
-    expect(warning.className).toContain('text-warning-text');
+    return screen.findByTestId('world-datapack-compat');
+  }
+
+  it('too_old says the game still loads it', async () => {
+    const line = await renderWith({ kind: 'too_old', made_for: '15', game: '48' });
+    expect(line.textContent).toMatch(/older version of Minecraft/);
+    expect(line.textContent).toMatch(/data pack format 15; this version uses 48/);
+    expect(line.textContent).toMatch(/still loads/);
+    expect(line.className).toContain('text-warning-text');
+    expect(screen.queryByText(/stop the world from loading/)).toBeNull();
+    const row = line.closest('[data-card-shell]');
+    expect(row?.querySelector('[data-card-accent]')?.className).toContain('bg-warning-text');
+  });
+
+  it('too_new says the game still loads it', async () => {
+    const line = await renderWith({ kind: 'too_new', made_for: '107.1', game: '94.1' });
+    expect(line.textContent).toMatch(/newer version of Minecraft/);
+    expect(line.textContent).toMatch(/still loads/);
+    expect(screen.queryByText(/stop the world from loading/)).toBeNull();
+  });
+
+  it('broken uses the game’s own label and says it still loads', async () => {
+    const line = await renderWith({ kind: 'broken' });
+    expect(line.textContent).toMatch(/Broken or incompatible/);
+    expect(line.textContent).toMatch(/still loads/);
+  });
+
+  it('a library pack not in this world that the game skips says why', async () => {
+    const line = await renderWith({ kind: 'wont_load', reason: 'no_pack_format' }, 'not_added');
+    expect(line.textContent).toMatch(/This version of Minecraft skips this pack/);
+  });
+});
+
+describe('WorldDatapacks — packs this version skips (§0.5 A1, I11)', () => {
+  it.each([
+    ['no_pack_mcmeta', /no pack\.mcmeta at its top level/],
+    ['no_pack_section', /has no "pack" section/],
+    ['no_description', /has no "description"/],
+    ['no_pack_format', /has no "pack_format"/],
+  ] as const)('a not-loadable row (%s) shows the compat reason and no toggle', async (reason, text) => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([
+        makePack({
+          filename: 'skipped.zip',
+          state: 'ignored',
+          ignored_reason: 'not_loadable',
+          compat: { kind: 'wont_load', reason },
+        }),
+      ]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(await screen.findByText(text)).toBeTruthy();
+    expect(screen.queryByTestId('world-datapack-toggle')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^enable in this world$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^disable in this world$/i })).toBeNull();
+  });
+
+  it('an addable pack this version skips offers no add', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([
+        makePack({
+          filename: 'nullscape.zip',
+          state: 'not_added',
+          compat: { kind: 'wont_load', reason: 'no_pack_format' },
+        }),
+      ]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(await screen.findByText(/This version of Minecraft skips this pack/)).toBeTruthy();
+    expect(screen.queryByTestId('world-datapack-add-world')).toBeNull();
   });
 });
 
@@ -148,7 +404,7 @@ describe('WorldDatapacks — running disables mutating controls', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'running-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'running-pack.zip', state: 'enabled' })]),
     });
     render(WorldDatapacks, {
       props: { instanceId: 'inst-1', world: 'MyWorld', running: true },
@@ -169,7 +425,7 @@ describe('WorldDatapacks — disabled controls stay keyboard-reachable for their
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'gate-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'gate-pack.zip', state: 'enabled' })]),
     });
     const { rerender } = render(WorldDatapacks, {
       props: { instanceId: 'inst-1', world: 'MyWorld', running: true },
@@ -195,7 +451,7 @@ describe('WorldDatapacks — command error surfaces', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [makePack({ filename: 'err-pack.zip', state: 'enabled' })],
+      data: listing([makePack({ filename: 'err-pack.zip', state: 'enabled' })]),
     });
     vi.mocked(commands.datapacksSetEnabledInWorld).mockResolvedValueOnce({
       status: 'error',
@@ -222,7 +478,7 @@ describe('WorldDatapacks — a reload that fails after a successful action', () 
     vi.mocked(commands.datapacksListForWorld)
       .mockResolvedValueOnce({
         status: 'ok',
-        data: [makePack({ filename: 'flaky-pack.zip', state: 'enabled' })],
+        data: listing([makePack({ filename: 'flaky-pack.zip', state: 'enabled' })]),
       })
       .mockResolvedValueOnce({
         status: 'error',
@@ -251,13 +507,13 @@ describe('WorldDatapacks — unknown compatibility', () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: [
+      data: listing([
         makePack({
           filename: 'unknown-compat.zip',
           state: 'enabled',
           compat: { kind: 'unknown' },
         }),
-      ],
+      ]),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     await screen.findByText('unknown-compat.zip');
@@ -291,7 +547,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('enabled-mix.zip');
@@ -311,7 +567,8 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
 
     // Distinct accent strips per state (data-card-accent is CardShell's own
     // accent strip hook — see src/lib/ui/cards/CardShell.svelte).
-    expect(orphanedRow.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
+    // A ghost is not a problem: the game drops the id itself (U3).
+    expect(orphanedRow.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
     expect(disabledRow.querySelector('[data-card-accent]')?.className).toContain(
       'bg-border-emphasis',
     );
@@ -323,7 +580,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('enabled-mix.zip');
@@ -341,7 +598,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('disabled-mix.zip');
@@ -359,7 +616,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('notadded-mix.zip');
@@ -376,7 +633,7 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
       status: 'ok',
-      data: mixedPacks(),
+      data: listing(mixedPacks()),
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MixedWorld' } });
     await screen.findByText('orphaned-mix.zip');
@@ -387,5 +644,150 @@ describe('WorldDatapacks — mixed state list (all four states rendered together
       'MixedWorld',
       'orphaned-mix.zip',
     );
+  });
+});
+
+// §3 L.8: an only-old world's rows stay visible (they keep their state
+// badges). Which controls stay live there is a separate concern, not pinned
+// here.
+describe('WorldDatapacks — listing envelope', () => {
+  it('renders the rows of any listing, whatever its level.dat presence', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([makePack({ filename: 'backup-pack.zip', state: 'disabled' })], 'only_old'),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(await screen.findByText('backup-pack.zip')).toBeTruthy();
+    expect(screen.queryByText(/No datapacks yet/i)).toBeNull();
+  });
+});
+
+describe('WorldDatapacks — a row the game ignores', () => {
+  it('shows its reason and offers removal but no toggle', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([
+        makePack({
+          filename: 'Loose',
+          state: 'ignored',
+          ignored_reason: 'folder_without_pack_mcmeta',
+          in_library: false,
+          compat: { kind: 'unknown' },
+        }),
+      ]),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText('Ignored by the game');
+    expect(screen.getByText(/pack\.mcmeta sits directly inside it/i)).toBeTruthy();
+    expect(screen.queryByTestId('world-datapack-toggle')).toBeNull();
+    expect(screen.queryByTestId('world-datapack-add-world')).toBeNull();
+    expect(screen.queryByText('Compatibility unknown')).toBeNull();
+    // The trash asks first (U1): a folder the library does not hold is the
+    // only copy, and removing it deletes it permanently.
+    vi.mocked(commands.datapacksWorldEntryKind).mockResolvedValueOnce({
+      status: 'ok',
+      data: { kind: 'own_folder' },
+    });
+    await fireEvent.click(screen.getByTestId('world-datapack-remove-world'));
+    const dialog = await screen.findByTestId('datapack-remove-dialog');
+    expect(
+      await within(dialog).findByText(/the folder and everything in it permanently/i),
+    ).toBeTruthy();
+    expect(commands.datapacksRemoveFromWorld).not.toHaveBeenCalled();
+    const confirm = screen.getByTestId('datapack-remove-confirm') as HTMLButtonElement;
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    await fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'Loose'),
+    );
+  });
+});
+
+describe('WorldDatapacks — removing a pack from this world (U1)', () => {
+  it('the world-row trash opens the removal dialog and removes nothing until confirmed', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    // Once each: the first load, then the reload after the removal (the dialog's
+    // onRemoved). A persistent value would leak into every later test.
+    vi.mocked(commands.datapacksListForWorld)
+      .mockResolvedValueOnce({
+        status: 'ok',
+        data: listing([makePack({ filename: 'trash-me.zip', state: 'enabled' })]),
+      })
+      .mockResolvedValueOnce({ status: 'ok', data: listing([]) });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await fireEvent.click(await screen.findByTestId('world-datapack-remove-world'));
+    expect(await screen.findByTestId('datapack-remove-dialog')).toBeTruthy();
+    expect(commands.datapacksRemoveFromWorld).not.toHaveBeenCalled();
+    const confirm = screen.getByTestId('datapack-remove-confirm') as HTMLButtonElement;
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    await fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(commands.datapacksRemoveFromWorld).toHaveBeenCalledWith(
+        'inst-1',
+        'MyWorld',
+        'trash-me.zip',
+      ),
+    );
+  });
+});
+
+describe('WorldDatapacks — level.dat presence (D2)', () => {
+  it('only_old disables every change and explains how to restore level.dat', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing(
+        [
+          makePack({ filename: 'live.zip', state: 'disabled' }),
+          makePack({ filename: 'addable.zip', state: 'not_added' }),
+          makePack({ filename: 'gone.zip', state: 'orphaned' }),
+          makePack({
+            filename: 'Loose',
+            state: 'ignored',
+            ignored_reason: 'folder_without_pack_mcmeta',
+            in_library: false,
+          }),
+        ],
+        'only_old',
+      ),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    const note = await screen.findByTestId('world-datapacks-level-dat-note');
+    expect(note.textContent).toMatch(/Attempt to Restore/);
+    // Rows stay, read-only, with the state level.dat_old holds.
+    expect(screen.getByText('live.zip')).toBeTruthy();
+    for (const id of [
+      'world-datapack-add-library',
+      'world-datapack-add-library-folder',
+      'world-datapack-toggle',
+      'world-datapack-add-world',
+      'world-datapack-remove-orphaned',
+    ]) {
+      expect((screen.getByTestId(id) as HTMLButtonElement).disabled, id).toBe(true);
+    }
+    // Both trash buttons: the live row's and the ignored row's.
+    const trashes = screen.getAllByTestId('world-datapack-remove-world') as HTMLButtonElement[];
+    expect(trashes).toHaveLength(2);
+    expect(trashes.every((b) => b.disabled)).toBe(true);
+    revealTooltip(screen.getByTestId('world-datapack-toggle').closest('span') as HTMLElement);
+    expect(tooltipState.text).toBe('Open this world in Minecraft and restore it from the backup');
+  });
+
+  it("absent says Minecraft doesn't treat the folder as a world", async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'ok',
+      data: listing([], 'absent'),
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'NotAWorld' } });
+    const note = await screen.findByTestId('world-datapacks-level-dat-note');
+    expect(note.textContent).toMatch(/no level\.dat, so Minecraft doesn't list it as a world/);
+    expect(screen.queryByText(/No datapacks yet/i)).toBeNull();
+    const add = screen.getByTestId('world-datapack-add-library') as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    revealTooltip(add.closest('span') as HTMLElement);
+    expect(tooltipState.text).toBe('Not a world: this folder has no level.dat');
   });
 });

@@ -2,19 +2,25 @@
 
 use std::path::Path;
 
-use crate::datapacks::{level_dat, level_dat_entry, pack_meta, DatapackProvenance};
+use crate::datapacks::presence::{self, LevelDatPresence};
+use crate::datapacks::{detect, level_dat, level_dat_entry, pack_meta, DatapackProvenance};
 use crate::error::{DatapackRejection, Error, Result};
 use crate::servers_runtime::installed::{self, ServerInstalledRecord};
 
-use super::{level_dat_lock, level_dat_present};
+use super::{level_dat_lock, refuse_only_old};
 
 /// Enable or disable one pack in the world's `level.dat`. The file itself is
-/// never touched — this is the game's own mechanism, so what the launcher
-/// shows is exactly what `/datapack list` shows.
+/// never touched — this edits the same list `/datapack enable` and
+/// `/datapack disable` change in game. (The pane lists the world's
+/// `datapacks/` folder; `/datapack list` also shows built-in and mod packs.)
 ///
+/// The name is resolved to the on-disk entry by R2, and the engine's id,
+/// `file/` + that entry's own spelling, is written (spec §2 N.4). An entry the
+/// game ignores is refused with `DatapackInvalid`, and nothing is written.
 /// Works for folder packs too: `level.dat` does not distinguish them.
 ///
-/// Refuses when `level.dat` is absent — see [`Error::ServerWorldNotCreated`].
+/// Refuses when `level.dat` is absent — see [`Error::ServerWorldNotCreated`] —
+/// and when only `level.dat_old` survives — see [`Error::ServerWorldOnlyOld`].
 pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Result<()> {
     if !crate::pathsafe::is_safe_filename(filename) {
         return Err(Error::ModsUnsafeFilename {
@@ -22,11 +28,19 @@ pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Res
         });
     }
     let _guard = level_dat_lock().lock().await;
-    if !level_dat_present(world_dir)? {
-        return Err(Error::ServerWorldNotCreated);
+    match presence::of(world_dir)? {
+        LevelDatPresence::Present => {}
+        // The next start restores level.dat from level.dat_old; a file
+        // written here first would switch that recovery off.
+        LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
+        LevelDatPresence::Absent => return Err(Error::ServerWorldNotCreated),
     }
+    // §0.5 A7 step 5: R2 + D1, after the level.dat presence check.
+    let dp_dir = world_dir.join("datapacks");
+    let on_disk = crate::datapacks::world_link::pack_name_for_write(&dp_dir, filename).await?;
     let (mut root, framing) = level_dat::read_at(world_dir)?;
-    if level_dat::set_enabled(&mut root, &level_dat_entry(filename), enabled)? {
+    let entry = level_dat_entry(on_disk.as_deref().unwrap_or(filename));
+    if level_dat::set_enabled(&mut root, &entry, enabled)? {
         level_dat::write_at(world_dir, &root, framing).await?;
     }
     Ok(())
@@ -43,6 +57,9 @@ pub async fn set_enabled(world_dir: &Path, filename: &str, enabled: bool) -> Res
 /// Tolerates an absent `level.dat`: a pack installed before the server's
 /// first boot has no level.dat half to clear, and failing here would make it
 /// unremovable. (The toggle takes the opposite call — see [`set_enabled`].)
+///
+/// Refuses a world with only `level.dat_old` ([`Error::ServerWorldOnlyOld`])
+/// before touching anything.
 pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
     if !crate::pathsafe::is_safe_filename(filename) {
         return Err(Error::ModsUnsafeFilename {
@@ -50,18 +67,79 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
         });
     }
     let dp_dir = world_dir.join("datapacks");
-    let path = dp_dir.join(filename);
-    // Deliberate defence-in-depth, not an oversight: `is_safe_filename` above
-    // already rejects separators, so `path` cannot actually escape `dp_dir`.
-    // This guards the unconditional `remove_dir_all` below against that
-    // invariant ever being wrong.
-    if !path.starts_with(&dp_dir) {
+
+    // One lock around the whole removal, and one presence reading. D2 comes
+    // before anything is deleted, and the level.dat edit is computed before
+    // the file goes, so an unreadable level.dat refuses with the pack in place.
+    {
+        let _guard = level_dat_lock().lock().await;
+        let edits_level_dat = match presence::of(world_dir)? {
+            LevelDatPresence::Present => true,
+            LevelDatPresence::OnlyOld => return Err(Error::ServerWorldOnlyOld),
+            // Never generated: a pack installed before the first boot has no
+            // level.dat half to clear, and refusing would make it unremovable.
+            LevelDatPresence::Absent => false,
+        };
+
+        // R2 (N.4): delete only the entry `filename` actually denotes. On a
+        // case-sensitive file system a case variant is a different pack.
+        let (names, resolved) = crate::datapacks::world_link::resolve_on_disk(&dp_dir, filename)
+            .await
+            .map_err(|e| Error::io(dp_dir.display().to_string(), e))?;
+        let on_disk = match resolved {
+            detect::Resolved::Exact(n) | detect::Resolved::Folded(n) => Some(n),
+            detect::Resolved::Absent => None,
+            detect::Resolved::Unknown(e) => {
+                return Err(Error::io(dp_dir.join(filename).display().to_string(), e))
+            }
+        };
+
+        let edit = if edits_level_dat {
+            let (mut root, framing) = level_dat::read_at(world_dir)?;
+            // R3's `present`: what is left after the removal — the one
+            // `read_dir` above, minus the entry removed.
+            let present: Vec<String> = names
+                .iter()
+                .filter(|n| Some(*n) != on_disk.as_ref())
+                .cloned()
+                .collect();
+            let entry = level_dat_entry(on_disk.as_deref().unwrap_or(filename));
+            level_dat::forget_with_case_ghosts(&mut root, &entry, Some(&present))?
+                .then_some((root, framing))
+        } else {
+            None
+        };
+
+        if let Some(name) = &on_disk {
+            remove_entry(&dp_dir, name)?;
+        }
+
+        if let Some((root, framing)) = edit {
+            level_dat::write_at(world_dir, &root, framing).await?;
+        }
+    }
+
+    super::sidecar::forget(world_dir, filename)
+}
+
+/// Remove one entry of `dp_dir` by its real type. Idempotent: an entry that
+/// is gone by now is `Ok`.
+///
+/// Accepted: a folder pack's `remove_dir_all` runs under the global server
+/// lock, because server folder packs are small and the removal must stay
+/// inside the same critical section as its level.dat edit.
+fn remove_entry(dp_dir: &Path, name: &str) -> Result<()> {
+    let path = dp_dir.join(name);
+    // Deliberate defence-in-depth, not an oversight: `name` is the validated
+    // `filename` or a name `read_dir` returned for `dp_dir`, so `path` cannot
+    // actually escape `dp_dir`. This guards the unconditional
+    // `remove_dir_all` below against that invariant ever being wrong.
+    if !path.starts_with(dp_dir) {
         return Err(Error::ServerFileInvalid {
-            filename: filename.to_string(),
+            filename: name.to_string(),
             reason: "path escapes the datapacks dir".into(),
         });
     }
-
     match std::fs::metadata(&path) {
         Ok(m) if m.is_dir() => {
             std::fs::remove_dir_all(&path).map_err(|e| Error::io(path.display().to_string(), e))?
@@ -72,18 +150,7 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(Error::io(path.display().to_string(), e)),
     }
-
-    {
-        let _guard = level_dat_lock().lock().await;
-        if level_dat_present(world_dir)? {
-            let (mut root, framing) = level_dat::read_at(world_dir)?;
-            if level_dat::forget_ci(&mut root, &level_dat_entry(filename))? {
-                level_dat::write_at(world_dir, &root, framing).await?;
-            }
-        }
-    }
-
-    super::sidecar::forget(world_dir, filename)
+    Ok(())
 }
 
 /// Place verified bytes into the world's `datapacks/` and record a sidecar
@@ -103,35 +170,26 @@ pub async fn remove(world_dir: &Path, filename: &str) -> Result<()> {
 ///
 /// No `level.dat` write: a fresh pack lands present-and-unlisted, which the
 /// game auto-enables on boot — the honest server-side default, and exactly
-/// why `state::derive`'s `(true, _, false)` arm exists.
+/// why `state::derive_listed` reads a present, unlisted pack as `Enabled`.
+///
+/// Refuses a world with only `level.dat_old` ([`Error::ServerWorldOnlyOld`]).
 pub async fn install_bytes(
     world_dir: &Path,
     filename: &str,
     bytes: &[u8],
     provenance: Option<&DatapackProvenance>,
 ) -> Result<ServerInstalledRecord> {
-    if !crate::pathsafe::is_safe_filename(filename) {
-        return Err(Error::ModsUnsafeFilename {
-            filename: filename.to_string(),
-        });
-    }
-    // Minecraft's pack scanner loads directories and `*.zip` only, and a
-    // non-zip name written here is worse than one that never loads: the
-    // sidecar reconcile adopts only `.zip`, so the row is dropped on the next
-    // listing while the file stays on disk — invisible and unremovable.
-    if !filename.to_ascii_lowercase().ends_with(".zip") {
-        return Err(Error::DatapackInvalid {
-            filename: filename.to_string(),
-            reason: DatapackRejection::NotAZip,
-        });
-    }
-    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
-        return Err(Error::DatapackTooLarge {
-            filename: filename.to_string(),
-            size_bytes: bytes.len() as f64,
-            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
-        });
-    }
+    // N.5: the file is Lucerna's to name, and the game loads only `*.zip` in
+    // lower case. Every later step and the returned row use this name.
+    let normalised = detect::normalise_zip_extension(filename);
+    let filename = normalised.as_str();
+    validate_install_input(filename, bytes)?;
+    // D2: a world that lost its level.dat but kept level.dat_old gets no
+    // data-pack change; the next start restores level.dat from the backup.
+    // This comes after the input validation above (§0.5 A7) and before the
+    // first write, which is the provenance block's `sidecar::reconcile` (it
+    // persists). A never-generated world (`Absent`) installs as before.
+    refuse_only_old(world_dir)?;
 
     // Classification and hashing each walk the whole archive; a catalog
     // install is an automated path where a large pack would stall the async
@@ -171,11 +229,13 @@ pub async fn install_bytes(
     }
 
     if let Some(prov) = provenance {
-        if let Ok(meta_dest) = std::fs::metadata(&dest) {
-            let want = filename.to_lowercase();
-            let existing_row = super::sidecar::reconcile(world_dir)
-                .into_iter()
-                .find(|r| r.filename.to_lowercase() == want);
+        if let Some(meta_dest) = occupant(&dest, std::fs::metadata(&dest))? {
+            // N.3 provenance lookup: the exact name, else the single
+            // case-insensitive match.
+            let existing_row = {
+                let rows = super::sidecar::reconcile(world_dir);
+                detect::find_by_name(&rows, filename, |r| r.filename.as_str()).cloned()
+            };
             // A directory can never be proven ours — it has no file sha1, and
             // placing bytes here would rename a zip over a whole pack folder.
             let same_project = !meta_dest.is_dir()
@@ -194,7 +254,10 @@ pub async fn install_bytes(
             // over it is a no-op. Only a file matching NEITHER the recorded
             // row NOR the incoming target is a genuine third-party pack. Do
             // not narrow this back to `same_project` alone.
-            let already_written = !meta_dest.is_dir()
+            // Only a regular file can hold the target bytes. Anything else (a
+            // FIFO, a socket, a device) is judged by its type and never
+            // opened: opening a FIFO blocks until a writer appears.
+            let already_written = meta_dest.is_file()
                 && installed::sha1_of(&dest)
                     .map(|existing| existing.eq_ignore_ascii_case(&sha1))
                     .unwrap_or(false);
@@ -232,11 +295,162 @@ pub async fn install_bytes(
     Ok(record)
 }
 
+/// What the stat of a destination slot says before a write: `Some` —
+/// something is there; `None` — nothing is (NotFound, a fact). Any other
+/// stat error is "could not tell" and an `Err` (Fallback discipline Q2): the
+/// write that follows replaces its destination unconditionally, so reading
+/// ignorance as a free slot could replace a pack that was never identified.
+pub(super) fn occupant(
+    path: &Path,
+    stat: std::io::Result<std::fs::Metadata>,
+) -> Result<Option<std::fs::Metadata>> {
+    match stat {
+        Ok(meta) => Ok(Some(meta)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Error::io(path.display().to_string(), e)),
+    }
+}
+
+/// The input checks every server pack placement runs first (spec §0.5 A7,
+/// step 1): the name checks of [`validate_install_name`], then the size cap.
+/// Shared by [`install_bytes`] and `update::update_one`, which must report a
+/// bad new name ahead of any world-state refusal.
+pub(super) fn validate_install_input(filename: &str, bytes: &[u8]) -> Result<()> {
+    validate_install_name(filename)?;
+    if bytes.len() > crate::datapacks::MAX_DATAPACK_BYTES {
+        return Err(Error::DatapackTooLarge {
+            filename: filename.to_string(),
+            size_bytes: bytes.len() as f64,
+            limit_bytes: crate::datapacks::MAX_DATAPACK_BYTES as f64,
+        });
+    }
+    Ok(())
+}
+
+/// The name half of [`validate_install_input`]: a safe filename with a `.zip`
+/// name. It needs no bytes, so the server datapack commands run it before
+/// their level.dat_old refusal and before downloading anything (spec §0.5
+/// A7, step 1). The one copy of the rule.
+pub(crate) fn validate_install_name(filename: &str) -> Result<()> {
+    if !crate::pathsafe::is_safe_filename(filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: filename.to_string(),
+        });
+    }
+    // Minecraft's pack scanner loads directories and `*.zip` only (exact,
+    // lower case), and a non-zip name written here is worse than one that
+    // never loads: the sidecar reconcile adopts only `.zip`, so the row is
+    // dropped on the next listing while the file stays on disk — invisible and
+    // unremovable. The name that is checked is the one the install writes
+    // (N.5): `X.ZIP` is saved as `X.zip`, so it passes here.
+    if !detect::has_zip_suffix(&detect::normalise_zip_extension(filename)) {
+        return Err(Error::DatapackInvalid {
+            filename: filename.to_string(),
+            reason: DatapackRejection::NotAZip,
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datapacks::detect::test_support::fs_folds_case;
+    use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::{level_dat, WorldPackState};
     use std::io::Write;
+
+    /// A catalog install checks whether the file already under its name is
+    /// retry evidence (the target bytes) by hashing it. A FIFO there is not
+    /// a pack, and hashing it would open it and block until a writer appears.
+    /// It is a conflict, judged by its type. `cfg(unix)`: runs in CI only.
+    #[cfg(unix)]
+    #[test]
+    fn a_catalog_install_over_a_fifo_is_a_conflict_and_never_opens_it() {
+        use crate::servers_runtime::datapacks::fifo_test_util::{mkfifo, within_budget};
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), &[], &[]);
+        std::fs::create_dir_all(td.path().join("datapacks")).unwrap();
+        let fifo = td.path().join("datapacks").join("vm.zip");
+        mkfifo(&fifo);
+        let prov = crate::datapacks::DatapackProvenance {
+            source: crate::mods::platform::ModSource::Modrinth,
+            project_id: "veinminer".into(),
+            version_id: "v1".into(),
+            version_number: Some("1.0".into()),
+        };
+
+        let world = td.path().to_path_buf();
+        let err = within_budget(&fifo, move || async move {
+            install_bytes(&world, "vm.zip", &fifo_test_pack(), Some(&prov)).await
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+    }
+
+    /// The smallest pack `install_bytes` accepts.
+    #[cfg(unix)]
+    fn fifo_test_pack() -> Vec<u8> {
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file("pack.mcmeta", opts).unwrap();
+        zw.write_all(br#"{"pack":{"pack_format":48,"description":"Pack"}}"#)
+            .unwrap();
+        zw.start_file("data/ns/function/tick.mcfunction", opts)
+            .unwrap();
+        zw.write_all(b"say hi").unwrap();
+        zw.finish().unwrap().into_inner()
+    }
+
+    /// Fallback Q2: a destination that could not be stated is not a free
+    /// slot. The install and the update's new-name check write over their
+    /// destination unconditionally, so "free" out of ignorance could replace a
+    /// pack that was never identified. Only NotFound is free.
+    #[test]
+    fn a_slot_that_cannot_be_stated_is_never_free() {
+        let td = tempfile::tempdir().unwrap();
+        let file = td.path().join("vm.zip");
+        std::fs::write(&file, b"x").unwrap();
+
+        assert!(
+            occupant(&file, Err(std::io::Error::other("access denied"))).is_err(),
+            "could not tell must not read as free"
+        );
+        assert!(matches!(
+            occupant(
+                &file,
+                Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            ),
+            Ok(None)
+        ));
+        assert!(matches!(
+            occupant(&file, std::fs::metadata(&file)),
+            Ok(Some(_))
+        ));
+    }
+
+    #[test]
+    fn the_name_check_refuses_an_unsafe_name_and_a_non_zip_before_any_bytes() {
+        // The commands run this before their only-old refusal and before the
+        // download, so it must not need the bytes (spec §0.5 A7, step 1).
+        assert!(matches!(
+            validate_install_name("../evil.zip"),
+            Err(Error::ModsUnsafeFilename { .. })
+        ));
+        assert!(matches!(
+            validate_install_name("pack.jar"),
+            Err(Error::DatapackInvalid {
+                reason: DatapackRejection::NotAZip,
+                ..
+            })
+        ));
+        assert!(validate_install_name("Pack v1.ZIP").is_ok());
+    }
 
     fn datapack_zip(body: &[u8]) -> Vec<u8> {
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -261,28 +475,28 @@ mod tests {
         td
     }
 
-    /// What a first boot leaves behind: a level.dat carrying unmodelled tags
-    /// this module must preserve byte-for-byte across its edits.
+    /// What a first boot leaves behind: a played world's level.dat, plus
+    /// unmodelled tags this module must preserve across its edits.
     async fn boot_world(world_dir: &std::path::Path) {
-        let mut data = std::collections::HashMap::new();
+        let mut root = level_dat::test_support::game_root(&[], &[]);
+        let fastnbt::Value::Compound(top) = &mut root else {
+            panic!("game_root is a compound")
+        };
+        let Some(fastnbt::Value::Compound(data)) = top.get_mut("Data") else {
+            panic!("game_root has a Data compound")
+        };
         data.insert(
             "LevelName".to_string(),
             fastnbt::Value::String("srv".into()),
         );
         data.insert("RandomSeed".to_string(), fastnbt::Value::Long(4242));
-        let mut root = std::collections::HashMap::new();
-        root.insert("Data".to_string(), fastnbt::Value::Compound(data));
-        level_dat::write_at(
-            world_dir,
-            &fastnbt::Value::Compound(root),
-            level_dat::Framing::Gzip,
-        )
-        .await
-        .unwrap();
+        level_dat::test_support::seed_root(world_dir, &root);
     }
 
     fn state_of(world_dir: &std::path::Path, name: &str) -> Option<WorldPackState> {
         super::super::listing::entries(world_dir)
+            .unwrap()
+            .entries
             .into_iter()
             .find(|e| e.record.filename == name)
             .and_then(|e| e.state)
@@ -331,6 +545,8 @@ mod tests {
     async fn the_toggle_works_on_a_folder_pack() {
         let td = world(&[]);
         std::fs::create_dir_all(td.path().join("datapacks").join("Folder")).unwrap();
+        // A folder is a pack only with `pack.mcmeta` directly inside (N.0).
+        std::fs::write(td.path().join("datapacks/Folder/pack.mcmeta"), b"{}").unwrap();
         boot_world(td.path()).await;
         set_enabled(td.path(), "Folder", false).await.unwrap();
         assert_eq!(
@@ -385,7 +601,7 @@ mod tests {
         let (root, _) = level_dat::read_at(td.path()).unwrap();
         let (en, dis) = level_dat::lists(&root);
         assert!(
-            en.is_empty() && dis.is_empty(),
+            en == vec!["vanilla".to_string()] && dis.is_empty(),
             "the name must be gone from BOTH lists"
         );
         assert!(crate::servers_runtime::installed::lock(td.path())
@@ -396,17 +612,16 @@ mod tests {
 
     #[tokio::test]
     async fn removal_clears_a_case_drifted_level_dat_name() {
+        // Seeded directly: `set_enabled` resolves the on-disk spelling now
+        // (N.4), so it would never write this drift itself.
         let td = world(&["veinminer.zip"]);
-        boot_world(td.path()).await;
-        set_enabled(td.path(), "VeinMiner.zip", false)
-            .await
-            .unwrap();
+        seed(td.path(), &[], &["file/VeinMiner.zip"]);
         remove(td.path(), "veinminer.zip").await.unwrap();
         let (root, _) = level_dat::read_at(td.path()).unwrap();
         let (en, dis) = level_dat::lists(&root);
         assert!(
-            en.is_empty() && dis.is_empty(),
-            "forget_ci must fold the case"
+            en == vec!["vanilla".to_string()] && dis.is_empty(),
+            "R3: a case variant no present entry spells exactly is a ghost the engine already drops"
         );
     }
 
@@ -431,7 +646,10 @@ mod tests {
         );
         remove(td.path(), "ghost-off.zip").await.unwrap();
 
-        assert!(super::super::listing::entries(td.path()).is_empty());
+        assert!(super::super::listing::entries(td.path())
+            .unwrap()
+            .entries
+            .is_empty());
     }
 
     #[tokio::test]
@@ -510,6 +728,18 @@ mod tests {
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].source.is_none() && rows[0].sha1.len() == 40);
+    }
+
+    #[tokio::test]
+    async fn a_server_install_names_a_rich_text_pack_by_its_plain_text() {
+        // §1 C2: a rich-text description used to be dropped, so the row fell
+        // back to the filename stem. New installs only; old rows keep theirs.
+        use crate::datapacks::format::samples::{zip_with_mcmeta, TECTONIC};
+        let td = world(&[]);
+        let rec = install_bytes(td.path(), "tectonic.zip", &zip_with_mcmeta(TECTONIC), None)
+            .await
+            .unwrap();
+        assert_eq!(rec.name.as_deref(), Some("Made with <3 by Apollo"));
     }
 
     #[tokio::test]
@@ -625,5 +855,142 @@ mod tests {
             .unwrap();
         assert!(!td.path().join("level.dat").exists());
         assert_eq!(state_of(td.path(), "p.zip"), Some(WorldPackState::Enabled));
+    }
+
+    #[tokio::test]
+    async fn install_refuses_an_only_old_world_and_writes_nothing() {
+        // A hand-dropped zip under the target name with no sidecar row: the
+        // provenance block's `sidecar::reconcile` would adopt it and PERSIST
+        // the sidecar, so a refusal that came after the reconcile would leave
+        // the sidecar file behind.
+        let td = world(&["t.zip"]);
+        let theirs = std::fs::read(td.path().join("datapacks").join("t.zip")).unwrap();
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &[]);
+
+        let err = install_bytes(
+            td.path(),
+            "t.zip",
+            &datapack_zip(b"new"),
+            Some(&prov("terralith", "v1")),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, Error::ServerWorldOnlyOld), "got {err:?}");
+        assert_eq!(
+            std::fs::read(td.path().join("datapacks").join("t.zip")).unwrap(),
+            theirs
+        );
+        assert!(
+            !td.path().join(".lucerna-installed.json").exists(),
+            "no sidecar may be written"
+        );
+        assert!(!td.path().join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn removal_refuses_an_only_old_world_and_keeps_the_file() {
+        let td = world(&["p.zip"]);
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &["file/p.zip"]);
+
+        let err = remove(td.path(), "p.zip").await.unwrap_err();
+
+        assert!(matches!(err, Error::ServerWorldOnlyOld), "got {err:?}");
+        assert!(td.path().join("datapacks").join("p.zip").exists());
+        assert!(!td.path().join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn the_toggle_on_an_only_old_world_says_only_old_not_not_created() {
+        // `ServerWorldNotCreated` would tell the admin the world does not exist.
+        // It does, and the next start restores its level.dat from the backup.
+        let td = world(&["p.zip"]);
+        crate::datapacks::level_dat::test_support::seed_old(td.path(), &[], &[]);
+
+        let err = set_enabled(td.path(), "p.zip", false).await.unwrap_err();
+
+        assert!(matches!(err, Error::ServerWorldOnlyOld), "got {err:?}");
+        assert!(!td.path().join("level.dat").exists());
+    }
+
+    #[tokio::test]
+    async fn removal_refuses_an_unparseable_level_dat_and_keeps_the_file() {
+        let td = world(&["p.zip"]);
+        std::fs::write(td.path().join("level.dat"), b"not nbt at all").unwrap();
+
+        let err = remove(td.path(), "p.zip").await.unwrap_err();
+
+        assert!(matches!(err, Error::LevelDatParse { .. }), "got {err:?}");
+        assert!(
+            td.path().join("datapacks").join("p.zip").exists(),
+            "the file must not go before level.dat can follow"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_toggle_refuses_a_folder_the_game_ignores() {
+        let td = world(&[]);
+        std::fs::create_dir_all(td.path().join("datapacks").join("Folder")).unwrap();
+        boot_world(td.path()).await;
+        let before = std::fs::read(td.path().join("level.dat")).unwrap();
+        let err = set_enabled(td.path(), "Folder", false).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::DatapackInvalid {
+                    reason: DatapackRejection::NotAPack,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
+        assert_eq!(std::fs::read(td.path().join("level.dat")).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn the_toggle_writes_the_entrys_own_spelling() {
+        let td = world(&["veinminer.zip"]);
+        if !fs_folds_case(td.path()) {
+            return;
+        }
+        boot_world(td.path()).await;
+        set_enabled(td.path(), "VeinMiner.zip", false)
+            .await
+            .unwrap();
+        let (root, _) = level_dat::read_at(td.path()).unwrap();
+        assert!(level_dat::lists(&root)
+            .1
+            .contains(&"file/veinminer.zip".to_string()));
+    }
+
+    #[tokio::test]
+    async fn removal_never_touches_a_case_variant_on_a_case_sensitive_file_system() {
+        let td = world(&["Foo.zip"]);
+        if fs_folds_case(td.path()) {
+            return;
+        }
+        std::fs::write(td.path().join("datapacks/foo.zip"), datapack_zip(b"y")).unwrap();
+        seed(td.path(), &["file/Foo.zip", "file/foo.zip"], &[]);
+        remove(td.path(), "foo.zip").await.unwrap();
+        assert!(td.path().join("datapacks/Foo.zip").exists());
+        let (root, _) = level_dat::read_at(td.path()).unwrap();
+        assert_eq!(
+            level_dat::lists(&root).0,
+            vec!["vanilla".to_string(), "file/Foo.zip".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn install_normalises_an_upper_case_zip_extension() {
+        let td = world(&[]);
+        let rec = install_bytes(td.path(), "Pack.ZIP", &datapack_zip(b"x"), None)
+            .await
+            .unwrap();
+        assert_eq!(rec.filename, "Pack.zip");
+        let names: Vec<String> = std::fs::read_dir(td.path().join("datapacks"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["Pack.zip"]);
     }
 }

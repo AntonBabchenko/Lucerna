@@ -1,6 +1,13 @@
 <script lang="ts">
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { commands, type WorldDatapack, type WorldPackState } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type LevelDatPresence,
+    type WorldDatapack,
+    type WorldPackState,
+  } from '$lib/ipc/bindings';
+  import { ignoredHintKey, ignoredLabelKey } from '$lib/worlds/datapack-state';
+  import { compatLine, type CompatLine } from '$lib/worlds/datapack-compat';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
@@ -13,13 +20,17 @@
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import type { CardAccent, BadgeVariant } from '$lib/ui/cards/card-status';
-  import { datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
+  import { worldDatapacksDisabledKey, worldRowKind } from '$lib/worlds/datapacks-gating';
+  import DatapackRemoveDialog from '$lib/mods/DatapackRemoveDialog.svelte';
+  import { warnFailedRefresh } from '$lib/mods/datapack-refresh-warning';
 
   // Per-world datapack manager. Library ∪ on-disk ∪ level.dat names, each row
-  // carrying its own enabled/disabled/not_added/orphaned state — orphaned is
-  // the repair path for Minecraft's "data packs are no longer present"
-  // screen, so that row is the one deliberately rendered as a labelled
-  // action rather than an icon, per the other rows' terser vocabulary.
+  // carrying its own state. A "ghost" (a level.dat name whose file is gone) is
+  // not a problem: Minecraft logs "Missing data pack", skips it and drops the
+  // name at its next save. So it is rendered quietly and its one action,
+  // "Clear entry", only tidies the list sooner (see worldRowKind). An ignored
+  // row is an entry the game does not load: it gets its reason and removal
+  // only (spec §2 N.6).
   let {
     instanceId,
     world,
@@ -27,17 +38,41 @@
   }: { instanceId: string; world: string; running?: boolean } = $props();
 
   let packs = $state<WorldDatapack[]>([]);
+  // The world's level.dat presence (D2): `null` until loaded, or when the load
+  // failed.
+  let levelDat = $state<LevelDatPresence | null>(null);
   let loadError = $state<string | null>(null);
   let actionError = $state<string | null>(null);
   let busy = $state(false);
   let busyAdd = $state(false);
   let busyRow = $state<string | null>(null);
+  // The entry the this-world removal confirmation is open for (U1): every
+  // trash that can delete a file asks first. Only the ghost's "remove"
+  // (`world-datapack-remove-orphaned`) deletes nothing and stays one click.
+  let removeTarget = $state<string | null>(null);
 
-  const disabledKey = $derived(datapacksDisabledKey({ running, busy }));
+  // running > level.dat > busy (worldDatapacksDisabledKey). Every mutating
+  // control below reads `disabledKey`, so D2 covers both Add buttons, `+`, the
+  // toggles, Clear entry and the trash. `null` — not loaded yet, or the load
+  // failed — is not a verdict there: the per-row controls only exist once a
+  // listing arrived (a failed load clears the rows), and their world writers
+  // re-check level.dat first (§3 L.4). The two Add buttons are different: they
+  // install into the library BEFORE the world writer refuses anything, so
+  // they also wait until the world's level.dat is known (`addBlocked`).
+  const disabledKey = $derived(worldDatapacksDisabledKey({ running, busy, levelDat }));
+  const addBlocked = $derived(disabledKey !== null || levelDat === null);
   const disabledReason = $derived.by(() => {
     const key = disabledKey;
     return key === null ? null : $t(key);
   });
+  // Add's own reason. Its wait for the listing is a gate `disabledKey` does
+  // not carry, and a disabled control must still say why and keep its tab stop
+  // (DESIGN.md §5), whether the listing is on its way or failed to arrive.
+  const addBlockedReason = $derived(
+    disabledReason ?? (addBlocked ? $t('worlds.datapacks.blockedUntilListed') : null),
+  );
+  // Nothing has been read for this world yet: not an empty list.
+  const awaitingListing = $derived(levelDat === null && loadError === null);
 
   async function reload() {
     // Capture the world this load is for; a rapid world switch mid-fetch must
@@ -48,13 +83,15 @@
     const res = await commands.datapacksListForWorld(reqInstanceId, reqWorld);
     if (instanceId !== reqInstanceId || world !== reqWorld) return;
     if (res.status === 'ok') {
-      packs = res.data;
+      packs = res.data.packs;
+      levelDat = res.data.level_dat;
     } else {
       // Clear the list on failure too: an error and a stale, still-interactive
       // row list must never render together (see the template's mutually
       // exclusive loadError / empty / list branches below) — a row surviving
       // a failed reload would contradict whatever action just triggered it.
       packs = [];
+      levelDat = null;
       loadError = formatError(res.error);
     }
   }
@@ -68,11 +105,17 @@
     // loadError fix above, just triggered by a prop change instead of a
     // failed reload.
     actionError = null;
+    removeTarget = null;
+    // The previous world's level.dat note must not stand over this one, and
+    // neither must its rows: until this world's listing arrives they would
+    // act on this world under the previous world's names.
+    levelDat = null;
+    packs = [];
     void reload();
   });
 
-  function stateLabel(state: WorldPackState): string {
-    switch (state) {
+  function stateLabel(pack: WorldDatapack): string {
+    switch (pack.state) {
       case 'enabled':
         return $t('worlds.datapacks.stateEnabled');
       case 'disabled':
@@ -81,6 +124,8 @@
         return $t('worlds.datapacks.stateNotAdded');
       case 'orphaned':
         return $t('worlds.datapacks.stateOrphaned');
+      case 'ignored':
+        return $t(ignoredLabelKey(pack.ignored_reason));
     }
   }
 
@@ -93,18 +138,28 @@
       case 'not_added':
         return 'neutral';
       case 'orphaned':
-        return 'danger';
+        return 'neutral';
+      case 'ignored':
+        return 'warning';
     }
   }
 
-  // Orphaned (file gone) outranks a format mismatch for the row's accent —
-  // there is nothing to read a pack_format from once the file is missing.
-  // A merely-disabled pack ranks below both: it follows the shared
-  // disabled/muted convention from card-status.ts (see rowDim below), but a
-  // real compatibility problem is more important information than "it's off".
+  // The verdict's own sentence for this row, or null. An ignored row speaks
+  // through its reason hint (a not-loadable one names the same cause), and a
+  // ghost whose file is gone has nothing left to judge.
+  function rowCompatLine(pack: WorldDatapack): CompatLine | null {
+    const kind = worldRowKind(pack);
+    if (kind === 'ignored' || kind === 'ghost') return null;
+    return compatLine(pack.compat);
+  }
+
+  // A ghost is quiet (the game heals it itself); otherwise a compatibility
+  // problem outranks "it's off", which follows the shared muted convention
+  // from card-status.ts (see rowDim below).
   function rowAccent(pack: WorldDatapack): CardAccent {
-    if (pack.state === 'orphaned') return 'danger';
-    if (pack.compat.kind === 'mismatch') return 'warning';
+    if (worldRowKind(pack) === 'ghost') return 'none';
+    if (pack.state === 'ignored') return 'warning';
+    if (rowCompatLine(pack) !== null) return 'warning';
     if (pack.state === 'disabled') return 'muted';
     return 'none';
   }
@@ -138,7 +193,13 @@
         actionError = formatError(installed.error);
         return;
       }
-      const placed = await commands.datapacksAddToWorld(instanceId, world, installed.data.filename);
+      // A same-named pack was replaced: a world left on its old bytes is named.
+      warnFailedRefresh(installed.data.pack.name, installed.data.refreshed);
+      const placed = await commands.datapacksAddToWorld(
+        instanceId,
+        world,
+        installed.data.pack.filename,
+      );
       if (placed.status === 'ok') {
         if (placed.data === 'copied') pushInfo($t('worlds.datapacks.copyNotLinked'));
       } else {
@@ -223,13 +284,13 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <span
         class="inline-flex"
-        tabindex={disabledKey !== null ? 0 : undefined}
-        use:tooltip={{ text: disabledReason ?? '', describe: false }}
+        tabindex={addBlocked ? 0 : undefined}
+        use:tooltip={{ text: addBlockedReason ?? '', describe: false }}
       >
         <BusyButton
           class="btn-secondary btn-sm"
           busy={busyAdd}
-          disabled={disabledKey !== null}
+          disabled={addBlocked}
           onclick={() => void addDatapackToLibrary('zip')}
           data-testid="world-datapack-add-library"
         >
@@ -240,13 +301,13 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <span
         class="inline-flex"
-        tabindex={disabledKey !== null ? 0 : undefined}
-        use:tooltip={{ text: disabledReason ?? '', describe: false }}
+        tabindex={addBlocked ? 0 : undefined}
+        use:tooltip={{ text: addBlockedReason ?? '', describe: false }}
       >
         <button
           type="button"
           class="btn-tertiary inline-flex items-center gap-1"
-          disabled={disabledKey !== null}
+          disabled={addBlocked}
           data-testid="world-datapack-add-library-folder"
           onclick={() => void addDatapackToLibrary('folder')}
         >
@@ -257,17 +318,35 @@
     </div>
   </div>
 
+  {#if levelDat === 'absent' || levelDat === 'only_old'}
+    <p class="text-xs text-warning-text" data-testid="world-datapacks-level-dat-note">
+      {$t(
+        levelDat === 'absent' ? 'worlds.datapacks.noLevelDat' : 'worlds.datapacks.onlyOldLevelDat',
+      )}
+    </p>
+  {/if}
+
   {#if actionError}
     <p class="text-sm text-danger">{actionError}</p>
   {/if}
 
   {#if loadError}
     <p class="text-sm text-danger">{loadError}</p>
+  {:else if awaitingListing}
+    <div class="flex justify-center py-3 text-secondary" data-testid="world-datapacks-loading">
+      <Spinner labelPlacement="below" label={$t('common.loading')} />
+    </div>
   {:else if packs.length === 0}
-    <p class="text-sm text-muted">{$t('worlds.datapacks.empty')}</p>
+    <!-- For a folder with no level.dat the note above replaces "No datapacks
+         yet" (§3 L.8): the game loads nothing from it at all. -->
+    {#if levelDat !== 'absent'}
+      <p class="text-sm text-muted">{$t('worlds.datapacks.empty')}</p>
+    {/if}
   {:else}
     <div class="overflow-hidden rounded-lg border border-border-subtle">
       {#each packs as pack (pack.filename)}
+        {@const kind = worldRowKind(pack)}
+        {@const compatWarn = rowCompatLine(pack)}
         <CardShell variant="compact-row" accent={rowAccent(pack)} dim={rowDim(pack)}>
           <CardMedia placeholder="package" size="sm" />
           <div class="min-w-0 flex-1">
@@ -278,13 +357,11 @@
               >
                 {pack.filename}
               </span>
-              <StatusBadge
-                variant={stateBadgeVariant(pack.state)}
-                icon={pack.state === 'orphaned' ? 'circleX' : undefined}
-              >
-                {stateLabel(pack.state)}
+              <StatusBadge variant={kind === 'ghost' ? 'neutral' : stateBadgeVariant(pack.state)}>
+                {kind === 'ghost' ? $t('worlds.datapacks.stateOrphaned') : stateLabel(pack)}
               </StatusBadge>
-              {#if pack.compat.kind === 'unknown'}
+              <!-- A ghost has no file to judge, so no compatibility badge either. -->
+              {#if kind !== 'ignored' && kind !== 'ghost' && pack.compat.kind === 'unknown'}
                 <StatusBadge variant="neutral" icon="info"
                   >{$t('worlds.datapacks.compatUnknown')}</StatusBadge
                 >
@@ -293,51 +370,61 @@
                 <StatusBadge variant="neutral">{$t('worlds.datapacks.external')}</StatusBadge>
               {/if}
             </div>
-            {#if pack.compat.kind === 'mismatch'}
-              <p class="mt-0.5 text-xs text-warning-text">
-                {$t('worlds.datapacks.formatMismatch', {
-                  packFormat: pack.compat.pack_format,
-                  expected: pack.compat.expected,
-                })}
+            {#if compatWarn}
+              <p class="mt-0.5 text-xs text-warning-text" data-testid="world-datapack-compat">
+                {$t(compatWarn.key, compatWarn.args)}
               </p>
             {/if}
-            {#if pack.state === 'orphaned'}
-              <p class="mt-0.5 text-xs text-danger">{$t('worlds.datapacks.orphanedHint')}</p>
+            {#if kind === 'ghost'}
+              <p class="mt-0.5 text-xs text-muted">{$t('worlds.datapacks.orphanedHint')}</p>
+            {/if}
+            {#if pack.state === 'ignored'}
+              {@const hint = ignoredHintKey(pack.ignored_reason, pack.compat)}
+              {#if hint}<p
+                  class="mt-0.5 text-xs text-warning-text"
+                  data-testid="world-datapack-ignored-hint"
+                >
+                  {$t(hint)}
+                </p>{/if}
             {/if}
           </div>
           <div class="flex flex-shrink-0 items-center gap-1">
-            {#if pack.state === 'not_added'}
+            {#if kind === 'ignored'}
+              <!-- The game does not load this entry, so there is nothing to
+                   switch on or off: removal only (spec §2 N.6). -->
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span
                 class="inline-flex"
                 tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
                 use:tooltip={{
-                  text: disabledReason ?? $t('worlds.datapacks.addToWorld'),
+                  text: disabledReason ?? $t('worlds.datapacks.removeFromWorld'),
                   describe: false,
                 }}
               >
                 <button
                   type="button"
-                  class="btn-icon btn-icon-sm !text-accent"
-                  data-testid="world-datapack-add-world"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  data-testid="world-datapack-remove-world"
                   disabled={disabledKey !== null || busyRow === pack.filename}
-                  aria-label={$t('worlds.datapacks.addToWorld')}
-                  onclick={() => void addToWorld(pack.filename)}
+                  aria-label={$t('worlds.datapacks.removeFromWorld')}
+                  onclick={() => (removeTarget = pack.filename)}
                 >
                   {#if busyRow === pack.filename}
                     <Spinner size="sm" />
                   {:else}
-                    <Icon name="plus" size={15} />
+                    <Icon name="trash" size={15} />
                   {/if}
                 </button>
               </span>
-            {:else if pack.state === 'orphaned'}
+            {:else if kind === 'ghost'}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span
                 class="inline-flex"
                 tabindex={disabledKey !== null ? 0 : undefined}
                 use:tooltip={{ text: disabledReason ?? '', describe: false }}
               >
+                <!-- Clears the level.dat name only: there is no file to delete,
+                     so it needs no confirmation (U3). -->
                 <BusyButton
                   class="btn-secondary btn-sm"
                   busy={busyRow === pack.filename}
@@ -345,10 +432,37 @@
                   onclick={() => void removeFromWorld(pack.filename)}
                   data-testid="world-datapack-remove-orphaned"
                 >
-                  <Icon name="trash" size={14} />
-                  {$t('worlds.datapacks.removeFromWorld')}
+                  {$t('worlds.datapacks.clearEntry')}
                 </BusyButton>
               </span>
+            {:else if kind === 'addable'}
+              <!-- §0.5 I11: this version skips the pack; the engine would accept the file and load nothing, so no add is offered. -->
+              {#if pack.compat.kind !== 'wont_load'}
+                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+                <span
+                  class="inline-flex"
+                  tabindex={disabledKey !== null || busyRow === pack.filename ? 0 : undefined}
+                  use:tooltip={{
+                    text: disabledReason ?? $t('worlds.datapacks.addToWorld'),
+                    describe: false,
+                  }}
+                >
+                  <button
+                    type="button"
+                    class="btn-icon btn-icon-sm !text-accent"
+                    data-testid="world-datapack-add-world"
+                    disabled={disabledKey !== null || busyRow === pack.filename}
+                    aria-label={$t('worlds.datapacks.addToWorld')}
+                    onclick={() => void addToWorld(pack.filename)}
+                  >
+                    {#if busyRow === pack.filename}
+                      <Spinner size="sm" />
+                    {:else}
+                      <Icon name="plus" size={15} />
+                    {/if}
+                  </button>
+                </span>
+              {/if}
             {:else}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <span
@@ -395,7 +509,7 @@
                   data-testid="world-datapack-remove-world"
                   disabled={disabledKey !== null || busyRow === pack.filename}
                   aria-label={$t('worlds.datapacks.removeFromWorld')}
-                  onclick={() => void removeFromWorld(pack.filename)}
+                  onclick={() => (removeTarget = pack.filename)}
                 >
                   {#if busyRow === pack.filename}
                     <Spinner size="sm" />
@@ -409,5 +523,16 @@
         </CardShell>
       {/each}
     </div>
+  {/if}
+
+  {#if removeTarget !== null}
+    <DatapackRemoveDialog
+      {instanceId}
+      filename={removeTarget}
+      packName={removeTarget}
+      mode={{ kind: 'this-world', world }}
+      onClose={() => (removeTarget = null)}
+      onRemoved={() => void reload()}
+    />
   {/if}
 </div>

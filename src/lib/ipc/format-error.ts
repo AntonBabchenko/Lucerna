@@ -178,6 +178,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   modpack_cf_distribution_disabled: 'clean',
   world_not_found: 'clean',
   world_in_use: 'clean',
+  world_level_dat_missing: 'clean',
+  world_level_dat_only_old: 'clean',
   world_path_invalid: 'clean',
   world_name_unresolvable: 'clean',
   // `clean`, not `opaque`: the whole value of this variant is a fully
@@ -221,6 +223,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_core_unsupported: 'clean',
   server_content_stale: 'clean',
   server_world_not_created: 'clean',
+  server_world_only_old: 'clean',
   server_name_invalid: 'clean',
   upload_not_configured: 'clean',
   sftp_auth_failed: 'clean',
@@ -243,6 +246,10 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   datapack_invalid: 'clean',
   // Structured fields only (filename + two sizes) — nothing to truncate.
   datapack_too_large: 'clean',
+  // Built from the instance's own version string — nothing to truncate.
+  datapacks_unsupported_version: 'clean',
+  // Two filenames, both ours to show — nothing to truncate.
+  datapack_legacy_case_name: 'clean',
   // Vanilla Tweaks builder. The version is ours; the build message is the
   // upstream service's own wording, kept verbatim because we do not know its
   // failure modes and paraphrasing would hide them.
@@ -679,6 +686,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.worldNotFound', { folderName: e.folder_name });
     case 'world_in_use':
       return translate('errors.worldInUse', { folderName: e.folder_name });
+    case 'world_level_dat_missing':
+      return translate('errors.worldLevelDatMissing', { folderName: e.folder_name });
+    case 'world_level_dat_only_old':
+      return translate('errors.worldLevelDatOnlyOld', { folderName: e.folder_name });
     case 'world_path_invalid':
       return translate('errors.worldPathInvalid', { name: e.name, reason: e.reason });
     case 'world_name_unresolvable':
@@ -824,6 +835,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverContentStale');
     case 'server_world_not_created':
       return translate('errors.serverWorldNotCreated');
+    case 'server_world_only_old':
+      return translate('errors.serverWorldOnlyOld');
     case 'server_import_unsupported_source':
       return translate('errors.serverImportUnsupportedSource');
     case 'server_import_invalid_archive':
@@ -886,6 +899,10 @@ export function formatError(e: IpcError): string {
         sizeMb: Math.ceil((e.size_bytes ?? 0) / (1024 * 1024)),
         limitMb: Math.floor((e.limit_bytes ?? 0) / (1024 * 1024)),
       });
+    case 'datapacks_unsupported_version':
+      return translate('errors.datapacksUnsupportedVersion', { mcVersion: e.mc_version });
+    case 'datapack_legacy_case_name':
+      return translate('errors.datapackLegacyCaseName', { filename: e.filename, legacy: e.legacy });
     case 'vanilla_tweaks_unavailable':
       return translate('errors.vanillaTweaksUnavailable', { mcVersion: e.mc_version });
     case 'vanilla_tweaks_build_failed':

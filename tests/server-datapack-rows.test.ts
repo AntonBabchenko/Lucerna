@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import type { ServerDatapackEntry } from '$lib/ipc/bindings';
-import { badgeOf, isUpdatable, rowKey } from '$lib/servers/datapacks/datapack-rows';
+import {
+  badgeOf,
+  isUpdatable,
+  rowKey,
+  serverToggleBlockedKey,
+  serverWorldBlockedKey,
+} from '$lib/servers/datapacks/datapack-rows';
 
 function entry(over: Partial<ServerDatapackEntry> = {}): ServerDatapackEntry {
   return {
@@ -15,6 +21,7 @@ function entry(over: Partial<ServerDatapackEntry> = {}): ServerDatapackEntry {
       enrich_attempted: false,
     },
     state: 'enabled',
+    ignored_reason: null,
     present: true,
     is_folder: false,
     ...over,
@@ -45,7 +52,7 @@ describe('badgeOf', () => {
 });
 
 describe('rowKey', () => {
-  test('keys on the case-folded filename, not sha1', () => {
+  test('keys on the exact filename, not sha1 and not a folded name', () => {
     // A folder pack and a ghost row both carry an empty sha1, so a sha1 key
     // would collide every one of them onto ''.
     const folder = entry({
@@ -57,7 +64,25 @@ describe('rowKey', () => {
       present: false,
     });
     expect(rowKey(folder)).not.toBe(rowKey(ghost));
-    expect(rowKey(entry({ record: { ...entry().record, filename: 'P.ZIP' } }))).toBe('p.zip');
+    // Spec §2 N.3: on a case-sensitive file system these are two packs; a
+    // folded key collides them as {#each} keys and update-map keys.
+    const named = (filename: string) => entry({ record: { ...entry().record, filename } });
+    expect(rowKey(named('Foo.zip'))).not.toBe(rowKey(named('foo.zip')));
+    expect(rowKey(named('P.ZIP'))).toBe('P.ZIP');
+  });
+});
+
+describe('an ignored row', () => {
+  test('gets a warning badge named by its reason and is never updatable', () => {
+    const ignored = entry({ state: 'ignored', ignored_reason: 'zip_extension_not_lowercase' });
+    expect(badgeOf(ignored)).toEqual({
+      variant: 'warning',
+      labelKey: 'worlds.datapacks.stateIgnored',
+    });
+    expect(badgeOf(entry({ state: 'ignored', ignored_reason: 'unreadable' })).labelKey).toBe(
+      'worlds.datapacks.stateCouldNotCheck',
+    );
+    expect(isUpdatable(ignored)).toBe(false);
   });
 });
 
@@ -69,5 +94,34 @@ describe('isUpdatable', () => {
     expect(
       isUpdatable(entry({ record: { ...entry().record, source: null, project_id: null } })),
     ).toBe(false);
+  });
+});
+
+describe('badgeOf — ghosts are quiet (U3)', () => {
+  test('a ghost badge is neutral', () => {
+    expect(badgeOf(entry({ state: 'orphaned', present: false })).variant).toBe('neutral');
+    expect(badgeOf(entry({ state: 'not_added', present: false })).variant).toBe('neutral');
+  });
+});
+
+describe('server level.dat gates (D2)', () => {
+  test('only-old blocks every change; a never-started world blocks only the toggle', () => {
+    expect(serverWorldBlockedKey('only_old')).toBe('servers.datapacks.blockedOnlyOld');
+    expect(serverWorldBlockedKey('absent')).toBeNull();
+    expect(serverWorldBlockedKey('present')).toBeNull();
+    expect(serverWorldBlockedKey(null)).toBeNull();
+    expect(serverToggleBlockedKey('only_old', 'enabled')).toBe('servers.datapacks.blockedOnlyOld');
+    expect(serverToggleBlockedKey('absent', 'enabled')).toBe('servers.datapacks.blockedNotCreated');
+    expect(serverToggleBlockedKey('present', 'enabled')).toBeNull();
+    expect(serverToggleBlockedKey(null, 'disabled')).toBeNull();
+  });
+
+  // Fallback Q1: a row whose state could not be read has no known side to
+  // switch to; a live toggle would guess "Enable".
+  test('a row whose state is unknown cannot be switched', () => {
+    expect(serverToggleBlockedKey('present', null)).toBe('servers.datapacks.blockedUnknown');
+    expect(serverToggleBlockedKey(null, null)).toBe('servers.datapacks.blockedUnknown');
+    // A lasting world reason still wins.
+    expect(serverToggleBlockedKey('only_old', null)).toBe('servers.datapacks.blockedOnlyOld');
   });
 });

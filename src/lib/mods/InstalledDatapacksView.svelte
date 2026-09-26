@@ -7,7 +7,7 @@
   //   * The row leads with WORLD STATE («Включён в 2 из 3 мирах»); «Ни в
   //     одном мире» is an accent state, not an absent value — it is the state
   //     this screen exists to surface.
-  //   * pack_format compatibility renders ONCE on the collapsed row — the
+  //   * the compatibility verdict renders ONCE on the collapsed row — the
   //     verdict is per-instance, so a per-world copy would print N duplicates.
   //   * Removal routes through the shared cascade dialog, never a direct call.
   //   * No filters and no sorting, by design (§7.4).
@@ -15,6 +15,7 @@
     commands,
     type AssetUpdateState,
     type DatapackLibraryEntry,
+    type DatapackPlacementView,
     type DatapackLibraryView,
     type LoaderKind,
     type ModSource,
@@ -27,6 +28,8 @@
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { datapacksChanged } from '$lib/settings/state.svelte';
   import { datapackWorldSummary, datapacksDisabledKey } from '$lib/worlds/datapacks-gating';
+  import { ignoredLabelKey } from '$lib/worlds/datapack-state';
+  import { compatLine } from '$lib/worlds/datapack-compat';
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import { get } from 'svelte/store';
@@ -49,6 +52,7 @@
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
+  import { warnFailedRefresh, warnUpdateIncomplete } from './datapack-refresh-warning';
 
   let {
     instanceId,
@@ -103,6 +107,9 @@
         error = formatError(res.error);
         return;
       }
+      // A pack that replaced a same-named one names each world left on its
+      // old bytes, as a catalog install does.
+      for (const o of res.data.outcomes) warnFailedRefresh(o.name, o.refreshed);
       const failed = res.data.outcomes.filter((o) => !o.installed).length;
       if (failed > 0) {
         error = $t('addons.datapacks.vt.someFailed', { count: failed });
@@ -117,6 +124,9 @@
     }
   }
   let removeFor = $state<DatapackLibraryEntry | null>(null);
+  // One pack out of one world — through the this-world confirmation (U1): the
+  // sub-row of an "only in worlds" pack holds the ONLY copy.
+  let removeFromWorldFor = $state<{ entry: DatapackLibraryEntry; world: string } | null>(null);
   let changelogReq = $state<{
     source: ModSource;
     projectId: string;
@@ -176,6 +186,14 @@
     if (id !== lastFetchedId) {
       updateStates = new Map();
       summaries = new Map();
+      // A dialog opened for the previous instance must not survive the
+      // switch: its Confirm would act on THIS instance with the previous
+      // instance's pack name and world list.
+      removeFor = null;
+      removeFromWorldFor = null;
+      pickerFor = null;
+      detail = null;
+      detailFor = null;
     }
     lastFetchedId = id;
     if (id === null) {
@@ -266,10 +284,13 @@
     }
   }
 
-  // One update, with the per-world report the backend returns. `completed:
-  // false` means at least one world failed and the OLD library file was kept
-  // for a retry — the user must hear which worlds, or the failure is silent
-  // staleness.
+  // One update, with the per-world report the backend returns. A world left
+  // behind must be named, or the failure is silent staleness. What may be
+  // promised about a retry depends on `old_copy_kept`: a renamed update kept
+  // the OLD library file, so a retry can finish and the badge stays for it; a
+  // same-name update replaced the library file in place, so the library is on
+  // the new version (the badge goes) and the worlds get the reinstall warning,
+  // which promises nothing.
   async function update(entry: DatapackLibraryEntry, latest: ModVersion) {
     if (instanceId === null) return;
     busy = true;
@@ -280,13 +301,10 @@
         pushWarning(get(t)('addons.installed.updateFailedToast'), [formatError(res.error)]);
         return;
       }
-      const failed = res.data.migrations.filter((m) => m.kind === 'failed');
-      if (!res.data.completed && failed.length > 0) {
-        pushWarning(
-          get(t)('addons.datapacks.updateIncomplete', { count: failed.length }),
-          failed.map((m) => (m.kind === 'failed' ? `${m.world}: ${m.details}` : m.kind)),
-        );
+      if (!res.data.completed && res.data.old_copy_kept) {
+        warnUpdateIncomplete(res.data.pack.name, res.data.migrations);
       } else {
+        warnFailedRefresh(res.data.pack.name, res.data.migrations);
         pushSuccess(get(t)('addons.installed.updatedToast', { name: entry.pack.name }));
         const next = new Map(updateStates);
         next.delete(entry.pack.filename);
@@ -317,10 +335,14 @@
           tgt.entry.pack.filename,
           tgt.latest,
         );
-        if (res.status === 'error' || !res.data.completed) {
+        // Only a renamed update that kept the old library copy can be retried,
+        // so only that one keeps its badge. A same-name update put the new
+        // version in the library, and names any world it could not refresh.
+        if (res.status === 'error' || (!res.data.completed && res.data.old_copy_kept)) {
           failed++;
           continue;
         }
+        warnFailedRefresh(res.data.pack.name, res.data.migrations);
         updated++;
         const next = new Map(updateStates);
         next.delete(tgt.entry.pack.filename);
@@ -349,22 +371,6 @@
       );
       if (res.status === 'error') error = formatError(res.error);
       await refresh();
-    } finally {
-      busy = false;
-    }
-  }
-
-  // Also the repair path for an orphaned sub-row: the backend clears the
-  // level.dat name even when the file is already gone.
-  async function removeFromWorld(entry: DatapackLibraryEntry, world: string) {
-    if (instanceId === null) return;
-    busy = true;
-    error = null;
-    try {
-      const res = await commands.datapacksRemoveFromWorld(instanceId, world, entry.pack.filename);
-      if (res.status === 'error') error = formatError(res.error);
-      await refresh();
-      datapacksChanged.value++;
     } finally {
       busy = false;
     }
@@ -419,19 +425,22 @@
     return enabled > 0 ? 'success' : 'neutral';
   }
 
-  function placementBadge(state: WorldPackState | null): {
+  function placementBadge(p: Pick<DatapackPlacementView, 'state' | 'ignored_reason'>): {
     variant: BadgeVariant;
     label: string;
   } {
-    switch (state) {
+    switch (p.state) {
       case 'enabled':
         return { variant: 'success', label: get(t)('worlds.datapacks.stateEnabled') };
       case 'disabled':
         return { variant: 'muted', label: get(t)('worlds.datapacks.stateDisabled') };
       case 'orphaned':
-        return { variant: 'danger', label: get(t)('worlds.datapacks.stateOrphaned') };
+        // Quiet: the game skips the id and drops it at its next save (U3).
+        return { variant: 'neutral', label: get(t)('worlds.datapacks.stateOrphaned') };
       case 'not_added':
         return { variant: 'neutral', label: get(t)('worlds.datapacks.stateNotAdded') };
+      case 'ignored':
+        return { variant: 'warning', label: get(t)(ignoredLabelKey(p.ignored_reason)) };
       default:
         return { variant: 'neutral', label: get(t)('addons.datapacks.stateUnknown') };
     }
@@ -508,10 +517,11 @@
         {@const summary = datapackWorldSummary(entry.placements)}
         {@const failReason = checkFailedReason(entry.pack.filename)}
         {@const isOpen = expanded.has(entry.pack.filename)}
+        {@const compatWarn = compatLine(entry.compat)}
         <div class="border-b border-border-subtle last:border-b-0">
           <CardShell
             variant="compact-row"
-            accent={entry.compat.kind === 'mismatch' ? 'warning' : latest ? 'warning' : 'none'}
+            accent={compatWarn !== null || latest ? 'warning' : 'none'}
           >
             <button
               type="button"
@@ -565,30 +575,36 @@
                 </span>
               </div>
             {/if}
-            <StatusBadge
-              variant={summaryVariant(summary.emphasis, summary.args.enabled)}
-              testid="datapack-world-summary"
-            >
-              {$t(summary.key, summary.args)}
-            </StatusBadge>
+            {#if summary.checked}
+              <StatusBadge
+                variant={summaryVariant(summary.checked.emphasis, summary.checked.args.enabled)}
+                testid="datapack-world-summary"
+              >
+                {$t(summary.checked.key, summary.checked.args)}
+              </StatusBadge>
+            {/if}
+            {#if summary.unchecked > 0}
+              <!-- Apart from the count above, never inside it: the pack may or
+                   may not be on in these worlds (the sub-rows say "State
+                   unknown"). Neutral, like that sub-row badge. -->
+              <StatusBadge variant="neutral" testid="datapack-world-summary-unchecked">
+                {$t('addons.datapacks.summaryUnchecked', { count: summary.unchecked })}
+              </StatusBadge>
+            {/if}
             {#if !entry.in_library}
               <StatusBadge variant="neutral" icon="warning" testid="datapack-only-in-worlds">
                 {$t('addons.datapacks.onlyInWorlds')}
               </StatusBadge>
             {/if}
-            {#if entry.compat.kind === 'mismatch'}
+            {#if compatWarn}
               <!-- Once, on the collapsed row: the verdict is per-instance. -->
+              {@const compatText = $t(compatWarn.key, compatWarn.args)}
               <span
                 class="text-warning-text text-xs flex-shrink-0"
-                use:tooltip={$t('worlds.datapacks.formatMismatch', {
-                  packFormat: entry.compat.pack_format,
-                  expected: entry.compat.expected,
-                })}
-                aria-label={$t('worlds.datapacks.formatMismatch', {
-                  packFormat: entry.compat.pack_format,
-                  expected: entry.compat.expected,
-                })}
+                use:tooltip={compatText}
+                aria-label={compatText}
                 role="img"
+                data-testid="datapack-compat-warning"
               >
                 <Icon name="warning" size={15} />
               </span>
@@ -651,12 +667,27 @@
                 <p class="text-xs text-muted py-1">{$t('addons.datapacks.noPlacements')}</p>
               {:else}
                 {#each entry.placements as p (p.world)}
-                  {@const badge = placementBadge(p.state)}
+                  {@const badge = placementBadge(p)}
+                  {@const actionable = p.level_dat === 'present'}
                   <div class="flex items-center gap-2 py-1 text-sm">
                     <Icon name="datapack" size={14} class="text-muted flex-shrink-0" />
                     <span class="flex-1 min-w-0 truncate text-primary">{p.world}</span>
-                    <StatusBadge variant={badge.variant}>{badge.label}</StatusBadge>
-                    {#if p.state === 'enabled' || p.state === 'disabled'}
+                    {#if p.level_dat === 'absent'}
+                      <StatusBadge variant="neutral"
+                        >{$t('addons.datapacks.placementNoLevelDat')}</StatusBadge
+                      >
+                    {:else}
+                      <StatusBadge variant={badge.variant}>{badge.label}</StatusBadge>
+                      {#if p.level_dat === 'only_old'}
+                        <StatusBadge variant="warning"
+                          >{$t('addons.datapacks.placementOnlyOld')}</StatusBadge
+                        >
+                      {/if}
+                    {/if}
+                    <!-- A2: the gate is level_dat, not state — an only-old world HAS a
+                         state (level.dat_old's) but takes no change until the game
+                         restores level.dat. -->
+                    {#if actionable && (p.state === 'enabled' || p.state === 'disabled')}
                       <button
                         type="button"
                         class={`btn-icon btn-icon-sm ${p.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
@@ -667,19 +698,21 @@
                         use:tooltip={p.state === 'enabled'
                           ? $t('worlds.datapacks.disable')
                           : $t('worlds.datapacks.enable')}
+                        data-testid="datapack-placement-toggle"
                         onclick={() => toggleInWorld(entry, p.world, p.state as WorldPackState)}
                       >
                         {#if busy}<Spinner size="sm" />{:else}<Icon name="power" size={15} />{/if}
                       </button>
                     {/if}
-                    {#if p.state !== null}
+                    {#if actionable && p.state !== null}
                       <button
                         type="button"
                         class="btn-icon btn-icon-sm btn-icon-danger"
                         disabled={gated}
                         aria-label={$t('worlds.datapacks.removeFromWorld')}
                         use:tooltip={$t('worlds.datapacks.removeFromWorld')}
-                        onclick={() => removeFromWorld(entry, p.world)}
+                        data-testid="datapack-placement-remove"
+                        onclick={() => (removeFromWorldFor = { entry, world: p.world })}
                       >
                         <Icon name="trash" size={15} />
                       </button>
@@ -716,6 +749,8 @@
       filename={pickerFor.pack.filename}
       packName={pickerFor.pack.name}
       placements={pickerFor.placements}
+      worlds={view?.worlds ?? []}
+      compat={pickerFor.compat}
       onClose={() => (pickerFor = null)}
       onApplied={() => {
         void refresh();
@@ -729,9 +764,25 @@
       {instanceId}
       filename={removeFor.pack.filename}
       packName={removeFor.pack.name}
-      placements={removeFor.placements}
-      inLibrary={removeFor.in_library}
+      mode={{
+        kind: removeFor.in_library ? 'library' : 'worlds-only',
+        placements: removeFor.placements,
+      }}
       onClose={() => (removeFor = null)}
+      onRemoved={() => {
+        void refresh();
+        datapacksChanged.value++;
+      }}
+    />
+  {/if}
+
+  {#if removeFromWorldFor && instanceId}
+    <DatapackRemoveDialog
+      {instanceId}
+      filename={removeFromWorldFor.entry.pack.filename}
+      packName={removeFromWorldFor.entry.pack.name}
+      mode={{ kind: 'this-world', world: removeFromWorldFor.world }}
+      onClose={() => (removeFromWorldFor = null)}
       onRemoved={() => {
         void refresh();
         datapacksChanged.value++;

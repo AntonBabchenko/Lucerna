@@ -22,15 +22,19 @@ use specta::Type;
 use crate::error::{Error, Result};
 
 pub mod compat;
+pub mod detect;
+pub mod format;
 pub mod guard;
 pub mod level_dat;
 pub mod library;
 pub mod overview;
 pub mod pack_meta;
+pub mod presence;
 pub mod registry;
 pub mod state;
 pub mod update;
 pub mod vanillatweaks;
+pub mod verdict;
 pub mod world_link;
 
 /// One datapack in an instance's library. Mirrors `mods::platform::InstalledAsset`;
@@ -41,10 +45,10 @@ pub struct InstalledDatapack {
     pub filename: String,
     pub sha1: String,
     pub size_bytes: f64,
-    /// `pack.pack_format` from `pack.mcmeta`; `None` when unreadable.
-    pub pack_format: Option<u32>,
-    /// Display name: `pack.description` when it is a plain string, else the
-    /// filename without its extension.
+    /// Display name: the plain text of `pack.description` (rich text
+    /// flattened, `§` codes stripped), else the filename without its
+    /// extension. Re-derived from the file whenever the registry re-reads its
+    /// declaration.
     pub name: String,
     /// `None` for a local install; `Some` once the catalog supplies it.
     pub source: Option<crate::mods::platform::ModSource>,
@@ -69,17 +73,72 @@ pub enum WorldPackState {
     Enabled,
     Disabled,
     NotAdded,
-    /// Named in `level.dat`'s Enabled list but the file is gone — this is what
-    /// Minecraft turns into the "data packs are no longer present" screen.
+    /// Named in Enabled but no loadable pack has this id; the game logs
+    /// "Missing data pack", skips it, and drops the id at the next save.
     Orphaned,
+    /// Something is on disk under this name, but the game does not load it
+    /// (spec §2 N.1, §0.5 A1). The row's `ignored_reason` says why.
+    Ignored,
 }
 
+/// What removing one entry from one world would do to it — the answer the
+/// "remove from this world" confirmation words itself by (spec 2026-09-24
+/// §4 U1). Computed by `world_link::world_entry_kind_at`, which resolves the
+/// name exactly as the removal does (R2) and judges it with the same identity
+/// rule the library's placement scan uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorldEntryKind {
+    /// A file byte-identical to the library's copy: removing it leaves the
+    /// pack in the library.
+    LibraryCopy,
+    /// A file that is not the library's copy (or no library copy exists):
+    /// removing it deletes the only copy.
+    OwnFile,
+    /// A folder pack. Library entries are zips, so a folder is never the
+    /// library's copy: removing deletes the folder.
+    OwnFolder,
+    /// Nothing on disk under this name: removing only clears the level.dat
+    /// entry.
+    Missing,
+}
+
+/// Minecraft's own verdict on a pack's declared formats for this instance's
+/// version (`PackCompatibility`, §1 C3). Every kind except `WontLoad` is a
+/// pack the game LOADS. `made_for`/`game` are display labels ("34–48",
+/// "107.1") from `verdict`'s one formatter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PackCompat {
+    /// The declared range covers this version.
     Compatible,
-    Mismatch { pack_format: u32, expected: u32 },
+    /// "Made for an older version of Minecraft" — still loads.
+    TooOld { made_for: String, game: String },
+    /// "Made for a newer version of Minecraft" — still loads.
+    TooNew { made_for: String, game: String },
+    /// The version fields fail this version's own validation: the game marks
+    /// the pack "(Broken or incompatible)" and still loads it.
+    Broken,
+    /// This version skips the pack entirely.
+    WontLoad { reason: WontLoadReason },
+    /// Not decidable: no recorded declaration, a field this build cannot
+    /// parse, or no readable game format.
     Unknown,
+}
+
+/// Why this version of the game skips a pack (it logs "Failed to read pack
+/// metadata" and loads nothing from it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WontLoadReason {
+    /// No `pack.mcmeta` at the zip's top level.
+    NoPackMcmeta,
+    /// `pack.mcmeta` has no `pack` object.
+    NoPackSection,
+    /// `pack` has no `description`, which every era requires.
+    NoDescription,
+    /// No `pack_format`, which versions before 1.21.9 require.
+    NoPackFormat,
 }
 
 /// One datapack as it appears for a single world.
@@ -87,22 +146,65 @@ pub enum PackCompat {
 pub struct WorldDatapack {
     pub filename: String,
     pub state: WorldPackState,
+    /// `Some` exactly when `state` is `Ignored`. Both come from `state::derive`.
+    pub ignored_reason: Option<crate::datapacks::detect::IgnoredReason>,
     /// False for a file the user (or a world import) put in the world folder
     /// directly. Supported, not an error — only "remove from library" is
     /// unavailable for it.
     pub in_library: bool,
+    /// The game's own verdict for this instance's Minecraft. `Unknown` for
+    /// an entry that is not the library's own copy — hand-dropped, a folder,
+    /// or a same-named zip with other bytes (§0.5 A1).
     pub compat: PackCompat,
+}
+
+/// What `datapacks_list_for_world` returns: the world's `level.dat`
+/// presence, and the rows the game would load (§3 L.6).
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct WorldDatapackListing {
+    /// `Present` is the only state Lucerna edits. `OnlyOld`: `packs` shows
+    /// what `level.dat_old` holds — the copy the game opens the world from
+    /// and restores `level.dat` out of — and every add, toggle and removal is
+    /// refused until `level.dat` is back (the same-name refresh is the
+    /// documented exception, §0.2 I7). `Absent`: the game does not list the
+    /// folder as a world and loads nothing from it, so `packs` is empty.
+    pub level_dat: presence::LevelDatPresence,
+    pub packs: Vec<WorldDatapack>,
 }
 
 /// One world's view of one library pack.
 #[derive(Debug, Clone, Serialize, Type, PartialEq)]
 pub struct DatapackPlacementView {
     pub world: String,
-    /// `None` when this world's `level.dat` could not be read, so the
-    /// enabled/disabled answer is genuinely unknown rather than guessed. A
-    /// missing level.dat is NOT this case — an unplayed world reads as two
-    /// empty lists, which is a real answer.
+    /// The state the game would load: from `level.dat`, or from
+    /// `level.dat_old` when only the backup is left. `None` when those
+    /// lists could not be read, or when the folder holds neither file (see
+    /// `level_dat`) — unknown, or no world to hold a state, rather than
+    /// guessed.
     pub state: Option<WorldPackState>,
+    /// `Some` when `state` is `Ignored`; both come from `state::derive`.
+    /// Also `Some(Unreadable)` with `state: None` for a placement Lucerna
+    /// could not check at all — the world's `datapacks/` could not be read,
+    /// or R2 could not tell which entry the name denotes. That mark is what
+    /// tells "could not tell" apart from a folder with no level file, where
+    /// `state: None` is a fact.
+    pub ignored_reason: Option<crate::datapacks::detect::IgnoredReason>,
+    /// This world's `level.dat` presence; `None` when it could not be told.
+    /// Anything but `Some(Present)` means Lucerna adds, toggles or removes
+    /// nothing in this world. A library-wide cascade removal or renamed update
+    /// still unlinks or relinks the file in an `Absent` folder without
+    /// touching `level.dat` (§0.5 A3), and a same-name refresh is not gated
+    /// (§0.2 I7).
+    pub level_dat: Option<presence::LevelDatPresence>,
+}
+
+/// One world folder the library view saw, whether or not it holds any
+/// pack — the world picker needs the worlds a pack is NOT in yet.
+#[derive(Debug, Clone, Serialize, Type, PartialEq)]
+pub struct DatapackWorldView {
+    pub world: String,
+    /// `None` when the presence could not be told.
+    pub level_dat: Option<presence::LevelDatPresence>,
 }
 
 /// One row of the instance-level library screen.
@@ -116,9 +218,9 @@ pub struct DatapackLibraryEntry {
     /// therefore the UNION of the registry and the on-disk world entries, never
     /// the registry alone.
     pub in_library: bool,
-    /// Per-INSTANCE, not per-world: the verdict compares the pack's own
-    /// `pack_format` against the instance's Minecraft, and no world is an
-    /// input, so rendering it per world would print N identical copies.
+    /// Per-INSTANCE, not per-world: the game's verdict on the pack's declared
+    /// formats for the instance's Minecraft. No world is an input, so
+    /// rendering it per world would print N identical copies.
     pub compat: PackCompat,
     /// Empty ⟺ "in no world" — the state the library screen exists to surface.
     pub placements: Vec<DatapackPlacementView>,
@@ -127,10 +229,13 @@ pub struct DatapackLibraryEntry {
 /// Everything the library screen renders, in one read.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct DatapackLibraryView {
-    /// The instance's expected `pack_format`. Exposed here because nothing else
-    /// does, and the frontend cannot compute it.
-    pub expected_pack_format: Option<u32>,
     pub entries: Vec<DatapackLibraryEntry>,
+    /// Every world folder the listing accepts under `saves/`, sorted
+    /// case-insensitively, each with its `level.dat` presence — including
+    /// worlds no pack is in. A folder whose metadata cannot be read, or whose
+    /// name is not a usable world folder name, is left out, and the world
+    /// picker then shows it as unknown.
+    pub worlds: Vec<DatapackWorldView>,
 }
 
 /// Where a catalog-installed datapack came from. `None` at every local-install
@@ -181,31 +286,55 @@ pub struct LibraryInstall {
 #[derive(Debug, Clone, Serialize, Type, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorldMigration {
-    /// Relinked, and level.dat rewritten preserving the pack's enabled state.
-    /// Produced only by `world_link::migrate_placements`, which actually read
-    /// that state.
-    Migrated {
-        world: String,
-        was_enabled: bool,
-    },
+    /// Relinked in a world whose `level.dat` was read, carrying the pack's
+    /// enabled state across the rename. Produced only by
+    /// `world_link::migrate_placements`, which actually read that state.
+    ///
+    /// level.dat is rewritten only when an entry had to move. A world with no
+    /// `DataPacks` compound is left unchanged: the game reads the missing
+    /// compound as its default and enables the present, unlisted pack itself
+    /// (spec §0.5 A15), which is what `was_enabled: true` reports there.
+    Migrated { world: String, was_enabled: bool },
+    /// The file was relinked in a `saves/` folder that has neither
+    /// `level.dat` nor `level.dat_old` (spec §0.5 A3). Minecraft does not
+    /// treat that folder as a world and loads nothing from it, so no level
+    /// file was read or written and no enabled/disabled state is claimed. A
+    /// separate variant from [`WorldMigration::Migrated`] for the same reason
+    /// as [`WorldMigration::Refreshed`]: this path does not know the state.
+    Relinked { world: String },
     /// A same-name refresh: the world's file now holds the new bytes, and
     /// level.dat was deliberately never touched — each world's own
     /// enabled/disabled choice stands exactly as it was. A separate variant
     /// from [`WorldMigration::Migrated`] because this path does not KNOW the
     /// state; fabricating `was_enabled: true` here would tell the UI a
     /// disabled pack had been enabled.
-    Refreshed {
-        world: String,
-    },
+    Refreshed { world: String },
     /// A same-named entry whose content is not the library's — left untouched.
     /// Replacing it would destroy a pack the user put there themselves.
-    SkippedNotOurs {
-        world: String,
-    },
+    SkippedNotOurs { world: String },
+    /// This world was not moved to the new bytes, and may still hold the old
+    /// ones. `error` is the crate's typed error, never a sentence made here:
+    /// the UI words it in its own language through `formatError`, as it
+    /// does every other error. A sentence built here would reach a Russian
+    /// UI in English.
     Failed {
         world: String,
-        details: String,
+        error: crate::error::Error,
     },
+    /// No world could be checked at all: `saves/` could not be listed, or (on
+    /// an update) the old library copy could not be read to compare against.
+    /// Not a `Failed` world: there is no world to name, and naming the
+    /// `saves` folder as one read in the UI as a world called "saves". Counts
+    /// as a failure wherever `Failed` does ([`Self::is_failure`]).
+    WorldsUnchecked { error: crate::error::Error },
+}
+
+impl WorldMigration {
+    /// Some world may not hold the new bytes: a `Failed` world, or no world
+    /// checked at all. What `completed: false` and a warning are decided on.
+    pub fn is_failure(&self) -> bool {
+        matches!(self, Self::Failed { .. } | Self::WorldsUnchecked { .. })
+    }
 }
 
 /// The result of `datapacks_update_one`.
@@ -215,11 +344,21 @@ pub struct DatapackUpdateOutcome {
     pub pack: InstalledDatapack,
     /// Per-world outcomes: same-name refreshes plus cross-name migrations.
     pub migrations: Vec<WorldMigration>,
-    /// `false` ⟹ at least one world failed to migrate. The OLD library file
-    /// and its registry row were kept — both versions sit in the library until
-    /// a re-run converges, which it does because a migrated world no longer
-    /// holds the old filename (§8.5: no rollback by design).
+    /// `false` ⟹ at least one world was not moved to the new version (a
+    /// `Failed` entry in `migrations` names it, or a `WorldsUnchecked` one
+    /// says no world could be checked). Whether a retry can still
+    /// finish the job is [`Self::old_copy_kept`], not this flag.
     pub completed: bool,
+    /// `true` ⟹ the update changed the filename and did not complete, so the
+    /// OLD library file and its registry row were kept: both versions sit in
+    /// the library until a re-run converges, which it does because a migrated
+    /// world no longer holds the old filename (§8.5: no rollback by design).
+    ///
+    /// Always `false` when the filename did not change (or changed only in
+    /// case): the library file was replaced in place, so a world left on the
+    /// old bytes no longer matches the library and a retry skips it as not
+    /// ours. Also `false` after a completed update, which removed the old copy.
+    pub old_copy_kept: bool,
 }
 
 /// One world's outcome of a library removal.
@@ -227,24 +366,20 @@ pub struct DatapackUpdateOutcome {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorldRemoval {
     /// The world's link and its level.dat entries are gone.
-    Removed {
-        world: String,
-    },
+    Removed { world: String },
     /// A same-named entry whose content is not the library's — never touched,
     /// cascading or not. Removing it would destroy a pack the user (or a world
     /// import) put there themselves.
-    KeptNotOurs {
-        world: String,
-    },
+    KeptNotOurs { world: String },
     /// Cascade was off; the link survives and keeps loading in game. This is
     /// exactly the state `DatapackLibraryEntry.in_library: false` renders
     /// afterwards.
-    KeptNoCascade {
-        world: String,
-    },
+    KeptNoCascade { world: String },
+    /// The world still holds the pack. `error` is typed for the same reason
+    /// as [`WorldMigration::Failed`]'s.
     Failed {
         world: String,
-        details: String,
+        error: crate::error::Error,
     },
 }
 
@@ -254,7 +389,8 @@ pub enum WorldRemoval {
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct LibraryRemoval {
     pub worlds: Vec<WorldRemoval>,
-    /// `false` ⟹ a world failed to clean up, so the library copy and its
+    /// `false` ⟹ a world failed to clean up, or the cascade could not check
+    /// whether a world names the pack, so the library copy and its
     /// registry row were kept: `placements_of`'s identity check needs the
     /// library bytes, and deleting them would make every remaining world look
     /// foreign to a retry, which could then never finish the job.

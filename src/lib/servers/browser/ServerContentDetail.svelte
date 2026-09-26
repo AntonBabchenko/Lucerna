@@ -55,6 +55,7 @@
     openExternal,
     projectUrl,
     onInstalled,
+    installBlockedReason = null,
   }: {
     project: ModSummary;
     onClose: () => void;
@@ -79,6 +80,11 @@
     projectUrl: string;
     /** Called after a successful install; the parent toasts + refreshes. */
     onInstalled: (report: InstallMissingReport, versionName: string) => void;
+    /** Why nothing can be installed right now, or null. Set, every Install
+     *  is disabled and the version list says why above it (the server data
+     *  pack catalog, for a world with only level.dat_old). Reading the
+     *  project and opening an external page stay available. */
+    installBlockedReason?: string | null;
   } = $props();
 
   type TabId = 'overview' | 'versions';
@@ -144,6 +150,7 @@
   }
 
   async function install(v: ModVersion): Promise<void> {
+    if (installBlockedReason !== null) return;
     installingId = v.version_id;
     error = null;
     try {
@@ -257,6 +264,15 @@
         {/if}
       </div>
     {:else}
+      {#if installBlockedReason !== null}
+        <p
+          id="server-content-detail-blocked"
+          class="text-xs text-warning-text mb-3"
+          data-testid="server-content-detail-blocked"
+        >
+          {installBlockedReason}
+        </p>
+      {/if}
       {#if error}
         <div
           class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-3"
@@ -304,7 +320,11 @@
               <BusyButton
                 class="btn-primary btn-sm shrink-0"
                 busy={installingId === v.version_id}
-                disabled={installing && installingId !== v.version_id}
+                disabled={(installing && installingId !== v.version_id) ||
+                  installBlockedReason !== null}
+                aria-describedby={installBlockedReason !== null
+                  ? 'server-content-detail-blocked'
+                  : undefined}
                 onclick={() => void install(v)}
               >
                 {$t('common.install')}

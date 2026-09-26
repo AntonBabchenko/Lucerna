@@ -394,6 +394,8 @@ describe('formatError', () => {
       modpack_export_failed: { kind: 'modpack_export_failed', details: 'd' },
       world_not_found: { kind: 'world_not_found', instance_id: 'i1', folder_name: 'world' },
       world_in_use: { kind: 'world_in_use', folder_name: 'world' },
+      world_level_dat_missing: { kind: 'world_level_dat_missing', folder_name: 'world' },
+      world_level_dat_only_old: { kind: 'world_level_dat_only_old', folder_name: 'world' },
       world_path_invalid: { kind: 'world_path_invalid', name: 'world', reason: 'bad' },
       world_name_unresolvable: { kind: 'world_name_unresolvable', folder_name: 'world' },
       world_restore_stranded: {
@@ -486,6 +488,7 @@ describe('formatError', () => {
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
       server_world_not_created: { kind: 'server_world_not_created' },
+      server_world_only_old: { kind: 'server_world_only_old' },
       server_upload_in_progress: { kind: 'server_upload_in_progress', id: 'srv-1' },
       server_maintenance_in_progress: { kind: 'server_maintenance_in_progress', id: 'srv-1' },
       server_content_busy: { kind: 'server_content_busy', id: 'srv-1' },
@@ -543,6 +546,15 @@ describe('formatError', () => {
         filename: 'huge.zip',
         size_bytes: 300 * 1024 * 1024,
         limit_bytes: 256 * 1024 * 1024,
+      },
+      datapacks_unsupported_version: {
+        kind: 'datapacks_unsupported_version',
+        mc_version: '1.12.2',
+      },
+      datapack_legacy_case_name: {
+        kind: 'datapack_legacy_case_name',
+        filename: 'Pack.zip',
+        legacy: 'Pack.ZIP',
       },
       vanilla_tweaks_unavailable: {
         kind: 'vanilla_tweaks_unavailable',
@@ -874,6 +886,20 @@ describe('formatError', () => {
       }
       expect(msg).not.toContain('�');
       expect(msg).toContain('… (open Logs for full text)');
+    });
+  });
+
+  describe('level.dat refusals', () => {
+    it('names the folder and the backup file', () => {
+      const msg = formatError({ kind: 'world_level_dat_only_old', folder_name: 'Survival' });
+      expect(msg).toContain('Survival');
+      expect(msg).toContain('level.dat_old');
+    });
+
+    it('tells a lost server level.dat apart from a world never created', () => {
+      expect(formatError({ kind: 'server_world_only_old' })).not.toBe(
+        formatError({ kind: 'server_world_not_created' }),
+      );
     });
   });
 });

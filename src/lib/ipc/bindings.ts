@@ -1735,9 +1735,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	serverInstallLocal: (id: string, jarPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_local", { id, jarPath })),
 	/**
 	 *  Every datapack this server's world knows about, with its real enabled
-	 *  state read from `level.dat`.
+	 *  state — read from `level.dat`, or from `level.dat_old` when only the
+	 *  backup is left — plus the world's `level.dat` presence.
 	 */
-	serverListDatapacks: (id: string) => typedError<ServerDatapackEntry[], Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
+	serverListDatapacks: (id: string) => typedError<ServerDatapackListing, Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
 	/**
 	 *  Install a datapack `.zip` chosen from disk. Records a provenance-less
 	 *  sidecar row so the pack lists with real state.
@@ -1991,14 +1992,22 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  The instance-level library view: every datapack Lucerna knows about —
 	 *  the registry UNION the packs still linked in worlds — each with its state
-	 *  in every world and one per-instance compat verdict. Unguarded — read-only.
+	 *  in every world and one per-instance compat verdict, plus every world
+	 *  folder with its `level.dat` presence. Unguarded — read-only.
 	 */
 	datapacksListLibrary: (instanceId: string) => typedError<DatapackLibraryView, Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
 	/**
 	 *  Install a `.zip` file or folder datapack from `src_path` (a file-picker
 	 *  result) into the instance's library.
+	 * 
+	 *  `refreshed` is what the same-name fan-out did to each world holding that
+	 *  filename: refreshed to the new bytes, skipped as not ours (the world's file
+	 *  is not the library's old copy, which after a fresh install is true of every
+	 *  such world), or failed (a reinstall that could not refresh or check a
+	 *  world, or list `saves/`). It is empty when no world holds the name and
+	 *  `saves/` was listable.
 	 */
-	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<InstalledDatapack, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
+	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<LibraryInstall, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
 	/**
 	 *  Remove a datapack from the instance's library. With `cascade`, first unlink
 	 *  it and drop its level.dat entries in every world holding it; without,
@@ -2009,11 +2018,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	datapacksRemoveFromLibrary: (instanceId: string, filename: string, cascade: boolean) => typedError<LibraryRemoval, Error>(__TAURI_INVOKE("datapacks_remove_from_library", { instanceId, filename, cascade })),
 	/**
 	 *  List every datapack relevant to one world (library ∪ on-disk ∪ level.dat
-	 *  names), with each entry's enabled/disabled/orphaned state and pack_format
-	 *  compatibility against the instance's installed Minecraft. Unguarded —
-	 *  read-only.
+	 *  names), with each entry's enabled/disabled/orphaned state and the game's
+	 *  own compatibility verdict for the instance's installed Minecraft, plus the
+	 *  world's `level.dat` presence: a world with only `level.dat_old` lists the
+	 *  backup's states, and a folder with neither file lists nothing.
+	 *  Unguarded — read-only.
 	 */
-	datapacksListForWorld: (instanceId: string, world: string) => typedError<WorldDatapack[], Error>(__TAURI_INVOKE("datapacks_list_for_world", { instanceId, world })),
+	datapacksListForWorld: (instanceId: string, world: string) => typedError<WorldDatapackListing, Error>(__TAURI_INVOKE("datapacks_list_for_world", { instanceId, world })),
 	/**
 	 *  Link a library datapack into a world's `datapacks/` folder and enable it
 	 *  in level.dat.
@@ -2024,6 +2035,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  repair path for an `Orphaned` row.
 	 */
 	datapacksRemoveFromWorld: (instanceId: string, world: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("datapacks_remove_from_world", { instanceId, world, filename })),
+	/**
+	 *  What "remove from this world" would do to one entry: the library's own
+	 *  copy, a file or folder only this world holds, or nothing on disk (spec
+	 *  2026-09-24 §4 U1). Read-only and unguarded: it reads two files and writes
+	 *  nothing; the removal it words is guarded.
+	 */
+	datapacksWorldEntryKind: (instanceId: string, world: string, filename: string) => typedError<WorldEntryKind, Error>(__TAURI_INVOKE("datapacks_world_entry_kind", { instanceId, world, filename })),
 	/**
 	 *  Toggle a datapack's enabled/disabled state for one world. level.dat only —
 	 *  the file itself is never touched.
@@ -2049,9 +2067,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Download a datapack version from the catalog into the instance's library,
 	 *  recording provenance. Placement into worlds is the world picker's separate
-	 *  step (`datapacks_add_to_world`) — a fresh install touches no world; the
-	 *  returned fan-out is non-empty only when a same-named pack was already
-	 *  linked somewhere (the reinstall path).
+	 *  step (`datapacks_add_to_world`): a fresh install writes into no world.
+	 *  `refreshed` reports the same-name fan-out exactly as
+	 *  `datapacks_install_from_file` describes it.
 	 */
 	datapacksInstallFromVersion: (instanceId: string, version: ModVersion_Deserialize) => typedError<LibraryInstall, Error>(__TAURI_INVOKE("datapacks_install_from_version", { instanceId, version })),
 	/**
@@ -3085,9 +3103,9 @@ export type DatapackLibraryEntry = {
 	 */
 	in_library: boolean,
 	/**
-	 *  Per-INSTANCE, not per-world: the verdict compares the pack's own
-	 *  `pack_format` against the instance's Minecraft, and no world is an
-	 *  input, so rendering it per world would print N identical copies.
+	 *  Per-INSTANCE, not per-world: the game's verdict on the pack's declared
+	 *  formats for the instance's Minecraft. No world is an input, so
+	 *  rendering it per world would print N identical copies.
 	 */
 	compat: PackCompat,
 	/**  Empty ⟺ "in no world" — the state the library screen exists to surface. */
@@ -3096,12 +3114,15 @@ export type DatapackLibraryEntry = {
 
 /**  Everything the library screen renders, in one read. */
 export type DatapackLibraryView = {
-	/**
-	 *  The instance's expected `pack_format`. Exposed here because nothing else
-	 *  does, and the frontend cannot compute it.
-	 */
-	expected_pack_format: number | null,
 	entries: DatapackLibraryEntry[],
+	/**
+	 *  Every world folder the listing accepts under `saves/`, sorted
+	 *  case-insensitively, each with its `level.dat` presence — including
+	 *  worlds no pack is in. A folder whose metadata cannot be read, or whose
+	 *  name is not a usable world folder name, is left out, and the world
+	 *  picker then shows it as unknown.
+	 */
+	worlds: DatapackWorldView[],
 };
 
 export type DatapackMigration = {
@@ -3113,12 +3134,31 @@ export type DatapackMigration = {
 export type DatapackPlacementView = {
 	world: string,
 	/**
-	 *  `None` when this world's `level.dat` could not be read, so the
-	 *  enabled/disabled answer is genuinely unknown rather than guessed. A
-	 *  missing level.dat is NOT this case — an unplayed world reads as two
-	 *  empty lists, which is a real answer.
+	 *  The state the game would load: from `level.dat`, or from
+	 *  `level.dat_old` when only the backup is left. `None` when those
+	 *  lists could not be read, or when the folder holds neither file (see
+	 *  `level_dat`) — unknown, or no world to hold a state, rather than
+	 *  guessed.
 	 */
 	state: WorldPackState | null,
+	/**
+	 *  `Some` when `state` is `Ignored`; both come from `state::derive`.
+	 *  Also `Some(Unreadable)` with `state: None` for a placement Lucerna
+	 *  could not check at all — the world's `datapacks/` could not be read,
+	 *  or R2 could not tell which entry the name denotes. That mark is what
+	 *  tells "could not tell" apart from a folder with no level file, where
+	 *  `state: None` is a fact.
+	 */
+	ignored_reason: IgnoredReason | null,
+	/**
+	 *  This world's `level.dat` presence; `None` when it could not be told.
+	 *  Anything but `Some(Present)` means Lucerna adds, toggles or removes
+	 *  nothing in this world. A library-wide cascade removal or renamed update
+	 *  still unlinks or relinks the file in an `Absent` folder without
+	 *  touching `level.dat` (§0.5 A3), and a same-name refresh is not gated
+	 *  (§0.2 I7).
+	 */
+	level_dat: LevelDatPresence | null,
 };
 
 /**
@@ -3159,12 +3199,34 @@ export type DatapackUpdateOutcome = {
 	/**  Per-world outcomes: same-name refreshes plus cross-name migrations. */
 	migrations: WorldMigration[],
 	/**
-	 *  `false` ⟹ at least one world failed to migrate. The OLD library file
-	 *  and its registry row were kept — both versions sit in the library until
-	 *  a re-run converges, which it does because a migrated world no longer
-	 *  holds the old filename (§8.5: no rollback by design).
+	 *  `false` ⟹ at least one world was not moved to the new version (a
+	 *  `Failed` entry in `migrations` names it, or a `WorldsUnchecked` one
+	 *  says no world could be checked). Whether a retry can still
+	 *  finish the job is [`Self::old_copy_kept`], not this flag.
 	 */
 	completed: boolean,
+	/**
+	 *  `true` ⟹ the update changed the filename and did not complete, so the
+	 *  OLD library file and its registry row were kept: both versions sit in
+	 *  the library until a re-run converges, which it does because a migrated
+	 *  world no longer holds the old filename (§8.5: no rollback by design).
+	 * 
+	 *  Always `false` when the filename did not change (or changed only in
+	 *  case): the library file was replaced in place, so a world left on the
+	 *  old bytes no longer matches the library and a retry skips it as not
+	 *  ours. Also `false` after a completed update, which removed the old copy.
+	 */
+	old_copy_kept: boolean,
+};
+
+/**
+ *  One world folder the library view saw, whether or not it holds any
+ *  pack — the world picker needs the worlds a pack is NOT in yet.
+ */
+export type DatapackWorldView = {
+	world: string,
+	/**  `None` when the presence could not be told. */
+	level_dat: LevelDatPresence | null,
 };
 
 /**
@@ -3408,7 +3470,23 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  what differs and ask before installing it anyway — the fields are typed,
  *  never pre-formatted, so the sentence is built in the user's language.
  */
-{ kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | 
+{ kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
+/**
+ *  A client data-pack change (add, remove or switch, from a world's tab)
+ *  was asked for in a `saves/` folder that has neither `level.dat` nor
+ *  `level.dat_old`. Minecraft does not treat that folder as a world and
+ *  loads no data packs from it. Returned before anything is written, which
+ *  is what the copy promises; `level_dat::write_at`'s own backstop for a
+ *  missing `level.dat` is a plain I/O error instead.
+ */
+{ kind: "world_level_dat_missing"; folder_name: string } | 
+/**
+ *  The world lost its `level.dat` but kept Minecraft's backup
+ *  `level.dat_old`. The game offers to restore from it ("Attempt to
+ *  Restore" on 1.20.6+). A `level.dat` written here first would parse
+ *  cleanly and switch that recovery off, so no data-pack change is made.
+ */
+{ kind: "world_level_dat_only_old"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | 
 /**
  *  A restore failed AND the rollback could not put the world back. The world
  *  is intact in a dot-prefixed sibling directory that every listing filters
@@ -3553,12 +3631,19 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_content_stale" } | 
 /**
  *  A datapack toggle was asked for on a server whose world does not exist
- *  yet (no `level.dat`). Enabled/disabled state lives in `level.dat`, and
- *  Minecraft writes its own when it generates the world — a stub written
- *  here would not survive generation, and would hand the generator a file
- *  claiming a world exists with no version, seed or generator settings.
+ *  yet (neither `level.dat` nor `level.dat_old`). Enabled/disabled state
+ *  lives in `level.dat`, and Minecraft writes its own when it generates
+ *  the world. A stub written here would not be replaced: with `level.dat`
+ *  present the server treats the world as existing, generation never
+ *  runs, and 1.21.1 / 26.2 refuse to start (`Unknown data version: 0`).
  */
-{ kind: "server_world_not_created" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+{ kind: "server_world_not_created" } | 
+/**
+ *  The server world lost its `level.dat` but kept `level.dat_old`. The
+ *  next server start reads the backup and restores `level.dat` from it;
+ *  a file written here first would switch that recovery off.
+ */
+{ kind: "server_world_only_old" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
 /**  Server SFTP upload is not configured (no `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Could not establish the SSH/SFTP connection to the user's server. */
@@ -3621,6 +3706,23 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  to match the rest of the datapack surface (specta has no u64).
  */
 { kind: "datapack_too_large"; filename: string; size_bytes: number | null; limit_bytes: number | null } | 
+/**
+ *  An install whose (normalised) name differs from an existing pack only in
+ *  letter case, where that pack is a LEGACY `X.ZIP` file from before
+ *  installs normalised the extension (§0.5 A21): a library row, or the old
+ *  file of a server's same-name update. Installing over it would leave two
+ *  spellings of one pack, or on NTFS/APFS replace the legacy file under a
+ *  name nobody recorded; a reinstall can also drop its provenance. The user
+ *  removes the legacy pack first.
+ */
+{ kind: "datapack_legacy_case_name"; filename: string; legacy: string } | 
+/**
+ *  A datapack WRITER was asked to act on an instance whose Minecraft has no
+ *  data-pack system (it arrived in 1.13): the game would read none of what
+ *  was written. Removals are never refused — cleanup works on any version
+ *  (spec 2026-09-24 §4 U2, A10).
+ */
+{ kind: "datapacks_unsupported_version"; mc_version: string } | 
 /**
  *  Vanilla Tweaks publishes per Minecraft family, and the family derived
  *  from this version does not exist upstream — usually a Minecraft
@@ -4287,6 +4389,27 @@ export type HostKeyPreview = {
 	trusted: boolean,
 };
 
+/**  Why the game does not load an entry of a world's `datapacks/` folder. */
+export type IgnoredReason = 
+/**  A folder with no `pack.mcmeta` directly inside it. */
+"folder_without_pack_mcmeta" | 
+/**  The folder's `pack.mcmeta` is one level deeper. */
+"folder_pack_nested_inside" | 
+/**  The file name ends in `.ZIP` (or another capitalisation). */
+"zip_extension_not_lowercase" | 
+/**  The zip has no `pack.mcmeta` at its root. */
+"zip_without_pack_mcmeta" | 
+/**
+ *  Lucerna could not read the entry to check. Not a claim about the
+ *  game: the UI says "Couldn't check".
+ */
+"unreadable" | 
+/**
+ *  A well-formed pack whose `pack.mcmeta` this Minecraft cannot load
+ *  (§0.5 A1). Never produced here: `state::derive` sets it from `loadable`.
+ */
+"not_loadable";
+
 /**  Typed progress streamed to the UI during an import. */
 export type ImportProgress = { phase: "creating_instance"; name: string } | { phase: "copying"; category: ContentCategory; current: number; total: number } | { phase: "recovering_identities" } | 
 /**
@@ -4454,11 +4577,11 @@ export type InstalledDatapack = {
 	filename: string,
 	sha1: string,
 	size_bytes: number | null,
-	/**  `pack.pack_format` from `pack.mcmeta`; `None` when unreadable. */
-	pack_format: number | null,
 	/**
-	 *  Display name: `pack.description` when it is a plain string, else the
-	 *  filename without its extension.
+	 *  Display name: the plain text of `pack.description` (rich text
+	 *  flattened, `§` codes stripped), else the filename without its
+	 *  extension. Re-derived from the file whenever the registry re-reads its
+	 *  declaration.
 	 */
 	name: string,
 	/**  `None` for a local install; `Some` once the catalog supplies it. */
@@ -4862,6 +4985,20 @@ export type LauncherImportOutcome = {
 /**  Why a world datapack stayed a plain copy instead of a library link (§5). */
 export type LeftReason = { kind: "name_held_by_different_pack" } | { kind: "not_a_datapack"; reason: DatapackRejection } | { kind: "too_large" } | { kind: "link_failed" } | { kind: "unreadable" } | { kind: "io" };
 
+export type LevelDatPresence = 
+/**  `level.dat` is a regular file. This is the only state Lucerna edits. */
+"present" | 
+/**
+ *  No `level.dat`, and `level.dat_old` is a regular file. The game reads the
+ *  copy and restores `level.dat` from it; Lucerna must not pre-empt that.
+ */
+"only_old" | 
+/**
+ *  Neither file. Client: the game does not list this folder as a world.
+ *  Server: a world the server has not generated yet.
+ */
+"absent";
+
 /**
  *  The result of a library install: the registry row, plus what the same-name
  *  fan-out did to each world already holding that filename.
@@ -4879,7 +5016,8 @@ export type LibraryInstall = {
 export type LibraryRemoval = {
 	worlds: WorldRemoval[],
 	/**
-	 *  `false` ⟹ a world failed to clean up, so the library copy and its
+	 *  `false` ⟹ a world failed to clean up, or the cascade could not check
+	 *  whether a world names the pack, so the library copy and its
 	 *  registry row were kept: `placements_of`'s identity check needs the
 	 *  library bytes, and deleting them would make every remaining world look
 	 *  foreign to a retry, which could then never finish the job.
@@ -6236,7 +6374,31 @@ export type OrphanedBackupSet = {
 	newest_unix_ms: number | null,
 };
 
-export type PackCompat = { kind: "compatible" } | { kind: "mismatch"; pack_format: number; expected: number } | { kind: "unknown" };
+/**
+ *  Minecraft's own verdict on a pack's declared formats for this instance's
+ *  version (`PackCompatibility`, §1 C3). Every kind except `WontLoad` is a
+ *  pack the game LOADS. `made_for`/`game` are display labels ("34–48",
+ *  "107.1") from `verdict`'s one formatter.
+ */
+export type PackCompat = 
+/**  The declared range covers this version. */
+{ kind: "compatible" } | 
+/**  "Made for an older version of Minecraft" — still loads. */
+{ kind: "too_old"; made_for: string; game: string } | 
+/**  "Made for a newer version of Minecraft" — still loads. */
+{ kind: "too_new"; made_for: string; game: string } | 
+/**
+ *  The version fields fail this version's own validation: the game marks
+ *  the pack "(Broken or incompatible)" and still loads it.
+ */
+{ kind: "broken" } | 
+/**  This version skips the pack entirely. */
+{ kind: "wont_load"; reason: WontLoadReason } | 
+/**
+ *  Not decidable: no recorded declaration, a field this build cannot
+ *  parse, or no readable game format.
+ */
+{ kind: "unknown" };
 
 export type PackCompletion = {
 	/**  Entries the manifest declares in total. */
@@ -7060,24 +7222,46 @@ export type ServerDatapackEntry = {
 	 */
 	record: ServerInstalledRecord,
 	/**
-	 *  `None` ⟹ `level.dat` exists but could not be read, so enabled-ness is
-	 *  genuinely unknown rather than guessed. An ABSENT `level.dat` is NOT
-	 *  this case: a world that has never booted reads as two empty lists,
-	 *  which is a real answer.
+	 *  `None` ⟹ the lists could not be read — the `level.dat` presence could
+	 *  not be told, or `level.dat` (for an only-old world, `level.dat_old`)
+	 *  did not parse — so enabled-ness is genuinely unknown rather than
+	 *  guessed. A world the server has not generated yet is NOT this case:
+	 *  it reads as two empty lists, a real answer (see
+	 *  [`ServerDatapackListing::level_dat`]).
 	 */
 	state: WorldPackState | null,
+	/**  `Some` exactly when `state` is `Ignored`. Both come from `state::derive`. */
+	ignored_reason: IgnoredReason | null,
 	/**
 	 *  Something is on disk under this name. Independent of `state`, which
 	 *  can be `None` for a pack that is plainly present.
 	 */
 	present: boolean,
 	/**
-	 *  The on-disk entry is a directory. Minecraft loads folder packs and
-	 *  `level.dat` does not distinguish them, so they are listed, toggleable
-	 *  and removable — but they carry no sha1 and no provenance, so the UI
-	 *  offers them no update or catalog affordance.
+	 *  The on-disk entry is a directory. A folder is a pack only when
+	 *  `pack.mcmeta` sits directly inside it; otherwise the row is `Ignored`
+	 *  (N.1). Folder packs carry no sha1 and no provenance, so the UI offers
+	 *  them no update or catalog affordance.
 	 */
 	is_folder: boolean,
+};
+
+/**
+ *  What `server_list_datapacks` returns: the world's `level.dat` presence,
+ *  and its rows.
+ */
+export type ServerDatapackListing = {
+	/**
+	 *  `Present`: rows carry `level.dat`'s states. `OnlyOld`: rows carry
+	 *  `level.dat_old`'s — the copy the server boots from, restoring
+	 *  `level.dat` on its next start — and every change is refused until
+	 *  then. `Absent`: a world the server has not generated yet; a present
+	 *  pack is `Enabled`, because the first boot enables it. `None`: the
+	 *  presence could not be told, so every `state` is `None` and the
+	 *  listing is otherwise intact (§0.2 I2).
+	 */
+	level_dat: LevelDatPresence | null,
+	entries: ServerDatapackEntry[],
 };
 
 /**  The result of one server datapack update. */
@@ -7950,8 +8134,22 @@ export type VtCategory = {
  */
 export type VtInstallOutcome = {
 	filename: string,
+	/**
+	 *  The pack's display name: the installed row's name, so a warning names
+	 *  the pack the way its list does; the filename when the install failed
+	 *  (there is no row) or the server row carries no name.
+	 */
+	name: string,
 	installed: boolean,
 	error: string | null,
+	/**
+	 *  An instance install's same-name fan-out (`LibraryInstall.refreshed`):
+	 *  what it did to each world holding this filename (refreshed, skipped as
+	 *  not ours, or failed). Empty when no world holds the name and `saves/`
+	 *  was listable. Always empty for a server install, which has one world
+	 *  and no fan-out.
+	 */
+	refreshed: WorldMigration[],
 };
 
 export type VtInstallReport = {
@@ -7979,6 +8177,20 @@ export type WhitelistEntry = {
 };
 
 /**
+ *  Why this version of the game skips a pack (it logs "Failed to read pack
+ *  metadata" and loads nothing from it).
+ */
+export type WontLoadReason = 
+/**  No `pack.mcmeta` at the zip's top level. */
+"no_pack_mcmeta" | 
+/**  `pack.mcmeta` has no `pack` object. */
+"no_pack_section" | 
+/**  `pack` has no `description`, which every era requires. */
+"no_description" | 
+/**  No `pack_format`, which versions before 1.21.9 require. */
+"no_pack_format";
+
+/**
  *  A singleplayer world inside an instance, surfaced to the UI.
  *  Display name = `folder_name` in v1 (no NBT parsing).
  */
@@ -7993,14 +8205,67 @@ export type World = {
 export type WorldDatapack = {
 	filename: string,
 	state: WorldPackState,
+	/**  `Some` exactly when `state` is `Ignored`. Both come from `state::derive`. */
+	ignored_reason: IgnoredReason | null,
 	/**
 	 *  False for a file the user (or a world import) put in the world folder
 	 *  directly. Supported, not an error — only "remove from library" is
 	 *  unavailable for it.
 	 */
 	in_library: boolean,
+	/**
+	 *  The game's own verdict for this instance's Minecraft. `Unknown` for
+	 *  an entry that is not the library's own copy — hand-dropped, a folder,
+	 *  or a same-named zip with other bytes (§0.5 A1).
+	 */
 	compat: PackCompat,
 };
+
+/**
+ *  What `datapacks_list_for_world` returns: the world's `level.dat`
+ *  presence, and the rows the game would load (§3 L.6).
+ */
+export type WorldDatapackListing = {
+	/**
+	 *  `Present` is the only state Lucerna edits. `OnlyOld`: `packs` shows
+	 *  what `level.dat_old` holds — the copy the game opens the world from
+	 *  and restores `level.dat` out of — and every add, toggle and removal is
+	 *  refused until `level.dat` is back (the same-name refresh is the
+	 *  documented exception, §0.2 I7). `Absent`: the game does not list the
+	 *  folder as a world and loads nothing from it, so `packs` is empty.
+	 */
+	level_dat: LevelDatPresence,
+	packs: WorldDatapack[],
+};
+
+/**
+ *  What removing one entry from one world would do to it — the answer the
+ *  "remove from this world" confirmation words itself by (spec 2026-09-24
+ *  §4 U1). Computed by `world_link::world_entry_kind_at`, which resolves the
+ *  name exactly as the removal does (R2) and judges it with the same identity
+ *  rule the library's placement scan uses.
+ */
+export type WorldEntryKind = 
+/**
+ *  A file byte-identical to the library's copy: removing it leaves the
+ *  pack in the library.
+ */
+{ kind: "library_copy" } | 
+/**
+ *  A file that is not the library's copy (or no library copy exists):
+ *  removing it deletes the only copy.
+ */
+{ kind: "own_file" } | 
+/**
+ *  A folder pack. Library entries are zips, so a folder is never the
+ *  library's copy: removing deletes the folder.
+ */
+{ kind: "own_folder" } | 
+/**
+ *  Nothing on disk under this name: removing only clears the level.dat
+ *  entry.
+ */
+{ kind: "missing" };
 
 /**
  *  What happened to one world when a library pack was replaced under it —
@@ -8013,11 +8278,25 @@ export type WorldDatapack = {
  */
 export type WorldMigration = 
 /**
- *  Relinked, and level.dat rewritten preserving the pack's enabled state.
- *  Produced only by `world_link::migrate_placements`, which actually read
- *  that state.
+ *  Relinked in a world whose `level.dat` was read, carrying the pack's
+ *  enabled state across the rename. Produced only by
+ *  `world_link::migrate_placements`, which actually read that state.
+ * 
+ *  level.dat is rewritten only when an entry had to move. A world with no
+ *  `DataPacks` compound is left unchanged: the game reads the missing
+ *  compound as its default and enables the present, unlisted pack itself
+ *  (spec §0.5 A15), which is what `was_enabled: true` reports there.
  */
 { kind: "migrated"; world: string; was_enabled: boolean } | 
+/**
+ *  The file was relinked in a `saves/` folder that has neither
+ *  `level.dat` nor `level.dat_old` (spec §0.5 A3). Minecraft does not
+ *  treat that folder as a world and loads nothing from it, so no level
+ *  file was read or written and no enabled/disabled state is claimed. A
+ *  separate variant from [`WorldMigration::Migrated`] for the same reason
+ *  as [`WorldMigration::Refreshed`]: this path does not know the state.
+ */
+{ kind: "relinked"; world: string } | 
 /**
  *  A same-name refresh: the world's file now holds the new bytes, and
  *  level.dat was deliberately never touched — each world's own
@@ -8031,14 +8310,35 @@ export type WorldMigration =
  *  A same-named entry whose content is not the library's — left untouched.
  *  Replacing it would destroy a pack the user put there themselves.
  */
-{ kind: "skipped_not_ours"; world: string } | { kind: "failed"; world: string; details: string };
+{ kind: "skipped_not_ours"; world: string } | 
+/**
+ *  This world was not moved to the new bytes, and may still hold the old
+ *  ones. `error` is the crate's typed error, never a sentence made here:
+ *  the UI words it in its own language through `formatError`, as it
+ *  does every other error. A sentence built here would reach a Russian
+ *  UI in English.
+ */
+{ kind: "failed"; world: string; error: Error } | 
+/**
+ *  No world could be checked at all: `saves/` could not be listed, or (on
+ *  an update) the old library copy could not be read to compare against.
+ *  Not a `Failed` world: there is no world to name, and naming the
+ *  `saves` folder as one read in the UI as a world called "saves". Counts
+ *  as a failure wherever `Failed` does ([`Self::is_failure`]).
+ */
+{ kind: "worlds_unchecked"; error: Error };
 
 export type WorldPackState = "enabled" | "disabled" | "not_added" | 
 /**
- *  Named in `level.dat`'s Enabled list but the file is gone — this is what
- *  Minecraft turns into the "data packs are no longer present" screen.
+ *  Named in Enabled but no loadable pack has this id; the game logs
+ *  "Missing data pack", skips it, and drops the id at the next save.
  */
-"orphaned";
+"orphaned" | 
+/**
+ *  Something is on disk under this name, but the game does not load it
+ *  (spec §2 N.1, §0.5 A1). The row's `ignored_reason` says why.
+ */
+"ignored";
 
 /**
  *  Lightweight world entry for the sidebar Play-button dropdown: folder
@@ -8065,7 +8365,12 @@ export type WorldRemoval =
  *  exactly the state `DatapackLibraryEntry.in_library: false` renders
  *  afterwards.
  */
-{ kind: "kept_no_cascade"; world: string } | { kind: "failed"; world: string; details: string };
+{ kind: "kept_no_cascade"; world: string } | 
+/**
+ *  The world still holds the pack. `error` is typed for the same reason
+ *  as [`WorldMigration::Failed`]'s.
+ */
+{ kind: "failed"; world: string; error: Error };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

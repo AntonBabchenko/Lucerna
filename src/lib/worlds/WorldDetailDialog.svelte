@@ -24,6 +24,7 @@
   let {
     instanceId,
     world,
+    datapacksSupported,
     running = false,
     migrateDisabledReason = null,
     onClose,
@@ -32,6 +33,10 @@
   }: {
     instanceId: string;
     world: World;
+    /** The instance's Minecraft has a data-pack system (1.13+). `false` hides
+     *  the Datapacks tab: on 1.12.2 the game reads none of it (spec 2026-09-24
+     *  §4 U2). Required so every mount site decides; WorldsTab resolves it. */
+    datapacksSupported: boolean;
     running?: boolean;
     /** Why the migrate action is unavailable right now (data root fallen
      *  back, source running) — rendered as its tooltip; `null` = enabled. */
@@ -43,6 +48,15 @@
 
   type TabId = 'backups' | 'datapacks';
   let tab = $state<TabId>('backups');
+  const tabs = $derived([
+    { id: 'backups', label: $t('worlds.backups.tab') },
+    ...(datapacksSupported ? [{ id: 'datapacks', label: $t('worlds.datapacks.tab') }] : []),
+  ]);
+  // The Datapacks tab can vanish under the active tab (the instance's version
+  // answer lands, or changes). Reset to Backups — AddonsTab's kind-reset shape.
+  $effect(() => {
+    if (!datapacksSupported && tab === 'datapacks') tab = 'backups';
+  });
 </script>
 
 <Modal
@@ -64,10 +78,7 @@
     </div>
     <div class="mt-3">
       <TabBar
-        tabs={[
-          { id: 'backups', label: $t('worlds.backups.tab') },
-          { id: 'datapacks', label: $t('worlds.datapacks.tab') },
-        ]}
+        {tabs}
         active={tab}
         ariaLabel={$t('worlds.detail.tabsLabel')}
         panelId="world-detail-panel"
@@ -87,7 +98,7 @@
   >
     {#if tab === 'backups'}
       <BackupsPanel {instanceId} worldFolder={world.folder_name} {onClose} {onChanged} />
-    {:else}
+    {:else if tab === 'datapacks' && datapacksSupported}
       <WorldDatapacks {instanceId} world={world.folder_name} {running} />
     {/if}
   </div>

@@ -20,14 +20,21 @@ vi.mock('$lib/ipc/bindings', () => ({
     listOrphanedBackupWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listStrandedWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     recoverStrandedWorld: vi.fn(),
+    // The 1.13 datapack gate for the detail dialog's Datapacks tab.
+    instanceSupportsDatapacks: vi.fn().mockResolvedValue({ status: 'ok', data: true }),
     // The detail dialog's Backups tab lists on mount.
     listBackups: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     backupWorld: vi.fn(),
     deleteBackup: vi.fn(),
     openSavesFolder: vi.fn(),
     openBackupsFolder: vi.fn(),
-    datapacksListForWorld: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    datapacksListLibrary: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    datapacksListForWorld: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { level_dat: 'present', packs: [] } }),
+    datapacksListLibrary: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { entries: [], worlds: [] },
+    }),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },

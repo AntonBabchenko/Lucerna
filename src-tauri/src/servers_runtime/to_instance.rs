@@ -3,6 +3,7 @@
 //! pre-registering the server in the instance's multiplayer list. The server
 //! is read-only; nothing under it is written.
 
+use crate::datapacks::detect::IgnoredReason;
 use crate::error::{Error, Result};
 use crate::instances::schema::InstanceWithStatus;
 use serde::Serialize;
@@ -209,10 +210,13 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
 /// from the mandatory mod copy, so a pack that fails is logged and the rest
 /// proceed — and an UNREADABLE `server.properties` skips the carry outright
 /// (logged) rather than guessing the world.
+///
+/// Returns what it did, for its tests; the caller has nothing to add to the log.
 pub(crate) async fn copy_server_datapacks(
     runtime: &std::path::Path,
     instance_root: &std::path::Path,
-) {
+) -> DatapackCarry {
+    let mut carry = DatapackCarry::default();
     // Absent props (never-started server) read as "" and resolve to the
     // default `world` — correct, and what the carry tests above pin. An
     // unreadable file is ignorance: guessing `world` could carry another
@@ -225,20 +229,42 @@ pub(crate) async fn copy_server_datapacks(
             crate::diag!(
                 "instance-from-server: server.properties unreadable — datapack carry skipped: {e}"
             );
-            return;
+            carry.skipped = Some(format!("server.properties unreadable: {e}"));
+            return carry;
         }
     };
     let world = crate::servers_runtime::datapacks::world_dir(runtime, &props);
     let dp_dir = world.join("datapacks");
 
-    for entry in crate::servers_runtime::datapacks::listing::entries(&world) {
+    // A listing error means the server's world could not be read: carry
+    // nothing rather than a partial guess, and say so — the instance is
+    // already usable from the mandatory mod copy (§0.5 A4). The listing scans
+    // the folder and may open zips and hash files: off the executor.
+    let world_for_listing = world.clone();
+    let listing = match tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::datapacks::listing::entries(&world_for_listing)
+    })
+    .await
+    .map_err(|e| Error::io(world.display().to_string(), format!("join: {e}")))
+    .and_then(|listing| listing)
+    {
+        Ok(listing) => listing,
+        Err(e) => {
+            crate::diag!(
+                "instance-from-server: server world datapacks unreadable — datapack carry skipped: {e}"
+            );
+            carry.skipped = Some(format!("server world datapacks unreadable: {e}"));
+            return carry;
+        }
+    };
+    for entry in listing.entries {
         // A `level.dat` name whose file is gone has nothing to install. This
         // is for the LOG, not for correctness: without it the install below
         // fails on the missing file and writes no row either way, but every
         // ghost would leave an alarming "not carried" line about a pack that
         // was never there. Verified by mutation — removing this changes no
         // test outcome.
-        if !entry.present {
+        if !entry.present || !worth_carrying(&entry) {
             continue;
         }
         let r = &entry.record;
@@ -281,8 +307,38 @@ pub(crate) async fn copy_server_datapacks(
                 "instance-from-server: datapack {} not carried: {e}",
                 r.filename
             );
+            carry.not_carried.push(r.filename.clone());
         }
     }
+    carry
+}
+
+/// Whether a present listing row is tried at all. §0.5 A4: an entry the game
+/// ignores was never loaded by the server, and carrying it would hand the
+/// client content the server never ran — an `X.ZIP` would even arrive as a
+/// working `X.zip` (N.5 normalises it). `Unreadable` is not that: Lucerna
+/// could not check it (Fallback discipline Q2), so it is tried like any
+/// pack, and a failure is logged as "not carried" rather than skipped in
+/// silence.
+fn worth_carrying(entry: &crate::servers_runtime::datapacks::ServerDatapackEntry) -> bool {
+    match entry.ignored_reason {
+        None => true,
+        // Only under a name the game could load: a folder, or exact `.zip`.
+        Some(IgnoredReason::Unreadable) => {
+            entry.is_folder || crate::datapacks::detect::has_zip_suffix(&entry.record.filename)
+        }
+        Some(_) => false,
+    }
+}
+
+/// What [`copy_server_datapacks`] did. The caller only logs; the tests read it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct DatapackCarry {
+    /// The carry did not run, and why: `server.properties` or the server
+    /// world's `datapacks/` could not be read.
+    pub skipped: Option<String>,
+    /// Entries that were tried and not carried (each also logged).
+    pub not_carried: Vec<String>,
 }
 
 #[cfg(test)]
@@ -416,13 +472,84 @@ mod tests {
     /// One unusable pack must not cost the user the others: the produced
     /// instance is already usable from the mandatory mod copy, so this step is
     /// best-effort by design.
+    /// §0.5 A4: the server never loaded an entry the game ignores. Carrying
+    /// `Pack.ZIP` would even hand the client a WORKING `Pack.zip` (N.5
+    /// normalises it), which is content the server never ran.
+    #[tokio::test]
+    async fn an_ignored_server_entry_is_not_carried() {
+        let d = tempfile::tempdir().unwrap();
+        let runtime = d.path().join("runtime");
+        let inst = d.path().join("instance");
+        let world = server_world(&runtime, "world");
+        std::fs::write(world.join("datapacks/Pack.ZIP"), datapack_zip()).unwrap();
+        std::fs::create_dir_all(world.join("datapacks/Loose/data")).unwrap();
+        std::fs::write(world.join("datapacks/real.zip"), datapack_zip()).unwrap();
+        copy_server_datapacks(&runtime, &inst).await;
+        let rows = library_rows(&inst).await;
+        assert_eq!(
+            rows.iter().map(|r| r.filename.as_str()).collect::<Vec<_>>(),
+            vec!["real.zip"]
+        );
+    }
+
+    /// §0.5 A4: a server world whose `datapacks/` cannot be read is a listing
+    /// error; the carry is skipped (and logged) rather than a guess.
+    #[tokio::test]
+    async fn an_unreadable_server_datapacks_folder_skips_the_carry() {
+        let d = tempfile::tempdir().unwrap();
+        let runtime = d.path().join("runtime");
+        let inst = d.path().join("instance");
+        let world = runtime.join("world");
+        std::fs::create_dir_all(&world).unwrap();
+        std::fs::write(world.join("datapacks"), b"a file, not a folder").unwrap();
+        let carry = copy_server_datapacks(&runtime, &inst).await;
+        assert!(
+            carry
+                .skipped
+                .as_deref()
+                .is_some_and(|why| why.contains("datapacks unreadable")),
+            "{carry:?}"
+        );
+        assert!(library_rows(&inst).await.is_empty());
+    }
+
+    /// Fallback Q2: an entry Lucerna could not read is "could not tell", not
+    /// "the server ignored it". It is tried, and a failure is reported as not
+    /// carried, never skipped in silence.
+    #[tokio::test]
+    async fn an_entry_that_could_not_be_checked_is_tried_and_reported() {
+        let d = tempfile::tempdir().unwrap();
+        let runtime = d.path().join("runtime");
+        let inst = d.path().join("instance");
+        let world = server_world(&runtime, "world");
+        std::fs::write(world.join("datapacks/broken.zip"), b"not a zip").unwrap();
+        std::fs::write(world.join("datapacks/real.zip"), datapack_zip()).unwrap();
+        let carry = copy_server_datapacks(&runtime, &inst).await;
+        assert_eq!(carry.not_carried, vec!["broken.zip".to_string()]);
+        let rows = library_rows(&inst).await;
+        assert_eq!(
+            rows.iter().map(|r| r.filename.as_str()).collect::<Vec<_>>(),
+            vec!["real.zip"]
+        );
+    }
+
     #[tokio::test]
     async fn one_bad_pack_does_not_stop_the_others() {
         let d = tempfile::tempdir().unwrap();
         let runtime = d.path().join("runtime");
         let inst = d.path().join("instance");
         let world = server_world(&runtime, "world");
-        std::fs::write(world.join("datapacks/broken.zip"), b"not a zip").unwrap();
+        // A present pack whose install fails (a resource pack, which the
+        // library refuses). Not "not a zip": the listing reports an
+        // unreadable zip as Ignored (Couldn't check), and it is never tried.
+        std::fs::write(
+            world.join("datapacks/broken.zip"),
+            zip_of(&[
+                ("pack.mcmeta", PACK_MCMETA),
+                ("assets/minecraft/x.png", b""),
+            ]),
+        )
+        .unwrap();
         std::fs::write(world.join("datapacks/good.zip"), datapack_zip()).unwrap();
 
         copy_server_datapacks(&runtime, &inst).await;
@@ -507,11 +634,7 @@ mod tests {
         let inst = d.path().join("instance");
         let world = server_world(&runtime, "world");
         // level.dat names a pack whose file was deleted by hand.
-        let mut root = fastnbt::Value::Compound(std::collections::HashMap::new());
-        level_dat::set_enabled(&mut root, &level_dat_entry("gone.zip"), true).unwrap();
-        level_dat::write_at(&world, &root, level_dat::Framing::Gzip)
-            .await
-            .unwrap();
+        level_dat::test_support::seed(&world, &[level_dat_entry("gone.zip").as_str()], &[]);
         // …plus a real one, so the test proves selectivity rather than
         // "nothing was carried at all".
         std::fs::write(world.join("datapacks/real.zip"), datapack_zip()).unwrap();
@@ -627,5 +750,34 @@ mod tests {
             json.contains(r#""created_from_server":"srv-1""#),
             "got: {json}"
         );
+    }
+
+    /// An entry Lucerna could not read is tried, but only if the game could
+    /// have loaded it by its name: a folder, or a file ending in exact `.zip`.
+    /// An unreadable `X.ZIP` that has since become readable would otherwise be
+    /// installed as a working `X.zip` (N.5), content the server never ran.
+    #[test]
+    fn an_unreadable_entry_is_tried_only_under_a_name_the_game_loads() {
+        let row = |filename: &str, is_folder: bool| {
+            crate::servers_runtime::datapacks::ServerDatapackEntry {
+                record: crate::servers_runtime::installed::ServerInstalledRecord {
+                    filename: filename.into(),
+                    sha1: String::new(),
+                    source: None,
+                    project_id: None,
+                    version_id: None,
+                    name: None,
+                    version_number: None,
+                    enrich_attempted: false,
+                },
+                state: Some(crate::datapacks::WorldPackState::Ignored),
+                ignored_reason: Some(IgnoredReason::Unreadable),
+                present: true,
+                is_folder,
+            }
+        };
+        assert!(worth_carrying(&row("pack.zip", false)));
+        assert!(worth_carrying(&row("Folder", true)));
+        assert!(!worth_carrying(&row("Pack.ZIP", false)));
     }
 }
