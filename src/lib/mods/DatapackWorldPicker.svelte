@@ -208,20 +208,28 @@
     }
   }
 
+  // The props are read BEFORE the first `await`: the owner can tear the
+  // picker down while an add runs (an instance switch closes it), and a
+  // torn-down picker's props point at nothing. Re-read inside the loop they
+  // throw half-way, or aim the remaining worlds at the instance the user
+  // switched to. The adds finish on the instance they started on.
   async function apply() {
     if (ticked.size === 0 || rows === null) return;
+    const id = instanceId;
+    const file = filename;
+    const done = { onApplied, onClose };
+    const chosen = rows.filter((row) => ticked.has(row.world));
     busy = true;
     try {
       let ok = 0;
       const failed: string[] = [];
-      for (const row of rows) {
-        if (!ticked.has(row.world)) continue;
+      for (const row of chosen) {
         // Present-but-disabled ⟹ the minimal honest edit is the toggle;
         // everything else ticked here is a genuine add.
         const res =
           row.state === 'disabled'
-            ? await commands.datapacksSetEnabledInWorld(instanceId, row.world, filename, true)
-            : await commands.datapacksAddToWorld(instanceId, row.world, filename);
+            ? await commands.datapacksSetEnabledInWorld(id, row.world, file, true)
+            : await commands.datapacksAddToWorld(id, row.world, file);
         if (res.status === 'ok') ok += 1;
         else failed.push(`${row.world}: ${formatError(res.error)}`);
       }
@@ -231,8 +239,8 @@
           get(t)('addons.datapacks.picker.toastFailed', { count: failed.length }),
           failed,
         );
-      if (ok > 0) onApplied();
-      onClose();
+      if (ok > 0) done.onApplied();
+      done.onClose();
     } finally {
       busy = false;
     }

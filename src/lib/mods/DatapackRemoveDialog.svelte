@@ -154,22 +154,25 @@
         : $t('addons.datapacks.remove.confirmDelete'),
   );
 
-  async function confirmThisWorld(world: string) {
-    const res = await commands.datapacksRemoveFromWorld(instanceId, world, filename);
+  /** What a confirm acts on, read once before its first `await` (see `confirm`). */
+  type Target = { instanceId: string; filename: string; packName: string };
+
+  async function confirmThisWorld(to: Target, world: string) {
+    const res = await commands.datapacksRemoveFromWorld(to.instanceId, world, to.filename);
     if (res.status !== 'ok') {
-      pushWarning(get(t)('addons.datapacks.remove.toastFailed', { name: packName }), [
+      pushWarning(get(t)('addons.datapacks.remove.toastFailed', { name: to.packName }), [
         formatError(res.error),
       ]);
       return;
     }
-    pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: packName }));
+    pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: to.packName }));
   }
 
-  async function confirmWorldsOnly() {
+  async function confirmWorldsOnly(to: Target, worlds: DatapackPlacementView[]) {
     let removed = 0;
     const failed: string[] = [];
-    for (const p of tried) {
-      const res = await commands.datapacksRemoveFromWorld(instanceId, p.world, filename);
+    for (const p of worlds) {
+      const res = await commands.datapacksRemoveFromWorld(to.instanceId, p.world, to.filename);
       if (res.status === 'ok') removed += 1;
       else failed.push(`${p.world}: ${formatError(res.error)}`);
     }
@@ -181,14 +184,14 @@
         failed,
       );
     } else if (removed > 0) {
-      pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: packName }));
+      pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: to.packName }));
     }
   }
 
-  async function confirmFromLibrary() {
-    const res = await commands.datapacksRemoveFromLibrary(instanceId, filename, cascade);
+  async function confirmFromLibrary(to: Target, cascade: boolean) {
+    const res = await commands.datapacksRemoveFromLibrary(to.instanceId, to.filename, cascade);
     if (res.status !== 'ok') {
-      pushWarning(get(t)('addons.datapacks.remove.toastFailed', { name: packName }), [
+      pushWarning(get(t)('addons.datapacks.remove.toastFailed', { name: to.packName }), [
         formatError(res.error),
       ]);
       return;
@@ -211,18 +214,29 @@
       );
     }
     if (failed.length === 0 && (!cascade || keptNotOurs.length === 0)) {
-      pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: packName }));
+      pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: to.packName }));
     }
   }
 
+  // Every prop, and everything derived from one, is read BEFORE the first
+  // `await`. The owner can tear this dialog down while a removal runs (an
+  // instance switch closes it), and a torn-down dialog's props point at
+  // nothing: re-read after an `await` they throw half-way through a loop, or
+  // aim the rest of it at the instance the user switched to. The job finishes
+  // on the instance it started on and reports the result against it.
   async function confirm() {
+    const to: Target = { instanceId, filename, packName };
+    const m = mode;
+    const worlds = tried;
+    const withCascade = cascade;
+    const done = { onRemoved, onClose };
     busy = true;
     try {
-      if (mode.kind === 'this-world') await confirmThisWorld(mode.world);
-      else if (mode.kind === 'library') await confirmFromLibrary();
-      else await confirmWorldsOnly();
-      onRemoved();
-      onClose();
+      if (m.kind === 'this-world') await confirmThisWorld(to, m.world);
+      else if (m.kind === 'library') await confirmFromLibrary(to, withCascade);
+      else await confirmWorldsOnly(to, worlds);
+      done.onRemoved();
+      done.onClose();
     } finally {
       busy = false;
     }
