@@ -305,6 +305,40 @@ describe('DatapackRemoveDialog — worlds without a usable level.dat (D2)', () =
     expect(reasons[0].textContent).toMatch(/restore it from the backup/);
   });
 
+  // The mark was cut to "…from the backu…" by the item's single-line ellipsis.
+  // Each world's line wraps instead, in the library and the worlds-only
+  // lists alike, so the whole reason is read. (Layout is not computed here —
+  // this pins the classes that give it.)
+  it('a world line wraps its mark instead of cutting it', async () => {
+    for (const kind of ['library', 'worlds-only'] as const) {
+      const r = render(DatapackRemoveDialog, {
+        props: {
+          instanceId: 'inst-1',
+          filename: 'vm.zip',
+          packName: 'VeinMiner',
+          mode: {
+            kind,
+            placements: [
+              {
+                world: 'A world with a long name',
+                state: 'disabled' as const,
+                ignored_reason: null,
+                level_dat: 'only_old' as const,
+              },
+            ],
+          },
+          onClose: () => {},
+          onRemoved: () => {},
+        },
+      });
+      const mark = await screen.findByTestId('datapack-remove-world-blocked');
+      const item = mark.closest('li') as HTMLElement;
+      expect(item.classList.contains('truncate'), kind).toBe(false);
+      expect(item.classList.contains('break-words'), kind).toBe(true);
+      r.unmount();
+    }
+  });
+
   // The cascade refuses an only-old world (D2) and reports it Failed, which
   // keeps the library copy — said before the click, not only in the toast.
   it('with the cascade on, an only-old world says the library copy stays', async () => {

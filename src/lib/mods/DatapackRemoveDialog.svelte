@@ -296,7 +296,8 @@
 {#snippet worldItem(p: DatapackPlacementView)}
   {@const blocked =
     mode.kind === 'library' && p.level_dat === 'absent' ? null : levelDatBlockedKey(p.level_dat)}
-  <li class="truncate">
+  <!-- Wraps, never an ellipsis: a cut mark read "…from the backu…". -->
+  <li class="break-words">
     {p.world}
     {#if blocked !== null}
       <span class="text-xs text-muted" data-testid="datapack-remove-world-blocked"
