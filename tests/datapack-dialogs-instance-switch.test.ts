@@ -4,7 +4,7 @@
 // and the Add-ons tab hold dialogs of their own. Left open across a switch,
 // their Confirm would act on the NEW instance with the old instance's pack
 // name and world list: a cascade removal of a same-named pack, say.
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -21,6 +21,8 @@ const c = vi.hoisted(() => ({
   listWorldNames: vi.fn(),
   datapacksInstallFromFile: vi.fn(),
   datapacksInstallFromVersion: vi.fn(),
+  datapacksUpdateOne: vi.fn(),
+  modsProject: vi.fn(),
   modsDatapackVersions: vi.fn(),
   datapacksCheckUpdates: vi.fn(),
   instanceSupportsDatapacks: vi.fn(),
@@ -138,6 +140,10 @@ beforeEach(() => {
   c.datapacksInstallFromFile.mockResolvedValue({ status: 'ok', data: installed });
   c.datapacksInstallFromVersion.mockResolvedValue({ status: 'ok', data: installed });
   c.modsDatapackVersions.mockResolvedValue({ status: 'ok', data: [version] });
+  c.modsProject.mockResolvedValue({
+    status: 'ok',
+    data: { summary: hit, description: '', website_url: null },
+  });
   c.datapacksCheckUpdates.mockResolvedValue({ status: 'ok', data: [] });
   c.instanceSupportsDatapacks.mockResolvedValue({ status: 'ok', data: true });
   c.runningInstances.mockResolvedValue([]);
@@ -225,6 +231,80 @@ describe('ModBrowseView — switching instance', () => {
     await flush();
     await flush();
     expect(screen.queryByTestId('datapack-world-picker')).toBeNull();
+  });
+});
+
+// A failure toast's Retry re-runs the install on the instance shown when it
+// is clicked. The switch teardown dismisses the failure toasts it finds, but
+// a failure that arrives after the switch is pushed after that teardown ran.
+// Its Retry would install into the instance the user switched to, or, when
+// that one's library holds the pack, switch its version and move its worlds.
+describe('ModBrowseView — a failure that arrives after an instance switch', () => {
+  const failed = {
+    status: 'error' as const,
+    error: { kind: 'io' as const, path: '/lib', details: 'locked' },
+  };
+  /** A call that stays in flight until the test lets it fail. */
+  function pendingFailure(): { promise: Promise<typeof failed>; fail: () => void } {
+    let fail = (): void => {};
+    const promise = new Promise<typeof failed>((resolve) => {
+      fail = () => resolve(failed);
+    });
+    return { promise, fail: () => fail() };
+  }
+  const failureToast = (name: string) =>
+    toastList().find((x) => x.title === `Couldn't install ${name}`);
+
+  it('an install on the same instance still offers Retry', async () => {
+    c.datapacksListLibrary.mockResolvedValue({ status: 'ok', data: emptyLibrary });
+    c.datapacksInstallFromVersion.mockResolvedValue(failed);
+    render(ModBrowseView, { props: browseProps });
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+
+    await waitFor(() => expect(failureToast('Terralith')).toBeDefined());
+    expect(failureToast('Terralith')?.action?.label).toBe('Retry');
+  });
+
+  it('an install reports its failure without Retry', async () => {
+    const install = pendingFailure();
+    c.datapacksListLibrary.mockResolvedValue({ status: 'ok', data: emptyLibrary });
+    c.datapacksInstallFromVersion.mockReturnValue(install.promise);
+    const r = render(ModBrowseView, { props: browseProps });
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+    await waitFor(() =>
+      expect(c.datapacksInstallFromVersion).toHaveBeenCalledWith('inst-1', version),
+    );
+
+    await r.rerender({ ...browseProps, instanceId: 'inst-2' });
+    install.fail();
+    await waitFor(() => expect(failureToast('Terralith')).toBeDefined());
+    expect(failureToast('Terralith')?.lines).toHaveLength(1);
+    expect(failureToast('Terralith')?.action).toBeUndefined();
+  });
+
+  it('a version switch reports its failure without Retry', async () => {
+    const update = pendingFailure();
+    const v2: ModVersion_Serialize = {
+      ...version,
+      version_id: 'v2',
+      version_number: '2.0',
+      name: 'Terralith 2.0',
+    };
+    c.modsDatapackVersions.mockResolvedValue({ status: 'ok', data: [v2, version] });
+    c.datapacksUpdateOne.mockReturnValue(update.promise);
+    const r = render(ModBrowseView, { props: browseProps });
+    await fireEvent.click(await screen.findByRole('button', { name: /^Terralith/ }));
+    const modal = await screen.findByRole('dialog', { name: 'Terralith' });
+    await fireEvent.click(within(modal).getByRole('tab', { name: 'Versions' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Switch to this version' }));
+    await waitFor(() =>
+      expect(c.datapacksUpdateOne).toHaveBeenCalledWith('inst-1', 'terralith.zip', v2),
+    );
+
+    await r.rerender({ ...browseProps, instanceId: 'inst-2' });
+    update.fail();
+    await waitFor(() => expect(failureToast('Terralith 2.0')).toBeDefined());
+    expect(failureToast('Terralith 2.0')?.action).toBeUndefined();
   });
 });
 

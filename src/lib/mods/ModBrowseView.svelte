@@ -34,7 +34,7 @@
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
-  import { installFailureToast } from '$lib/mods/install-failure';
+  import { installFailureToast, installFailureWarning } from '$lib/mods/install-failure';
   import {
     dismissLibraryReadWarning,
     libraryReadSucceeded,
@@ -938,7 +938,7 @@
       if (existing && existing.in_library) {
         const updated = await commands.datapacksUpdateOne(id, existing.pack.filename, version);
         if (updated.status === 'error') {
-          showInstallFailure(card.name, updated.error, () => {
+          showDatapackInstallFailure(id, card.name, updated.error, () => {
             void startDatapackInstall(card, pinnedVersion);
           });
           return;
@@ -963,7 +963,7 @@
 
       const installed = await commands.datapacksInstallFromVersion(id, version);
       if (installed.status === 'error') {
-        showInstallFailure(card.name, installed.error, () => {
+        showDatapackInstallFailure(id, card.name, installed.error, () => {
           void startDatapackInstall(card, pinnedVersion);
         });
         return;
@@ -1054,6 +1054,16 @@
   let installFailureToastIds: number[] = [];
   function showInstallFailure(name: string, err: IpcError, retry: () => void) {
     installFailureToastIds.push(installFailureToast(name, err, retry));
+  }
+  // A data pack install acts on the instance it started on (`id`), but its
+  // Retry re-runs on the instance shown when it is clicked. A failure that
+  // arrives after a switch lands after the teardown below has already run, so
+  // nothing would take its toast down: it gets no Retry. Its Retry would
+  // otherwise install into the other instance, or switch the version of the
+  // same pack in that instance's library and move its worlds.
+  function showDatapackInstallFailure(id: string, name: string, err: IpcError, retry: () => void) {
+    if (instanceId === id) showInstallFailure(name, err, retry);
+    else installFailureWarning(name, err);
   }
   $effect(() => {
     const leaving = instanceId;
