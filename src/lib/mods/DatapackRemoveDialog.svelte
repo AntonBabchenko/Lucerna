@@ -235,12 +235,23 @@
     }
   }
 
+  // False once this dialog is torn down. A plain flag, written in the
+  // teardown and read only after an `await`, so no reactive read is involved.
+  let mounted = true;
+  $effect(() => () => {
+    mounted = false;
+  });
+
   // Every prop, and everything derived from one, is read BEFORE the first
   // `await`. The owner can tear this dialog down while a removal runs (an
-  // instance switch closes it), and a torn-down dialog's props point at
-  // nothing: re-read after an `await` they throw half-way through a loop, or
-  // aim the rest of it at the instance the user switched to. The job finishes
-  // on the instance it started on and reports the result against it.
+  // instance switch closes it, and so does its close button), and a torn-down
+  // dialog's props point at nothing: re-read after an `await` they throw
+  // half-way through a loop, or aim the rest of it at the instance the user
+  // switched to. The job finishes on the instance it started on and reports
+  // the result against it. The owner is always told to refresh, but it is
+  // asked to close only a dialog that is still open: once this one is gone,
+  // the owner may have opened another since, and its close handler would
+  // close that one.
   async function confirm() {
     const to: Target = { instanceId, filename, packName };
     const m = mode;
@@ -254,7 +265,7 @@
       else if (m.kind === 'library') await confirmFromLibrary(to, withCascade);
       else await confirmWorldsOnly(to, worlds, left);
       done.onRemoved();
-      done.onClose();
+      if (mounted) done.onClose();
     } finally {
       busy = false;
     }

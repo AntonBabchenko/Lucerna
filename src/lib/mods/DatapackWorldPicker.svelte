@@ -208,11 +208,22 @@
     }
   }
 
+  // False once this picker is torn down. A plain flag, written in the
+  // teardown and read only after an `await`, so no reactive read is involved.
+  let mounted = true;
+  $effect(() => () => {
+    mounted = false;
+  });
+
   // The props are read BEFORE the first `await`: the owner can tear the
-  // picker down while an add runs (an instance switch closes it), and a
-  // torn-down picker's props point at nothing. Re-read inside the loop they
-  // throw half-way, or aim the remaining worlds at the instance the user
-  // switched to. The adds finish on the instance they started on.
+  // picker down while an add runs (an instance switch closes it, and so does
+  // its close button), and a torn-down picker's props point at nothing.
+  // Re-read inside the loop they throw half-way, or aim the remaining worlds
+  // at the instance the user switched to. The adds finish on the instance
+  // they started on. The owner is always told to refresh, but it is asked to
+  // close only a picker that is still open: once this one is gone, the owner
+  // may have opened another dialog since, and its close handler would close
+  // that one.
   async function apply() {
     if (ticked.size === 0 || rows === null) return;
     const id = instanceId;
@@ -240,7 +251,7 @@
           failed,
         );
       if (ok > 0) done.onApplied();
-      done.onClose();
+      if (mounted) done.onClose();
     } finally {
       busy = false;
     }
