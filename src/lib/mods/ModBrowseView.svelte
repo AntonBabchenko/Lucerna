@@ -898,7 +898,11 @@
   async function startDatapackInstall(card: ModSummary, pinnedVersion?: ModVersion) {
     installingProjectIds.add(card.project_id);
     try {
-      if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
+      // The instance this click was for. Every step below acts on it, and a
+      // switch away mid-flight must not land its result, or its world picker,
+      // on the instance the user switched to.
+      const id = instanceId;
+      if (!id || !canInstallContent(kind, id, loader)) {
         error = get(t)('mods.browse.errorNoInstance');
         return;
       }
@@ -921,6 +925,9 @@
         }
         version = versions.data[0]!;
       }
+      // Nothing is written yet, and the library snapshot below now describes
+      // the other instance: drop the click.
+      if (instanceId !== id) return;
       // A version picked for a project whose pack is ALREADY in the library is
       // a version SWITCH, and datapacks_update_one owns switch semantics: it
       // replaces the library file, migrates every world holding the old
@@ -929,11 +936,7 @@
       // old one — two versions in the library, every world still on the old.
       const existing = datapackById.get(`${card.source}:${card.project_id}`);
       if (existing && existing.in_library) {
-        const updated = await commands.datapacksUpdateOne(
-          instanceId,
-          existing.pack.filename,
-          version,
-        );
+        const updated = await commands.datapacksUpdateOne(id, existing.pack.filename, version);
         if (updated.status === 'error') {
           showInstallFailure(card.name, updated.error, () => {
             void startDatapackInstall(card, pinnedVersion);
@@ -958,7 +961,7 @@
         return;
       }
 
-      const installed = await commands.datapacksInstallFromVersion(instanceId, version);
+      const installed = await commands.datapacksInstallFromVersion(id, version);
       if (installed.status === 'error') {
         showInstallFailure(card.name, installed.error, () => {
           void startDatapackInstall(card, pinnedVersion);
@@ -975,7 +978,8 @@
       // No picker on a snapshot whose refresh failed: its placements and
       // worlds predate this install. The failure is already on screen, and
       // the pack is in the library, which can place it once the read works.
-      if (!fresh) return;
+      // Nor on another instance: the pack went into this one's library.
+      if (!fresh || instanceId !== id) return;
       const entry = installedDatapacks.find(
         (e) => e.pack.filename === installed.data.pack.filename,
       );
@@ -1044,7 +1048,9 @@
   // into the wrong instance — so dismiss any still-visible failure toasts
   // instead of letting them outlive their context. The warning about the
   // instance's unreadable data pack library goes the same way: it describes
-  // the instance this view has just left.
+  // the instance this view has just left. So do the data pack dialogs: left
+  // open, their Confirm would act on the NEW instance with the old
+  // instance's pack name and world list.
   let installFailureToastIds: number[] = [];
   function showInstallFailure(name: string, err: IpcError, retry: () => void) {
     installFailureToastIds.push(installFailureToast(name, err, retry));
@@ -1055,6 +1061,8 @@
       for (const id of installFailureToastIds) dismiss(id);
       installFailureToastIds = [];
       offPlatformPrompt = null;
+      pickerTarget = null;
+      removeDialogFor = null;
       if (leaving) dismissLibraryReadWarning(leaving);
     };
   });

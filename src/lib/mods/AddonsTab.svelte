@@ -409,18 +409,30 @@
     worlds: DatapackWorldView[];
     compat: PackCompat | null;
   } | null>(null);
+  // The picker belongs to the instance it was opened for. Left open across a
+  // switch, its Apply would add the old instance's pack to the NEW instance's
+  // worlds, so an instance change closes it.
+  $effect(() => {
+    void instanceId;
+    return () => {
+      datapackPickerTarget = null;
+    };
+  });
 
   // Local datapack zips (file picker + drag-drop) go into the instance's
   // LIBRARY; the world picker then opens ONCE per batch, targeting the last
   // successful install (a multi-zip drop is rare, and each pack stays
   // reachable through the library screen's own «Add to worlds…»).
   async function installDatapacksFromFiles(paths: string[]) {
-    if (instanceId === null) return;
+    // The instance the batch was dropped on. Every install goes there, and a
+    // switch away mid-batch must not open its picker on the other instance.
+    const id = instanceId;
+    if (id === null) return;
     let ok = 0;
     let last: { filename: string; packName: string } | null = null;
     const failed: string[] = [];
     for (const path of paths) {
-      const r = await commands.datapacksInstallFromFile(instanceId, path);
+      const r = await commands.datapacksInstallFromFile(id, path);
       if (r.status === 'ok') {
         ok += 1;
         last = { filename: r.data.pack.filename, packName: r.data.pack.name };
@@ -436,13 +448,15 @@
     // Refresh the Installed-datapacks view + Browse badges (no Tauri events).
     if (ok > 0) {
       datapacksChanged.value++;
-      if (last !== null) {
+      if (last !== null && instanceId === id) {
         // Real placements, not [] — a reinstall over a pack already linked in
         // worlds must show each world's CURRENT state, or the picker would
         // route a present-but-disabled world through add (which re-enables)
         // instead of the explicit toggle.
-        const libId = instanceId;
-        const lib = await commands.datapacksListLibrary(libId);
+        const lib = await commands.datapacksListLibrary(id);
+        // Switched away while reading: the view now shows another instance,
+        // and neither this picker nor this listing's warning belongs there.
+        if (instanceId !== id) return;
         if (lib.status === 'error') {
           // No picker on a listing we could not read: empty placements would
           // route a present-but-disabled world through add, and empty worlds
@@ -451,10 +465,10 @@
           // The warning is shared with the embedded browse view, whose refresh
           // of the same listing this install also triggers: one failed read,
           // one warning.
-          warnLibraryReadBlockedPicker(libId, lib.error);
+          warnLibraryReadBlockedPicker(id, lib.error);
           return;
         }
-        libraryReadSucceeded(libId);
+        libraryReadSucceeded(id);
         const entry = lib.data.entries.find((e) => e.pack.filename === last.filename);
         datapackPickerTarget = {
           ...last,
