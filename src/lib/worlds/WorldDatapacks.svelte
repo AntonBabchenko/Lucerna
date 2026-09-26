@@ -186,7 +186,7 @@
         return;
       }
       // A same-named pack was replaced: a world left on its old bytes is named.
-      warnFailedRefresh(installed.data.refreshed);
+      warnFailedRefresh(installed.data.pack.name, installed.data.refreshed);
       const placed = await commands.datapacksAddToWorld(
         instanceId,
         world,

@@ -1,7 +1,8 @@
 // A Vanilla Tweaks build installs each pack into the library under its own
 // name. A pack the library already holds is replaced, and the worlds linked to
 // the old copy are refreshed; a world that could not be refreshed stays on the
-// old bytes. The catalog install names such worlds, and so does this one.
+// old bytes. The catalog install names such worlds, and so does this one. A
+// build holds many packs, so each warning names its pack.
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -41,19 +42,27 @@ afterEach(() => {
 });
 
 describe('InstalledDatapacksView — a Vanilla Tweaks build', () => {
-  it('names each world a same-name refresh could not update', async () => {
+  it('names each pack, and each world its refresh could not update', async () => {
     cmd.vtInstallToInstance.mockResolvedValue({
       status: 'ok',
       data: {
         outcomes: [
           {
             filename: 'graves v2.8.5.zip',
+            name: 'Graves',
             installed: true,
             error: null,
             refreshed: [
               { kind: 'refreshed', world: 'Beta' },
               { kind: 'failed', world: 'Alpha', details: 'locked' },
             ],
+          },
+          {
+            filename: 'coords hud v1.0.0.zip',
+            name: 'Coords HUD',
+            installed: true,
+            error: null,
+            refreshed: [{ kind: 'failed', world: 'Alpha', details: 'locked' }],
           },
         ],
       },
@@ -63,10 +72,13 @@ describe('InstalledDatapacksView — a Vanilla Tweaks build', () => {
     await fireEvent.click(await screen.findByTestId('vt-pack-survival/graves'));
     await fireEvent.click(screen.getByTestId('vt-build'));
 
-    await waitFor(() => expect(toastList().some((x) => x.kind === 'warning')).toBe(true));
-    const [warning] = toastList().filter((x) => x.kind === 'warning');
-    expect(warning.title).toMatch(/^1 world could not be switched to the new version/);
-    expect(warning.title).not.toMatch(/retry/i);
-    expect(warning.lines).toEqual(['Alpha: locked']);
+    await waitFor(() => expect(toastList().filter((x) => x.kind === 'warning')).toHaveLength(2));
+    const [graves, coords] = toastList().filter((x) => x.kind === 'warning');
+    expect(graves.title).toBe(
+      "The new version of Graves didn't reach every world — these may still be using the old one:",
+    );
+    expect(graves.lines).toEqual(['Alpha: locked']);
+    expect(coords.title).toMatch(/^The new version of Coords HUD didn't reach every world/);
+    for (const w of [graves, coords]) expect(w.title).not.toMatch(/retry/i);
   });
 });

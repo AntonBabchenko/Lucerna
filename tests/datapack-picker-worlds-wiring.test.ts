@@ -350,12 +350,10 @@ describe('a local reinstall whose world refresh failed says which worlds', () =>
     await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
     await fireEvent.click(await screen.findByTestId('file-dropzone'));
     await waitFor(() =>
-      expect(warnings().some((w) => /could not be switched to the new version/.test(w.title))).toBe(
-        true,
-      ),
+      expect(warnings().some((w) => /didn't reach every world/.test(w.title))).toBe(true),
     );
-    const w = warnings().find((x) => /could not be switched to the new version/.test(x.title));
-    expect(w?.title).toMatch(/^1 world could not be switched to the new version/);
+    const w = warnings().find((x) => /didn't reach every world/.test(x.title));
+    expect(w?.title).toMatch(/^The new version of Terralith didn't reach every world/);
     expect(w?.title).not.toMatch(/retry/i);
     expect(w?.lines).toEqual(['Alpha: locked']);
   });

@@ -109,7 +109,7 @@
       }
       // A pack that replaced a same-named one names each world left on its
       // old bytes, as a catalog install does.
-      for (const o of res.data.outcomes) warnFailedRefresh(o.refreshed);
+      for (const o of res.data.outcomes) warnFailedRefresh(o.name, o.refreshed);
       const failed = res.data.outcomes.filter((o) => !o.installed).length;
       if (failed > 0) {
         error = $t('addons.datapacks.vt.someFailed', { count: failed });
@@ -305,7 +305,7 @@
         const lines = failedRefreshLines(res.data.migrations);
         pushWarning(get(t)('addons.datapacks.updateIncomplete', { count: lines.length }), lines);
       } else {
-        warnFailedRefresh(res.data.migrations);
+        warnFailedRefresh(res.data.pack.name, res.data.migrations);
         pushSuccess(get(t)('addons.installed.updatedToast', { name: entry.pack.name }));
         const next = new Map(updateStates);
         next.delete(entry.pack.filename);
@@ -343,7 +343,7 @@
           failed++;
           continue;
         }
-        warnFailedRefresh(res.data.migrations);
+        warnFailedRefresh(res.data.pack.name, res.data.migrations);
         updated++;
         const next = new Map(updateStates);
         next.delete(tgt.entry.pack.filename);

@@ -8109,6 +8109,12 @@ export type VtCategory = {
  */
 export type VtInstallOutcome = {
 	filename: string,
+	/**
+	 *  The pack's display name: the installed row's name, so a warning names
+	 *  the pack the way its list does; the filename when the install failed
+	 *  (there is no row) or the server row carries no name.
+	 */
+	name: string,
 	installed: boolean,
 	error: string | null,
 	/**

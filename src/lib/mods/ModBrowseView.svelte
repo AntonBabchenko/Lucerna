@@ -951,7 +951,7 @@
           const lines = failedRefreshLines(updated.data.migrations);
           pushWarning(get(t)('addons.datapacks.updateIncomplete', { count: lines.length }), lines);
         } else {
-          warnFailedRefresh(updated.data.migrations);
+          warnFailedRefresh(updated.data.pack.name, updated.data.migrations);
           pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
         }
         // No world picker: the worlds moved with the update. Placement changes
@@ -971,7 +971,7 @@
       // A same-name reinstall fans out to worlds already holding the pack;
       // per-world failures come back in `refreshed` and must not be silent —
       // that world stays on stale bytes.
-      warnFailedRefresh(installed.data.refreshed);
+      warnFailedRefresh(installed.data.pack.name, installed.data.refreshed);
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
       const fresh = await refreshInstalledDatapacks({ forPicker: true });
       datapacksChanged.value++;

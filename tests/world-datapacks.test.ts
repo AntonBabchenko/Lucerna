@@ -114,7 +114,7 @@ describe('WorldDatapacks — adding a pack from a file', () => {
 
     await waitFor(() => expect(toastList().some((x) => x.kind === 'warning')).toBe(true));
     const [warning] = toastList().filter((x) => x.kind === 'warning');
-    expect(warning.title).toMatch(/^1 world could not be switched to the new version/);
+    expect(warning.title).toMatch(/^The new version of VeinMiner didn't reach every world/);
     expect(warning.title).not.toMatch(/retry/i);
     expect(warning.lines).toEqual(['Other: locked']);
     expect(commands.datapacksAddToWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'vm.zip');

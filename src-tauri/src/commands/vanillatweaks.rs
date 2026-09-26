@@ -16,6 +16,10 @@ use crate::mods::platform::ModSource;
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct VtInstallOutcome {
     pub filename: String,
+    /// The pack's display name: the installed row's name, so a warning names
+    /// the pack the way its list does; the filename when the install failed
+    /// (there is no row) or the server row carries no name.
+    pub name: String,
     pub installed: bool,
     pub error: Option<String>,
     /// An instance install's same-name fan-out (`LibraryInstall.refreshed`):
@@ -109,11 +113,13 @@ pub async fn vt_install_to_instance(
             // is the one the world picker must add.
             Ok(install) => VtInstallOutcome {
                 filename: install.pack.filename,
+                name: install.pack.name,
                 installed: true,
                 error: None,
                 refreshed: install.refreshed,
             },
             Err(e) => VtInstallOutcome {
+                name: filename.clone(),
                 filename,
                 installed: false,
                 error: Some(e.to_string()),
@@ -168,12 +174,14 @@ pub async fn vt_install_to_server(
         outcomes.push(match res {
             // The name the install wrote (N.5 may have normalised it).
             Ok(record) => VtInstallOutcome {
+                name: record.name.unwrap_or_else(|| record.filename.clone()),
                 filename: record.filename,
                 installed: true,
                 error: None,
                 refreshed: Vec::new(),
             },
             Err(e) => VtInstallOutcome {
+                name: filename.clone(),
                 filename,
                 installed: false,
                 error: Some(e.to_string()),
