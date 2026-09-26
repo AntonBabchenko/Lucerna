@@ -74,6 +74,11 @@ pub struct Version {
     /// Release notes (markdown). Nullable / absent on older versions.
     #[serde(default)]
     pub changelog: Option<String>,
+    /// `listed`, `archived`, `unlisted`, … The per-project listing only ever
+    /// holds `listed` and `archived` versions; the hash endpoints also return
+    /// `unlisted` ones (2026-09-21 spec, S10).
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

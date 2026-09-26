@@ -4,25 +4,23 @@ use super::*;
 // TTL-cached versions helper (used by background sweeps only)
 // =========================================================================
 
-/// `platform.versions(...)` with a TTL cache in front. Used by the background
-/// sweeps (compat check, update check, dependency graph) so repeat scans don't
-/// re-hit the network. NOT used by the per-install resolution (installs want a
-/// fresh canonical version).
+/// `versions(...)` through the shared TTL cache, with concurrent callers of one
+/// key joined onto one fetch (`version_cache::get_or_fetch`). Used by the
+/// sweeps — the compat probe's and the update check's per-project residue,
+/// dependency naming — so repeat scans don't re-hit the network. NOT used by
+/// the per-install resolution (installs want a fresh canonical version).
 async fn cached_versions(
-    platform: &dyn crate::mods::platform::ModPlatform,
-    source: crate::mods::platform::ModSource,
+    source: ModSource,
     project_id: &str,
     mc: &str,
     loader: LoaderKind,
-) -> crate::error::Result<Vec<crate::mods::platform::ModVersion>> {
-    if let Some(hit) = crate::mods::version_cache::get(source, project_id, mc, loader) {
-        return Ok(hit);
-    }
-    let v = platform
-        .versions(project_id, Some(mc), Some(loader))
-        .await?;
-    crate::mods::version_cache::put(source, project_id, mc, loader, v.clone());
-    Ok(v)
+) -> crate::error::Result<Vec<ModVersion>> {
+    crate::mods::version_cache::get_or_fetch(source, project_id, mc, loader, || async {
+        platform_for(source)
+            .versions(project_id, Some(mc), Some(loader))
+            .await
+    })
+    .await
 }
 
 // =========================================================================
@@ -1626,8 +1624,10 @@ pub async fn mods_uninstall(
 
 /// Check every eligible installed user-mod for a newer version. For
 /// each mod with platform identity that is not a modpack-origin mod,
-/// query its source platform for the versions available on the
-/// instance's MC + loader and classify the result. A single mod's
+/// ask for the versions available on the instance's MC + loader and
+/// classify the result. Modrinth mods are answered from one hash batch
+/// wherever that answer is provably the per-project listing's
+/// (2026-09-21 spec, D7); the rest ask per project. A single mod's
 /// query failure becomes that mod's `CheckFailed` state — the command
 /// fails wholesale only on a catastrophic error (instance missing,
 /// registry unreadable). Modpack-origin and hand-dropped mods are
@@ -1638,8 +1638,9 @@ pub async fn mods_check_updates(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> crate::error::Result<Vec<crate::mods::updates::ModUpdateCheck>> {
+    use crate::mods::hash_probe::{BatchFailure, HashProbeCache};
     use crate::mods::updates::{
-        classify_update, eligible_identity, ModUpdateCheck, ModUpdateState,
+        batch_update_state, classify_update, eligible_identity, ModUpdateCheck, ModUpdateState,
     };
     use futures_util::stream::{self, StreamExt};
 
@@ -1662,13 +1663,7 @@ pub async fn mods_check_updates(
     // `filter_map` straight to `stream::iter`) is what decouples those
     // borrows from the async closure's lifetimes — passing the lazy
     // iterator directly re-triggers the same HRTB failure.
-    let eligible: Vec<(
-        usize,
-        crate::mods::platform::InstalledMod,
-        ModSource,
-        String,
-        String,
-    )> = installed
+    let eligible: Vec<(usize, InstalledMod, ModSource, String, String)> = installed
         .iter()
         .enumerate()
         .filter_map(|(i, m)| {
@@ -1678,47 +1673,100 @@ pub async fn mods_check_updates(
         })
         .collect();
 
-    // Bounded-concurrency platform poll. Identical per-mod semantics to the
-    // prior sequential loop: one `ModUpdateCheck` per eligible mod, same
-    // `classify_update`, same `CheckFailed`-on-error.
-    let mut results: Vec<(usize, ModUpdateCheck)> =
-        stream::iter(eligible)
-            .map(|(i, m, source, project_id, version_id)| {
-                let mc = mc_version.clone();
-                async move {
-                    let platform = platform_for(source);
-                    let state =
-                        match cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
-                            .await
-                        {
-                            Ok(versions) => classify_update(&m, &versions),
-                            Err(e) => ModUpdateState::CheckFailed {
-                                reason: e.to_string(),
-                            },
-                        };
-                    (
-                        i,
-                        ModUpdateCheck {
-                            sha1: m.sha1.clone(),
-                            name: m.name.clone(),
-                            source,
-                            project_id,
-                            current_version_id: version_id,
-                            current_version_number: m.version_number.clone(),
-                            state,
-                        },
-                    )
-                }
-            })
-            .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-            .collect()
-            .await;
+    // Batch half: keyed by the REGISTRY sha1 — the update check is a statement
+    // about the registered file, as `classify_update` has always been.
+    let modrinth_shas: Vec<String> = eligible
+        .iter()
+        .filter(|(_, _, source, _, _)| *source == ModSource::Modrinth)
+        .map(|(_, m, _, _, _)| m.sha1.to_ascii_lowercase())
+        .collect();
+    let snapshot = HashProbeCache::global()
+        .snapshot(
+            &crate::mods::modrinth::ModrinthClient::new(),
+            &modrinth_shas,
+            &mc_version,
+            loader,
+        )
+        .await;
 
-    // Restore installed-list order: `buffer_unordered` yields completions
-    // out of order, so re-sort by the paired original index.
+    let mut results: Vec<(usize, ModUpdateCheck)> = Vec::with_capacity(eligible.len());
+    let mut residue = Vec::new();
+    for (i, m, source, project_id, version_id) in eligible {
+        let decided = match (source, &snapshot) {
+            (ModSource::Modrinth, Ok(snap)) => {
+                let h = m.sha1.to_ascii_lowercase();
+                match (snap.own.get(&h), snap.latest.get(&h)) {
+                    (Some(own), Some(latest)) => batch_update_state(
+                        &version_id,
+                        &project_id,
+                        &mc_version,
+                        loader,
+                        own.as_ref(),
+                        latest,
+                    ),
+                    // Missing from the snapshot: decline, never guess.
+                    _ => None,
+                }
+            }
+            // Asked and failed — what a failed per-mod query has always
+            // produced. The transport detail is in the launcher log.
+            (ModSource::Modrinth, Err(BatchFailure::Unavailable)) => {
+                Some(ModUpdateState::CheckFailed {
+                    reason: "Modrinth could not be reached".into(),
+                })
+            }
+            // CurseForge, or a refused request shape: the per-project listing.
+            _ => None,
+        };
+        match decided {
+            Some(state) => results.push((i, update_row(&m, source, project_id, version_id, state))),
+            None => residue.push((i, m, source, project_id, version_id)),
+        }
+    }
+
+    // Bounded-concurrency per-project poll for the residue — identical
+    // per-mod semantics to before: same `classify_update`, same
+    // `CheckFailed`-on-error.
+    let listed: Vec<(usize, ModUpdateCheck)> = stream::iter(residue)
+        .map(|(i, m, source, project_id, version_id)| {
+            let mc = mc_version.clone();
+            async move {
+                let state = match cached_versions(source, &project_id, &mc, loader).await {
+                    Ok(versions) => classify_update(&m, &versions),
+                    Err(e) => ModUpdateState::CheckFailed {
+                        reason: e.to_string(),
+                    },
+                };
+                (i, update_row(&m, source, project_id, version_id, state))
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    results.extend(listed);
+
+    // Restore installed-list order: the poll yields completions out of order.
     results.sort_by_key(|(i, _)| *i);
-    let out: Vec<ModUpdateCheck> = results.into_iter().map(|(_, c)| c).collect();
-    Ok(out)
+    Ok(results.into_iter().map(|(_, c)| c).collect())
+}
+
+/// One `mods_check_updates` row.
+fn update_row(
+    m: &InstalledMod,
+    source: ModSource,
+    project_id: String,
+    current_version_id: String,
+    state: crate::mods::updates::ModUpdateState,
+) -> crate::mods::updates::ModUpdateCheck {
+    crate::mods::updates::ModUpdateCheck {
+        sha1: m.sha1.clone(),
+        name: m.name.clone(),
+        source,
+        project_id,
+        current_version_id,
+        current_version_number: m.version_number.clone(),
+        state,
+    }
 }
 
 /// The instance's modpack origin reduced to chip data: the pack name
@@ -2081,9 +2129,13 @@ impl GatheredMod {
 
 /// The ONE I/O pass behind both the compatibility chip's live half and the
 /// migration plan (2026-09-20 spec, D8): jar facts through the shared reader,
-/// one identity predicate (D2), one probe per askable mod under the loader
-/// that actually opens the jar (D3), weighed per file (D4) — index-aligned
-/// with `installed`, which the caller has already filtered to enabled mods.
+/// one identity predicate (D2), one existence question per askable mod under
+/// the loader that actually opens the jar (D3), weighed per file (D4) —
+/// index-aligned with `installed`, which the caller has already filtered to
+/// enabled mods. The questions are answered by `compat_probe::resolve_asks`:
+/// the hash batch where exact, the per-project listing for the rest
+/// (2026-09-21 spec). `on_tick(done, total)` reports the questions settled.
+#[allow(clippy::too_many_arguments)]
 async fn gather_compat_facts(
     inst_root: &std::path::Path,
     cache_path: Option<&std::path::Path>,
@@ -2092,17 +2144,14 @@ async fn gather_compat_facts(
     mc: &str,
     loader: LoaderKind,
     loader_version: Option<&str>,
+    on_tick: impl FnMut(u32, u32) + Send,
 ) -> Vec<GatheredMod> {
-    use crate::mods::compat::{live_availability, InstalledFile, LiveAvailability, ProbeAnswer};
+    use crate::mods::compat::LiveAvailability;
+    use crate::mods::compat_probe::{resolve_asks, Ask};
     use crate::mods::local::{jar_admission, probe_loader, JarAdmission, JarFactsReader};
     use crate::mods::mc_compat::{mc_fit_is_bounded, platform_verdict, PlatformVerdict};
     use crate::mods::migration::Ineligible;
     use crate::mods::updates::{is_pack_origin_mod, replaceable_identity};
-    use futures_util::stream::{self, StreamExt};
-
-    // Same bound as `mods_check_updates` — dozens of simultaneous requests
-    // intermittently trip per-IP rate limits.
-    const CHECK_UPDATES_CONCURRENCY: usize = 6;
 
     let dir = crate::mods::installed::mods_dir(inst_root);
     let era = crate::mods::local::descriptor_era(mc);
@@ -2113,7 +2162,9 @@ async fn gather_compat_facts(
     // 1. Offline facts, sequentially — one blocking zip read at a time.
     let mut reader = JarFactsReader::open(&dir, cache_path);
     let mut out: Vec<GatheredMod> = Vec::with_capacity(installed.len());
-    let mut asks: Vec<(usize, ModSource, String, LoaderKind, Option<String>)> = Vec::new();
+    let mut asks: Vec<Ask> = Vec::new();
+    // `ask_rows[k]` is the `out` row `asks[k]` answers for.
+    let mut ask_rows: Vec<usize> = Vec::new();
     for (i, m) in installed.iter().enumerate() {
         let (disk_sha, facts) = reader.read(&m.filename).await;
         let identity = if is_pack_origin_mod(m, pack_origin) {
@@ -2156,7 +2207,16 @@ async fn gather_compat_facts(
             && admission != JarAdmission::Rejected
             && !matches!(verdict, PlatformVerdict::Violated { .. });
         if let (true, Ok((source, project_id))) = (askable, &identity) {
-            asks.push((i, *source, project_id.clone(), ask_loader, disk_sha));
+            ask_rows.push(i);
+            asks.push(Ask {
+                source: *source,
+                project_id: project_id.clone(),
+                loader: ask_loader,
+                on_disk_sha1: disk_sha,
+                registry_sha1: m.sha1.clone(),
+                registry_version_id: m.version_id.clone(),
+                verdict_fits: matches!(verdict, PlatformVerdict::Fits),
+            });
         }
         out.push(GatheredMod {
             readable,
@@ -2171,47 +2231,33 @@ async fn gather_compat_facts(
     }
     reader.finish();
 
-    // 2. Bounded-concurrency existence probes through the SHARED version cache
-    //    — the same cache for the chip and the plan, keyed by loader, so a
-    //    Fabric and a NeoForge question about one project cannot collide.
-    let answers: Vec<(usize, LiveAvailability, Option<String>)> = stream::iter(asks)
-        .map(|(i, source, project_id, ask_loader, disk_sha)| {
+    // 2. Existence questions: the hash batch where its answer is provably the
+    //    listing's, the per-project listing — through the shared, coalescing
+    //    version cache, keyed by loader so a Fabric and a NeoForge question
+    //    about one project cannot collide — for the rest.
+    let resolved = resolve_asks(
+        &asks,
+        mc,
+        &crate::mods::modrinth::ModrinthClient::new(),
+        crate::mods::hash_probe::HashProbeCache::global(),
+        |source, project_id, ask_loader| {
             let mc = mc.to_string();
-            let m = &installed[i];
-            async move {
-                let platform = platform_for(source);
-                let answer =
-                    cached_versions(platform.as_ref(), source, &project_id, &mc, ask_loader).await;
-                let file = InstalledFile {
-                    on_disk_sha1: disk_sha.as_deref(),
-                    registry_sha1: &m.sha1,
-                    registry_version_id: m.version_id.as_deref(),
-                };
-                match answer {
-                    Ok(versions) => (
-                        i,
-                        live_availability(&file, ProbeAnswer::Found(&versions)),
-                        versions.first().map(|v| v.version_number.clone()),
-                    ),
-                    // A failed query must never read as «no build»; it gets its
-                    // own availability and its own words.
-                    Err(_) => (i, live_availability(&file, ProbeAnswer::Failed), None),
-                }
-            }
-        })
-        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-        .collect()
-        .await;
-    for (i, availability, newest) in answers {
-        out[i].availability = availability;
-        out[i].newest = newest;
+            async move { cached_versions(source, &project_id, &mc, ask_loader).await }
+        },
+        on_tick,
+    )
+    .await;
+    for (row, r) in ask_rows.into_iter().zip(resolved) {
+        out[row].availability = r.availability;
+        out[row].newest = r.newest;
     }
     out
 }
 
 /// For each installed mod in `id`, report whether any platform version
-/// exists for the given target `mc` + `loader`. Non-destructive — no
-/// files are modified.
+/// exists for the given target `mc` + `loader` — asked in one hash batch
+/// per probe loader where that answer is exact, per project otherwise.
+/// Non-destructive — no files are modified.
 ///
 /// Mods with no platform identity (hand-dropped jars) and pack-origin
 /// mods report [`ModCompatStatus::Unknown`]. A single mod's query
@@ -2257,6 +2303,7 @@ pub async fn check_instance_mod_compat(
         &mc,
         loader,
         loader_version.as_deref(),
+        |_, _| {},
     )
     .await;
     Ok(installed
@@ -2316,17 +2363,22 @@ pub async fn scan_instance_mod_compat(
 /// confirms an undeclared jar, a page listing nothing flags only a jar that
 /// makes no bounded statement of its own. Never applies anything: this command
 /// only reads and queries.
+///
+/// Reports progress on `on_progress` — the phase and `done / total` — so the
+/// dialog can say how far along it is. Runs at interactive priority: a modal
+/// the user is waiting on outranks a background sweep in the host queue.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_plan_mc_migration(
     app: tauri::AppHandle,
     instance_id: String,
+    on_progress: Channel<crate::mods::migration::MigrationPlanProgress>,
 ) -> crate::error::Result<crate::mods::migration::McMigrationPlan> {
     use crate::mods::deps::ProjectKey;
     use crate::mods::mc_compat::PlatformVerdict;
     use crate::mods::migration::{
-        build_migration_plan, fold_new_dependencies, CandidateQuery, ModMigrationInput,
-        TargetRequirement,
+        build_migration_plan, fold_new_dependencies, CandidateQuery, MigrationPlanPhase,
+        MigrationPlanProgress, ModMigrationInput, TargetRequirement,
     };
     use futures_util::stream::{self, StreamExt};
 
@@ -2334,159 +2386,193 @@ pub async fn mods_plan_mc_migration(
     // dozens of simultaneous requests intermittently trip per-IP rate limits.
     const CHECK_UPDATES_CONCURRENCY: usize = 6;
 
-    let inst_root = instance_root(&app, &instance_id)?;
-    let inst = crate::instances::read_instance(&app, &instance_id)?;
-    // Disabled mods are out of scope (locked decision, 2026-08-03): they are
-    // neither judged nor offered for replacement — observed live (2026-08-11),
-    // the plan re-offered «Отключить» for a mod the user had already disabled
-    // through this very dialog. To migrate a disabled mod, re-enable it first.
-    // This also keeps the plan's counts consistent with the chip, which reads
-    // the (enabled-only) offline scan.
-    let installed: Vec<_> = crate::mods::installed::list(&inst_root)
-        .await?
-        .into_iter()
-        .filter(|m| m.enabled)
-        .collect();
-    let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+    // Progress is advisory: a dialog closed mid-plan has dropped its end of
+    // the channel, and a failed send must not fail the plan it was reporting.
+    let report = |phase: MigrationPlanPhase, done: u32, total: u32| {
+        if total > 0 {
+            let _ = on_progress.send(MigrationPlanProgress { phase, done, total });
+        }
+    };
 
-    let mc = inst.mc_version.clone();
-    let loader = inst.loader;
-    let cache = jar_scan_cache_path(&app);
+    crate::network::throttle::with_interactive(async move {
+        let inst_root = instance_root(&app, &instance_id)?;
+        let inst = crate::instances::read_instance(&app, &instance_id)?;
+        // Disabled mods are out of scope (locked decision, 2026-08-03): they are
+        // neither judged nor offered for replacement — observed live (2026-08-11),
+        // the plan re-offered «Отключить» for a mod the user had already disabled
+        // through this very dialog. To migrate a disabled mod, re-enable it first.
+        // This also keeps the plan's counts consistent with the chip, which reads
+        // the (enabled-only) offline scan.
+        let installed: Vec<_> = crate::mods::installed::list(&inst_root)
+            .await?
+            .into_iter()
+            .filter(|m| m.enabled)
+            .collect();
+        let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
 
-    // 1 + 2b. Offline facts and existence probes — the SAME pass the chip's
-    //    live check runs, so the two surfaces judge the same mods by the same
-    //    facts (2026-09-20 spec, D8).
-    let gathered = gather_compat_facts(
-        &inst_root,
-        cache.as_deref(),
-        &installed,
-        pack_origin.as_ref(),
-        &mc,
-        loader,
-        inst.loader_version.as_deref(),
-    )
-    .await;
-    let mut inputs: Vec<ModMigrationInput> = installed
-        .iter()
-        .zip(gathered)
-        .map(|(m, g)| ModMigrationInput {
-            sha1: m.sha1.clone(),
-            name: m.name.clone(),
-            family_mismatch: g.admission == crate::mods::local::JarAdmission::Rejected,
-            readable: g.readable,
-            mc_fit_bounded: g.mc_fit_bounded,
-            availability: g.availability,
-            declared_mc: g.declared_mc,
-            identity: g.identity,
-            verdict: g.verdict,
-            candidate: None,
-        })
-        .collect();
+        let mc = inst.mc_version.clone();
+        let loader = inst.loader;
+        let cache = jar_scan_cache_path(&app);
 
-    // 2. REPLACEMENT queries — uncached, because the answer picks a concrete
-    //    install target — for every mod the loader will reject (`Violated`, or
-    //    rejected by family) that has a project to ask. Always the instance's
-    //    own loader: the launcher does not propose Fabric builds for a
-    //    Connector instance.
-    let queries: Vec<(usize, ModSource, String)> = inputs
-        .iter()
-        .enumerate()
-        .filter_map(|(i, inp)| {
-            let broken =
-                inp.family_mismatch || matches!(inp.verdict, PlatformVerdict::Violated { .. });
-            match (broken, &inp.identity) {
-                (true, Ok((source, project_id))) => Some((i, *source, project_id.clone())),
+        // 1 + 2b. Offline facts and existence probes — the SAME pass the chip's
+        //    live check runs, so the two surfaces judge the same mods by the same
+        //    facts (2026-09-20 spec, D8).
+        let gathered = gather_compat_facts(
+            &inst_root,
+            cache.as_deref(),
+            &installed,
+            pack_origin.as_ref(),
+            &mc,
+            loader,
+            inst.loader_version.as_deref(),
+            |done, total| report(MigrationPlanPhase::CheckingInstalled, done, total),
+        )
+        .await;
+        let mut inputs: Vec<ModMigrationInput> = installed
+            .iter()
+            .zip(gathered)
+            .map(|(m, g)| ModMigrationInput {
+                sha1: m.sha1.clone(),
+                name: m.name.clone(),
+                family_mismatch: g.admission == crate::mods::local::JarAdmission::Rejected,
+                readable: g.readable,
+                mc_fit_bounded: g.mc_fit_bounded,
+                availability: g.availability,
+                declared_mc: g.declared_mc,
+                identity: g.identity,
+                verdict: g.verdict,
+                candidate: None,
+            })
+            .collect();
+
+        // 2. REPLACEMENT queries — uncached, because the answer picks a concrete
+        //    install target — for every mod the loader will reject (`Violated`, or
+        //    rejected by family) that has a project to ask. Always the instance's
+        //    own loader: the launcher does not propose Fabric builds for a
+        //    Connector instance.
+        let queries: Vec<(usize, ModSource, String)> = inputs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, inp)| {
+                let broken =
+                    inp.family_mismatch || matches!(inp.verdict, PlatformVerdict::Violated { .. });
+                match (broken, &inp.identity) {
+                    (true, Ok((source, project_id))) => Some((i, *source, project_id.clone())),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        // safe: bounded by the installed list, nowhere near 2^32.
+        let query_total = queries.len() as u32;
+        report(MigrationPlanPhase::FindingReplacements, 0, query_total);
+        let mut results: Vec<(usize, CandidateQuery)> = Vec::with_capacity(queries.len());
+        let mut pending = std::pin::pin!(stream::iter(queries)
+            .map(|(i, source, project_id)| {
+                let mc = mc.clone();
+                async move {
+                    let query = match platform_for(source)
+                        .versions(&project_id, Some(&mc), Some(loader))
+                        .await
+                    {
+                        Ok(versions) => CandidateQuery::Found(versions),
+                        Err(_) => CandidateQuery::Failed,
+                    };
+                    (i, query)
+                }
+            })
+            .buffer_unordered(CHECK_UPDATES_CONCURRENCY));
+        while let Some(r) = pending.next().await {
+            results.push(r);
+            report(
+                MigrationPlanPhase::FindingReplacements,
+                results.len() as u32,
+                query_total,
+            );
+        }
+        for (i, q) in results {
+            inputs[i].candidate = Some(q);
+        }
+
+        // 3. Pure bucketing: fits / replaceable / stranded / unjudged.
+        let mut plan = build_migration_plan(inputs);
+
+        // 4. Replacement closure: for every replaceable row's chosen target,
+        //    resolve its declared required deps ONCE (the same
+        //    `ModPlatform::resolve_deps` call `mods_update_one` itself makes —
+        //    but here only to SHOW what it would pull in, never to install
+        //    anything). A failed resolution degrades to "no extra deps found for
+        //    this target" rather than failing the whole plan — this is a
+        //    best-effort enrichment on top of an already-useful plan, not a
+        //    field the caller can act on by itself.
+        let dep_queries: Vec<(usize, ModVersion)> = plan
+            .replaceable
+            .iter()
+            .enumerate()
+            .map(|(i, row)| (i, row.target.clone()))
+            .collect();
+        // safe: bounded by the installed list.
+        let dep_total = dep_queries.len() as u32;
+        report(MigrationPlanPhase::ResolvingDependencies, 0, dep_total);
+        let mut dep_results: Vec<(usize, Vec<ModVersion>)> = Vec::with_capacity(dep_queries.len());
+        let mut pending = std::pin::pin!(stream::iter(dep_queries)
+            .map(|(i, target)| {
+                let mc = mc.clone();
+                async move {
+                    let required = match platform_for(target.source)
+                        .resolve_deps(&target, &mc, loader)
+                        .await
+                    {
+                        Ok(resolved) => resolved.required.into_iter().map(|r| r.version).collect(),
+                        Err(_) => Vec::new(),
+                    };
+                    (i, required)
+                }
+            })
+            .buffer_unordered(CHECK_UPDATES_CONCURRENCY));
+        while let Some(r) = pending.next().await {
+            dep_results.push(r);
+            report(
+                MigrationPlanPhase::ResolvingDependencies,
+                dep_results.len() as u32,
+                dep_total,
+            );
+        }
+        let mut required_by_row: Vec<Vec<ModVersion>> = vec![Vec::new(); plan.replaceable.len()];
+        for (i, required) in dep_results {
+            required_by_row[i] = required;
+        }
+        let requirements: Vec<TargetRequirement> = plan
+            .replaceable
+            .iter()
+            .zip(required_by_row)
+            .map(|(row, required)| TargetRequirement {
+                row_name: row.name.clone(),
+                required,
+            })
+            .collect();
+
+        // 5. What the instance already has a jar for, regardless of fit — the
+        //    "post-migration mod set already contains this" test. Mirrors the
+        //    `installed: HashSet<ProjectKey>` construction `mods_install_with_deps`
+        //    / `mods_resolve_install_plan` already use for the same purpose.
+        let already_installed: std::collections::HashSet<ProjectKey> = installed
+            .iter()
+            .filter_map(|m| match (m.source, m.project_id.as_deref()) {
+                (Some(ModSource::Modrinth), Some(pid)) => {
+                    Some(ProjectKey::Modrinth(pid.to_string()))
+                }
+                (Some(ModSource::Curseforge), Some(pid)) => {
+                    pid.parse().ok().map(ProjectKey::Curseforge)
+                }
                 _ => None,
-            }
-        })
-        .collect();
+            })
+            .collect();
+        plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
 
-    let results: Vec<(usize, CandidateQuery)> = stream::iter(queries)
-        .map(|(i, source, project_id)| {
-            let mc = mc.clone();
-            async move {
-                let query = match platform_for(source)
-                    .versions(&project_id, Some(&mc), Some(loader))
-                    .await
-                {
-                    Ok(versions) => CandidateQuery::Found(versions),
-                    Err(_) => CandidateQuery::Failed,
-                };
-                (i, query)
-            }
-        })
-        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-        .collect()
-        .await;
-    for (i, q) in results {
-        inputs[i].candidate = Some(q);
-    }
-
-    // 3. Pure bucketing: fits / replaceable / stranded / unjudged.
-    let mut plan = build_migration_plan(inputs);
-
-    // 4. Replacement closure: for every replaceable row's chosen target,
-    //    resolve its declared required deps ONCE (the same
-    //    `ModPlatform::resolve_deps` call `mods_update_one` itself makes —
-    //    but here only to SHOW what it would pull in, never to install
-    //    anything). A failed resolution degrades to "no extra deps found for
-    //    this target" rather than failing the whole plan — this is a
-    //    best-effort enrichment on top of an already-useful plan, not a
-    //    field the caller can act on by itself.
-    let dep_queries: Vec<(usize, ModVersion)> = plan
-        .replaceable
-        .iter()
-        .enumerate()
-        .map(|(i, row)| (i, row.target.clone()))
-        .collect();
-    let dep_results: Vec<(usize, Vec<ModVersion>)> = stream::iter(dep_queries)
-        .map(|(i, target)| {
-            let mc = mc.clone();
-            async move {
-                let required = match platform_for(target.source)
-                    .resolve_deps(&target, &mc, loader)
-                    .await
-                {
-                    Ok(resolved) => resolved.required.into_iter().map(|r| r.version).collect(),
-                    Err(_) => Vec::new(),
-                };
-                (i, required)
-            }
-        })
-        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-        .collect()
-        .await;
-    let mut required_by_row: Vec<Vec<ModVersion>> = vec![Vec::new(); plan.replaceable.len()];
-    for (i, required) in dep_results {
-        required_by_row[i] = required;
-    }
-    let requirements: Vec<TargetRequirement> = plan
-        .replaceable
-        .iter()
-        .zip(required_by_row)
-        .map(|(row, required)| TargetRequirement {
-            row_name: row.name.clone(),
-            required,
-        })
-        .collect();
-
-    // 5. What the instance already has a jar for, regardless of fit — the
-    //    "post-migration mod set already contains this" test. Mirrors the
-    //    `installed: HashSet<ProjectKey>` construction `mods_install_with_deps`
-    //    / `mods_resolve_install_plan` already use for the same purpose.
-    let already_installed: std::collections::HashSet<ProjectKey> = installed
-        .iter()
-        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
-            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
-            (Some(ModSource::Curseforge), Some(pid)) => {
-                pid.parse().ok().map(ProjectKey::Curseforge)
-            }
-            _ => None,
-        })
-        .collect();
-    plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
-
-    Ok(plan)
+        Ok(plan)
+    })
+    .await
 }
 
 /// Per-action progress closure for `mods_apply_mc_migration`, tagged with
@@ -2986,25 +3072,9 @@ async fn resolve_dep_project(
             // instance no longer matches — the newest compatible build answers
             // instead. Both declare the same dependency IDS, which is all this
             // is read for; the version itself is never installed from here.
-            let versions =
-                match crate::mods::version_cache::get(source, &project_id, &mc_owned, loader) {
-                    Some(v) => v,
-                    None => {
-                        let plat = platform_for(source);
-                        let v = plat
-                            .versions(&project_id, Some(&mc_owned), Some(loader))
-                            .await
-                            .ok()?;
-                        crate::mods::version_cache::put(
-                            source,
-                            &project_id,
-                            &mc_owned,
-                            loader,
-                            v.clone(),
-                        );
-                        v
-                    }
-                };
+            let versions = cached_versions(source, &project_id, &mc_owned, loader)
+                .await
+                .ok()?;
             versions
                 .iter()
                 .find(|v| v.version_id == version_id)

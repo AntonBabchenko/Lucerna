@@ -163,6 +163,15 @@ fn filename_overrules_tags(found: LoaderKind, want: LoaderKind, tags: &[LoaderKi
     tags.is_empty() || tags.contains(&found) || forge_pair
 }
 
+/// True when our filename rule keeps `v` for a `want` request — see
+/// [`filename_overrules_tags`]. A filename that names no loader is kept.
+fn kept_by_filename_rule(v: &ModVersion, want: LoaderKind) -> bool {
+    match loader_in_filename(&v.primary_file.filename) {
+        Some(found) => !filename_overrules_tags(found, want, &v.loaders),
+        None => true,
+    }
+}
+
 /// Drop versions whose primary-file filename names a loader that contradicts
 /// the request — see [`filename_overrules_tags`] for when a filename is
 /// allowed to contradict. Versions whose filename names no loader are kept
@@ -174,13 +183,24 @@ pub fn drop_filename_loader_mismatches(
     match want {
         Some(want) => versions
             .into_iter()
-            .filter(|v| match loader_in_filename(&v.primary_file.filename) {
-                Some(found) => !filename_overrules_tags(found, want, &v.loaders),
-                None => true,
-            })
+            .filter(|v| kept_by_filename_rule(v, want))
             .collect(),
         None => versions,
     }
+}
+
+/// True iff `v` is tagged for both `mc` and `want` — the test the SERVER
+/// applies, both in the per-project listing and in
+/// `version_files/update_many` (2026-09-21 spec, S2/S5). Our filename rule is
+/// not part of it.
+pub fn tagged_for(v: &ModVersion, mc: &str, want: LoaderKind) -> bool {
+    v.mc_versions.iter().any(|g| g == mc) && v.loaders.contains(&want)
+}
+
+/// True iff the per-project listing for (`mc`, `want`) would contain `v`:
+/// tagged for both, and kept by [`drop_filename_loader_mismatches`]'s rule.
+pub fn listed_for(v: &ModVersion, mc: &str, want: LoaderKind) -> bool {
+    tagged_for(v, mc, want) && kept_by_filename_rule(v, want)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -903,5 +923,41 @@ mod tests {
         .unwrap();
         assert_eq!(q.kind, ContentKind::Mod);
         assert_eq!(q.plugin_core, None);
+    }
+
+    fn version_on(filename: &str, mc: &str, loaders: Vec<LoaderKind>) -> ModVersion {
+        let mut v = version_tagged(filename, loaders);
+        v.mc_versions = vec![mc.into()];
+        v
+    }
+
+    #[test]
+    fn tagged_for_needs_both_the_game_version_and_the_loader() {
+        let v = version_on("mod-1.0.jar", "1.21.1", vec![LoaderKind::NeoForge]);
+        assert!(tagged_for(&v, "1.21.1", LoaderKind::NeoForge));
+        assert!(
+            !tagged_for(&v, "1.21", LoaderKind::NeoForge),
+            "a neighbouring Minecraft version is not this one"
+        );
+        assert!(!tagged_for(&v, "1.21.1", LoaderKind::Forge));
+    }
+
+    #[test]
+    fn listed_for_is_membership_of_the_per_project_listing() {
+        let plain = version_on("mod-1.0.jar", "1.21.1", vec![LoaderKind::NeoForge]);
+        assert!(listed_for(&plain, "1.21.1", LoaderKind::NeoForge));
+        assert!(
+            !listed_for(&plain, "1.21", LoaderKind::NeoForge),
+            "not tagged → not listed"
+        );
+        // Tagged, but the filename rule drops it — Xaero's NeoForge jar tagged
+        // `forge`: the server returns it, our listing does not.
+        let mistagged = version_on(
+            "xaerominimap-neoforge-1.20.4.jar",
+            "1.20.4",
+            vec![LoaderKind::Forge],
+        );
+        assert!(tagged_for(&mistagged, "1.20.4", LoaderKind::Forge));
+        assert!(!listed_for(&mistagged, "1.20.4", LoaderKind::Forge));
     }
 }

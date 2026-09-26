@@ -94,6 +94,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   highlight now fades in quickly, blinks once and fades out slowly instead of
   switching on and off. With reduced motion turned on in the system, it stays
   a steady highlight.
+- **Checking a large instance's mods takes seconds, not half a minute.** The
+  compatibility check, the dialog that fixes incompatible mods and the update
+  check now ask Modrinth about all installed mods at once instead of one mod at
+  a time, and a check started while another is running waits for it instead of
+  asking again. Mods from CurseForge are still checked one by one. While the
+  fix dialog loads, it names the step it is on and how far along it is.
 
 ### Fixed
 

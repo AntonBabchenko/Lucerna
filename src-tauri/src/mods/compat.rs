@@ -3,7 +3,7 @@
 //! Pure logic — no I/O. The command layer in `commands.rs` is the thin
 //! orchestrator that calls the platform and feeds results here.
 
-use crate::mods::platform::ModVersion;
+use crate::mods::platform::{LoaderKind, ModVersion};
 
 /// The LIVE half of one installed mod's compatibility — the chip's projection
 /// of [`ModPlatformClass`] (see [`compat_status`]). The offline half
@@ -79,7 +79,11 @@ pub struct ModLocalCompat {
 pub enum LiveAvailability {
     /// This exact file is one of the builds listed for (mc, probe loader).
     FileListed,
-    /// Builds are listed, this file is not among them.
+    /// Builds are listed; this file was not found among the builds examined.
+    /// For a `Fits` jar the batch may record this without examining the full
+    /// listing (the class cannot change); for an `Unknown` jar — the only
+    /// verdict whose copy claims «this exact file is not on the page» — the
+    /// full listing is always examined.
     OtherBuildsOnly,
     /// The platform answered with no build at all.
     NoBuilds,
@@ -244,6 +248,216 @@ pub fn compat_status(class: ModPlatformClass, newest: Option<String>) -> ModComp
         },
         ModPlatformClass::Rejected | ModPlatformClass::Violated | ModPlatformClass::Unjudged(_) => {
             ModCompatStatus::Unknown
+        }
+    }
+}
+
+// =========================================================================
+// Batch answers (2026-09-21 spec): exact, or decline
+// =========================================================================
+
+/// What the batch endpoints settle for ONE existence question.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BatchAnswer {
+    /// Provably what the per-project listing would have produced;
+    /// `newest` = that listing's first version number.
+    Exact {
+        availability: LiveAvailability,
+        newest: Option<String>,
+    },
+    /// At least one listed build exists; whether THIS file is among them is
+    /// not settled (S1: the same bytes may be published under a version the
+    /// batch did not name).
+    BuildsListed { newest: String },
+    /// The batch says nothing usable — ask the per-project listing.
+    Undecided,
+}
+
+/// §5.1 of the spec, rows B0–B7. `own` = `version_files[h]`; `latest` =
+/// `update_many[h]` (every project owning the bytes). Pure.
+pub fn batch_answer(
+    file: &InstalledFile<'_>,
+    project_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+    own: Option<&ModVersion>,
+    latest: &[ModVersion],
+) -> BatchAnswer {
+    use crate::mods::platform::{listed_for, tagged_for};
+    // B0: nothing to ask by — `None` is «could not tell», never «no jar».
+    let Some(h) = file.on_disk_sha1 else {
+        return BatchAnswer::Undecided;
+    };
+    // B1: unknown bytes. B2: bytes filed under another project. Only after
+    // both is an absence in `latest` evidence about THIS project (S3).
+    let Some(own) = own.filter(|o| o.project_id == project_id) else {
+        return BatchAnswer::Undecided;
+    };
+    let Some(latest_p) = latest.iter().find(|v| v.project_id == project_id) else {
+        // B4: this very file is tagged for (mc, loader), yet the server named
+        // no build — a contradiction, and contradictions are asked, never
+        // resolved toward «no build». B3: otherwise the listing is empty too.
+        return if tagged_for(own, mc, loader) {
+            BatchAnswer::Undecided
+        } else {
+            BatchAnswer::Exact {
+                availability: LiveAvailability::NoBuilds,
+                newest: None,
+            }
+        };
+    };
+    // B5: the newest tagged build is one our filename rule drops; whether an
+    // older one survives is unknown.
+    if !listed_for(latest_p, mc, loader) {
+        return BatchAnswer::Undecided;
+    }
+    // B6: a listed candidate confirms the file by the same two routes as
+    // `live_availability` — (a) the PRIMARY file's digest, (b) the registry's
+    // version id while the record still describes the bytes on disk.
+    let record_describes_disk = h.eq_ignore_ascii_case(file.registry_sha1);
+    let confirms = |w: &ModVersion| {
+        listed_for(w, mc, loader)
+            && (w
+                .primary_file
+                .sha1
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case(h))
+                || (record_describes_disk
+                    && file
+                        .registry_version_id
+                        .is_some_and(|vid| w.version_id == vid)))
+    };
+    let newest = latest_p.version_number.clone();
+    if confirms(own) || confirms(latest_p) {
+        return BatchAnswer::Exact {
+            availability: LiveAvailability::FileListed,
+            newest: Some(newest),
+        };
+    }
+    // B7: builds are listed; this file is not settled (S1).
+    BatchAnswer::BuildsListed { newest }
+}
+
+/// §5.3: what a batch answer settles WITHOUT a listing, for a jar whose own
+/// verdict is `Fits` (`verdict_fits`) or not. `None` = ask the listing.
+pub fn settle_without_listing(
+    answer: &BatchAnswer,
+    verdict_fits: bool,
+) -> Option<(LiveAvailability, Option<String>)> {
+    match answer {
+        BatchAnswer::Exact {
+            availability,
+            newest,
+        } => Some((*availability, newest.clone())),
+        // `classify` reads only `NoBuilds` for a `Fits` jar, so «builds exist»
+        // is everything it needs. «This file was not examined» is recorded as
+        // `OtherBuildsOnly` — see its doc comment.
+        BatchAnswer::BuildsListed { newest } if verdict_fits => {
+            Some((LiveAvailability::OtherBuildsOnly, Some(newest.clone())))
+        }
+        BatchAnswer::BuildsListed { .. } | BatchAnswer::Undecided => None,
+    }
+}
+
+/// A tiny model of Modrinth for the equivalence property (spec §8): the
+/// per-project listing and the two batch endpoints over one set of versions,
+/// per S1/S2/S5. Later in the vector = newer. Deliberately independent of
+/// `tagged_for` / `listed_for` — a model built on the code under test would
+/// share its mistakes.
+#[cfg(test)]
+pub(crate) mod batch_model {
+    use crate::mods::platform::{
+        drop_filename_loader_mismatches, LoaderKind, ModFile, ModSource, ModVersion,
+    };
+
+    pub(crate) struct Build {
+        pub(crate) version: ModVersion,
+        /// Every file's sha1, primary first.
+        pub(crate) files: Vec<&'static str>,
+    }
+
+    pub(crate) fn build(
+        project: &str,
+        id: &str,
+        mc: &[&str],
+        loaders: &[LoaderKind],
+        filename: &str,
+        files: &[&'static str],
+    ) -> Build {
+        Build {
+            version: ModVersion {
+                source: ModSource::Modrinth,
+                project_id: project.into(),
+                version_id: id.into(),
+                name: id.into(),
+                version_number: id.into(),
+                mc_versions: mc.iter().map(|s| s.to_string()).collect(),
+                loaders: loaders.to_vec(),
+                primary_file: ModFile {
+                    filename: filename.into(),
+                    url: "https://cdn.modrinth.com/data/x.jar".into(),
+                    sha1: files.first().map(|s| s.to_string()),
+                    size: 1.0,
+                    distribution_allowed: true,
+                    sha256: None,
+                },
+                deps: vec![],
+                published_at: None,
+            },
+            files: files.to_vec(),
+        }
+    }
+
+    fn server_tags(v: &ModVersion, mc: &str, loader: LoaderKind) -> bool {
+        v.mc_versions.iter().any(|g| g == mc) && v.loaders.contains(&loader)
+    }
+
+    pub(crate) struct Platform(pub(crate) Vec<Build>);
+
+    impl Platform {
+        /// The listing for (project, mc, loader) after our filename rule, newest first.
+        pub(crate) fn listing(
+            &self,
+            project: &str,
+            mc: &str,
+            loader: LoaderKind,
+        ) -> Vec<ModVersion> {
+            let tagged: Vec<ModVersion> = self
+                .0
+                .iter()
+                .rev()
+                .filter(|b| b.version.project_id == project && server_tags(&b.version, mc, loader))
+                .map(|b| b.version.clone())
+                .collect();
+            drop_filename_loader_mismatches(tagged, Some(loader))
+        }
+
+        /// Every version carrying the bytes `h`. `version_files` returns ONE of
+        /// them and which one is arbitrary (S1) — tests try each.
+        pub(crate) fn owners(&self, h: &str) -> Vec<&ModVersion> {
+            self.0
+                .iter()
+                .filter(|b| b.files.iter().any(|f| *f == h))
+                .map(|b| &b.version)
+                .collect()
+        }
+
+        /// `update_many`: per version carrying `h`, the newest version of ITS
+        /// project tagged for (mc, loader) — tags only (S2).
+        pub(crate) fn update_many(&self, h: &str, mc: &str, loader: LoaderKind) -> Vec<ModVersion> {
+            self.owners(h)
+                .iter()
+                .filter_map(|o| {
+                    self.0
+                        .iter()
+                        .rev()
+                        .find(|b| {
+                            b.version.project_id == o.project_id
+                                && server_tags(&b.version, mc, loader)
+                        })
+                        .map(|b| b.version.clone())
+                })
+                .collect()
         }
     }
 }
@@ -493,5 +707,455 @@ mod tests {
             assert_eq!(compat_status(c, None), ModCompatStatus::Unknown, "{c:?}");
             // (pin under the stub)
         }
+    }
+
+    // ── Batch answers (2026-09-21 spec §5.1) ────────────────────────────────
+    use super::batch_model::{build, Build, Platform};
+
+    const NF: LoaderKind = LoaderKind::NeoForge;
+
+    fn at<'a>(h: Option<&'a str>, vid: Option<&'a str>) -> InstalledFile<'a> {
+        InstalledFile {
+            on_disk_sha1: h,
+            registry_sha1: h.unwrap_or("00"),
+            registry_version_id: vid,
+        }
+    }
+
+    #[test]
+    fn b0_to_b2_decline() {
+        // (pin under the stub)
+        let own = build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["aa"]).version;
+        let latest = vec![own.clone()];
+        // B0: no on-disk digest.
+        assert_eq!(
+            batch_answer(
+                &at(None, Some("v1")),
+                "p",
+                "1.21.1",
+                NF,
+                Some(&own),
+                &latest
+            ),
+            BatchAnswer::Undecided
+        );
+        // B1: the platform does not know the bytes.
+        assert_eq!(
+            batch_answer(&at(Some("aa"), None), "p", "1.21.1", NF, None, &latest),
+            BatchAnswer::Undecided
+        );
+        // B2: the bytes are filed under another project.
+        assert_eq!(
+            batch_answer(
+                &at(Some("aa"), None),
+                "q",
+                "1.21.1",
+                NF,
+                Some(&own),
+                &latest
+            ),
+            BatchAnswer::Undecided
+        );
+    }
+
+    #[test]
+    fn b3_no_build_is_exact_only_when_the_file_itself_is_not_tagged() {
+        let old = build("p", "v1", &["1.21"], &[NF], "p-1.jar", &["aa"]).version;
+        assert_eq!(
+            batch_answer(&at(Some("aa"), None), "p", "1.21.1", NF, Some(&old), &[]),
+            BatchAnswer::Exact {
+                availability: LiveAvailability::NoBuilds,
+                newest: None
+            }
+        );
+        // B4: this very file is tagged for (mc, loader), yet no build came
+        // back — a contradiction, resolved toward asking, never toward «no build».
+        let tagged = build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["aa"]).version;
+        assert_eq!(
+            batch_answer(&at(Some("aa"), None), "p", "1.21.1", NF, Some(&tagged), &[]),
+            BatchAnswer::Undecided
+        );
+    }
+
+    #[test]
+    fn b5_a_newest_build_the_filename_rule_drops_declines() {
+        // (pin under the stub)
+        let fo = LoaderKind::Forge;
+        let own = build("p", "v1", &["1.20.4"], &[fo], "p-forge-1.jar", &["aa"]).version;
+        let newest = build("p", "v2", &["1.20.4"], &[fo], "p-neoforge-2.jar", &["bb"]).version;
+        assert_eq!(
+            batch_answer(
+                &at(Some("aa"), None),
+                "p",
+                "1.20.4",
+                fo,
+                Some(&own),
+                &[newest]
+            ),
+            BatchAnswer::Undecided
+        );
+    }
+
+    #[test]
+    fn b6_the_file_is_confirmed_by_its_primary_digest_or_by_a_record_that_still_describes_it() {
+        let own = build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["aa"]).version;
+        let newest = build("p", "v2", &["1.21.1"], &[NF], "p-2.jar", &["bb"]).version;
+        let confirmed = BatchAnswer::Exact {
+            availability: LiveAvailability::FileListed,
+            newest: Some("v2".into()),
+        };
+        // (a) the primary file's digest, compared ignoring case.
+        assert_eq!(
+            batch_answer(
+                &at(Some("AA"), None),
+                "p",
+                "1.21.1",
+                NF,
+                Some(&own),
+                &[newest.clone()]
+            ),
+            confirmed
+        );
+        // (b) the registry's version id, while the record describes the disk.
+        let non_primary = build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["cc", "aa"]).version;
+        let record = InstalledFile {
+            on_disk_sha1: Some("aa"),
+            registry_sha1: "aa",
+            registry_version_id: Some("v1"),
+        };
+        assert_eq!(
+            batch_answer(
+                &record,
+                "p",
+                "1.21.1",
+                NF,
+                Some(&non_primary),
+                &[newest.clone()]
+            ),
+            confirmed
+        );
+        // A record of a replaced file vouches for nothing.
+        let replaced = InstalledFile {
+            on_disk_sha1: Some("aa"),
+            registry_sha1: "ff",
+            registry_version_id: Some("v1"),
+        };
+        assert_eq!(
+            batch_answer(&replaced, "p", "1.21.1", NF, Some(&non_primary), &[newest]),
+            BatchAnswer::BuildsListed {
+                newest: "v2".into()
+            }
+        );
+    }
+
+    #[test]
+    fn b7_builds_are_listed_but_this_file_is_not_settled() {
+        let own = build("p", "v1", &["1.21"], &[NF], "p-1.jar", &["aa"]).version;
+        let newest = build("p", "v2", &["1.21.1"], &[NF], "p-2.jar", &["bb"]).version;
+        assert_eq!(
+            batch_answer(
+                &at(Some("aa"), None),
+                "p",
+                "1.21.1",
+                NF,
+                Some(&own),
+                &[newest]
+            ),
+            BatchAnswer::BuildsListed {
+                newest: "v2".into()
+            }
+        );
+    }
+
+    #[test]
+    fn the_projects_own_entry_is_picked_from_a_multi_project_answer() {
+        let own = build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["aa"]).version;
+        let other = build("q", "w9", &["1.21.1"], &[NF], "q-9.jar", &["aa"]).version;
+        let mine = build("p", "v2", &["1.21.1"], &[NF], "p-2.jar", &["bb"]).version;
+        assert_eq!(
+            batch_answer(
+                &at(Some("aa"), None),
+                "p",
+                "1.21.1",
+                NF,
+                Some(&own),
+                &[other, mine]
+            ),
+            BatchAnswer::Exact {
+                availability: LiveAvailability::FileListed,
+                newest: Some("v2".into())
+            }
+        );
+    }
+
+    #[test]
+    fn only_a_fits_jar_is_settled_by_builds_existing() {
+        let listed = BatchAnswer::BuildsListed {
+            newest: "v2".into(),
+        };
+        assert_eq!(
+            settle_without_listing(&listed, true),
+            Some((LiveAvailability::OtherBuildsOnly, Some("v2".into())))
+        );
+        // An undeclared jar gets the full listing: «this exact file is not on
+        // the page» is a claim the user reads (`FileNotListed`).
+        assert_eq!(settle_without_listing(&listed, false), None);
+        assert_eq!(settle_without_listing(&BatchAnswer::Undecided, true), None);
+        let exact = BatchAnswer::Exact {
+            availability: LiveAvailability::NoBuilds,
+            newest: None,
+        };
+        assert_eq!(
+            settle_without_listing(&exact, false),
+            Some((LiveAvailability::NoBuilds, None))
+        );
+    }
+
+    struct Case {
+        name: &'static str,
+        platform: Platform,
+        on_disk: Option<&'static str>,
+        project: &'static str,
+        version_id: Option<&'static str>,
+        mc: &'static str,
+        loader: LoaderKind,
+    }
+
+    fn case(
+        name: &'static str,
+        builds: Vec<Build>,
+        on_disk: Option<&'static str>,
+        version_id: Option<&'static str>,
+        mc: &'static str,
+        loader: LoaderKind,
+    ) -> Case {
+        Case {
+            name,
+            platform: Platform(builds),
+            on_disk,
+            project: "p",
+            version_id,
+            mc,
+            loader,
+        }
+    }
+
+    fn cases() -> Vec<Case> {
+        let (fo, fa) = (LoaderKind::Forge, LoaderKind::Fabric);
+        vec![
+            case(
+                "the listed primary file",
+                vec![build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["a1"])],
+                Some("a1"),
+                Some("v1"),
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "an older file that is still listed",
+                vec![
+                    build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["b1"]),
+                    build("p", "v2", &["1.21.1"], &[NF], "p-2.jar", &["b2"]),
+                ],
+                Some("b1"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "one jar re-published for the next Minecraft version",
+                vec![
+                    build("p", "v1", &["1.21"], &[NF], "p-1.jar", &["c1"]),
+                    build("p", "v2", &["1.21.1"], &[NF], "p-1.jar", &["c1"]),
+                ],
+                Some("c1"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "the listed owner is not the newest build",
+                vec![
+                    build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["d1"]),
+                    build("p", "v2", &["1.21"], &[NF], "p-1.jar", &["d1"]),
+                    build("p", "v3", &["1.21.1"], &[NF], "p-3.jar", &["d3"]),
+                ],
+                Some("d1"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "a non-primary file the registry names",
+                vec![build(
+                    "p",
+                    "v1",
+                    &["1.21.1"],
+                    &[NF],
+                    "p-1.jar",
+                    &["e0", "e1"],
+                )],
+                Some("e1"),
+                Some("v1"),
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "a non-primary file the registry does not name",
+                vec![build(
+                    "p",
+                    "v1",
+                    &["1.21.1"],
+                    &[NF],
+                    "p-1.jar",
+                    &["f0", "f1"],
+                )],
+                Some("f1"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "the newest build is dropped by the filename rule",
+                vec![
+                    build("p", "v1", &["1.20.4"], &[fo], "p-forge-1.jar", &["g1"]),
+                    build("p", "v2", &["1.20.4"], &[fo], "p-neoforge-2.jar", &["g2"]),
+                ],
+                Some("g1"),
+                None,
+                "1.20.4",
+                fo,
+            ),
+            case(
+                "the user holds the mis-tagged jar",
+                vec![
+                    build("p", "v1", &["1.20.4"], &[fo], "p-forge-1.jar", &["h1"]),
+                    build("p", "v2", &["1.20.4"], &[fo], "p-neoforge-2.jar", &["h2"]),
+                ],
+                Some("h2"),
+                None,
+                "1.20.4",
+                fo,
+            ),
+            case(
+                "the only build is a mis-tagged NeoForge jar",
+                vec![build(
+                    "p",
+                    "v1",
+                    &["1.20.4"],
+                    &[fo],
+                    "p-neoforge-1.jar",
+                    &["i1"],
+                )],
+                Some("i1"),
+                None,
+                "1.20.4",
+                fo,
+            ),
+            case(
+                "tagged for a neighbouring Minecraft version only",
+                vec![build("p", "v1", &["1.21"], &[NF], "p-1.jar", &["j1"])],
+                Some("j1"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "builds for another loader only",
+                vec![build("p", "v1", &["1.21.1"], &[fa], "p-1.jar", &["k1"])],
+                Some("k1"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "a Fabric jar asked under fabric (Connector)",
+                vec![build("p", "v1", &["1.21.1"], &[fa], "p-1.jar", &["l1"])],
+                Some("l1"),
+                None,
+                "1.21.1",
+                fa,
+            ),
+            case(
+                "bytes the platform does not know",
+                vec![build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["m1"])],
+                Some("m9"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "bytes filed under another project",
+                vec![
+                    build("q", "w1", &["1.21.1"], &[NF], "q-1.jar", &["n1"]),
+                    build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["n2"]),
+                ],
+                Some("n1"),
+                None,
+                "1.21.1",
+                NF,
+            ),
+            case(
+                "no on-disk digest",
+                vec![build("p", "v1", &["1.21.1"], &[NF], "p-1.jar", &["o1"])],
+                None,
+                Some("v1"),
+                "1.21.1",
+                NF,
+            ),
+        ]
+    }
+
+    #[test]
+    fn a_batch_answer_is_what_the_listing_would_say_or_it_declines() {
+        let mut decided = 0;
+        for c in cases() {
+            let listing = c.platform.listing(c.project, c.mc, c.loader);
+            let file = at(c.on_disk, c.version_id);
+            let expected = live_availability(&file, ProbeAnswer::Found(&listing));
+            let first = listing.first().map(|v| v.version_number.clone());
+            let owners = c.on_disk.map(|h| c.platform.owners(h)).unwrap_or_default();
+            // Every owner `version_files` could name (S1) — or «unknown bytes».
+            let picks: Vec<Option<&ModVersion>> = if owners.is_empty() {
+                vec![None]
+            } else {
+                owners.into_iter().map(Some).collect()
+            };
+            let latest = c
+                .on_disk
+                .map(|h| c.platform.update_many(h, c.mc, c.loader))
+                .unwrap_or_default();
+            for own in picks {
+                match batch_answer(&file, c.project, c.mc, c.loader, own, &latest) {
+                    BatchAnswer::Exact {
+                        availability,
+                        newest,
+                    } => {
+                        decided += 1;
+                        assert_eq!(
+                            availability, expected,
+                            "{}: differs from the listing",
+                            c.name
+                        );
+                        assert_eq!(newest, first, "{}: newest", c.name);
+                    }
+                    BatchAnswer::BuildsListed { newest } => {
+                        decided += 1;
+                        assert!(
+                            !listing.is_empty(),
+                            "{}: «builds listed», listing empty",
+                            c.name
+                        );
+                        assert_eq!(Some(newest), first, "{}: newest", c.name);
+                    }
+                    BatchAnswer::Undecided => {}
+                }
+            }
+        }
+        // Vacuity guard: an always-declining batch satisfies the property.
+        assert!(
+            decided >= 10,
+            "only {decided} decided answers — the batch is not being exercised"
+        );
     }
 }

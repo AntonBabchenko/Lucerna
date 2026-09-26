@@ -152,6 +152,24 @@ pub struct McMigrationPlan {
     pub unjudged: Vec<UnjudgedRow>,
 }
 
+/// Which part of planning is running — the dialog's loading label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrationPlanPhase {
+    CheckingInstalled,
+    FindingReplacements,
+    ResolvingDependencies,
+}
+
+/// One progress tick of `mods_plan_mc_migration`. Every phase with work opens
+/// with `done = 0`; a phase with nothing to do sends nothing.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct MigrationPlanProgress {
+    pub phase: MigrationPlanPhase,
+    pub done: u32,
+    pub total: u32,
+}
+
 // =========================================================================
 // Pure bucketing
 // =========================================================================
