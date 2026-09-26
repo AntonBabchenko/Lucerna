@@ -12,19 +12,34 @@
 //
 // The title names the pack and counts nothing. An install can hold many packs
 // (a Vanilla Tweaks build, a drag-drop batch), each with its own warning, and
-// only the name tells them apart. A count would also be wrong: a `saves/`
-// folder that could not be listed is one entry, yet no world was checked at
-// all, which its line says. `warnUpdateIncomplete` follows the same rule for
-// the same reason: a renamed update that could not list `saves/` reports that
-// folder as its one failed entry.
+// only the name tells them apart. A count would also be wrong: when no world
+// could be checked at all (`worlds_unchecked`: a `saves/` folder that could
+// not be listed) that is one entry, which its line says. `warnUpdateIncomplete`
+// follows the same rule for the same reason.
+//
+// Every line is worded here, in the UI language: a failure carries the
+// backend's typed error, which `formatError` renders like any other error.
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import type { WorldMigration } from '$lib/ipc/bindings';
+import { formatError } from '$lib/ipc/format-error';
 import { pushWarning } from '$lib/toasts/toasts.svelte';
 
-/** One `world: details` line per world the refresh could not update. */
+/**
+ * One `world: why` line per world the refresh could not update, and one line
+ * saying the worlds could not be checked when none was.
+ */
 export function failedRefreshLines(refreshed: readonly WorldMigration[]): string[] {
-  return refreshed.flatMap((m) => (m.kind === 'failed' ? [`${m.world}: ${m.details}`] : []));
+  return refreshed.flatMap((m) => {
+    switch (m.kind) {
+      case 'failed':
+        return [`${m.world}: ${formatError(m.error)}`];
+      case 'worlds_unchecked':
+        return [get(t)('addons.datapacks.worldsUnchecked', { error: formatError(m.error) })];
+      default:
+        return [];
+    }
+  });
 }
 
 /**

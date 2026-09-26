@@ -112,7 +112,13 @@ const V2 = version('v2', '2.0');
 function outcome(oldCopyKept: boolean): DatapackUpdateOutcome {
   return {
     pack: { ...pack, version_id: 'v2', version_number: '2.0' },
-    migrations: [{ kind: 'failed', world: 'Alpha', details: 'locked' }],
+    migrations: [
+      {
+        kind: 'failed',
+        world: 'Alpha',
+        error: { kind: 'io', path: 'saves/Alpha', details: 'locked' },
+      },
+    ],
     completed: false,
     old_copy_kept: oldCopyKept,
   };
@@ -127,14 +133,13 @@ function savesUnlisted(): DatapackUpdateOutcome {
     ...outcome(true),
     migrations: [
       {
-        kind: 'failed',
-        world: '/i/.minecraft/saves',
-        details: 'no world was moved to the new version: denied',
+        kind: 'worlds_unchecked',
+        error: { kind: 'io', path: '/i/.minecraft/saves', details: 'denied' },
       },
     ],
   };
 }
-const SAVES_LINE = '/i/.minecraft/saves: no world was moved to the new version: denied';
+const SAVES_LINE = "Couldn't check the worlds: IO error at /i/.minecraft/saves: denied";
 
 function warnings() {
   return toastList().filter((x) => x.kind === 'warning');
@@ -189,7 +194,7 @@ describe('InstalledDatapacksView — an update that left a world behind', () => 
 
     const [w] = warnings();
     expect(w.title).toMatch(/retry can finish/i);
-    expect(w.lines).toEqual(['Alpha: locked']);
+    expect(w.lines).toEqual(['Alpha: IO error at saves/Alpha: locked']);
     expect(screen.getByTestId('datapack-update-btn')).toBeTruthy();
   });
 
@@ -213,7 +218,7 @@ describe('InstalledDatapacksView — an update that left a world behind', () => 
     const [w] = warnings();
     expect(w.title).not.toMatch(/retry/i);
     expect(w.title).toMatch(/new version/i);
-    expect(w.lines).toEqual(['Alpha: locked']);
+    expect(w.lines).toEqual(['Alpha: IO error at saves/Alpha: locked']);
     await waitFor(() => expect(screen.queryByTestId('datapack-update-btn')).toBeNull());
   });
 
@@ -230,7 +235,7 @@ describe('InstalledDatapacksView — an update that left a world behind', () => 
     await waitFor(() => expect(warnings().some((w) => /new version/i.test(w.title))).toBe(true));
     const w = warnings().find((x) => /new version/i.test(x.title));
     expect(w?.title).not.toMatch(/retry/i);
-    expect(w?.lines).toEqual(['Alpha: locked']);
+    expect(w?.lines).toEqual(['Alpha: IO error at saves/Alpha: locked']);
     await waitFor(() => expect(screen.queryByTestId('datapack-update-btn')).toBeNull());
   });
 });
@@ -264,7 +269,7 @@ describe('ModBrowseView — switching a library pack to another version', () => 
 
     const [w] = warnings();
     expect(w.title).toMatch(/retry can finish/i);
-    expect(w.lines).toEqual(['Alpha: locked']);
+    expect(w.lines).toEqual(['Alpha: IO error at saves/Alpha: locked']);
   });
 
   it('names the pack and counts no world when saves/ could not be listed', async () => {
@@ -285,6 +290,6 @@ describe('ModBrowseView — switching a library pack to another version', () => 
     const [w] = warnings();
     expect(w.title).not.toMatch(/retry/i);
     expect(w.title).toMatch(/new version/i);
-    expect(w.lines).toEqual(['Alpha: locked']);
+    expect(w.lines).toEqual(['Alpha: IO error at saves/Alpha: locked']);
   });
 });

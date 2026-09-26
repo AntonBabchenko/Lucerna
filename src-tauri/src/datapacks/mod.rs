@@ -294,37 +294,47 @@ pub enum WorldMigration {
     /// `DataPacks` compound is left unchanged: the game reads the missing
     /// compound as its default and enables the present, unlisted pack itself
     /// (spec §0.5 A15), which is what `was_enabled: true` reports there.
-    Migrated {
-        world: String,
-        was_enabled: bool,
-    },
+    Migrated { world: String, was_enabled: bool },
     /// The file was relinked in a `saves/` folder that has neither
     /// `level.dat` nor `level.dat_old` (spec §0.5 A3). Minecraft does not
     /// treat that folder as a world and loads nothing from it, so no level
     /// file was read or written and no enabled/disabled state is claimed. A
     /// separate variant from [`WorldMigration::Migrated`] for the same reason
     /// as [`WorldMigration::Refreshed`]: this path does not know the state.
-    Relinked {
-        world: String,
-    },
+    Relinked { world: String },
     /// A same-name refresh: the world's file now holds the new bytes, and
     /// level.dat was deliberately never touched — each world's own
     /// enabled/disabled choice stands exactly as it was. A separate variant
     /// from [`WorldMigration::Migrated`] because this path does not KNOW the
     /// state; fabricating `was_enabled: true` here would tell the UI a
     /// disabled pack had been enabled.
-    Refreshed {
-        world: String,
-    },
+    Refreshed { world: String },
     /// A same-named entry whose content is not the library's — left untouched.
     /// Replacing it would destroy a pack the user put there themselves.
-    SkippedNotOurs {
-        world: String,
-    },
+    SkippedNotOurs { world: String },
+    /// This world was not moved to the new bytes, and may still hold the old
+    /// ones. `error` is the crate's typed error, never a sentence made here:
+    /// the UI words it in its own language through `formatError`, as it
+    /// does every other error. A sentence built here would reach a Russian
+    /// UI in English.
     Failed {
         world: String,
-        details: String,
+        error: crate::error::Error,
     },
+    /// No world could be checked at all: `saves/` could not be listed, or (on
+    /// an update) the old library copy could not be read to compare against.
+    /// Not a `Failed` world: there is no world to name, and naming the
+    /// `saves` folder as one read in the UI as a world called "saves". Counts
+    /// as a failure wherever `Failed` does ([`Self::is_failure`]).
+    WorldsUnchecked { error: crate::error::Error },
+}
+
+impl WorldMigration {
+    /// Some world may not hold the new bytes: a `Failed` world, or no world
+    /// checked at all. What `completed: false` and a warning are decided on.
+    pub fn is_failure(&self) -> bool {
+        matches!(self, Self::Failed { .. } | Self::WorldsUnchecked { .. })
+    }
 }
 
 /// The result of `datapacks_update_one`.
@@ -335,7 +345,8 @@ pub struct DatapackUpdateOutcome {
     /// Per-world outcomes: same-name refreshes plus cross-name migrations.
     pub migrations: Vec<WorldMigration>,
     /// `false` ⟹ at least one world was not moved to the new version (a
-    /// `Failed` entry in `migrations` names it). Whether a retry can still
+    /// `Failed` entry in `migrations` names it, or a `WorldsUnchecked` one
+    /// says no world could be checked). Whether a retry can still
     /// finish the job is [`Self::old_copy_kept`], not this flag.
     pub completed: bool,
     /// `true` ⟹ the update changed the filename and did not complete, so the
@@ -355,24 +366,20 @@ pub struct DatapackUpdateOutcome {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorldRemoval {
     /// The world's link and its level.dat entries are gone.
-    Removed {
-        world: String,
-    },
+    Removed { world: String },
     /// A same-named entry whose content is not the library's — never touched,
     /// cascading or not. Removing it would destroy a pack the user (or a world
     /// import) put there themselves.
-    KeptNotOurs {
-        world: String,
-    },
+    KeptNotOurs { world: String },
     /// Cascade was off; the link survives and keeps loading in game. This is
     /// exactly the state `DatapackLibraryEntry.in_library: false` renders
     /// afterwards.
-    KeptNoCascade {
-        world: String,
-    },
+    KeptNoCascade { world: String },
+    /// The world still holds the pack. `error` is typed for the same reason
+    /// as [`WorldMigration::Failed`]'s.
     Failed {
         world: String,
-        details: String,
+        error: crate::error::Error,
     },
 }
 

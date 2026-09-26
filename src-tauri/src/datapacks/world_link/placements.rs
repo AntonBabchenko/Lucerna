@@ -33,8 +33,9 @@ pub(crate) struct Placements {
     /// `datapacks/` could not be listed, R2 could not tell (a stat error), or
     /// the entry could not be read to compare. "Could not check" is not "does
     /// not hold it" (Fallback discipline Q1): every caller reports these as a
-    /// failure, which keeps the library copy so a retry converges.
-    pub unchecked: Vec<(String, String)>,
+    /// failure, which keeps the library copy so a retry converges. The reason
+    /// is a typed [`Error::Io`] naming the path, which the UI words itself.
+    pub unchecked: Vec<(String, Error)>,
 }
 
 /// THE rule for "is this world entry the library's own copy" — shared by
@@ -127,7 +128,7 @@ async fn placements_against(
             Ok(meta) => meta,
             Err(e) => {
                 out.unchecked
-                    .push((world, format!("could not read its folder: {e}")));
+                    .push((world, Error::io(entry.path().display().to_string(), e)));
                 continue;
             }
         };
@@ -140,18 +141,13 @@ async fn placements_against(
             Ok((_, Resolved::Exact(n) | Resolved::Folded(n))) => n,
             Ok((_, Resolved::Absent)) => continue,
             Ok((_, Resolved::Unknown(e))) => {
-                out.unchecked.push((
-                    world,
-                    format!(
-                        "could not tell whether {} holds {filename}: {e}",
-                        dp.display()
-                    ),
-                ));
+                out.unchecked
+                    .push((world, Error::io(dp.join(filename).display().to_string(), e)));
                 continue;
             }
             Err(e) => {
                 out.unchecked
-                    .push((world, format!("could not list {}: {e}", dp.display())));
+                    .push((world, Error::io(dp.display().to_string(), e)));
                 continue;
             }
         };
@@ -161,10 +157,8 @@ async fn placements_against(
             // Gone since the listing: the world no longer holds it.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => {
-                out.unchecked.push((
-                    world,
-                    format!("could not read {}: {e}", candidate.display()),
-                ));
+                out.unchecked
+                    .push((world, Error::io(candidate.display().to_string(), e)));
                 continue;
             }
         };
@@ -183,10 +177,8 @@ async fn placements_against(
                 // Could not compare: not "not ours", which a caller would
                 // leave alone and then report the job done.
                 Err(e) => {
-                    out.unchecked.push((
-                        world,
-                        format!("could not read {}: {e}", candidate.display()),
-                    ));
+                    out.unchecked
+                        .push((world, Error::io(candidate.display().to_string(), e)));
                     continue;
                 }
             }
@@ -318,9 +310,9 @@ fn identify_world_file(entry: &Path, entry_len: u64, lib: &Path) -> Result<World
 /// file under the name — one a library removal without cascade left behind —
 /// but that file is the world's own copy now, reported `SkippedNotOurs`. So a
 /// world it could not check loses nothing, and it reports nothing for it. A
-/// reinstall that cannot even list `saves/` reports one `Failed` entry naming
-/// that folder: the install itself went through, and the worlds may still be
-/// on the old bytes.
+/// reinstall that cannot even list `saves/` reports one `WorldsUnchecked`
+/// entry: the install itself went through, and the worlds may still be on the
+/// old bytes.
 pub(crate) async fn refresh_placements(
     instance_root: &Path,
     filename: &str,
@@ -343,11 +335,11 @@ pub(crate) async fn refresh_placements(
             return Vec::new();
         }
         Err(e) => {
-            let saves = instance_root.join(".minecraft").join("saves");
-            return vec![WorldMigration::Failed {
-                world: saves.display().to_string(),
-                details: format!("no world was refreshed: {e}"),
-            }];
+            crate::diag!(
+                "datapacks: reinstall of {filename} could not list the worlds; none was \
+                 refreshed: {e}"
+            );
+            return vec![WorldMigration::WorldsUnchecked { error: e }];
         }
     };
     let mut report = Vec::with_capacity(placements.found.len() + placements.unchecked.len());
@@ -360,15 +352,15 @@ pub(crate) async fn refresh_placements(
             Ok(_) => report.push(WorldMigration::Refreshed { world: p.world }),
             Err(e) => report.push(WorldMigration::Failed {
                 world: p.world,
-                details: e.details(),
+                error: Error::io(e.path.display().to_string(), e.details()),
             }),
         }
     }
     // Only a reinstall refreshes, so only a reinstall can leave a world on the
     // old library bytes.
     if expected_sha.is_some() {
-        for (world, details) in placements.unchecked {
-            report.push(WorldMigration::Failed { world, details });
+        for (world, error) in placements.unchecked {
+            report.push(WorldMigration::Failed { world, error });
         }
     }
     report

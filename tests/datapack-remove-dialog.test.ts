@@ -3,6 +3,7 @@
 // library's own copy survives a removal. Everything else is the only copy.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
 import type { DatapackPlacementView } from '$lib/ipc/bindings';
 import ru from '../src/lib/i18n/locales/ru.json';
 
@@ -401,6 +402,58 @@ describe('DatapackRemoveDialog — worlds-only failure toast', () => {
     expect(title).toMatch(/1 world could not be cleaned/);
     expect(title).not.toMatch(/library copy/);
     expect(details).toEqual([expect.stringMatching(/^B: /)]);
+  });
+});
+
+// The cascade's only-old failure once reached a Russian UI as the backend's
+// English sentence. Each failed world carries the typed error, worded by
+// `formatError` in the UI language.
+describe('DatapackRemoveDialog — library cascade failure toast', () => {
+  it('words each failed world in the UI language', async () => {
+    cmd.datapacksRemoveFromLibrary.mockResolvedValue({
+      status: 'ok',
+      data: {
+        worlds: [
+          {
+            kind: 'failed',
+            world: 'OnlyOld',
+            error: { kind: 'world_level_dat_only_old', folder_name: 'OnlyOld' },
+          },
+        ],
+        removed_from_library: false,
+      },
+    });
+    locale.set('ru');
+    try {
+      render(DatapackRemoveDialog, {
+        props: {
+          instanceId: 'inst-1',
+          filename: 'vm.zip',
+          packName: 'VeinMiner',
+          mode: {
+            kind: 'library' as const,
+            placements: [
+              {
+                world: 'OnlyOld',
+                state: 'enabled' as const,
+                ignored_reason: null,
+                level_dat: 'only_old' as const,
+              },
+            ],
+          },
+          onClose: () => {},
+          onRemoved: () => {},
+        },
+      });
+      await fireEvent.click(await screen.findByTestId('datapack-remove-confirm'));
+      await waitFor(() => expect(toasts.pushWarning).toHaveBeenCalledTimes(1));
+      const [, lines] = toasts.pushWarning.mock.calls[0];
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/^OnlyOld: У мира «OnlyOld» пропал level\.dat/);
+      expect(lines[0]).not.toMatch(/has only level\.dat_old/);
+    } finally {
+      locale.set('en');
+    }
   });
 });
 

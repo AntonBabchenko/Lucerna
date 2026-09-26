@@ -342,7 +342,11 @@ describe('a local reinstall whose world refresh failed says which worlds', () =>
         pack,
         refreshed: [
           { kind: 'refreshed', world: 'Beta' },
-          { kind: 'failed', world: 'Alpha', details: 'locked' },
+          {
+            kind: 'failed',
+            world: 'Alpha',
+            error: { kind: 'io', path: 'saves/Alpha', details: 'locked' },
+          },
         ],
       },
     });
@@ -355,6 +359,6 @@ describe('a local reinstall whose world refresh failed says which worlds', () =>
     const w = warnings().find((x) => /didn't reach every world/.test(x.title));
     expect(w?.title).toMatch(/^The new version of Terralith didn't reach every world/);
     expect(w?.title).not.toMatch(/retry/i);
-    expect(w?.lines).toEqual(['Alpha: locked']);
+    expect(w?.lines).toEqual(['Alpha: IO error at saves/Alpha: locked']);
   });
 });

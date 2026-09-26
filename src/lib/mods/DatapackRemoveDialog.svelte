@@ -216,12 +216,15 @@
     // Per-world precision (F3): every world that still holds the pack after
     // this removal is NAMED — a silent partial success would leave content
     // loading in game with the UI claiming it is gone.
-    const failed = res.data.worlds.filter((w) => w.kind === 'failed');
+    // Each line is worded here, in the UI language, from the typed error.
+    const failed = res.data.worlds.flatMap((w) =>
+      w.kind === 'failed' ? [`${w.world}: ${formatError(w.error)}`] : [],
+    );
     const keptNotOurs = res.data.worlds.filter((w) => w.kind === 'kept_not_ours');
     if (failed.length > 0) {
       pushWarning(
         get(t)('addons.datapacks.remove.toastFailedWorlds', { count: failed.length }),
-        failed.map((w) => (w.kind === 'failed' ? `${w.world}: ${w.details}` : w.kind)),
+        failed,
       );
     }
     if (cascade && keptNotOurs.length > 0) {

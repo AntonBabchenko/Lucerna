@@ -424,14 +424,14 @@ pub async fn remove_from_library_at(
     // discipline Q1). A cascade reports it Failed, which keeps the library
     // copy; the orphan sweep below must not reach it either. Without a
     // cascade no world is touched, so there is nothing to report.
-    for (world, details) in placements.unchecked {
+    for (world, error) in placements.unchecked {
         if cascade {
             visited.insert(world.clone());
             any_failed = true;
-            worlds.push(WorldRemoval::Failed { world, details });
+            worlds.push(WorldRemoval::Failed { world, error });
         } else {
             crate::diag!(
-                "datapacks: library removal without cascade could not check world {world}: {details}"
+                "datapacks: library removal without cascade could not check world {world}: {error}"
             );
         }
     }
@@ -450,11 +450,11 @@ pub async fn remove_from_library_at(
             .await
         {
             Ok(()) => worlds.push(WorldRemoval::Removed { world: p.world }),
-            Err(e) => {
+            Err(error) => {
                 any_failed = true;
                 worlds.push(WorldRemoval::Failed {
                     world: p.world,
-                    details: e.to_string(),
+                    error,
                 });
             }
         }
@@ -473,12 +473,12 @@ pub async fn remove_from_library_at(
         // check" is not "names nothing" (Fallback discipline Q1). It fails,
         // which keeps the library copy for a retry. A world the loop above
         // already handled has its own answer.
-        for (world, details) in sweep.unchecked {
+        for (world, error) in sweep.unchecked {
             if visited.contains(&world) {
                 continue;
             }
             any_failed = true;
-            worlds.push(WorldRemoval::Failed { world, details });
+            worlds.push(WorldRemoval::Failed { world, error });
         }
         for world in sweep.naming {
             if visited.contains(&world) {
@@ -492,12 +492,9 @@ pub async fn remove_from_library_at(
             .await
             {
                 Ok(()) => worlds.push(WorldRemoval::Removed { world }),
-                Err(e) => {
+                Err(error) => {
                     any_failed = true;
-                    worlds.push(WorldRemoval::Failed {
-                        world,
-                        details: e.to_string(),
-                    });
+                    worlds.push(WorldRemoval::Failed { world, error });
                 }
             }
         }
@@ -523,7 +520,7 @@ struct Sweep {
     /// Worlds the sweep could not check, each with why. Any of them may name
     /// the pack, so the cascade reports each as `Failed` — which keeps the
     /// library copy — rather than as naming nothing (Fallback discipline Q1).
-    unchecked: Vec<(String, String)>,
+    unchecked: Vec<(String, Error)>,
 }
 
 /// Worlds whose `level.dat` names `filename` in either list — regardless of
@@ -565,9 +562,9 @@ async fn worlds_naming(instance_root: &Path, filename: &str) -> Result<Sweep> {
             Ok(meta) if meta.is_dir() => {}
             Ok(_) => continue,
             Err(err) => {
-                let details = Error::io(path.display().to_string(), err).to_string();
-                crate::diag!("datapacks: removal sweep cannot check world {world}: {details}");
-                sweep.unchecked.push((world, details));
+                let error = Error::io(path.display().to_string(), err);
+                crate::diag!("datapacks: removal sweep cannot check world {world}: {error}");
+                sweep.unchecked.push((world, error));
                 continue;
             }
         }
@@ -582,24 +579,22 @@ async fn worlds_naming(instance_root: &Path, filename: &str) -> Result<Sweep> {
                 continue;
             }
             Err(err) => {
-                let details = err.to_string();
                 crate::diag!(
                     "datapacks: removal sweep cannot check world {world}: could not tell \
-                     whether it has a level.dat: {details}"
+                     whether it has a level.dat: {err}"
                 );
-                sweep.unchecked.push((world, details));
+                sweep.unchecked.push((world, err));
                 continue;
             }
         }
         let (root, _framing) = match crate::datapacks::level_dat::read_at(&path) {
             Ok(read) => read,
             Err(err) => {
-                let details = err.to_string();
                 crate::diag!(
                     "datapacks: removal sweep cannot check world {world}: level.dat could not \
-                     be read: {details}"
+                     be read: {err}"
                 );
-                sweep.unchecked.push((world, details));
+                sweep.unchecked.push((world, err));
                 continue;
             }
         };
@@ -1262,6 +1257,11 @@ mod tests {
             "got {:?}",
             out.worlds
         );
+        // The failure crosses to the UI as the crate's typed error, which the
+        // UI words in its own language — never as a Rust-made sentence.
+        let wire = serde_json::to_value(&out.worlds).unwrap();
+        assert_eq!(wire[0]["error"]["kind"], "world_in_use", "{wire}");
+        assert_eq!(wire[0]["error"]["folder_name"], "Alpha", "{wire}");
         assert!(!out.removed_from_library);
         assert!(
             td.path().join("datapacks/vm.zip").exists(),
@@ -1337,6 +1337,14 @@ mod tests {
             "got {:?}",
             out.worlds
         );
+        // Typed on the wire: the UI words the only-old refusal itself. A
+        // backend sentence here reached a Russian UI in English.
+        let wire = serde_json::to_value(&out.worlds).unwrap();
+        assert_eq!(
+            wire[0]["error"]["kind"], "world_level_dat_only_old",
+            "{wire}"
+        );
+        assert_eq!(wire[0]["error"]["folder_name"], "Restoring", "{wire}");
         assert!(!out.removed_from_library);
         assert!(td.path().join("datapacks/vm.zip").exists());
         assert!(wd.join("datapacks/vm.zip").exists());
@@ -1370,6 +1378,8 @@ mod tests {
             "got {:?}",
             out.worlds
         );
+        let wire = serde_json::to_value(&out.worlds).unwrap();
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
         assert!(!out.removed_from_library);
         assert!(td.path().join("datapacks/vm.zip").exists());
         assert_eq!(list_at(td.path()).await.unwrap().len(), 1);
@@ -1582,6 +1592,8 @@ mod tests {
             "{:?}",
             out.refreshed
         );
+        let wire = serde_json::to_value(&out.refreshed).unwrap();
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
     }
 
     /// §0.5 A21 refuses only a LEGACY `X.ZIP` row. A name that differs in case
@@ -1617,7 +1629,7 @@ mod tests {
         assert!(
             !out.refreshed
                 .iter()
-                .any(|m| matches!(m, crate::datapacks::WorldMigration::Failed { .. })),
+                .any(crate::datapacks::WorldMigration::is_failure),
             "{:?}",
             out.refreshed
         );
@@ -1675,14 +1687,12 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(
-            matches!(
-                out.refreshed.as_slice(),
-                [crate::datapacks::WorldMigration::Failed { .. }]
-            ),
-            "{:?}",
-            out.refreshed
-        );
+        // One entry saying the worlds could not be listed — not a "world"
+        // named after the `saves` folder — carrying the typed cause.
+        let wire = serde_json::to_value(&out.refreshed).unwrap();
+        assert_eq!(wire.as_array().map(Vec::len), Some(1), "{wire}");
+        assert_eq!(wire[0]["kind"], "worlds_unchecked", "{wire}");
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
         assert_eq!(
             std::fs::read(library_dir_at(td.path()).join("vm.zip")).unwrap(),
             datapack_zip_v2()
@@ -1709,14 +1719,12 @@ mod tests {
 
         let out = install_local_at(td.path(), &src).await.unwrap();
 
-        assert!(
-            matches!(
-                out.refreshed.as_slice(),
-                [crate::datapacks::WorldMigration::Failed { .. }]
-            ),
-            "{:?}",
-            out.refreshed
-        );
+        // One entry saying the worlds could not be listed — not a "world"
+        // named after the `saves` folder — carrying the typed cause.
+        let wire = serde_json::to_value(&out.refreshed).unwrap();
+        assert_eq!(wire.as_array().map(Vec::len), Some(1), "{wire}");
+        assert_eq!(wire[0]["kind"], "worlds_unchecked", "{wire}");
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
         assert_eq!(out.pack.sha1, sha1_hex(&datapack_zip_v2()));
     }
 }

@@ -60,6 +60,7 @@ export type TranslationKey =
   | 'addons.datapacks.vt.someFailed'
   | 'addons.datapacks.vt.subtitle'
   | 'addons.datapacks.vt.title'
+  | 'addons.datapacks.worldsUnchecked'
   | 'addons.dropzoneDatapack'
   | 'addons.dropzoneDisabled'
   | 'addons.dropzoneResourcePack'

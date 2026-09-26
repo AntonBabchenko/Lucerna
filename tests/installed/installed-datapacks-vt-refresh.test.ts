@@ -54,7 +54,11 @@ describe('InstalledDatapacksView — a Vanilla Tweaks build', () => {
             error: null,
             refreshed: [
               { kind: 'refreshed', world: 'Beta' },
-              { kind: 'failed', world: 'Alpha', details: 'locked' },
+              {
+                kind: 'failed',
+                world: 'Alpha',
+                error: { kind: 'io', path: 'saves/Alpha', details: 'locked' },
+              },
             ],
           },
           {
@@ -62,7 +66,13 @@ describe('InstalledDatapacksView — a Vanilla Tweaks build', () => {
             name: 'Coords HUD',
             installed: true,
             error: null,
-            refreshed: [{ kind: 'failed', world: 'Alpha', details: 'locked' }],
+            refreshed: [
+              {
+                kind: 'failed',
+                world: 'Alpha',
+                error: { kind: 'io', path: 'saves/Alpha', details: 'locked' },
+              },
+            ],
           },
         ],
       },
@@ -77,7 +87,7 @@ describe('InstalledDatapacksView — a Vanilla Tweaks build', () => {
     expect(graves.title).toBe(
       "The new version of Graves didn't reach every world — these may still be using the old one:",
     );
-    expect(graves.lines).toEqual(['Alpha: locked']);
+    expect(graves.lines).toEqual(['Alpha: IO error at saves/Alpha: locked']);
     expect(coords.title).toMatch(/^The new version of Coords HUD didn't reach every world/);
     for (const w of [graves, coords]) expect(w.title).not.toMatch(/retry/i);
   });

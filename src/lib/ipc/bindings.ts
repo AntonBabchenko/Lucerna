@@ -3193,7 +3193,8 @@ export type DatapackUpdateOutcome = {
 	migrations: WorldMigration[],
 	/**
 	 *  `false` ⟹ at least one world was not moved to the new version (a
-	 *  `Failed` entry in `migrations` names it). Whether a retry can still
+	 *  `Failed` entry in `migrations` names it, or a `WorldsUnchecked` one
+	 *  says no world could be checked). Whether a retry can still
 	 *  finish the job is [`Self::old_copy_kept`], not this flag.
 	 */
 	completed: boolean,
@@ -8289,7 +8290,23 @@ export type WorldMigration =
  *  A same-named entry whose content is not the library's — left untouched.
  *  Replacing it would destroy a pack the user put there themselves.
  */
-{ kind: "skipped_not_ours"; world: string } | { kind: "failed"; world: string; details: string };
+{ kind: "skipped_not_ours"; world: string } | 
+/**
+ *  This world was not moved to the new bytes, and may still hold the old
+ *  ones. `error` is the crate's typed error, never a sentence made here:
+ *  the UI words it in its own language through `formatError`, as it
+ *  does every other error. A sentence built here would reach a Russian
+ *  UI in English.
+ */
+{ kind: "failed"; world: string; error: Error } | 
+/**
+ *  No world could be checked at all: `saves/` could not be listed, or (on
+ *  an update) the old library copy could not be read to compare against.
+ *  Not a `Failed` world: there is no world to name, and naming the
+ *  `saves` folder as one read in the UI as a world called "saves". Counts
+ *  as a failure wherever `Failed` does ([`Self::is_failure`]).
+ */
+{ kind: "worlds_unchecked"; error: Error };
 
 export type WorldPackState = "enabled" | "disabled" | "not_added" | 
 /**
@@ -8328,7 +8345,12 @@ export type WorldRemoval =
  *  exactly the state `DatapackLibraryEntry.in_library: false` renders
  *  afterwards.
  */
-{ kind: "kept_no_cascade"; world: string } | { kind: "failed"; world: string; details: string };
+{ kind: "kept_no_cascade"; world: string } | 
+/**
+ *  The world still holds the pack. `error` is typed for the same reason
+ *  as [`WorldMigration::Failed`]'s.
+ */
+{ kind: "failed"; world: string; error: Error };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

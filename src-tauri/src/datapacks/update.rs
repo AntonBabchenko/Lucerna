@@ -67,10 +67,7 @@ pub async fn update_at(
         // world's stale copy with the NEW library bytes, find it foreign and
         // skip it (`SkippedNotOurs`), so it cannot finish the job. Hence
         // `old_copy_kept: false`, which tells the UI not to promise a retry.
-        let failed = install
-            .refreshed
-            .iter()
-            .any(|m| matches!(m, WorldMigration::Failed { .. }));
+        let failed = install.refreshed.iter().any(WorldMigration::is_failure);
         return Ok(DatapackUpdateOutcome {
             pack: install.pack,
             migrations: install.refreshed,
@@ -91,22 +88,20 @@ pub async fn update_at(
     let mut migrations = install.refreshed;
     // `Err`: no world could be checked (`saves/` or the old library copy is
     // unreadable). The new library file and its row are already written, so
-    // this is an incomplete update, not a failed one: one `Failed` entry says
-    // so, both library rows stay, and a retry converges (as
+    // this is an incomplete update, not a failed one: one `WorldsUnchecked`
+    // entry says so, both library rows stay, and a retry converges (as
     // `refresh_placements` reports a `saves/` it cannot list).
     match world_link::migrate_placements(instance_root, old_filename, &new_name).await {
         Ok(moved) => migrations.extend(moved),
         Err(e) => {
-            let saves = instance_root.join(".minecraft").join("saves");
-            migrations.push(WorldMigration::Failed {
-                world: saves.display().to_string(),
-                details: format!("no world was moved to the new version: {e}"),
-            });
+            crate::diag!(
+                "datapacks: update of {old_filename} to {new_name} could not check the worlds; \
+                 none was moved: {e}"
+            );
+            migrations.push(WorldMigration::WorldsUnchecked { error: e });
         }
     }
-    let failed = migrations
-        .iter()
-        .any(|m| matches!(m, WorldMigration::Failed { .. }));
+    let failed = migrations.iter().any(WorldMigration::is_failure);
 
     if failed {
         // No rollback (§8.5). The old library file also cannot be cleaned up
@@ -330,6 +325,8 @@ mod tests {
             "got {:?}",
             out.migrations
         );
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
     }
 
     /// The same-name counterpart of the renamed case above, and the one that
@@ -352,11 +349,12 @@ mod tests {
             .expect("the new copy is installed; the refresh is only incomplete");
 
         assert!(!out.completed, "{:?}", out.migrations);
-        assert!(
-            matches!(out.migrations.as_slice(), [WorldMigration::Failed { .. }]),
-            "{:?}",
-            out.migrations
-        );
+        // One entry saying the worlds could not be listed — not a "world"
+        // named after the `saves` folder — carrying the typed cause.
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        assert_eq!(wire.as_array().map(Vec::len), Some(1), "{wire}");
+        assert_eq!(wire[0]["kind"], "worlds_unchecked", "{wire}");
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
         assert!(
             !out.old_copy_kept,
             "the library already holds the new bytes; no old copy was kept"
@@ -583,6 +581,13 @@ mod tests {
             "{:?}",
             out.migrations
         );
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        let locked = wire
+            .as_array()
+            .and_then(|a| a.iter().find(|m| m["world"] == "Locked"))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(locked["error"]["kind"], "io", "{wire}");
         assert!(
             td.path().join("datapacks").join("vm-1.zip").exists(),
             "the old library copy stays for a retry"
@@ -609,11 +614,12 @@ mod tests {
 
         assert!(!out.completed);
         assert!(out.old_copy_kept);
-        assert!(
-            matches!(out.migrations.as_slice(), [WorldMigration::Failed { .. }]),
-            "{:?}",
-            out.migrations
-        );
+        // One entry saying the worlds could not be listed — not a "world"
+        // named after the `saves` folder — carrying the typed cause.
+        let wire = serde_json::to_value(&out.migrations).unwrap();
+        assert_eq!(wire.as_array().map(Vec::len), Some(1), "{wire}");
+        assert_eq!(wire[0]["kind"], "worlds_unchecked", "{wire}");
+        assert_eq!(wire[0]["error"]["kind"], "io", "{wire}");
         assert_eq!(out.pack.filename, "vm-2.zip");
         assert!(td.path().join("datapacks").join("vm-1.zip").exists());
         assert!(td.path().join("datapacks").join("vm-2.zip").exists());

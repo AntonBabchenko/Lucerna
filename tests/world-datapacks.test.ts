@@ -105,7 +105,13 @@ describe('WorldDatapacks — adding a pack from a file', () => {
           version_number: null,
           installed_at: '2026-09-25T00:00:00Z',
         },
-        refreshed: [{ kind: 'failed', world: 'Other', details: 'locked' }],
+        refreshed: [
+          {
+            kind: 'failed',
+            world: 'Other',
+            error: { kind: 'io', path: 'saves/Other', details: 'locked' },
+          },
+        ],
       },
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
@@ -118,7 +124,7 @@ describe('WorldDatapacks — adding a pack from a file', () => {
     const [warning] = toastList().filter((x) => x.kind === 'warning');
     expect(warning.title).toMatch(/^The new version of VeinMiner didn't reach every world/);
     expect(warning.title).not.toMatch(/retry/i);
-    expect(warning.lines).toEqual(['Other: locked']);
+    expect(warning.lines).toEqual(['Other: IO error at saves/Other: locked']);
     expect(commands.datapacksAddToWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'vm.zip');
   });
 });

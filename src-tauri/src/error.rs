@@ -53,7 +53,9 @@ pub enum KeyringOp {
     Delete,
 }
 
-#[derive(Debug, Clone, ThisError, Serialize, Type)]
+// `PartialEq` because per-world report types carry an `Error` of their own
+// (`datapacks::WorldMigration::Failed`) and are compared whole in tests.
+#[derive(Debug, Clone, PartialEq, ThisError, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Error {
     #[error("Network error fetching {url}: {details}")]

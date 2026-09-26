@@ -73,7 +73,7 @@ pub(crate) async fn migrate_placements(
             Err(e) => {
                 report.push(WorldMigration::Failed {
                     world: p.world,
-                    details: Error::io(src.display().to_string(), e).to_string(),
+                    error: Error::io(src.display().to_string(), e),
                 });
                 continue;
             }
@@ -86,15 +86,15 @@ pub(crate) async fn migrate_placements(
             // A folder with no level file: the file moved, and no state was
             // read, so none is claimed.
             Ok(None) => report.push(WorldMigration::Relinked { world: p.world }),
-            Err(e) => report.push(WorldMigration::Failed {
+            Err(error) => report.push(WorldMigration::Failed {
                 world: p.world,
-                details: e.to_string(),
+                error,
             }),
         }
     }
     // It may still hold the old pack: not migrated, and not "nothing to do".
-    for (world, details) in placements.unchecked {
-        report.push(WorldMigration::Failed { world, details });
+    for (world, error) in placements.unchecked {
+        report.push(WorldMigration::Failed { world, error });
     }
     Ok(report)
 }
@@ -424,6 +424,12 @@ mod tests {
             ),
             "got {report:?}"
         );
+        let wire = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            wire[0]["error"]["kind"], "world_level_dat_only_old",
+            "{wire}"
+        );
+        assert_eq!(wire[0]["error"]["folder_name"], "Restoring", "{wire}");
         assert!(wd.join("datapacks/vm-1.zip").exists());
         assert!(!wd.join("datapacks/vm-2.zip").exists());
         assert!(!wd.join("level.dat").exists());
@@ -465,6 +471,13 @@ mod tests {
             )),
             "got {report:?}"
         );
+        let wire = serde_json::to_value(&report).unwrap();
+        let alpha = wire
+            .as_array()
+            .and_then(|a| a.iter().find(|m| m["world"] == "Alpha"))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(alpha["error"]["kind"], "io", "{wire}");
         assert!(
             report.contains(&crate::datapacks::WorldMigration::SkippedNotOurs {
                 world: "Gamma".into()
