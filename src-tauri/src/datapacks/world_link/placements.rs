@@ -517,6 +517,12 @@ mod tests {
         assert_eq!(found.found.len(), 1);
         assert!(!found.found[0].is_ours);
 
+        // A FIFO's length is 0. Against the seeded library zip, the removal
+        // check's length comparison would answer OwnFile before any read, and
+        // this half would pass with the type check gone. An empty library
+        // file makes the lengths equal, so only the type check keeps the FIFO
+        // from being read.
+        std::fs::write(library_dir_at(td.path()).join("vm.zip"), b"").unwrap();
         let Ok(kind) =
             tokio::time::timeout(budget, world_entry_kind_at(td.path(), "W", "vm.zip")).await
         else {
