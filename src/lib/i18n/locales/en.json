@@ -1076,6 +1076,7 @@
         "confirmFromWorld": "Remove from world",
         "confirmDelete": "Delete",
         "toastRemoved": "Removed {name}",
+        "toastRemovedSomeUnchanged": "Removed {name} from every world Lucerna can change. These were left as they are:",
         "toastFailed": "Could not remove {name}",
         "toastFailedWorlds": "{count, plural, one {# world could not be cleaned — the library copy was kept so a retry can finish} other {# worlds could not be cleaned — the library copy was kept so a retry can finish}}",
         "toastFailedWorldsOnly": "{count, plural, one {# world could not be cleaned} other {# worlds could not be cleaned}}",

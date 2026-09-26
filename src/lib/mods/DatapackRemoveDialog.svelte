@@ -168,7 +168,17 @@
     pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: to.packName }));
   }
 
-  async function confirmWorldsOnly(to: Target, worlds: DatapackPlacementView[]) {
+  /** A world left as it is, with why, the way the dialog listed it. */
+  function unchangedLine(p: DatapackPlacementView): string {
+    const why = levelDatBlockedKey(p.level_dat);
+    return why === null ? p.world : `${p.world} — ${get(t)(why)}`;
+  }
+
+  async function confirmWorldsOnly(
+    to: Target,
+    worlds: DatapackPlacementView[],
+    left: DatapackPlacementView[],
+  ) {
     let removed = 0;
     const failed: string[] = [];
     for (const p of worlds) {
@@ -182,6 +192,13 @@
       pushWarning(
         get(t)('addons.datapacks.remove.toastFailedWorldsOnly', { count: failed.length }),
         failed,
+      );
+    } else if (left.length > 0) {
+      // D2: the worlds listed as won't-be-changed were never tried and still
+      // hold the pack. A plain "Removed" would claim they were cleaned too.
+      pushWarning(
+        get(t)('addons.datapacks.remove.toastRemovedSomeUnchanged', { name: to.packName }),
+        left.map(unchangedLine),
       );
     } else if (removed > 0) {
       pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: to.packName }));
@@ -228,13 +245,14 @@
     const to: Target = { instanceId, filename, packName };
     const m = mode;
     const worlds = tried;
+    const left = unchanged;
     const withCascade = cascade;
     const done = { onRemoved, onClose };
     busy = true;
     try {
       if (m.kind === 'this-world') await confirmThisWorld(to, m.world);
       else if (m.kind === 'library') await confirmFromLibrary(to, withCascade);
-      else await confirmWorldsOnly(to, worlds);
+      else await confirmWorldsOnly(to, worlds, left);
       done.onRemoved();
       done.onClose();
     } finally {

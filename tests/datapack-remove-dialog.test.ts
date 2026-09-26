@@ -323,9 +323,30 @@ describe('DatapackRemoveDialog — worlds-only, worlds Lucerna won’t change', 
     expect(screen.getByText(/every world Lucerna can change/)).toBeTruthy();
 
     await fireEvent.click(confirmBtn());
-    await waitFor(() => expect(toasts.pushSuccess).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(toasts.pushWarning).toHaveBeenCalledTimes(1));
     expect(cmd.datapacksRemoveFromWorld).toHaveBeenCalledTimes(1);
     expect(cmd.datapacksRemoveFromWorld).toHaveBeenCalledWith('inst-1', 'Fine', 'vm.zip');
+    // Not a plain "Removed VeinMiner": Husk and Old still hold the pack. The
+    // outcome says it left the pack in every world Lucerna can change, and
+    // names the two it left as they were, with why.
+    expect(toasts.pushSuccess).not.toHaveBeenCalled();
+    expect(toasts.pushWarning).toHaveBeenCalledWith(
+      'Removed VeinMiner from every world Lucerna can change. These were left as they are:',
+      [
+        'Husk — Not a world: this folder has no level.dat',
+        'Old — Open this world in Minecraft and restore it from the backup',
+      ],
+    );
+  });
+
+  it('reports a plain removal when no world was left unchanged', async () => {
+    cmd.datapacksRemoveFromWorld.mockResolvedValue({ status: 'ok', data: null });
+    render(DatapackRemoveDialog, {
+      props: worldsOnly([place('Fine', 'enabled', 'present')]),
+    });
+    await fireEvent.click(confirmBtn());
+    await waitFor(() => expect(toasts.pushSuccess).toHaveBeenCalledWith('Removed VeinMiner'));
+    expect(toasts.pushWarning).not.toHaveBeenCalled();
   });
 
   it('offers no removal when every world is one Lucerna won’t change', async () => {
