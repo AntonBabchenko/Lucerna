@@ -142,6 +142,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the library's copy, that deleted the only copy, folders included. Both now
   ask first. A library pack leaves this world and stays in the library;
   anything else is named as deleted permanently.
+- **Data pack dialogs close when you switch instance.** The removal dialog and
+  the world picker used to stay open across a switch, and confirming one then
+  acted on the instance you had switched to: it removed a pack with the same
+  file name there, or added one to that instance's worlds. Both now close on a
+  switch, and a removal or an add that is already running finishes on the
+  instance it started on. A world's data pack tab also shows its list loading
+  instead of saying the world has no packs.
 - **Updating or removing a library data pack no longer skips worlds it couldn't
   check.** A world whose data pack folder or world file couldn't be read used
   to count as not holding the pack. An update then deleted the old library
