@@ -973,6 +973,11 @@
       // that world stays on stale bytes.
       warnFailedRefresh(installed.data.pack.name, installed.data.refreshed);
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+      // Switched away while it ran: the pack went into the first instance's
+      // library, which nothing here shows any more, and the switch has already
+      // read the new instance's. Reading it again for the picker could only
+      // warn there about a picker that instance never asked for.
+      if (instanceId !== id) return;
       const fresh = await refreshInstalledDatapacks({ forPicker: true });
       datapacksChanged.value++;
       // No picker on a snapshot whose refresh failed: its placements and

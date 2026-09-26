@@ -232,6 +232,63 @@ describe('ModBrowseView — switching instance', () => {
     await flush();
     expect(screen.queryByTestId('datapack-world-picker')).toBeNull();
   });
+
+  // The library snapshot the click would act on is the new instance's once
+  // the switch has refreshed it. Acting on it would pick the update path, and
+  // the file name, from the wrong instance's library.
+  it('drops a click whose version lookup finished after the switch', async () => {
+    let answer = (): void => {};
+    c.modsDatapackVersions.mockReturnValue(
+      new Promise((resolve) => {
+        answer = () => resolve({ status: 'ok', data: [version] });
+      }),
+    );
+    // Only the instance switched to holds Terralith.
+    c.datapacksListLibrary.mockImplementation(async (id: string) => ({
+      status: 'ok',
+      data: id === 'inst-2' ? library : emptyLibrary,
+    }));
+    const r = render(ModBrowseView, { props: browseProps });
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+    await waitFor(() => expect(c.modsDatapackVersions).toHaveBeenCalledTimes(1));
+
+    await r.rerender({ ...browseProps, instanceId: 'inst-2' });
+    await waitFor(() => expect(c.datapacksListLibrary).toHaveBeenCalledWith('inst-2'));
+    await flush();
+    answer();
+    await flush();
+    await flush();
+    expect(c.datapacksUpdateOne).not.toHaveBeenCalled();
+    expect(c.datapacksInstallFromVersion).not.toHaveBeenCalled();
+  });
+
+  // The pack went into the first instance's library. The instance switched to
+  // has already been read by the switch itself, and a failed read there says
+  // so in its own words; it never asked for a world picker.
+  it('an install finishing after the switch says nothing about a picker there', async () => {
+    const install = pendingInstall();
+    c.datapacksListLibrary.mockImplementation(async (id: string) =>
+      id === 'inst-2'
+        ? { status: 'error', error: { kind: 'io', path: 'inst-2/datapacks', details: 'denied' } }
+        : { status: 'ok', data: emptyLibrary },
+    );
+    c.datapacksInstallFromVersion.mockReturnValue(install.promise);
+    const titles = () => toastList().map((x) => x.title);
+    const r = render(ModBrowseView, { props: browseProps });
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+    await waitFor(() =>
+      expect(c.datapacksInstallFromVersion).toHaveBeenCalledWith('inst-1', version),
+    );
+
+    await r.rerender({ ...browseProps, instanceId: 'inst-2' });
+    await waitFor(() => expect(titles().some((x) => /results may not show/.test(x))).toBe(true));
+    install.finish();
+    await waitFor(() => expect(titles()).toContain('Installed Terralith'));
+    await flush();
+    await flush();
+    expect(titles().some((x) => /world picker didn't open/.test(x))).toBe(false);
+    expect(titles().some((x) => /results may not show/.test(x))).toBe(true);
+  });
 });
 
 // A failure toast's Retry re-runs the install on the instance shown when it
