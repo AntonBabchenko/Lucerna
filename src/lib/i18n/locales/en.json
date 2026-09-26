@@ -1524,7 +1524,8 @@
       "noLevelDat": "This folder has no level.dat, so Minecraft doesn't list it as a world and loads no data packs from it.",
       "onlyOldLevelDat": "This world's level.dat is missing — only the backup copy level.dat_old is left. Open the world in Minecraft; if it says the world failed to load, choose Attempt to Restore and Minecraft rebuilds level.dat from the backup. Until then its data packs can't be changed here.",
       "blockedNoLevelDat": "Not a world: this folder has no level.dat",
-      "blockedOnlyOld": "Open this world in Minecraft and restore it from the backup"
+      "blockedOnlyOld": "Open this world in Minecraft and restore it from the backup",
+      "blockedUntilListed": "Available once this world's data pack list has been read"
     },
     "restore": {
       "title": "Restore \"{world}\" from {timestamp}",

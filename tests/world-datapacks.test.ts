@@ -109,8 +109,10 @@ describe('WorldDatapacks — adding a pack from a file', () => {
       },
     });
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
-    await screen.findByText(/No datapacks yet/i);
-    await fireEvent.click(screen.getByTestId('world-datapack-add-library'));
+    // Add waits for the world's listing; click once it has arrived.
+    const add = screen.getByTestId('world-datapack-add-library') as HTMLButtonElement;
+    await waitFor(() => expect(add.disabled).toBe(false));
+    await fireEvent.click(add);
 
     await waitFor(() => expect(toastList().some((x) => x.kind === 'warning')).toBe(true));
     const [warning] = toastList().filter((x) => x.kind === 'warning');
@@ -135,6 +137,45 @@ describe('WorldDatapacks — Add while the world is not known yet', () => {
     vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise<never>(() => {}));
     render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
     for (const b of addButtons()) expect(b.disabled).toBe(true);
+  });
+
+  // "No datapacks yet" is a claim about a listing that has not arrived.
+  it('shows the list loading, not "No datapacks yet", while the listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise<never>(() => {}));
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expect(screen.getByTestId('world-datapacks-loading')).toBeTruthy();
+    expect(screen.queryByText(/No datapacks yet/i)).toBeNull();
+  });
+
+  // A disabled control says why and stays reachable by keyboard (DESIGN.md §5),
+  // like the running and level.dat gates on the same buttons.
+  function expectAddSaysWhy(): void {
+    for (const b of addButtons()) {
+      const wrapper = b.closest('span') as HTMLElement;
+      expect(wrapper.getAttribute('tabindex')).toBe('0');
+      revealTooltip(wrapper);
+      expect(tooltipState.text).toBe("Available once this world's data pack list has been read");
+      hideTooltip();
+    }
+  }
+
+  it('says why it is disabled while the listing is pending', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockReturnValueOnce(new Promise<never>(() => {}));
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    expectAddSaysWhy();
+  });
+
+  it('says why it is disabled when the listing failed', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.datapacksListForWorld).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: 'saves/MyWorld/level.dat', details: 'locked' },
+    });
+    render(WorldDatapacks, { props: { instanceId: 'inst-1', world: 'MyWorld' } });
+    await screen.findByText(/locked/);
+    expectAddSaysWhy();
   });
 
   it('a world switch drops the previous world’s rows while the new listing is pending', async () => {

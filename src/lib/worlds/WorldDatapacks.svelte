@@ -65,6 +65,14 @@
     const key = disabledKey;
     return key === null ? null : $t(key);
   });
+  // Add's own reason. Its wait for the listing is a gate `disabledKey` does
+  // not carry, and a disabled control must still say why and keep its tab stop
+  // (DESIGN.md §5), whether the listing is on its way or failed to arrive.
+  const addBlockedReason = $derived(
+    disabledReason ?? (addBlocked ? $t('worlds.datapacks.blockedUntilListed') : null),
+  );
+  // Nothing has been read for this world yet: not an empty list.
+  const awaitingListing = $derived(levelDat === null && loadError === null);
 
   async function reload() {
     // Capture the world this load is for; a rapid world switch mid-fetch must
@@ -276,8 +284,8 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <span
         class="inline-flex"
-        tabindex={disabledKey !== null ? 0 : undefined}
-        use:tooltip={{ text: disabledReason ?? '', describe: false }}
+        tabindex={addBlocked ? 0 : undefined}
+        use:tooltip={{ text: addBlockedReason ?? '', describe: false }}
       >
         <BusyButton
           class="btn-secondary btn-sm"
@@ -293,8 +301,8 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <span
         class="inline-flex"
-        tabindex={disabledKey !== null ? 0 : undefined}
-        use:tooltip={{ text: disabledReason ?? '', describe: false }}
+        tabindex={addBlocked ? 0 : undefined}
+        use:tooltip={{ text: addBlockedReason ?? '', describe: false }}
       >
         <button
           type="button"
@@ -324,6 +332,10 @@
 
   {#if loadError}
     <p class="text-sm text-danger">{loadError}</p>
+  {:else if awaitingListing}
+    <div class="flex justify-center py-3 text-secondary" data-testid="world-datapacks-loading">
+      <Spinner labelPlacement="below" label={$t('common.loading')} />
+    </div>
   {:else if packs.length === 0}
     <!-- For a folder with no level.dat the note above replaces "No datapacks
          yet" (§3 L.8): the game loads nothing from it at all. -->

@@ -3147,6 +3147,7 @@ export type TranslationKey =
   | 'worlds.datapacks.blockedNoLevelDat'
   | 'worlds.datapacks.blockedOnlyOld'
   | 'worlds.datapacks.blockedRunning'
+  | 'worlds.datapacks.blockedUntilListed'
   | 'worlds.datapacks.clearEntry'
   | 'worlds.datapacks.compatBroken'
   | 'worlds.datapacks.compatTooNew'
