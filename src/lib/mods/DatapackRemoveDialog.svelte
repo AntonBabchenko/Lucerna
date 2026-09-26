@@ -93,6 +93,12 @@
       : [],
   );
   const tried = $derived(placements.filter((p) => !unchanged.includes(p)));
+  // Worlds-only, and every listed world is one Lucerna won't change: Confirm
+  // is off, and the body says why instead of warning of a deletion.
+  const nothingToRemove = $derived(
+    mode.kind === 'worlds-only' && placements.length > 0 && tried.length === 0,
+  );
+  const NOTHING_ID = 'datapack-remove-nothing';
   const affected = $derived(tried.filter((p) => !isUnchecked(p)));
   const unchecked = $derived(tried.filter(isUnchecked));
   // D2: the cascade refuses a world with only level.dat_old and reports it
@@ -385,6 +391,13 @@
             </span>
           </span>
         </label>
+      {:else if nothingToRemove}
+        <!-- Every listed world is one Lucerna won't change: no deletion to
+             warn about, and this line is why Confirm is off (its
+             aria-describedby). -->
+        <p id={NOTHING_ID} class="text-xs text-muted" data-testid="datapack-remove-nothing">
+          {$t('addons.datapacks.remove.worldsOnlyNothing')}
+        </p>
       {:else}
         <!-- A worlds-only row: there is no library copy left, so the ONLY
              thing this removal can do is clear the listed worlds. -->
@@ -403,6 +416,7 @@
         {busy}
         disabled={(mode.kind === 'this-world' && verdict === null) ||
           (mode.kind === 'worlds-only' && tried.length === 0)}
+        aria-describedby={nothingToRemove ? NOTHING_ID : undefined}
         onclick={confirm}
         data-testid="datapack-remove-confirm"
       >

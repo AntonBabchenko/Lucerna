@@ -441,6 +441,48 @@ describe('DatapackRemoveDialog — worlds-only, worlds Lucerna won’t change', 
     expect(screen.queryByTestId('datapack-remove-affected')).toBeNull();
     expect(confirmBtn().disabled).toBe(true);
   });
+
+  // The body still said the pack "will be deleted permanently" next to a
+  // disabled button, and nothing said why the button was off. With nothing to
+  // remove there is no deletion to warn about, and the reason is the button's
+  // description.
+  it('with nothing to remove, says why instead of warning of a deletion', async () => {
+    render(DatapackRemoveDialog, {
+      props: worldsOnly([place('Old', 'disabled', 'only_old'), place('Husk', null, 'absent')]),
+    });
+    await screen.findByTestId('datapack-remove-unchanged');
+    expect(screen.queryByText(/permanently/)).toBeNull();
+    const why = screen.getByTestId('datapack-remove-nothing');
+    expect(why.textContent).toMatch(
+      /won't change any of these worlds, so there is nothing to remove/,
+    );
+    expect(why.id).not.toBe('');
+    expect(confirmBtn().getAttribute('aria-describedby')).toBe(why.id);
+  });
+
+  it('with a world to remove from, warns of the deletion and describes nothing extra', async () => {
+    render(DatapackRemoveDialog, {
+      props: worldsOnly([
+        place('Fine', 'enabled', 'present'),
+        place('Old', 'disabled', 'only_old'),
+      ]),
+    });
+    expect(await screen.findByText(/permanently/)).toBeTruthy();
+    expect(screen.queryByTestId('datapack-remove-nothing')).toBeNull();
+    expect(confirmBtn().getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('says why in Russian too', async () => {
+    locale.set('ru');
+    try {
+      render(DatapackRemoveDialog, { props: worldsOnly([place('Old', 'disabled', 'only_old')]) });
+      expect((await screen.findByTestId('datapack-remove-nothing')).textContent).toMatch(
+        /Lucerna не изменит ни один из этих миров, так что удалять нечего/,
+      );
+    } finally {
+      locale.set('en');
+    }
+  });
 });
 
 // A worlds-only row has no library copy: a world that could not be cleaned

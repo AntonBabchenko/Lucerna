@@ -50,6 +50,7 @@ export type TranslationKey =
   | 'addons.datapacks.remove.uncheckedWorlds'
   | 'addons.datapacks.remove.uncheckedWorldsOnly'
   | 'addons.datapacks.remove.worldsOnlyNote'
+  | 'addons.datapacks.remove.worldsOnlyNothing'
   | 'addons.datapacks.stateUnknown'
   | 'addons.datapacks.summaryDisabledEverywhere'
   | 'addons.datapacks.summaryEnabledIn'
