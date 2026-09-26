@@ -52,7 +52,7 @@
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
-  import { failedRefreshLines, warnFailedRefresh } from './datapack-refresh-warning';
+  import { warnFailedRefresh, warnUpdateIncomplete } from './datapack-refresh-warning';
 
   let {
     instanceId,
@@ -302,8 +302,7 @@
         return;
       }
       if (!res.data.completed && res.data.old_copy_kept) {
-        const lines = failedRefreshLines(res.data.migrations);
-        pushWarning(get(t)('addons.datapacks.updateIncomplete', { count: lines.length }), lines);
+        warnUpdateIncomplete(res.data.pack.name, res.data.migrations);
       } else {
         warnFailedRefresh(res.data.pack.name, res.data.migrations);
         pushSuccess(get(t)('addons.installed.updatedToast', { name: entry.pack.name }));

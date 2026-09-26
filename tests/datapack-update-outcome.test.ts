@@ -118,6 +118,24 @@ function outcome(oldCopyKept: boolean): DatapackUpdateOutcome {
   };
 }
 
+/**
+ * A renamed update that could not list `saves/`: one entry for the folder
+ * itself, and not a single world was checked.
+ */
+function savesUnlisted(): DatapackUpdateOutcome {
+  return {
+    ...outcome(true),
+    migrations: [
+      {
+        kind: 'failed',
+        world: '/i/.minecraft/saves',
+        details: 'no world was moved to the new version: denied',
+      },
+    ],
+  };
+}
+const SAVES_LINE = '/i/.minecraft/saves: no world was moved to the new version: denied';
+
 function warnings() {
   return toastList().filter((x) => x.kind === 'warning');
 }
@@ -173,6 +191,19 @@ describe('InstalledDatapacksView — an update that left a world behind', () => 
     expect(w.title).toMatch(/retry can finish/i);
     expect(w.lines).toEqual(['Alpha: locked']);
     expect(screen.getByTestId('datapack-update-btn')).toBeTruthy();
+  });
+
+  // The saves folder is not a world, and any number of worlds may still be
+  // on the old version: the title names the pack and counts nothing.
+  it('names the pack and counts no world when saves/ could not be listed', async () => {
+    c.datapacksUpdateOne.mockResolvedValue({ status: 'ok', data: savesUnlisted() });
+    await updateFromLibrary();
+
+    const [w] = warnings();
+    expect(w.title).toContain('VeinMiner');
+    expect(w.title).not.toMatch(/\b1 world\b/);
+    expect(w.title).toMatch(/retry can finish/i);
+    expect(w.lines).toEqual([SAVES_LINE]);
   });
 
   it('promises no retry, and drops the badge, when the library copy was replaced in place', async () => {
@@ -234,6 +265,17 @@ describe('ModBrowseView — switching a library pack to another version', () => 
     const [w] = warnings();
     expect(w.title).toMatch(/retry can finish/i);
     expect(w.lines).toEqual(['Alpha: locked']);
+  });
+
+  it('names the pack and counts no world when saves/ could not be listed', async () => {
+    c.datapacksUpdateOne.mockResolvedValue({ status: 'ok', data: savesUnlisted() });
+    await switchInDrawer();
+
+    const [w] = warnings();
+    expect(w.title).toContain('VeinMiner');
+    expect(w.title).not.toMatch(/\b1 world\b/);
+    expect(w.title).toMatch(/retry can finish/i);
+    expect(w.lines).toEqual([SAVES_LINE]);
   });
 
   it('promises no retry when the library copy was replaced in place', async () => {

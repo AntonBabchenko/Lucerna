@@ -1044,7 +1044,7 @@
       "summaryInNoWorld": "In no world",
       "summaryDisabledEverywhere": "Disabled everywhere",
       "summaryEnabledIn": "Enabled in {enabled} of {total, plural, one {# world} other {# worlds}}",
-      "updateIncomplete": "{count, plural, one {# world did not receive the update — the old version was kept so a retry can finish} other {# worlds did not receive the update — the old version was kept so a retry can finish}}",
+      "updateIncomplete": "{name} didn't reach every world — the old version was kept so a retry can finish:",
       "refreshIncomplete": "The new version of {name} didn't reach every world — these may still be using the old one:",
       "picker": {
         "title": "Add “{name}” to worlds",

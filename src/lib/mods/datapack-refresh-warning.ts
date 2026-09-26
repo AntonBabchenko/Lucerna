@@ -14,7 +14,9 @@
 // (a Vanilla Tweaks build, a drag-drop batch), each with its own warning, and
 // only the name tells them apart. A count would also be wrong: a `saves/`
 // folder that could not be listed is one entry, yet no world was checked at
-// all, which its line says.
+// all, which its line says. `warnUpdateIncomplete` follows the same rule for
+// the same reason: a renamed update that could not list `saves/` reports that
+// folder as its one failed entry.
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import type { WorldMigration } from '$lib/ipc/bindings';
@@ -33,4 +35,16 @@ export function warnFailedRefresh(name: string, refreshed: readonly WorldMigrati
   const lines = failedRefreshLines(refreshed);
   if (lines.length === 0) return;
   pushWarning(get(t)('addons.datapacks.refreshIncomplete', { name }), lines);
+}
+
+/**
+ * Warn that a renamed update of `name` did not complete. Only for an outcome
+ * that kept the old library copy (`old_copy_kept`): the title promises that a
+ * retry can finish, which holds only then.
+ */
+export function warnUpdateIncomplete(name: string, migrations: readonly WorldMigration[]): void {
+  pushWarning(
+    get(t)('addons.datapacks.updateIncomplete', { name }),
+    failedRefreshLines(migrations),
+  );
 }

@@ -41,7 +41,7 @@
     warnLibraryReadBlockedPicker,
     warnLibraryReadFailed,
   } from '$lib/mods/datapack-library-warning';
-  import { failedRefreshLines, warnFailedRefresh } from '$lib/mods/datapack-refresh-warning';
+  import { warnFailedRefresh, warnUpdateIncomplete } from '$lib/mods/datapack-refresh-warning';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import {
     offPlatformFactsOfError,
@@ -50,7 +50,7 @@
     type OffPlatformRow,
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
-  import { dismiss, pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { dismiss, pushActionToast, pushSuccess } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
     cfKeyVersion,
@@ -948,8 +948,7 @@
         // place: the new version is installed, and a world it could not
         // refresh gets the reinstall warning, which promises no retry.
         if (!updated.data.completed && updated.data.old_copy_kept) {
-          const lines = failedRefreshLines(updated.data.migrations);
-          pushWarning(get(t)('addons.datapacks.updateIncomplete', { count: lines.length }), lines);
+          warnUpdateIncomplete(updated.data.pack.name, updated.data.migrations);
         } else {
           warnFailedRefresh(updated.data.pack.name, updated.data.migrations);
           pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
