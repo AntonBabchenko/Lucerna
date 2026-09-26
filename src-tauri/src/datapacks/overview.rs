@@ -546,9 +546,6 @@ mod tests {
         );
     }
 
-    /// §3 L.6 / §0.5 A2: an only-old world's placement keeps the state
-    /// `level.dat_old` holds — the one the game will load — and carries the
-    /// presence that explains why it cannot be changed.
     /// A pack found only in worlds is adopted as a row of its own only from a
     /// world the game opens (`Present`, or `OnlyOld`, which it restores). A
     /// folder with no level file is no world, and one whose presence could not
@@ -599,6 +596,9 @@ mod tests {
         );
     }
 
+    /// §3 L.6 / §0.5 A2: an only-old world's placement keeps the state
+    /// `level.dat_old` holds — the one the game will load — and carries the
+    /// presence that explains why it cannot be changed.
     #[tokio::test]
     async fn an_only_old_world_reports_level_dat_old_state() {
         let td = tempfile::tempdir().unwrap();
