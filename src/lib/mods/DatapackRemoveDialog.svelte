@@ -157,7 +157,18 @@
   /** What a confirm acts on, read once before its first `await` (see `confirm`). */
   type Target = { instanceId: string; filename: string; packName: string };
 
-  async function confirmThisWorld(to: Target, world: string) {
+  // The toast says what the removal did, by the verdict the body and the
+  // button were worded by: a plain "Removed" read as the library copy gone
+  // too. "Couldn't check" claims neither leaving nor deleting.
+  const TOAST_THIS_WORLD: Record<Verdict, TranslationKey> = {
+    library_copy: 'addons.datapacks.remove.toastRemovedFromWorldKept',
+    own_file: 'addons.datapacks.remove.toastDeletedFromWorld',
+    own_folder: 'addons.datapacks.remove.toastDeletedFromWorld',
+    missing: 'addons.datapacks.remove.toastClearedEntry',
+    unchecked: 'addons.datapacks.remove.toastRemovedFromWorld',
+  };
+
+  async function confirmThisWorld(to: Target, world: string, asked: Verdict) {
     const res = await commands.datapacksRemoveFromWorld(to.instanceId, world, to.filename);
     if (res.status !== 'ok') {
       pushWarning(get(t)('addons.datapacks.remove.toastFailed', { name: to.packName }), [
@@ -165,7 +176,7 @@
       ]);
       return;
     }
-    pushSuccess(get(t)('addons.datapacks.remove.toastRemoved', { name: to.packName }));
+    pushSuccess(get(t)(TOAST_THIS_WORLD[asked], { name: to.packName, world }));
   }
 
   /** A world left as it is, with why, the way the dialog listed it. */
@@ -261,10 +272,13 @@
     const worlds = tried;
     const left = unchanged;
     const withCascade = cascade;
+    // Confirm is disabled until the verdict is in, so `null` is unreachable
+    // here; were it not, "couldn't check" is the honest wording.
+    const asked: Verdict = verdict ?? 'unchecked';
     const done = { onRemoved, onClose };
     busy = true;
     try {
-      if (m.kind === 'this-world') await confirmThisWorld(to, m.world);
+      if (m.kind === 'this-world') await confirmThisWorld(to, m.world, asked);
       else if (m.kind === 'library') await confirmFromLibrary(to, withCascade);
       else await confirmWorldsOnly(to, worlds, left);
       done.onRemoved();

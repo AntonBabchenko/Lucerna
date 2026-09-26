@@ -91,6 +91,55 @@ describe('DatapackRemoveDialog — this-world', () => {
   });
 });
 
+// The toast after a this-world removal said "Removed lib-alpha.zip" for the
+// library's own copy, which leaves the world and stays in the library. It is
+// worded by what the removal did, the way the dialog's body and button were.
+describe('DatapackRemoveDialog — this-world success toast', () => {
+  async function removeAs(k: string | 'check-failed'): Promise<string> {
+    if (k === 'check-failed')
+      cmd.datapacksWorldEntryKind.mockResolvedValue({
+        status: 'error',
+        error: { kind: 'io', path: 'x', details: 'denied' },
+      });
+    else kind(k);
+    cmd.datapacksRemoveFromWorld.mockResolvedValue({ status: 'ok', data: null });
+    render(DatapackRemoveDialog, { props: thisWorld() });
+    await waitFor(() => expect(confirmBtn().disabled).toBe(false));
+    await fireEvent.click(confirmBtn());
+    await waitFor(() => expect(toasts.pushSuccess).toHaveBeenCalledTimes(1));
+    return toasts.pushSuccess.mock.calls[0][0] as string;
+  }
+
+  it('a library copy is taken out of the world and stays in the library', async () => {
+    const text = await removeAs('library_copy');
+    expect(text).not.toBe('Removed VeinMiner');
+    expect(text).toBe('Removed VeinMiner from MyWorld. It stays in the library.');
+  });
+
+  it('an own file or folder is deleted', async () => {
+    expect(await removeAs('own_file')).toBe('Deleted VeinMiner from MyWorld');
+  });
+
+  it('a missing file only has its entry cleared', async () => {
+    expect(await removeAs('missing')).toBe("Cleared VeinMiner from MyWorld's list");
+  });
+
+  it('an entry that could not be checked claims neither', async () => {
+    expect(await removeAs('check-failed')).toBe('Removed VeinMiner from MyWorld');
+  });
+
+  it('reads naturally in Russian', async () => {
+    locale.set('ru');
+    try {
+      expect(await removeAs('library_copy')).toBe(
+        'Датапак VeinMiner убран из мира MyWorld. В библиотеке он остался.',
+      );
+    } finally {
+      locale.set('en');
+    }
+  });
+});
+
 describe('DatapackRemoveDialog — worlds-only', () => {
   it('no longer claims a library copy was already gone', async () => {
     render(DatapackRemoveDialog, {
