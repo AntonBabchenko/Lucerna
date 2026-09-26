@@ -21,6 +21,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-09-26
+
 ### Added
 
 - **A Privacy & network page shows the connections you control.** Settings lists the
@@ -31,10 +33,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   it. About points to the page from its data section.
 - **Choose what the launcher does when a game starts: stay open, minimise, or
   hide to the tray.** The old checkbox becomes three choices under Settings →
-  Game, and an existing setting carries over. The note about a missing system
-  tray is visible before you pick it. On Linux the page warns that some
-  desktops can't bring a minimised launcher back by themselves. On macOS a click
-  on the Dock icon now brings back a minimised or hidden launcher.
+  Game, shown on the same grey-track picker as the grid/list switch, and an
+  existing setting carries over. The note about a missing system tray is visible
+  before you pick it. On Linux the page warns that some desktops can't bring a
+  minimised launcher back by themselves. On macOS a click on the Dock icon now
+  brings back a minimised or hidden launcher.
 - **Storage opens the data folder and shows how much space its drive has
   left.** The data-folder block gains a button that opens the folder in your
   file manager and a line with the free space on its drive, in terabytes where
@@ -56,39 +59,41 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A right-click menu on the profile list in the Manage window.** Every action
   for a profile is one right-click away, without first selecting it — including
   making it the active profile, which the window could not do before and which
-  a double-click on the profile now does too. An action that is unavailable
-  says why, under its name.
+  a double-click on the profile now does too. An action that is unavailable says
+  why, under its name, and exporting a profile with no mods says there is
+  nothing to export.
 
 ### Changed
 
-- **Pickers show the chosen option as a state, not as a button.** The theme,
-  "When a game starts", the detail level, the grid/list switch and the
-  screenshot grouping and sorting now sit on a grey track, with the chosen
-  option as a raised tile marked by a small blue line — instead of a solid
-  blue block that looked like a button to press. The track no longer stretches
-  past its last option, the keyboard focus ring shows in full, and the note
-  about System appears only while System is chosen.
+- **The grid/list switch and the screenshot grouping and sorting show the chosen
+  option as a state, not as a button.** They now sit on a grey track, with the
+  chosen option as a raised tile marked by a small blue line — instead of a
+  solid blue block that looked like a button to press. The track no longer
+  stretches past its last option, and the keyboard focus ring shows in full.
 - **The Updates page remembers an update and makes skipping it a choice.** An
   update found at startup is waiting on the Updates page without a second
   check, next to the version you have, a link to its release notes and a line
   on what is verified before it installs. Skipping a version is now a labelled
   button on the notice and on the page, and the page shows a skip in force with
-  a way to undo it. Closing the notice, or letting it fade, no longer skips the
-  version, and the notice waits while you read it. Older versions in the
-  history are folded under the one you have.
+  a way to undo it. Closing the notice with its × no longer skips the version,
+  and the notice waits while you read it. Older versions in the history are
+  folded under the one you have.
 - **AI translation settings say what it costs and what each choice needs.** A
   sentence about billing next to the permission, the provider's default model
   named in the field, a link to get a key for each hosted provider, what the
   local option expects, and a connection test that names the provider and
   tells a bad key from a rate limit or a wrong model name.
 - **Settings pages share one vocabulary.** Every block opens with a heading,
-  every error and result is announced the same way, number fields refuse a
-  value they would have to change and say what is accepted (the newest-logs
-  limit can no longer be set to 0, which deleted every old log), the theme and
-  tip-level choices are segmented controls with a hint, the Storage page leads
-  with the data folder, a cache size that could not be measured says so instead
-  of showing the one measured before, and links open through one helper that
-  says when a link was refused or the browser could not be opened.
+  every error and result is announced the same way, an idle status or error line
+  takes no room until there is something to say, number fields refuse a value
+  they would have to change and say what is accepted, the theme and
+  explanation-level choices use the same grey-track picker and carry a hint, the
+  Storage page leads with the data folder, a cache size that could not be
+  measured says so instead of showing the one measured before, and links open
+  through one helper that says when a link was refused or the browser could not
+  be opened. Links from mod, modpack and server pages go through the same
+  helper: a project link that is not https:// is no longer opened, and a note
+  says why.
 - **The highlight on the field you were sent to fades in and out.** When an
   Overview card or a Settings search result takes you to a setting, its
   highlight now fades in quickly, blinks once and fades out slowly instead of
@@ -140,9 +145,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   switched on or off yet. After a server restores `level.dat` that way, its
   log no longer makes Lucerna report the world's data as corrupted.
 - **Enabling a pack in a world with no data pack list no longer puts vanilla
-  above the pack.** Lucerna used to write a list with vanilla above the pack.
-  Now it writes nothing, and the game places the pack itself, after vanilla
-  and any mod data.
+  above the pack.** Lucerna used to write a list holding only the pack, and the
+  game then placed vanilla above it. Now it writes nothing, and the game places
+  the pack itself, after vanilla and any mod data.
 - **Removing a data pack from a world asks first and says what happens to the
   file.** The trash button in a world's data pack list, and beside each world
   in the instance's library, removed the pack at once. For a pack that wasn't
@@ -197,12 +202,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Data pack names come from the pack's own description, even when it is
   formatted text.** Colour codes are stripped. Names of packs already installed
   update the next time the library is opened.
-- **No more stray gaps under settings.** An empty line reserved for a status or
-  error message took up room even when there was nothing to say, so some rows
-  sat twice as far apart as their neighbours — for example between "Add
-  account" and "Manage" in the sidebar button list. It affected most Settings
-  pages, the data-move dialogs and the server wizards. The message still
-  appears, and is still read out by screen readers, the moment there is one.
+- **No stray gap under the server wizard's core and loader pickers.** An empty
+  line reserved for a status message took up room even when there was nothing to
+  say.
 - **Closing the window while a game or server runs asks first.** The window's
   close button, Alt+F4 and the taskbar's close used to end Lucerna and
   force-close every running game and server with it, without a word. Now
@@ -213,9 +215,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Quitting from the tray no longer closes your game.** Quit used to exit
   Lucerna and force-close any running game or server along with it; it now
   refuses and says what is still running. The tray menu follows the interface
-  language, "System" shows which theme and language it resolves to, Settings
-  explains why the Add account button stays visible without an account, and a
-  failed update check gives its reason once instead of twice.
+  language; a theme or language set to follow the system shows what it resolves
+  to; Settings explains why the Add account button stays visible without an
+  account; a failed update check gives its reason once instead of twice; and the
+  sidebar-button list warns which buttons are the only way into their feature
+  before you hide them.
 - **Settings say one thing one way.** The Help page stopped calling the tour
   four different names, the saved-server and log-retention descriptions now say
   what they actually cover, the About page's legal lines lost the developer
@@ -223,15 +227,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   update check says that it also looks at your imported modpacks.
 - **Settings are heard as well as seen.** Checkbox groups and helper texts are
   announced with their controls, the GitHub button's spoken name is its visible
-  label, the version is guarded across the three manifests, native checkboxes
-  follow the accent colour, info and success text meets contrast in both
-  themes, toasts move out of a dialog's way while one is open, and the
-  changelog's versions are headings.
+  label, native checkboxes follow the accent colour, info and success text meets
+  contrast in both themes, toasts move out of a dialog's way while one is open,
+  and the changelog's versions are headings.
 - **Settings search finds the words on the page.** Plurals, Russian word forms
   and the labels printed next to a control now match; result labels use the
   page's own words; a short query such as "ai" no longer matches inside other
   words; the language setting is findable by its name in any interface
-  language; "version" lands on the changelog.
+  language; "version" lands on About's version, with the changelog next.
 - **Links into Settings now land on the setting they name, and a jump flashes
   it once.** The CurseForge banners and the server-status permission link open
   Settings at the control itself — the key field takes focus as soon as it is
@@ -250,13 +253,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
   keyring — and a keyring that fails says so.** The keyring library was built
   for Windows only, so the macOS and Linux betas kept Microsoft sign-ins, a
   personal CurseForge key, SFTP passwords and AI keys in memory and lost them
-  at exit while reporting "saved". They now use the macOS Keychain and the
+  at exit while reporting them as saved. They now use the macOS Keychain and the
   Linux Secret Service. Every keyring failure is reported as one: a CurseForge
-  key the keyring refused to keep no longer reads "Invalid key", a key status
-  the keyring could not answer says "Couldn't check" with a Check again button
-  instead of "Checking…" forever or "Not configured", and Remove account and
-  Delete server tell you when a token or password could not be deleted, with
-  the reason, instead of leaving it behind in silence.
+  key the keyring refused to keep is no longer called invalid; a key status the
+  keyring could not answer says it couldn't check, with a way to check again,
+  instead of waiting forever or reporting no key; and removing an account or
+  deleting a server tells you when a token or password could not be deleted,
+  with the reason, instead of leaving it behind in silence.
 - **A setting that couldn't be saved now says so, next to the control — and a
   page never shows a value that isn't really saved.** Theme, language, sidebar
   buttons and the tips level used to snap back in silence; the Game, Storage
@@ -268,6 +271,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   shown only once read, a change saves just that one field, a refused save
   puts the control back and explains itself right there, and a permission that
   couldn't be revoked says plainly that it is still on.
+- **Setting the number of newest logs to keep to 0 no longer deletes every old
+  log.** The field now refuses 0 and says what is accepted.
 - **"Automatic" GPU no longer erases a graphics preference you set yourself.** On
   Windows, Lucerna used to delete the per-app GPU entry for its own Java on every
   launch and on every settings save — including a theme change — whenever its
@@ -285,9 +290,6 @@ behaviour is worth knowing, it is stated as a property of the feature under
   one could — only for the launcher to refuse afterwards.
 - **Escape in a right-click menu also closed the window behind it**, for
   example the Logs window.
-- **Exporting a profile without mods showed a dead button and no reason.** The
-  export window now says there is nothing to export.
-
 - **The loader picker no longer shows a loader the instance does not have.**
   Switching the loader of a modpack instance asks whether to keep its link to
   the pack; backing out of that question left the picker on the loader you had
@@ -302,7 +304,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
   and it is only ever asked after you change something: a saved loader version
   that is no longer on offer used to raise it the moment the instance was
   opened.
-- **Mods that load fine were reported as incompatible.** Three separate causes:
+- **Mods that load fine were reported as incompatible.** Several separate causes:
   a loader's name inside a mod's own name made the launcher throw away every
   build of that mod, so it also could not be installed or updated on such an
   instance; a mod whose page is tagged for a neighbouring Minecraft version was
@@ -341,12 +343,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   nothing pointing at the finished copy; after the next start the profiles
   looked lost. Lucerna now switches to the verified copy first and only then
   cleans up. Anything it cannot remove is listed by name, with a way to retry,
-  open the folder and restart. A failed or cancelled copy is cleared away
-  instead of being offered later as existing data. The move can be cancelled
-  while files are being copied; it warns when the target drive looks too small;
-  it is switched off — with the reason shown — while a game, a server or
-  another operation is running; and its window comes back after the page is
-  reloaded.
+  open the folder and restart. A failed copy is cleared away instead of being
+  offered later as existing data. The move can be cancelled while files are
+  being copied; it warns when the target drive looks too small; it is switched
+  off — with the reason shown — while a game, a server or another operation is
+  running; and its window comes back after the page is reloaded.
 - **Restoring a backup could start on top of an upload, an export, a backup or
   another copy of the same server that was still being made.** It replaced the
   server's files underneath them, and what came out was a copy made half of
@@ -355,7 +356,6 @@ behaviour is worth knowing, it is stated as a property of the feature under
   out of it. The restore is now refused until such an operation finishes, and
   says what it is actually waiting for. The same goes for scheduled automatic
   backups, which used to coordinate with nothing at all.
-
 - **A data folder that could not be used was sometimes treated as if there
   were none.** When the file that names the data folder could not be read or
   parsed, Lucerna used the default folder as if nothing had been configured,
@@ -372,7 +372,6 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the window says so; and nothing starts on its own there: no first-run tour,
   no update check, no changelog prompt. The uninstaller keeps the data-folder
   setting when it cannot read it, instead of deleting it.
-
 - **Updating no longer closes a running game or server without warning.**
   Lucerna closes to install an update, and until now the update button and the
   update notification did that with Minecraft or one of your servers still
@@ -381,8 +380,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   and says what to close first; it checks once more right before starting the
   installer, so a game started during the download is safe too. The page says
   what the button does before you press it, shows the real stage (download,
-  verification, installer) instead of "Installing…" during a download, and
-  headlines a failed download as a failed download rather than a failed
+  verification, installer) instead of Installing… during a download, and
+  headlines a failed download as a failed install rather than a failed
   verification. The startup-check toggle no longer shows a value it could not
   read, and says when a change was not saved. A release that is still being
   uploaded no longer makes the check report an error to people already on it.
@@ -1861,7 +1860,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.21.0...v0.22.0
