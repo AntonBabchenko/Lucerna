@@ -6,7 +6,7 @@
 //     the add entry point re-materializes the file and force-enables, and
 //     routing the toggle through it was called out by the audit as the
 //     silent-re-enable defect reachable straight from this picker.
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -329,6 +329,40 @@ describe('DatapackWorldPicker', () => {
       screen.getByText('Open this world in Minecraft and restore it from the backup'),
     ).toBeTruthy();
     expect(screen.getByText('Not a world: this folder has no level.dat')).toBeTruthy();
+  });
+
+  // Two only-old worlds became two indistinguishable "(" rows: the reason sat
+  // beside the name in the same flex row and squeezed the truncated name to
+  // one character. The name keeps the row's width and wraps instead of being
+  // cut; the reason wraps on its own line under it. (Layout itself is not
+  // computed here — this pins the structure that gives it.)
+  it('a long reason sits under the world name and never squeezes it', async () => {
+    vi.mocked(commands.listWorldNames).mockResolvedValue({
+      status: 'ok',
+      data: [world('New World (1)'), world('New World (2)')],
+    });
+    render(DatapackWorldPicker, {
+      props: {
+        ...baseProps,
+        worlds: [
+          { world: 'New World (1)', level_dat: 'only_old' as const },
+          { world: 'New World (2)', level_dat: 'only_old' as const },
+        ],
+      },
+    });
+    const boxes = await screen.findAllByTestId('datapack-picker-world');
+    for (const [i, box] of boxes.entries()) {
+      const row = box.closest('label') as HTMLElement;
+      const name = within(row).getByText(`New World (${i + 1})`);
+      const reason = within(row).getByTestId('datapack-picker-blocked');
+      // Not a flex sibling of the name on the row: both live in one column.
+      expect(reason.parentElement).not.toBe(row);
+      expect(reason.parentElement).toBe(name.parentElement);
+      expect(reason.classList.contains('block')).toBe(true);
+      // The name wraps rather than being cut to an ellipsis.
+      expect(name.classList.contains('truncate')).toBe(false);
+      expect(name.classList.contains('break-words')).toBe(true);
+    }
   });
 
   it('a world the library listing did not report is not ticked blind', async () => {

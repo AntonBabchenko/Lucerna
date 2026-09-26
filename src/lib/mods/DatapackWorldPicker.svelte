@@ -293,12 +293,18 @@
         {#each rows as row (row.world)}
           {@const note = stateNote(row)}
           {@const blocked = blockedKey(row)}
+          <!-- The reason goes UNDER the name, in the name's own column: beside
+               it, a long reason squeezed the name to one character and two
+               only-old worlds read as the same "(" row. The name wraps and is
+               never cut. Checkbox + label + note is the removal dialog's
+               cascade-checkbox layout. -->
           <label
-            class="flex items-center gap-2 rounded border border-border-subtle px-2 py-1.5 text-sm
+            class="flex items-start gap-2 rounded border border-border-subtle px-2 py-1.5 text-sm
               {selectable(row) ? '' : 'opacity-70'}"
           >
             <input
               type="checkbox"
+              class="mt-0.5"
               data-testid="datapack-picker-world"
               data-world={row.world}
               data-level-dat={row.levelDat ?? 'unknown'}
@@ -309,13 +315,15 @@
                 else ticked.delete(row.world);
               }}
             />
-            <span class="flex-1 min-w-0 truncate text-primary">{row.world}</span>
-            {#if blocked !== null}
-              <span
-                class="text-xs text-warning-text text-right"
-                data-testid="datapack-picker-blocked">{$t(blocked)}</span
-              >
-            {:else if note}
+            <span class="flex-1 min-w-0">
+              <span class="block break-words text-primary">{row.world}</span>
+              {#if blocked !== null}
+                <span class="block text-xs text-warning-text" data-testid="datapack-picker-blocked"
+                  >{$t(blocked)}</span
+                >
+              {/if}
+            </span>
+            {#if blocked === null && note}
               <StatusBadge
                 variant={row.state === 'enabled'
                   ? 'success'
