@@ -182,6 +182,59 @@ pub struct ServerDatapackUpdateOutcome {
     pub completed: bool,
 }
 
+/// FIFO fixtures for the server datapack tests. The server checks read with
+/// blocking `std::fs`, so a check that opened a FIFO would block the test's
+/// own runtime, and no async timeout could fire: the code under test runs on
+/// a thread of its own instead. `cfg(unix)`: Windows has no FIFO in a
+/// folder, so these tests run in CI only.
+#[cfg(all(test, unix))]
+pub(crate) mod fifo_test_util {
+    use std::path::Path;
+
+    /// A FIFO at `path`.
+    pub(crate) fn mkfifo(path: &Path) {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    }
+
+    /// Runs the future `job` makes to completion on a thread and runtime of
+    /// its own, failing the test if it takes longer than five seconds: the
+    /// time a check that opened `fifo` would spend blocked. On a timeout the
+    /// FIFO's write end is opened, which releases the blocked reader, before
+    /// the test fails. The future is made on that thread, so it need not be
+    /// `Send`.
+    pub(crate) fn within_budget<T, F, Fut>(fifo: &Path, job: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = T>,
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            // The receiver is gone only after a timeout, which fails the test.
+            tx.send(rt.block_on(job())).ok();
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(out) => out,
+            Err(_) => {
+                drop(
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(fifo)
+                        .expect("open the FIFO's write end"),
+                );
+                panic!("the check opened the FIFO and blocked");
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -201,7 +201,11 @@ async fn migrate_one(
     // unconditionally, so check first. Matching content falls through (a
     // previous partial run already linked it).
     match tokio::fs::metadata(&dest).await {
-        Ok(meta) if meta.is_dir() => {
+        // Not a regular file (a folder, a FIFO, a socket, a device; followed,
+        // so a link to a file is a file): never the new library file, judged
+        // by its type and never opened. Reading a FIFO would block until a
+        // writer appears, under `level_dat_lock`. As `conflicting_world_entry`.
+        Ok(meta) if !meta.is_file() => {
             return Err(Error::ModsFilenameConflict {
                 filename: new_filename.to_string(),
                 existing_sha: String::new(),
@@ -473,6 +477,59 @@ mod tests {
         );
         assert!(!wd.join("datapacks/vm-2.zip").exists());
         assert_eq!(std::fs::read(wd.join("level.dat")).unwrap(), level_before);
+    }
+
+    /// A FIFO under the NEW name is not the new library file, and reading it
+    /// to hash it would block until a writer appears, under `level_dat_lock`,
+    /// stalling every datapack writer. The world fails with a conflict judged
+    /// by the entry's type, without ever opening it, and keeps its old file
+    /// for a retry. `cfg(unix)`: Windows has no FIFO in a folder, so this runs
+    /// in CI only.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_fifo_under_the_new_name_is_a_conflict_and_is_never_opened() {
+        use std::os::unix::ffi::OsStrExt;
+        let _lock = hardlink_lock();
+        let td = tempfile::tempdir().unwrap();
+        seed_library(td.path(), "vm-1.zip", 48).await;
+        game_world(td.path(), "Alpha");
+        add_to_world_at(td.path(), "Alpha", "vm-1.zip")
+            .await
+            .unwrap();
+        seed_library(td.path(), "vm-2.zip", 57).await;
+        let dp = world_dir(td.path(), "Alpha").join("datapacks");
+        let fifo = dp.join("vm-2.zip");
+        let c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+
+        let Ok(report) = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            migrate_placements(td.path(), "vm-1.zip", "vm-2.zip"),
+        )
+        .await
+        else {
+            // Release the blocked reader so the runtime can shut down.
+            drop(
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&fifo)
+                    .expect("open the FIFO's write end"),
+            );
+            panic!("the new-name check opened the FIFO and blocked");
+        };
+        let report = report.unwrap();
+        assert!(
+            matches!(
+                report.as_slice(),
+                [WorldMigration::Failed { world, .. }] if world == "Alpha"
+            ),
+            "{report:?}"
+        );
+        assert!(
+            dp.join("vm-1.zip").exists(),
+            "the old file stays for a retry"
+        );
     }
 
     #[tokio::test]

@@ -67,7 +67,7 @@ pub async fn update_one(
             let rows = sidecar::reconcile(world_dir);
             detect::find_by_name(&rows, old_filename, |r| r.filename.as_str()).cloned()
         };
-        let disk_sha = installed::sha1_of(&dp_dir.join(old_filename)).unwrap_or_default();
+        let disk_sha = regular_file_sha1(&dp_dir.join(old_filename));
         // A crash between `install_bytes`'s file write and its sidecar
         // upsert leaves the on-disk file already holding the TARGET bytes
         // under a stale row. That is retry evidence, not a hand-replaced
@@ -105,12 +105,15 @@ pub async fn update_one(
     let new_slot = dp_dir.join(new_filename);
     if let Some(meta) = mutate::occupant(&new_slot, std::fs::metadata(&new_slot))? {
         let incoming = crate::datapacks::library::sha1_hex(bytes);
-        let existing = if meta.is_dir() {
-            String::new()
-        } else {
+        // Only a regular file can hold the target bytes; anything else (a
+        // folder, a FIFO, a socket, a device) is judged by its type and never
+        // opened, since opening a FIFO blocks until a writer appears.
+        let existing = if meta.is_file() {
             installed::sha1_of(&dp_dir.join(new_filename)).unwrap_or_default()
+        } else {
+            String::new()
         };
-        if meta.is_dir() || !existing.eq_ignore_ascii_case(&incoming) {
+        if !meta.is_file() || !existing.eq_ignore_ascii_case(&incoming) {
             return Err(Error::ModsFilenameConflict {
                 filename: new_filename.to_string(),
                 existing_sha: existing,
@@ -154,7 +157,7 @@ pub async fn update_one(
             let rows = sidecar::reconcile(world_dir);
             detect::find_by_name(&rows, old_filename, |r| r.filename.as_str()).cloned()
         };
-        let old_disk_sha = installed::sha1_of(&old_path).unwrap_or_default();
+        let old_disk_sha = regular_file_sha1(&old_path);
         let old_is_ours = old_row
             .as_ref()
             .is_some_and(|r| !r.sha1.is_empty() && r.sha1.eq_ignore_ascii_case(&old_disk_sha));
@@ -272,6 +275,19 @@ async fn carry_state(world_dir: &Path, old_name: &str, new_name: &str) -> Result
         level_dat::write_at(world_dir, &root, framing).await?;
     }
     Ok(was_enabled)
+}
+
+/// `installed::sha1_of` for a regular file (followed, so a link to a file is
+/// a file), `""` for anything else. A folder, a FIFO, a socket or a device
+/// holds no pack bytes to compare, and opening a FIFO would block until a
+/// writer appears. A failed stat or read is `""` too, as it was before this
+/// gate: every caller compares the result with a known sha1, so a side it
+/// could not read never matches, and the update is refused as a conflict.
+fn regular_file_sha1(path: &Path) -> String {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => installed::sha1_of(path).unwrap_or_default(),
+        Ok(_) | Err(_) => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -590,6 +606,108 @@ mod tests {
             "got {err:?}"
         );
         assert!(td.path().join("datapacks").join("vm-1.0.zip").exists());
+    }
+
+    /// A FIFO in the new-name slot is not the target file, and hashing it
+    /// would open it and block until a writer appears. It is a conflict,
+    /// judged by its type. `cfg(unix)`: runs in CI only.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_in_the_new_name_slot_is_a_conflict_and_is_never_opened() {
+        use crate::servers_runtime::datapacks::fifo_test_util::{mkfifo, within_budget};
+        let td = seeded_world_with("vm-1.0.zip", b"v1");
+        let fifo = td.path().join("datapacks").join("vm-2.0.zip");
+        mkfifo(&fifo);
+        let world = td.path().to_path_buf();
+        let err = within_budget(&fifo, move || async move {
+            update_one(
+                &world,
+                "vm-1.0.zip",
+                "vm-2.0.zip",
+                &datapack_zip(b"v2"),
+                &prov("v2"),
+            )
+            .await
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+        assert!(td.path().join("datapacks").join("vm-1.0.zip").exists());
+    }
+
+    /// The old name's entry is identified by its sha1 before anything is
+    /// written. A FIFO there is not the recorded pack, and hashing it would
+    /// block. `cfg(unix)`: runs in CI only.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_under_the_old_name_is_a_conflict_and_is_never_opened() {
+        use crate::servers_runtime::datapacks::fifo_test_util::{mkfifo, within_budget};
+        let td = seeded_world_with("vm-1.0.zip", b"v1");
+        let fifo = td.path().join("datapacks").join("vm-1.0.zip");
+        std::fs::remove_file(&fifo).unwrap();
+        mkfifo(&fifo);
+        let world = td.path().to_path_buf();
+        let err = within_budget(&fifo, move || async move {
+            update_one(
+                &world,
+                "vm-1.0.zip",
+                "vm-2.0.zip",
+                &datapack_zip(b"v2"),
+                &prov("v2"),
+            )
+            .await
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+        assert!(!td.path().join("datapacks").join("vm-2.0.zip").exists());
+    }
+
+    /// The same-name path identifies the file before replacing it. A FIFO
+    /// under the name is not the recorded pack, and hashing it would block.
+    /// `cfg(unix)`: runs in CI only.
+    #[cfg(unix)]
+    #[test]
+    fn a_same_name_update_over_a_fifo_is_a_conflict_and_never_opens_it() {
+        use crate::servers_runtime::datapacks::fifo_test_util::{mkfifo, within_budget};
+        let td = seeded_world_with("vm.zip", b"v1");
+        let fifo = td.path().join("datapacks").join("vm.zip");
+        std::fs::remove_file(&fifo).unwrap();
+        mkfifo(&fifo);
+        let world = td.path().to_path_buf();
+        let err = within_budget(&fifo, move || async move {
+            update_one(
+                &world,
+                "vm.zip",
+                "vm.zip",
+                &datapack_zip(b"v2"),
+                &prov("v2"),
+            )
+            .await
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+    }
+
+    /// `booted_world_with` for a synchronous test: the FIFO tests run the
+    /// code under test on a runtime of their own.
+    #[cfg(unix)]
+    fn seeded_world_with(old: &str, body: &[u8]) -> tempfile::TempDir {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(booted_world_with(old, body))
     }
 
     #[tokio::test]

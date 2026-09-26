@@ -254,7 +254,10 @@ pub async fn install_bytes(
             // over it is a no-op. Only a file matching NEITHER the recorded
             // row NOR the incoming target is a genuine third-party pack. Do
             // not narrow this back to `same_project` alone.
-            let already_written = !meta_dest.is_dir()
+            // Only a regular file can hold the target bytes. Anything else (a
+            // FIFO, a socket, a device) is judged by its type and never
+            // opened: opening a FIFO blocks until a writer appears.
+            let already_written = meta_dest.is_file()
                 && installed::sha1_of(&dest)
                     .map(|existing| existing.eq_ignore_ascii_case(&sha1))
                     .unwrap_or(false);
@@ -356,6 +359,53 @@ mod tests {
     use crate::datapacks::level_dat::test_support::seed;
     use crate::datapacks::{level_dat, WorldPackState};
     use std::io::Write;
+
+    /// A catalog install checks whether the file already under its name is
+    /// retry evidence (the target bytes) by hashing it. A FIFO there is not
+    /// a pack, and hashing it would open it and block until a writer appears.
+    /// It is a conflict, judged by its type. `cfg(unix)`: runs in CI only.
+    #[cfg(unix)]
+    #[test]
+    fn a_catalog_install_over_a_fifo_is_a_conflict_and_never_opens_it() {
+        use crate::servers_runtime::datapacks::fifo_test_util::{mkfifo, within_budget};
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), &[], &[]);
+        std::fs::create_dir_all(td.path().join("datapacks")).unwrap();
+        let fifo = td.path().join("datapacks").join("vm.zip");
+        mkfifo(&fifo);
+        let prov = crate::datapacks::DatapackProvenance {
+            source: crate::mods::platform::ModSource::Modrinth,
+            project_id: "veinminer".into(),
+            version_id: "v1".into(),
+            version_number: Some("1.0".into()),
+        };
+
+        let world = td.path().to_path_buf();
+        let err = within_budget(&fifo, move || async move {
+            install_bytes(&world, "vm.zip", &fifo_test_pack(), Some(&prov)).await
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ModsFilenameConflict { .. }),
+            "got {err:?}"
+        );
+    }
+
+    /// The smallest pack `install_bytes` accepts.
+    #[cfg(unix)]
+    fn fifo_test_pack() -> Vec<u8> {
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file("pack.mcmeta", opts).unwrap();
+        zw.write_all(br#"{"pack":{"pack_format":48,"description":"Pack"}}"#)
+            .unwrap();
+        zw.start_file("data/ns/function/tick.mcfunction", opts)
+            .unwrap();
+        zw.write_all(b"say hi").unwrap();
+        zw.finish().unwrap().into_inner()
+    }
 
     /// Fallback Q2: a destination that could not be stated is not a free
     /// slot. The install and the update's new-name check write over their
