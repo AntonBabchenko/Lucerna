@@ -91,8 +91,11 @@ fn world_load_failed(log: &str) -> bool {
         return true;
     }
     match log.rfind("Attempting to use fallback") {
-        // Recovered unless another failure follows the fallback line.
-        Some(at) => log[at..].contains(FAILED),
+        // Recovered only when the server evidently came up after the
+        // fallback line and no second failure followed it. A log that stops
+        // there (a crash the fallback does not catch, a killed process) could
+        // not tell, so it keeps the advisory.
+        Some(at) => log[at..].contains(FAILED) || !server_started(&log[at..]),
         None => true,
     }
 }
@@ -1270,6 +1273,24 @@ net.minecraft.nbt.NbtException: Invalid tag id: 99
         assert_eq!(
             diagnose_server_log(&cut).unwrap().pattern_id,
             "server-world-corrupt"
+        );
+    }
+
+    #[test]
+    fn a_fallback_the_server_never_got_past_still_counts_as_a_failed_world_load() {
+        // Cut right after the fallback line: a crash reading level.dat_old
+        // that the fallback does not catch, or a killed process. Neither file
+        // loaded, and nothing says the world came up, so the advisory stays.
+        let cut: String = LEVEL_DAT_FALLBACK_RECOVERED
+            .lines()
+            .take_while(|l| !l.contains("Missing data pack"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert!(cut.contains("Attempting to use fallback"));
+        assert!(!cut.contains("For help, type"));
+        assert_eq!(
+            diagnose_server_log(&cut).map(|d| d.pattern_id),
+            Some("server-world-corrupt".to_string())
         );
     }
 
