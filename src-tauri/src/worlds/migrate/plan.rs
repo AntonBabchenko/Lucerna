@@ -693,7 +693,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            predict_one(&world_file, &library_dir.join("pack.zip")),
+            predict_one(&world_file, &library_dir.join("pack.zip"), "pack.zip"),
             DatapackResult::LeftAsCopy {
                 reason: LeftReason::Io
             }
