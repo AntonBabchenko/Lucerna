@@ -50,6 +50,7 @@ export type TranslationKey =
   | 'addons.datapacks.summaryDisabledEverywhere'
   | 'addons.datapacks.summaryEnabledIn'
   | 'addons.datapacks.summaryInNoWorld'
+  | 'addons.datapacks.summaryUnchecked'
   | 'addons.datapacks.updateIncomplete'
   | 'addons.datapacks.vt.build'
   | 'addons.datapacks.vt.conflicts'

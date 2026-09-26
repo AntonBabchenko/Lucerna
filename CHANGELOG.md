@@ -156,8 +156,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   copy while the world still used it, and removing a pack from the library
   could leave a world naming a pack that no longer existed. Such a world is now
   reported as not updated, the removal dialog lists it separately, and the
-  library keeps its copy for another try. An update whose new file can't be
-  read keeps the old copy too. If the new version keeps the old file name, the
+  library keeps its copy for another try. The library row no longer counts it
+  as a world where the pack is off; it says how many worlds couldn't be
+  checked. An update whose new file can't be read keeps the old copy too. If
+  the new version keeps the old file name, the
   library copy is replaced at once and there is nothing to retry: the update
   names each world that may still have the old version. Installing a pack
   from a file or from Vanilla Tweaks over one the library already holds now

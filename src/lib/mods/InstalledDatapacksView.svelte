@@ -575,12 +575,22 @@
                 </span>
               </div>
             {/if}
-            <StatusBadge
-              variant={summaryVariant(summary.emphasis, summary.args.enabled)}
-              testid="datapack-world-summary"
-            >
-              {$t(summary.key, summary.args)}
-            </StatusBadge>
+            {#if summary.checked}
+              <StatusBadge
+                variant={summaryVariant(summary.checked.emphasis, summary.checked.args.enabled)}
+                testid="datapack-world-summary"
+              >
+                {$t(summary.checked.key, summary.checked.args)}
+              </StatusBadge>
+            {/if}
+            {#if summary.unchecked > 0}
+              <!-- Apart from the count above, never inside it: the pack may or
+                   may not be on in these worlds (the sub-rows say "State
+                   unknown"). Neutral, like that sub-row badge. -->
+              <StatusBadge variant="neutral" testid="datapack-world-summary-unchecked">
+                {$t('addons.datapacks.summaryUnchecked', { count: summary.unchecked })}
+              </StatusBadge>
+            {/if}
             {#if !entry.in_library}
               <StatusBadge variant="neutral" icon="warning" testid="datapack-only-in-worlds">
                 {$t('addons.datapacks.onlyInWorlds')}

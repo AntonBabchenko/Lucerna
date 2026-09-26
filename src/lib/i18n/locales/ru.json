@@ -1044,6 +1044,7 @@
       "summaryInNoWorld": "Ни в одном мире",
       "summaryDisabledEverywhere": "Выключен везде",
       "summaryEnabledIn": "Включён в {enabled} из {total, plural, one {# мира} few {# миров} many {# миров} other {# миров}}",
+      "summaryUnchecked": "Не удалось проверить {count, plural, one {# мир} few {# мира} many {# миров} other {# мира}}",
       "updateIncomplete": "{name}: новая версия дошла не до всех миров — старая сохранена, чтобы повтор мог завершить обновление:",
       "refreshIncomplete": "Новая версия {name} дошла не до всех миров — в этих может остаться старая:",
       "worldsUnchecked": "Не удалось проверить миры: {error}",
