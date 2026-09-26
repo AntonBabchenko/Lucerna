@@ -85,10 +85,14 @@ pub async fn datapacks_list_library(
 }
 
 /// Install a `.zip` file or folder datapack from `src_path` (a file-picker
-/// result) into the instance's library. The returned fan-out is non-empty
-/// only when a same-named pack was already linked somewhere: a local install
-/// replaces it and refreshes those worlds, and each world it could not
-/// refresh comes back `Failed`.
+/// result) into the instance's library.
+///
+/// `refreshed` is what the same-name fan-out did to each world holding that
+/// filename: refreshed to the new bytes, skipped as not ours (the world's file
+/// is not the library's old copy, which after a fresh install is true of every
+/// such world), or failed (a reinstall that could not refresh or check a
+/// world, or list `saves/`). It is empty when no world holds the name and
+/// `saves/` was listable.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_install_from_file(
@@ -275,9 +279,9 @@ pub(super) fn datapack_provenance_of(
 
 /// Download a datapack version from the catalog into the instance's library,
 /// recording provenance. Placement into worlds is the world picker's separate
-/// step (`datapacks_add_to_world`) — a fresh install touches no world; the
-/// returned fan-out is non-empty only when a same-named pack was already
-/// linked somewhere (the reinstall path).
+/// step (`datapacks_add_to_world`): a fresh install writes into no world.
+/// `refreshed` reports the same-name fan-out exactly as
+/// `datapacks_install_from_file` describes it.
 #[tauri::command]
 #[specta::specta]
 pub async fn datapacks_install_from_version(

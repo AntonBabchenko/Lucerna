@@ -23,9 +23,10 @@ pub struct VtInstallOutcome {
     pub installed: bool,
     pub error: Option<String>,
     /// An instance install's same-name fan-out (`LibraryInstall.refreshed`):
-    /// non-empty only when the library already held this name and worlds were
-    /// linked to the old copy; a world it could not refresh is `Failed`.
-    /// Always empty for a server install, which has one world and no fan-out.
+    /// what it did to each world holding this filename (refreshed, skipped as
+    /// not ours, or failed). Empty when no world holds the name and `saves/`
+    /// was listable. Always empty for a server install, which has one world
+    /// and no fan-out.
     pub refreshed: Vec<crate::datapacks::WorldMigration>,
 }
 

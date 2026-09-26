@@ -1991,10 +1991,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	datapacksListLibrary: (instanceId: string) => typedError<DatapackLibraryView, Error>(__TAURI_INVOKE("datapacks_list_library", { instanceId })),
 	/**
 	 *  Install a `.zip` file or folder datapack from `src_path` (a file-picker
-	 *  result) into the instance's library. The returned fan-out is non-empty
-	 *  only when a same-named pack was already linked somewhere: a local install
-	 *  replaces it and refreshes those worlds, and each world it could not
-	 *  refresh comes back `Failed`.
+	 *  result) into the instance's library.
+	 * 
+	 *  `refreshed` is what the same-name fan-out did to each world holding that
+	 *  filename: refreshed to the new bytes, skipped as not ours (the world's file
+	 *  is not the library's old copy, which after a fresh install is true of every
+	 *  such world), or failed (a reinstall that could not refresh or check a
+	 *  world, or list `saves/`). It is empty when no world holds the name and
+	 *  `saves/` was listable.
 	 */
 	datapacksInstallFromFile: (instanceId: string, srcPath: string) => typedError<LibraryInstall, Error>(__TAURI_INVOKE("datapacks_install_from_file", { instanceId, srcPath })),
 	/**
@@ -2056,9 +2060,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Download a datapack version from the catalog into the instance's library,
 	 *  recording provenance. Placement into worlds is the world picker's separate
-	 *  step (`datapacks_add_to_world`) — a fresh install touches no world; the
-	 *  returned fan-out is non-empty only when a same-named pack was already
-	 *  linked somewhere (the reinstall path).
+	 *  step (`datapacks_add_to_world`): a fresh install writes into no world.
+	 *  `refreshed` reports the same-name fan-out exactly as
+	 *  `datapacks_install_from_file` describes it.
 	 */
 	datapacksInstallFromVersion: (instanceId: string, version: ModVersion_Deserialize) => typedError<LibraryInstall, Error>(__TAURI_INVOKE("datapacks_install_from_version", { instanceId, version })),
 	/**
@@ -8119,9 +8123,10 @@ export type VtInstallOutcome = {
 	error: string | null,
 	/**
 	 *  An instance install's same-name fan-out (`LibraryInstall.refreshed`):
-	 *  non-empty only when the library already held this name and worlds were
-	 *  linked to the old copy; a world it could not refresh is `Failed`.
-	 *  Always empty for a server install, which has one world and no fan-out.
+	 *  what it did to each world holding this filename (refreshed, skipped as
+	 *  not ours, or failed). Empty when no world holds the name and `saves/`
+	 *  was listable. Always empty for a server install, which has one world
+	 *  and no fan-out.
 	 */
 	refreshed: WorldMigration[],
 };
