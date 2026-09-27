@@ -132,12 +132,15 @@ function attach(): () => void {
   };
 }
 
-/** For startup-only surfaces (the first-run tour, "What's new"): is this a recovery session, or
- *  can we not tell? Both answers mean "do not start" — a tour over the recovery banner teaches
- *  create and Play while both are refused, and nothing is lost by waiting for the next start. */
-export async function recoverySessionOrUnknown(): Promise<boolean> {
+/** For startup-only surfaces (the first-run tour, "What's new"): must they wait for the next start?
+ *  Yes in a recovery session, while a data move is running or waiting for its restart, and when we
+ *  cannot tell. In each of these create and Play are refused, so a tour teaches what cannot be done;
+ *  and the settings they read are not the user's — a throwaway root, or (after a reload in a move's
+ *  final state) the OLD root whose app.json the move already deleted, so every setting reads as its
+ *  default. Nothing is lost by waiting: both are offered again on the next start. */
+export async function startupSurfacesMustWait(): Promise<boolean> {
   await dataLocation.init();
-  return !dataLocation.loaded || dataLocation.fellBack;
+  return !dataLocation.loaded || dataLocation.fellBack || dataLocation.relocation.kind !== 'idle';
 }
 
 export const dataLocation = {

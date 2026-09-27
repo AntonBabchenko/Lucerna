@@ -23,7 +23,7 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew('0.22.0', {
       entries: LOG,
-      recoverySession: async () => false,
+      mustWait: async () => false,
       currentVersion: async () => '0.23.0',
       markSeen: async (x) => void marked.push(x),
     });
@@ -39,7 +39,7 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew(null, {
       entries: LOG,
-      recoverySession: async () => false,
+      mustWait: async () => false,
       currentVersion: async () => '0.23.0',
       markSeen: async (x) => void marked.push(x),
     });
@@ -51,7 +51,7 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew('0.23.0', {
       entries: LOG,
-      recoverySession: async () => false,
+      mustWait: async () => false,
       currentVersion: async () => '0.23.0',
       markSeen: async (x) => void marked.push(x),
     });
@@ -65,7 +65,7 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew('0.22.0', {
       entries: LOG,
-      recoverySession: async () => true,
+      mustWait: async () => true,
       currentVersion: async () => '0.23.0',
       markSeen: async (x) => void marked.push(x),
     });
@@ -78,7 +78,7 @@ describe('checkWhatsNew', () => {
     const marked: string[] = [];
     await checkWhatsNew('0.22.0', {
       entries: LOG,
-      recoverySession: async () => {
+      mustWait: async () => {
         throw new Error('status unavailable');
       },
       currentVersion: async () => '0.23.0',
