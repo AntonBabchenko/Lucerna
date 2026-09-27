@@ -48,21 +48,46 @@ pub fn get_active_instance(app: &tauri::AppHandle) -> Result<Option<InstanceWith
         return Ok(None);
     }
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
+    let ids: Vec<&str> = all.iter().map(|i| i.id.as_str()).collect();
+    // While a data move is running or waiting for its restart this process
+    // still resolves the OLD root, and after the commit its app.json is gone —
+    // so the pointer always reads missing here. Pick, but do not write: the
+    // repair would recreate app.json in the folder the move is emptying, where
+    // Try again never removes it and the leftovers list never names it. The
+    // new root already holds the real pointer.
+    let persist = crate::data_root::state::global().check_usable().is_ok();
     let mut pick = None;
     store::update_app_json(&app_file_path, |af| {
-        if let Some(active_id) = &af.active_instance {
-            if let Some(found) = all.iter().find(|i| &i.id == active_id) {
-                pick = Some(found.clone());
-                return store::Verdict::Unchanged;
-            }
-            // Stale pointer — auto-repair by picking the oldest.
-        }
-        let p = all[0].clone();
-        af.active_instance = Some(p.id.clone());
-        pick = Some(p);
-        store::Verdict::Write
+        let (index, verdict) = resolve_active(af, &ids, persist);
+        pick = index;
+        verdict
     })?;
-    Ok(pick)
+    Ok(pick.and_then(|i| all.get(i).cloned()))
+}
+
+/// Which of `ids` (oldest first) `app.json` makes active, and whether the file
+/// must change for it. A missing or stale pointer names the oldest instance;
+/// that repair is written only when `persist`.
+fn resolve_active(
+    af: &mut schema::AppFile,
+    ids: &[&str],
+    persist: bool,
+) -> (Option<usize>, store::Verdict) {
+    let named = af
+        .active_instance
+        .as_deref()
+        .and_then(|active| ids.iter().position(|id| *id == active));
+    if let Some(index) = named {
+        return (Some(index), store::Verdict::Unchanged);
+    }
+    let Some(oldest) = ids.first() else {
+        return (None, store::Verdict::Unchanged);
+    };
+    if !persist {
+        return (Some(0), store::Verdict::Unchanged);
+    }
+    af.active_instance = Some((*oldest).to_string());
+    (Some(0), store::Verdict::Write)
 }
 
 /// Set `app.json.active_instance`. Errors `InstanceNotFound` if `id` is
@@ -537,6 +562,51 @@ mod tests {
     use super::*;
     use crate::error::Error;
     use crate::versions::loaders::LoaderVersion;
+
+    fn app_file_pointing_at(active: Option<&str>) -> schema::AppFile {
+        schema::AppFile {
+            active_instance: active.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_existing_pointer_is_kept_without_a_write() {
+        let mut af = app_file_pointing_at(Some("b"));
+        let (pick, verdict) = resolve_active(&mut af, &["a", "b"], true);
+        assert_eq!(pick, Some(1));
+        assert!(matches!(verdict, store::Verdict::Unchanged));
+        assert_eq!(af.active_instance.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn a_stale_pointer_is_repaired_to_the_oldest_and_written() {
+        let mut af = app_file_pointing_at(Some("gone"));
+        let (pick, verdict) = resolve_active(&mut af, &["a", "b"], true);
+        assert_eq!(pick, Some(0));
+        assert!(matches!(verdict, store::Verdict::Write));
+        assert_eq!(af.active_instance.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn a_repair_that_must_not_persist_picks_the_oldest_but_writes_nothing() {
+        // After a committed data move this process reads the OLD root, whose
+        // app.json the move deleted: a write here recreates it in the folder
+        // being emptied.
+        let mut af = app_file_pointing_at(None);
+        let (pick, verdict) = resolve_active(&mut af, &["a", "b"], false);
+        assert_eq!(pick, Some(0));
+        assert!(matches!(verdict, store::Verdict::Unchanged));
+        assert_eq!(af.active_instance, None);
+    }
+
+    #[test]
+    fn no_instances_picks_nothing() {
+        let mut af = app_file_pointing_at(Some("a"));
+        let (pick, verdict) = resolve_active(&mut af, &[], true);
+        assert_eq!(pick, None);
+        assert!(matches!(verdict, store::Verdict::Unchanged));
+    }
 
     fn stable(version: &str) -> LoaderVersion {
         LoaderVersion {
