@@ -21,7 +21,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
-## [0.25.0] — 2026-09-26
+## [0.25.0] — 2026-09-27
 
 ### Added
 
