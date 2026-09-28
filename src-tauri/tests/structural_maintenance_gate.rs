@@ -255,7 +255,15 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "commands/mods.rs",
         "mods_install_missing_required",
         SHARED_WRITE_GATE,
-        "resolves, downloads and installs one dependency jar",
+        "resolves a dependency, downloads and commits it with its required closure, and \
+         writes the dependent's edges",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_install_dependency",
+        SHARED_WRITE_GATE,
+        "downloads and commits a dependency with its required closure into mods/ and the \
+         registry, and writes the dependent's edges",
     ),
     (
         "commands/mods.rs",
@@ -565,7 +573,9 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
     (
         "commands/mods.rs",
         "mods_find_orphans",
-        "reads the registry's dependency edges (reconcile only)",
+        "reads the registry's dependency edges and the jars' declarations to keep only \
+         libraries nothing that stays needs — reconcile, display-name backfill and the \
+         app-dir jar-scan cache only; the removal itself is gated",
     ),
     (
         "commands/mods.rs",

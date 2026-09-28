@@ -472,7 +472,9 @@ pub struct OrphanRef {
     pub project_id: String,
 }
 
-/// Returned by `mods_install_with_deps` so the UI can show a per-mod toast.
+/// Returned by the mod install commands (`mods_install_with_deps`,
+/// `mods_install_dependency`) and by `mods_update_one`, so the UI can show a
+/// per-mod toast.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstallSummary {
     pub primary_name: String,
@@ -482,10 +484,9 @@ pub struct InstallSummary {
     /// One row per installed jar (primary + dependencies), in `install_seq`
     /// order. Unlike the modpack import/update paths — which carry their
     /// per-file report on the terminal `Channel` message because they already
-    /// take one — this command has no channel, so the report rides the
-    /// return value instead. `InstallSummary` has exactly one producer
-    /// (`mods_install_with_deps`) and one consumer (the UI toast), which is
-    /// what makes widening the return value cheap here; the same design was
+    /// take one — these commands have no channel, so the report rides the
+    /// return value instead. Their one consumer is the UI toast, which is what
+    /// makes widening the return value cheap here; the same design was
     /// rejected for the modpack paths, where it would have meant inventing an
     /// envelope across three unrelated command signatures.
     pub details: Vec<crate::tasks::TaskDetail>,

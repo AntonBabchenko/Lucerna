@@ -219,6 +219,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_dependency_graph,
             commands::instance_dependency_preflight,
             commands::mods_install_missing_required,
+            commands::mods_install_dependency,
             commands::mods_resolve_dep_names,
             commands::mods_removal_impact,
             commands::mods_enable_impact,

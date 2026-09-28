@@ -788,6 +788,37 @@ pub async fn set_requires(
     write(instance_root, &state).await
 }
 
+/// Add `edges` to the `requires` list of the entry with the given SHA-1: a union
+/// with what the row holds NOW, sorted and deduplicated, in one locked
+/// read-modify-write. For a dependency installed on a dependent's behalf — that
+/// install ran for minutes against an older snapshot, and [`set_requires`] with a
+/// list built from it would drop an edge another install wrote meanwhile.
+/// No-op if the SHA-1 is unknown (the dependent is gone); no write when nothing
+/// is new.
+pub async fn add_requires(
+    instance_root: &Path,
+    sha1: &str,
+    edges: Vec<String>,
+) -> Result<(), Error> {
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let mut state = read_or_empty(instance_root).await?;
+    let Some(m) = state
+        .mods
+        .iter_mut()
+        .find(|x| x.sha1.eq_ignore_ascii_case(sha1))
+    else {
+        return Ok(());
+    };
+    let mut merged: Vec<String> = m.requires.iter().cloned().chain(edges).collect();
+    merged.sort();
+    merged.dedup();
+    if merged == m.requires {
+        return Ok(());
+    }
+    m.requires = merged;
+    write(instance_root, &state).await
+}
+
 /// Toggle `enabled` for the entry with the given SHA-1.
 pub async fn set_enabled(instance_root: &Path, sha1: &str, enabled: bool) -> Result<(), Error> {
     let _guard = registry_lock::lock(&registry_path(instance_root)).await;
@@ -2180,6 +2211,41 @@ mod tests {
         let mods = list(root).await.unwrap();
         let prim = mods.iter().find(|m| m.sha1 == sha).unwrap();
         assert_eq!(prim.requires, vec!["dep1".to_string(), "dep2".to_string()]);
+    }
+
+    /// A dependency installed on a dependent's behalf ran for minutes against an
+    /// older snapshot: its edges are ADDED to what the row holds now, so an edge
+    /// another install wrote meanwhile survives. An unknown row is a no-op.
+    #[tokio::test]
+    async fn add_requires_keeps_edges_written_since_the_snapshot() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place_jar(&mods_dir(root), "dependent.jar", b"dependent-bytes").await;
+        let mut row = provenanced("dependent.jar", sha.clone());
+        row.requires = vec!["lib-c".into(), "lib-meanwhile".into()];
+        add(root, row).await.unwrap();
+
+        add_requires(
+            root,
+            &sha.to_ascii_uppercase(),
+            vec!["lib-b".into(), "lib-c".into()],
+        )
+        .await
+        .unwrap();
+        add_requires(root, "0000", vec!["lib-x".into()])
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+        assert_eq!(mods.len(), 1, "no row invented for an unknown sha");
+        assert_eq!(
+            mods[0].requires,
+            vec![
+                "lib-b".to_string(),
+                "lib-c".to_string(),
+                "lib-meanwhile".to_string()
+            ]
+        );
     }
 
     #[tokio::test]

@@ -1150,6 +1150,73 @@ impl ParsedInstance {
         Ok(RemovalImpact { dependents })
     }
 
+    /// The `candidates` that can leave together with `targets` without a mod
+    /// that stays enabled gaining a violation — the check under an orphan offer
+    /// (A14). `orphans::find_orphans` trusts the registry's `requires` edges,
+    /// which can be incomplete; an offer must never name a library another mod
+    /// still needs.
+    ///
+    /// Greedy, in the order given: each candidate is judged with the targets AND
+    /// every candidate kept before it already gone, so the kept set is harmless
+    /// removed WHOLE — two libraries that cover for each other are never both
+    /// offered. Only what a candidate adds counts: what the targets break is the
+    /// removal's own impact. A candidate whose ENABLED jar could not be read may
+    /// provide anything, and one this parse does not list is gone or changed
+    /// since the caller read the registry — neither is kept, because an offer
+    /// claims that nothing needs the mod. Known limit: an OTHER enabled mod whose
+    /// jar could not be read declares nothing the resolver sees, so its needs are
+    /// not protected here; the pre-flight reports it as unjudged.
+    pub fn removable_with(&self, targets: &HashSet<String>, candidates: &[String]) -> Vec<String> {
+        let mut gone = targets.clone();
+        let mut before = self.resolve_without(&gone);
+        let mut kept = Vec::new();
+        for c in candidates {
+            let judged =
+                self.row(c).is_some() || self.unreadable.iter().any(|m| &m.sha1 == c && !m.enabled);
+            if !judged {
+                continue;
+            }
+            let mut next = gone.clone();
+            next.insert(c.clone());
+            let after = self.resolve_without(&next);
+            // Every violation `after` holds is about a mod that stays enabled:
+            // rows outside the set never emit.
+            if after.iter().any(|v| !before.contains(v)) {
+                continue;
+            }
+            gone = next;
+            before = after;
+            kept.push(c.clone());
+        }
+        kept
+    }
+
+    /// The violations of this instance with the `gone` rows removed outright.
+    /// Not `resolve` over a smaller enabled set: a removed jar must not linger
+    /// as the disabled provider a `RequiredDisabled` names — once it is gone,
+    /// switching it on is no longer a way out.
+    fn resolve_without(&self, gone: &HashSet<String>) -> Vec<Violation> {
+        let rest = ParsedInstance {
+            rows: self
+                .rows
+                .iter()
+                .filter(|r| !gone.contains(&r.parsed.sha1))
+                .cloned()
+                .collect(),
+            unreadable: self
+                .unreadable
+                .iter()
+                .filter(|m| !gone.contains(&m.sha1))
+                .cloned()
+                .collect(),
+            loader: self.loader,
+            era: self.era,
+            mc: self.mc.clone(),
+            loader_version: self.loader_version.clone(),
+        };
+        rest.resolve(&rest.registry_enabled())
+    }
+
     /// The disabled mods `targets` need switched on with them, transitively:
     /// enabling a requirement may reveal its own. Only requirements of the
     /// targets and of what they pull in count — another mod's disabled
@@ -3036,6 +3103,107 @@ mod tests {
             inst.removal_impact(&set(&["a", "ghost"])),
             Err(crate::error::Error::ModsNotFound { platform }) if platform == "installed"
         ));
+    }
+
+    // ── orphan offers (A14) ───────────────────────────────────────────────
+
+    fn shas(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `l` and `n` were pulled in for `t`, which is leaving. `m` stays and needs
+    /// `core`, which only `l` provides — whatever the registry's `requires`
+    /// edges say, the jars say `l` is still needed.
+    #[test]
+    fn an_orphan_a_mod_that_stays_still_needs_is_not_offered() {
+        let t = row(
+            modz(
+                "t",
+                vec![prov("tmod", "1.0")],
+                vec![dep("core", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let l = row(modz("l", vec![prov("core", "1.0")], vec![]), true);
+        let n = row(modz("n", vec![prov("other", "1.0")], vec![]), true);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, l, n, m]);
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["l", "n"])),
+            shas(&["n"])
+        );
+    }
+
+    /// Each alone is harmless, both together break `m`: the offer is judged as
+    /// a whole, so accepting all of it can never break what one-by-one would not.
+    #[test]
+    fn two_libraries_that_cover_for_each_other_are_not_both_offered() {
+        let t = row(modz("t", vec![prov("tmod", "1.0")], vec![]), true);
+        let l1 = row(modz("l1", vec![prov("core", "1.0")], vec![]), true);
+        let l2 = row(modz("l2", vec![prov("core", "1.0")], vec![]), true);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, l1, l2, m]);
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["l1", "l2"])),
+            shas(&["l1"])
+        );
+    }
+
+    /// Removing `t` already breaks `m` (the removal dialog says so). Only what a
+    /// CANDIDATE adds holds it back, so `n`, needed by nobody, is still offered.
+    #[test]
+    fn what_the_removal_itself_breaks_does_not_hold_an_orphan_back() {
+        let t = row(modz("t", vec![prov("core", "1.0")], vec![]), true);
+        let n = row(modz("n", vec![prov("other", "1.0")], vec![]), true);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, n, m]);
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["n"])),
+            shas(&["n"])
+        );
+    }
+
+    /// `m` is broken today and its fix is «enable `l`»: a switched-off library
+    /// an enabled mod needs is still needed. Removed, `l` could no longer be
+    /// named as the provider to switch on — the counterfactual drops the row
+    /// outright, it does not merely leave it disabled.
+    #[test]
+    fn a_disabled_library_an_enabled_mod_needs_is_not_offered() {
+        let t = row(modz("t", vec![prov("tmod", "1.0")], vec![]), true);
+        let l = row(modz("l", vec![prov("core", "1.0")], vec![]), false);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, l, m]);
+        assert!(inst.removable_with(&set(&["t"]), &shas(&["l"])).is_empty());
+    }
+
+    /// An ENABLED jar the scan could not read may provide anything, and a row
+    /// the parse does not list is gone or changed since the registry was read:
+    /// neither is known to be unneeded. A DISABLED unreadable jar satisfies
+    /// nothing today, so its leaving is known to break nothing.
+    #[test]
+    fn an_orphan_that_cannot_be_judged_is_not_offered() {
+        let t = row(modz("t", vec![prov("tmod", "1.0")], vec![]), true);
+        let mut inst = instance(vec![t]);
+        let on = installed_jar("on.jar", "on", "On");
+        let mut off = installed_jar("off.jar", "off", "Off");
+        off.enabled = false;
+        inst.unreadable = vec![on, off];
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["on", "off", "ghost"])),
+            shas(&["off"])
+        );
     }
 
     /// Transitive to a fixed point: t → a → b; b → t closes a cycle. `zmod` is

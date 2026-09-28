@@ -353,14 +353,9 @@ pub async fn mods_install_with_deps(
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     let installed: crate::error::Result<crate::mods::platform::InstallSummary> =
         crate::network::throttle::with_interactive(async move {
-            use crate::mods::deps::{resolve_closure, ProjectKey};
-            use std::sync::Arc;
-
             let inst_root = instance_root(&app, &instance_id)?;
             let dd = data_dir(&app)?;
             let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
-
-            // Two handles: Box for find_version calls, Arc for make_fetch closure.
             let mut platform_box = platform_for(primary.source);
             let primary_v = find_version(
                 &mut platform_box,
@@ -370,326 +365,457 @@ pub async fn mods_install_with_deps(
                 allow_off_platform,
             )
             .await?;
-
-            // Build the set of already-installed mods so resolve_closure can prune
-            // them. Two views: by source-specific ProjectKey, and by lowercased jar
-            // filename so a dependency already satisfied from a *different* source —
-            // same jar, different platform id — is also pruned.
-            //
-            // The filename view is deliberately enabled-only: a disabled mod lives on
-            // disk as `<name>.jar.disabled`, so it neither loads at runtime (it cannot
-            // satisfy a dependency) nor collides with a fresh `<name>.jar` install.
-            // Letting the dependency install a fresh enabled copy is the right call.
-            // (The ProjectKey view keeps its pre-existing all-mods behaviour for
-            // same-source pruning; only the new cross-source path is enabled-gated.)
-            let installed_mods = crate::mods::installed::list(&inst_root).await?;
-            let installed: std::collections::HashSet<ProjectKey> = installed_mods
-                .iter()
-                .filter_map(|m| match (m.source, m.project_id.as_deref()) {
-                    (Some(ModSource::Modrinth), Some(pid)) => {
-                        Some(ProjectKey::Modrinth(pid.to_string()))
-                    }
-                    (Some(ModSource::Curseforge), Some(pid)) => {
-                        pid.parse().ok().map(ProjectKey::Curseforge)
-                    }
-                    _ => None,
-                })
-                .collect();
-            let installed_filenames: std::collections::HashSet<String> = installed_mods
-                .iter()
-                .filter(|m| m.enabled)
-                .map(|m| m.filename.to_ascii_lowercase())
-                .collect();
-
-            // Shared Arc platform + loader-slug cache for the make_fetch factory.
-            let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
-                platform_for(primary.source).into();
-            let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
-                ProjectKey,
-                bool,
-            >::new()));
-
-            // Factory: produce a fresh fetch closure that shares the Arc'd platform + cache.
-            let make_fetch = || {
-                let platform = platform_arc.clone();
-                let loader_cache = loader_cache.clone();
-                let mc = mc_version.clone();
-                move |v: ModVersion| {
-                    let platform = platform.clone();
-                    let loader_cache = loader_cache.clone();
-                    let mc = mc.clone();
-                    async move {
-                        fetch_one_level(platform.as_ref(), &loader_cache, &v, &mc, loader).await
-                    }
-                }
-            };
-
-            // Progress callback closes over a clone of the AppHandle and the
-            // primary's project_id (used to tag every progress event so the UI
-            // can route the bar to the right card). Dep installs reuse the same
-            // project_id tag — the UI shows them as part of the same operation.
-            //
-            // `count` is the shared "N of M" item counter (see `ProgressCount`).
-            // It's 0/0 by default and stays that way for every tick emitted while
-            // manifest extras / optional deps are still being resolved below — the
-            // total genuinely isn't known yet at that point. `install_batch` (called
-            // once `install_seq` is assembled) is what sets `count.total` and drives
-            // `count.current`; this closure only reads a snapshot on every tick.
-            let app_for_progress = app.clone();
-            let instance_id_for_progress = instance_id.clone();
-            let project_id_for_progress = primary_v.project_id.clone();
-            let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
-            let count_for_progress = count.clone();
-            let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
-                let (current, item_total) = count_for_progress.snapshot();
-                let payload = match phase {
-                    crate::mods::install::ModInstallPhase::Downloading => {
-                        ModInstallProgress::Downloading {
-                            instance_id: instance_id_for_progress.clone(),
-                            project_id: project_id_for_progress.clone(),
-                            bytes_done: done as f64,
-                            bytes_total: total.map(|t| t as f64),
-                            current,
-                            total: item_total,
-                        }
-                    }
-                    crate::mods::install::ModInstallPhase::Verifying => {
-                        ModInstallProgress::Verifying {
-                            instance_id: instance_id_for_progress.clone(),
-                            project_id: project_id_for_progress.clone(),
-                            bytes_done: done as f64,
-                            current,
-                            total: item_total,
-                        }
-                    }
-                    crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
-                        instance_id: instance_id_for_progress.clone(),
-                        project_id: project_id_for_progress.clone(),
-                        current,
-                        total: item_total,
-                    },
-                };
-                let _ = payload.emit(&app_for_progress);
-            });
-
-            // Compute the primary's transitive required closure. The executor only needs
-            // the versions to download — collapse PlannedDep to ModVersion here (the
-            // install-plan path keeps the reason; this one does not surface it).
-            let primary_required: Vec<ModVersion> = resolve_closure(
-                std::slice::from_ref(&primary_v),
-                &installed,
-                &installed_filenames,
-                make_fetch(),
-            )
-            .await?
-            .required
-            .into_iter()
-            .map(|p| p.version)
-            .collect();
-
-            // Best-effort: read the primary jar's manifest and fold in required
-            // libraries the platform metadata omitted (e.g. Waystones requires Balm,
-            // but CF metadata doesn't list it). Unlike the dialog, each extra candidate
-            // is provides-verified over its DOWNLOADED jar before being committed:
-            // verify-fail → skip + log, so we never install a wrong mod. Reading the
-            // primary jar is best-effort — any failure yields no extras and preserves
-            // the prior behaviour. Computed BEFORE `primary_required_ids` and
-            // `install_seq` because both fold these extras in.
-            let extras_raw =
-                manifest_extra_root_versions(&dd, &primary_v, &mc_version, loader).await;
-            let extras = dedup_extra_candidates(
-                extras_raw,
-                &installed,
-                &installed_filenames,
-                &primary_required,
-            );
-            let mut extra_install: Vec<ModVersion> = Vec::new();
-            {
-                use crate::mods::dep_resolve::jar_provides;
-                let mut excl: std::collections::HashSet<ProjectKey> = installed.clone();
-                for v in &primary_required {
-                    excl.insert(ProjectKey::of_version(v));
-                }
-                // Executor path only needs the candidate to download — the
-                // `SelectionReason` is surfaced on the install-plan path, not here.
-                for (needed_id, cand, _reason) in extras {
-                    if excl.contains(&ProjectKey::of_version(&cand)) {
-                        continue;
-                    }
-                    let sha = match cand.primary_file.sha1.as_deref() {
-                        Some(s) if !s.trim().is_empty() => s.to_ascii_lowercase(),
-                        _ => continue,
-                    };
-                    let Ok(cached) = crate::mods::install::fetch_to_cache(
-                        &dd,
-                        &cand.primary_file.url,
-                        &sha,
-                        cand.primary_file.size,
-                        "mods",
-                        &prog,
-                    )
-                    .await
-                    else {
-                        continue;
-                    };
-                    let Ok(bytes) = tokio::fs::read(&cached.path).await else {
-                        continue;
-                    };
-                    if !jar_provides(&bytes, &needed_id) {
-                        crate::diag!(
-                            "dep_resolve: skipping '{needed_id}' — candidate did not provide it"
-                        );
-                        continue;
-                    }
-                    excl.insert(ProjectKey::of_version(&cand));
-                    let sub = resolve_closure(
-                        std::slice::from_ref(&cand),
-                        &excl,
-                        &installed_filenames,
-                        make_fetch(),
-                    )
-                    .await?;
-                    for p in &sub.required {
-                        excl.insert(ProjectKey::of_version(&p.version));
-                    }
-                    extra_install.extend(sub.required.into_iter().map(|p| p.version));
-                    extra_install.push(cand);
-                }
-            }
-
-            // Project IDs of the primary's transitive required closure plus any
-            // manifest-discovered extras — persisted onto the primary's registry entry
-            // for offline orphan detection.
-            let primary_required_ids = crate::mods::orphans::requires_edges(
-                &installed_mods,
-                None,
-                primary_required.iter().chain(extra_install.iter()),
-            );
-
-            // For each chosen optional: resolve it to a full version, then compute its
-            // transitive sub-closure (excluding installed + already-collected deps).
-            let mut dep_versions: Vec<ModVersion> = primary_required;
-            let mut chosen_optionals: Vec<ModVersion> = Vec::new();
-            // Assumption: chosen optionals share the primary's platform (the dialog only offers same-source optionals). A cross-source optional would resolve against the wrong platform.
-            for opt in &optional_deps {
-                // Strict on purpose: the user's consent was about the PRIMARY build.
-                // An optional dependency nobody confirmed stays on the platform's
-                // own filtered answer.
-                let ov = find_version(&mut platform_box, opt, &mc_version, loader, false).await?;
-                let mut excl = installed.clone();
-                for v in &dep_versions {
-                    excl.insert(ProjectKey::of_version(v));
-                }
-                for v in &extra_install {
-                    excl.insert(ProjectKey::of_version(v));
-                }
-                for v in &chosen_optionals {
-                    excl.insert(ProjectKey::of_version(v));
-                }
-                excl.insert(ProjectKey::of_version(&ov));
-                let sub = resolve_closure(
-                    std::slice::from_ref(&ov),
-                    &excl,
-                    &installed_filenames,
-                    make_fetch(),
-                )
-                .await?;
-                dep_versions.extend(sub.required.into_iter().map(|p| p.version));
-                chosen_optionals.push(ov);
-            }
-            let dep_versions = dedup_versions(dep_versions.into_iter());
-
-            // Install sequence: required deps + manifest-discovered extras first (both
-            // before the primary, so the libs are present when the primary loads), then
-            // primary, then chosen optionals.
-            let mut install_seq = dep_versions.clone();
-            install_seq.extend(extra_install.iter().cloned());
-            install_seq.push(primary_v.clone());
-            install_seq.extend(chosen_optionals.iter().cloned());
-
-            // Project titles for the whole sequence, so every jar — primary AND its
-            // dependencies — is recorded under its mod name instead of the platform
-            // version title. Cache-first through `summary_cache`; ids it cannot resolve
-            // are simply absent and fall back, then get repaired by the backfill.
-            let titles = project_titles_for(&app, &install_seq).await;
-
-            let installed_all = match crate::mods::install_batch::install_batch(
+            let run = install_with_closure(
+                &app,
+                &instance_id,
+                &inst_root,
                 &dd,
-                &inst_root,
-                &install_seq,
-                &titles,
-                &prog,
-                &count,
+                &mc_version,
+                loader,
+                primary_v,
+                None,
+                &optional_deps,
             )
-            .await
-            {
-                Ok(v) => v,
-                Err(f) => {
-                    let _ = ModInstallFailed {
-                        instance_id: instance_id.clone(),
-                        project_id: f.project_id,
-                        error: f.error.clone(),
-                    }
-                    .emit(&app);
-                    return Err(f.error);
-                }
-            };
-            // The batch is atomic — emit the per-mod events only now that every item
-            // has committed, so a rollback can never contradict an already-sent
-            // success event.
-            let mut installed_dependencies: Vec<String> = Vec::new();
-            let mut primary_sha1: Option<String> = None;
-            for (v, inst) in install_seq.iter().zip(installed_all.iter()) {
-                let _ = ModInstalled {
-                    instance_id: instance_id.clone(),
-                    sha1: inst.sha1.clone(),
-                    filename: inst.filename.clone(),
-                    name: inst.name.clone(),
-                }
-                .emit(&app);
-                if version_matches(v, &primary) {
-                    primary_sha1 = Some(inst.sha1.clone());
-                } else {
-                    installed_dependencies.push(inst.name.clone());
-                }
-            }
-            // Per-file provenance/outcome rows for this install, persisted below under
-            // a freshly minted task id so the journal row can deep-link back to them.
-            let details = mod_install_details(&install_seq, &installed_all);
-            // ONE journal row per user action, not one per written jar: "installed
-            // Create" is the history the user recognises, with the dependency count as
-            // supporting detail. Written after the batch COMMITS (so a rolled-back
-            // install leaves no trace) but BEFORE the fallible `set_requires` below —
-            // the jars are already durably on disk at this point, so a `set_requires`
-            // failure must not erase the record of a change that really happened.
-            // `mint_and_record` persists `details` under a fresh id BEFORE the journal
-            // write, so the row below always names a report that already exists on
-            // disk — never the reverse.
-            let task_id = crate::reports::mint_and_record(&inst_root, details.clone());
-            crate::journal::record(
-                &inst_root,
-                crate::journal::JournalEvent::Content {
-                    action: crate::journal::ContentAction::ModInstalled,
-                    subject: primary_v.name.clone(),
-                    from_version: None,
-                    to_version: Some(primary_v.version_number.clone()),
-                    affected: Some(installed_all.len() as f64),
-                    report_id: Some(task_id),
-                },
-            );
-            if let Some(sha1) = primary_sha1 {
-                crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids)
-                    .await?;
-            }
-            Ok(crate::mods::platform::InstallSummary {
-                primary_name: primary_v.name.clone(),
-                installed_dependencies,
-                details,
-            })
+            .await?;
+            Ok(run.summary)
         })
         .await;
     // Committed or rolled back, with its records written: nothing of this
     // install is still in flight.
+    drop(write);
+    installed
+}
+
+/// What one closure install committed, beyond its summary.
+struct ClosureInstall {
+    summary: crate::mods::platform::InstallSummary,
+    /// The registry BEFORE the run touched anything — `orphans::requires_edges`'
+    /// snapshot.
+    registry_before: Vec<InstalledMod>,
+    /// Every version the run installed, in install order, primary included.
+    installed: Vec<ModVersion>,
+}
+
+/// The body `mods_install_with_deps` always ran, from "the primary version is
+/// known" to "the batch, its journal row and the primary's edges are written":
+/// the primary's required closure (+ manifest extras, + chosen optionals),
+/// warmed, then committed atomically by `install_batch`. Shared with the
+/// dependency installs (§5.6) so a dependency brings its own closure exactly
+/// like a Browse install. `primary_title`: a project title the caller already
+/// resolved — used for the row, the journal subject and `primary_name`.
+///
+/// The caller holds the instance's shared maintenance claim across the call.
+#[allow(clippy::too_many_arguments)]
+async fn install_with_closure(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    inst_root: &std::path::Path,
+    dd: &std::path::Path,
+    mc_version: &str,
+    loader: LoaderKind,
+    primary_v: ModVersion,
+    primary_title: Option<String>,
+    optional_deps: &[VersionRef],
+) -> crate::error::Result<ClosureInstall> {
+    use crate::mods::deps::{resolve_closure, ProjectKey};
+    use std::sync::Arc;
+
+    let primary = VersionRef {
+        source: primary_v.source,
+        project_id: primary_v.project_id.clone(),
+        version_id: primary_v.version_id.clone(),
+    };
+    // Built on the first chosen optional only: a client can cost a keyring read
+    // (CurseForge's key), and the dependency installs pass none.
+    let mut optional_platform: Option<Box<dyn crate::mods::platform::ModPlatform>> = None;
+
+    // Build the set of already-installed mods so resolve_closure can prune
+    // them. Two views: by source-specific ProjectKey, and by lowercased jar
+    // filename so a dependency already satisfied from a *different* source —
+    // same jar, different platform id — is also pruned.
+    //
+    // The filename view is deliberately enabled-only: a disabled mod lives on
+    // disk as `<name>.jar.disabled`, so it neither loads at runtime (it cannot
+    // satisfy a dependency) nor collides with a fresh `<name>.jar` install.
+    // Letting the dependency install a fresh enabled copy is the right call.
+    // (The ProjectKey view keeps its pre-existing all-mods behaviour for
+    // same-source pruning; only the new cross-source path is enabled-gated.)
+    let installed_mods = crate::mods::installed::list(&inst_root).await?;
+    let installed: std::collections::HashSet<ProjectKey> = installed_mods
+        .iter()
+        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        })
+        .collect();
+    let installed_filenames: std::collections::HashSet<String> = installed_mods
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| m.filename.to_ascii_lowercase())
+        .collect();
+
+    // Shared Arc platform + loader-slug cache for the make_fetch factory.
+    let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(primary.source).into();
+    let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        ProjectKey,
+        bool,
+    >::new()));
+
+    // Factory: produce a fresh fetch closure that shares the Arc'd platform + cache.
+    let make_fetch = || {
+        let platform = platform_arc.clone();
+        let loader_cache = loader_cache.clone();
+        let mc = mc_version.to_string();
+        move |v: ModVersion| {
+            let platform = platform.clone();
+            let loader_cache = loader_cache.clone();
+            let mc = mc.clone();
+            async move { fetch_one_level(platform.as_ref(), &loader_cache, &v, &mc, loader).await }
+        }
+    };
+
+    // Progress callback closes over a clone of the AppHandle and the
+    // primary's project_id (used to tag every progress event so the UI
+    // can route the bar to the right card). Dep installs reuse the same
+    // project_id tag — the UI shows them as part of the same operation.
+    //
+    // `count` is the shared "N of M" item counter (see `ProgressCount`).
+    // It's 0/0 by default and stays that way for every tick emitted while
+    // manifest extras / optional deps are still being resolved below — the
+    // total genuinely isn't known yet at that point. `install_batch` (called
+    // once `install_seq` is assembled) is what sets `count.total` and drives
+    // `count.current`; this closure only reads a snapshot on every tick.
+    let app_for_progress = app.clone();
+    let instance_id_for_progress = instance_id.to_string();
+    let project_id_for_progress = primary_v.project_id.clone();
+    let count = std::sync::Arc::new(crate::mods::install::ProgressCount::default());
+    let count_for_progress = count.clone();
+    let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+        let (current, item_total) = count_for_progress.snapshot();
+        let payload = match phase {
+            crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+                bytes_total: total.map(|t| t as f64),
+                current,
+                total: item_total,
+            },
+            crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+                current,
+                total: item_total,
+            },
+            crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                current,
+                total: item_total,
+            },
+        };
+        let _ = payload.emit(&app_for_progress);
+    });
+
+    // Compute the primary's transitive required closure. The executor only needs
+    // the versions to download — collapse PlannedDep to ModVersion here (the
+    // install-plan path keeps the reason; this one does not surface it).
+    let primary_required: Vec<ModVersion> = resolve_closure(
+        std::slice::from_ref(&primary_v),
+        &installed,
+        &installed_filenames,
+        make_fetch(),
+    )
+    .await?
+    .required
+    .into_iter()
+    .map(|p| p.version)
+    .collect();
+
+    // Best-effort: read the primary jar's manifest and fold in required
+    // libraries the platform metadata omitted (e.g. Waystones requires Balm,
+    // but CF metadata doesn't list it). Unlike the dialog, each extra candidate
+    // is provides-verified over its DOWNLOADED jar before being committed:
+    // verify-fail → skip + log, so we never install a wrong mod. Reading the
+    // primary jar is best-effort — any failure yields no extras and preserves
+    // the prior behaviour. Computed BEFORE `primary_required_ids` and
+    // `install_seq` because both fold these extras in.
+    let extras_raw = manifest_extra_root_versions(&dd, &primary_v, &mc_version, loader).await;
+    let extras = dedup_extra_candidates(
+        extras_raw,
+        &installed,
+        &installed_filenames,
+        &primary_required,
+    );
+    let mut extra_install: Vec<ModVersion> = Vec::new();
+    {
+        use crate::mods::dep_resolve::jar_provides;
+        let mut excl: std::collections::HashSet<ProjectKey> = installed.clone();
+        for v in &primary_required {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        // Executor path only needs the candidate to download — the
+        // `SelectionReason` is surfaced on the install-plan path, not here.
+        for (needed_id, cand, _reason) in extras {
+            if excl.contains(&ProjectKey::of_version(&cand)) {
+                continue;
+            }
+            let sha = match cand.primary_file.sha1.as_deref() {
+                Some(s) if !s.trim().is_empty() => s.to_ascii_lowercase(),
+                _ => continue,
+            };
+            let Ok(cached) = crate::mods::install::fetch_to_cache(
+                &dd,
+                &cand.primary_file.url,
+                &sha,
+                cand.primary_file.size,
+                "mods",
+                &prog,
+            )
+            .await
+            else {
+                continue;
+            };
+            let Ok(bytes) = tokio::fs::read(&cached.path).await else {
+                continue;
+            };
+            if !jar_provides(&bytes, &needed_id) {
+                crate::diag!("dep_resolve: skipping '{needed_id}' — candidate did not provide it");
+                continue;
+            }
+            excl.insert(ProjectKey::of_version(&cand));
+            let sub = resolve_closure(
+                std::slice::from_ref(&cand),
+                &excl,
+                &installed_filenames,
+                make_fetch(),
+            )
+            .await?;
+            for p in &sub.required {
+                excl.insert(ProjectKey::of_version(&p.version));
+            }
+            extra_install.extend(sub.required.into_iter().map(|p| p.version));
+            extra_install.push(cand);
+        }
+    }
+
+    // Project IDs of the primary's transitive required closure plus any
+    // manifest-discovered extras — persisted onto the primary's registry entry
+    // for offline orphan detection.
+    let primary_required_ids = crate::mods::orphans::requires_edges(
+        &installed_mods,
+        None,
+        primary_required.iter().chain(extra_install.iter()),
+    );
+
+    // For each chosen optional: resolve it to a full version, then compute its
+    // transitive sub-closure (excluding installed + already-collected deps).
+    let mut dep_versions: Vec<ModVersion> = primary_required;
+    let mut chosen_optionals: Vec<ModVersion> = Vec::new();
+    // Assumption: chosen optionals share the primary's platform (the dialog only offers same-source optionals). A cross-source optional would resolve against the wrong platform.
+    for opt in optional_deps {
+        // Strict on purpose: the user's consent was about the PRIMARY build.
+        // An optional dependency nobody confirmed stays on the platform's
+        // own filtered answer.
+        let platform_box = optional_platform.get_or_insert_with(|| platform_for(primary.source));
+        let ov = find_version(platform_box, opt, &mc_version, loader, false).await?;
+        let mut excl = installed.clone();
+        for v in &dep_versions {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for v in &extra_install {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for v in &chosen_optionals {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        excl.insert(ProjectKey::of_version(&ov));
+        let sub = resolve_closure(
+            std::slice::from_ref(&ov),
+            &excl,
+            &installed_filenames,
+            make_fetch(),
+        )
+        .await?;
+        dep_versions.extend(sub.required.into_iter().map(|p| p.version));
+        chosen_optionals.push(ov);
+    }
+    let dep_versions = dedup_versions(dep_versions.into_iter());
+
+    // Install sequence: required deps + manifest-discovered extras first (both
+    // before the primary, so the libs are present when the primary loads), then
+    // primary, then chosen optionals.
+    let mut install_seq = dep_versions.clone();
+    install_seq.extend(extra_install.iter().cloned());
+    install_seq.push(primary_v.clone());
+    install_seq.extend(chosen_optionals.iter().cloned());
+
+    // Project titles for the whole sequence, so every jar — primary AND its
+    // dependencies — is recorded under its mod name instead of the platform
+    // version title. Cache-first through `summary_cache`; ids it cannot resolve
+    // are simply absent and fall back, then get repaired by the backfill.
+    let mut titles = project_titles_for(app, &install_seq).await;
+    // A title the caller already resolved (the missing-dependency path reads
+    // it from the requiring mod) wins over the cache.
+    if let Some(t) = &primary_title {
+        titles.insert((primary_v.source, primary_v.project_id.clone()), t.clone());
+    }
+
+    let installed_all = match crate::mods::install_batch::install_batch(
+        &dd,
+        &inst_root,
+        &install_seq,
+        &titles,
+        &prog,
+        &count,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(f) => {
+            let _ = ModInstallFailed {
+                instance_id: instance_id.to_string(),
+                project_id: f.project_id,
+                error: f.error.clone(),
+            }
+            .emit(app);
+            return Err(f.error);
+        }
+    };
+    // The batch is atomic — emit the per-mod events only now that every item
+    // has committed, so a rollback can never contradict an already-sent
+    // success event.
+    let mut installed_dependencies: Vec<String> = Vec::new();
+    let mut primary_sha1: Option<String> = None;
+    for (v, inst) in install_seq.iter().zip(installed_all.iter()) {
+        let _ = ModInstalled {
+            instance_id: instance_id.to_string(),
+            sha1: inst.sha1.clone(),
+            filename: inst.filename.clone(),
+            name: inst.name.clone(),
+        }
+        .emit(app);
+        if version_matches(v, &primary) {
+            primary_sha1 = Some(inst.sha1.clone());
+        } else {
+            installed_dependencies.push(inst.name.clone());
+        }
+    }
+    // Per-file provenance/outcome rows for this install, persisted below under
+    // a freshly minted task id so the journal row can deep-link back to them.
+    let details = mod_install_details(&install_seq, &installed_all);
+    // ONE journal row per user action, not one per written jar: "installed
+    // Create" is the history the user recognises, with the dependency count as
+    // supporting detail. Written after the batch COMMITS (so a rolled-back
+    // install leaves no trace) but BEFORE the fallible `set_requires` below —
+    // the jars are already durably on disk at this point, so a `set_requires`
+    // failure must not erase the record of a change that really happened.
+    // `mint_and_record` persists `details` under a fresh id BEFORE the journal
+    // write, so the row below always names a report that already exists on
+    // disk — never the reverse.
+    let task_id = crate::reports::mint_and_record(&inst_root, details.clone());
+    crate::journal::record(
+        &inst_root,
+        crate::journal::JournalEvent::Content {
+            action: crate::journal::ContentAction::ModInstalled,
+            subject: primary_title
+                .clone()
+                .unwrap_or_else(|| primary_v.name.clone()),
+            from_version: None,
+            to_version: Some(primary_v.version_number.clone()),
+            affected: Some(installed_all.len() as f64),
+            report_id: Some(task_id),
+        },
+    );
+    if let Some(sha1) = primary_sha1 {
+        crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
+    }
+    Ok(ClosureInstall {
+        summary: crate::mods::platform::InstallSummary {
+            primary_name: primary_title.unwrap_or_else(|| primary_v.name.clone()),
+            installed_dependencies,
+            details,
+        },
+        registry_before: installed_mods,
+        installed: install_seq,
+    })
+}
+
+/// Add what a dependency install pulled in to the DEPENDENT's `requires`, so
+/// removing the dependent later offers it as an orphan (§5.6). A union with the
+/// row as it is now (`installed::add_requires`), never an overwrite from the
+/// run's snapshot: a second install for the same dependent may have committed
+/// meanwhile. A dependent that is gone gets nothing.
+async fn record_dependent_edges(
+    inst_root: &std::path::Path,
+    dependent_sha1: &str,
+    run: &ClosureInstall,
+) -> crate::error::Result<()> {
+    match crate::mods::orphans::dependent_edges_after(
+        &run.registry_before,
+        dependent_sha1,
+        run.installed.iter(),
+    ) {
+        Some(edges) => crate::mods::installed::add_requires(inst_root, dependent_sha1, edges).await,
+        None => Ok(()),
+    }
+}
+
+/// Install a dependency a known dependent needs (tree node, panel row, gate):
+/// the newest build the platform lists for this instance, with its own required
+/// closure, committed like a Browse install; then the dependent records what it
+/// pulled in. No build listed for this instance is `ModsDependencyUnresolvable`;
+/// a platform that cannot be asked (network, a missing CurseForge key) is its
+/// own typed error — never a guessed build.
+///
+/// Runs under the instance's SHARED maintenance claim, like every per-item mod
+/// writer.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_install_dependency(
+    app: tauri::AppHandle,
+    instance_id: String,
+    dependent_sha1: String,
+    source: ModSource,
+    project_id: String,
+) -> crate::error::Result<crate::mods::platform::InstallSummary> {
+    // Held from before the installed list is read (the closure is pruned from
+    // it) until the batch, its journal row and both rows' edges are written.
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
+    let installed: crate::error::Result<crate::mods::platform::InstallSummary> =
+        crate::network::throttle::with_interactive(async move {
+            let inst_root = instance_root(&app, &instance_id)?;
+            let dd = data_dir(&app)?;
+            let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+            let newest = platform_for(source)
+                .versions(&project_id, Some(&mc_version), Some(loader))
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| crate::error::Error::ModsDependencyUnresolvable {
+                    project_ref: project_id.clone(),
+                })?;
+            let run = install_with_closure(
+                &app,
+                &instance_id,
+                &inst_root,
+                &dd,
+                &mc_version,
+                loader,
+                newest,
+                None,
+                &[],
+            )
+            .await?;
+            record_dependent_edges(&inst_root, &dependent_sha1, &run).await?;
+            Ok(run.summary)
+        })
+        .await;
     drop(write);
     installed
 }
@@ -3110,6 +3236,12 @@ pub async fn mods_apply_mc_migration(
     Ok(McMigrationReport { outcomes })
 }
 
+/// Libraries that nothing would need once `removing` is gone, to offer for
+/// removal with it. The registry's `requires` edges propose them; the jars
+/// decide: a candidate whose removal together with `removing` (and the other
+/// offers) would give a mod that stays enabled a pre-flight violation is
+/// dropped (A14), however incomplete the edges are. An error — never an
+/// unchecked offer — when the jars could not be read.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_find_orphans(
@@ -3119,7 +3251,19 @@ pub async fn mods_find_orphans(
 ) -> crate::error::Result<Vec<crate::mods::platform::OrphanRef>> {
     let root = instance_root(&app, &instance_id)?;
     let mods = crate::mods::installed::list(&root).await?;
-    Ok(crate::mods::orphans::find_orphans(&mods, &removing))
+    let candidates = crate::mods::orphans::find_orphans(&mods, &removing);
+    if candidates.is_empty() {
+        return Ok(candidates);
+    }
+    let parsed = parsed_instance(&app, &instance_id).await?;
+    let targets: std::collections::HashSet<String> = removing.into_iter().collect();
+    let shas: Vec<String> = candidates.iter().map(|c| c.sha1.clone()).collect();
+    let keep: std::collections::HashSet<String> =
+        parsed.removable_with(&targets, &shas).into_iter().collect();
+    Ok(candidates
+        .into_iter()
+        .filter(|c| keep.contains(&c.sha1))
+        .collect())
 }
 
 /// Best-effort: read `primary`'s jar manifest and resolve required libraries
@@ -3402,9 +3546,11 @@ pub async fn mods_resolve_dep_names(
 /// historical path: Modrinth-slug-first + name-search — now also querying the
 /// word-segmented form of a slammed id — then CF, the latter loader/MC-
 /// decoupled. Either way the downloaded jar is verified to actually provide
-/// that id before it is installed. No manifest range context on this bare-id
-/// path → `range = None`. On any resolution/verification miss returns
-/// `OpenSearch` so the UI can offer a pre-filled search instead of guessing.
+/// that id before it is installed — with its own required closure, like a
+/// Browse install — and the pulled-in projects are added to the requiring mod's
+/// `requires`. No manifest range context on this bare-id path → `range = None`.
+/// On any resolution/verification miss returns `OpenSearch` so the UI can offer
+/// a pre-filled search instead of guessing.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_install_missing_required(
@@ -3417,8 +3563,8 @@ pub async fn mods_install_missing_required(
     use crate::mods::platform::InstallMissingOutcome;
 
     // The shared maintenance claim, held from the installed-list read that
-    // finds the requiring mod until the jar and its journal row land. Every
-    // `OpenSearch` return below releases it through `Drop`.
+    // finds the requiring mod until the batch, its journal row and both rows'
+    // edges land. Every `OpenSearch` return below releases it through `Drop`.
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
@@ -3526,29 +3672,26 @@ pub async fn mods_install_missing_required(
         return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
     }
 
-    // `candidate` is consumed by `install_one`; keep its version for the journal
-    // so this path's rows carry the same detail as every other platform install.
-    let candidate_version = candidate.version_number.clone();
-    let inst =
-        crate::mods::install::install_one(&dd, &inst_root, candidate, resolved_title, &nop).await?;
-    crate::journal::record(
+    // The verified candidate installs WITH its own required closure through the
+    // same atomic batch a Browse install uses (journal row and `mod-installed`
+    // events included), and the dependent records what it pulled in (§5.6).
+    let run = crate::network::throttle::with_interactive(install_with_closure(
+        &app,
+        &instance_id,
         &inst_root,
-        crate::journal::content_versioned(
-            crate::journal::ContentAction::ModInstalled,
-            inst.name.clone(),
-            None,
-            Some(candidate_version),
-        ),
-    );
+        &dd,
+        &mc_version,
+        loader,
+        candidate,
+        resolved_title,
+        &[],
+    ))
+    .await?;
+    record_dependent_edges(&inst_root, &dependent_sha1, &run).await?;
     drop(write);
-    let _ = ModInstalled {
-        instance_id: instance_id.clone(),
-        sha1: inst.sha1,
-        filename: inst.filename,
-        name: inst.name.clone(),
-    }
-    .emit(&app);
-    Ok(InstallMissingOutcome::Installed { name: inst.name })
+    Ok(InstallMissingOutcome::Installed {
+        name: run.summary.primary_name,
+    })
 }
 
 /// Build a full nested dependency graph for all platform-identified mods in
