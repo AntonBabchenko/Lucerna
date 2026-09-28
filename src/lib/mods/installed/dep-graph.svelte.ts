@@ -97,21 +97,24 @@ export function createDepGraph(
     return out;
   });
 
-  // Relationship count only. There is deliberately no "missing" tally here: the
-  // graph knows what the platform was told, not what the loader enforces, and a
-  // measured mod declares on Modrinth a dependency its own jar descriptor does
-  // not. The pre-flight owns "this is a problem".
+  // Distinct REQUIRED projects in the subtree (spec 2026-09-28 §6.3: REI is 3,
+  // not 4) — a diamond visits a library twice, and an optional child (with
+  // everything under it) or a cycle back to the mod itself is not something it
+  // requires. Still no "missing" tally: the graph knows what the platform was
+  // told, not what the loader enforces. The pre-flight owns "this is a problem".
   function depCounts(root: DepRoot | undefined) {
     if (!root) return { total: 0 };
-    let total = 0;
+    const seen = new Set<string>();
     const walk = (ns: DepTreeNode[]) => {
       for (const n of ns) {
-        total++;
+        if (n.declared !== 'required') continue;
+        seen.add(`${n.source}:${n.project_id}`);
         if (!n.cycle) walk(n.children);
       }
     };
     walk(root.required);
-    return { total };
+    seen.delete(`${root.source}:${root.project_id}`);
+    return { total: seen.size };
   }
 
   async function reloadGraphNow() {

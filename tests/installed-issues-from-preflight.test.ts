@@ -12,7 +12,7 @@
  * violation (1) on the SAME row, so neither source can be swapped for the other
  * without one of the two failing.
  */
-import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 const mod = vi.hoisted(() => ({
@@ -53,6 +53,19 @@ const graphWithAbsentRequired = vi.hoisted(() => ({
   ],
 }));
 
+// Alpha's platform summary: a row with one renders its dependency chip, which opens the tree.
+const alphaSummary = vi.hoisted(() => ({
+  source: 'modrinth',
+  project_id: 'PA',
+  slug: 'alpha',
+  name: 'Alpha',
+  summary: '',
+  icon_url: null,
+  downloads: 0,
+  author: 'x',
+  updated_at: null,
+}));
+
 const mocks = vi.hoisted(() => ({ instanceDependencyPreflight: vi.fn() }));
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -60,7 +73,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [mod] }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
-    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsProjects: vi.fn((_source: string, ids: string[]) =>
+      Promise.resolve({ status: 'ok', data: ids.includes('PA') ? [alphaSummary] : [] }),
+    ),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: graphWithAbsentRequired }),
@@ -108,17 +123,24 @@ describe('the issue count comes from the pre-flight', () => {
       data: { violations: [] },
     });
     render(InstalledModsView, { props: props('graph-only') });
-    await waitFor(() => {
-      expect(document.querySelector('[data-mod-row="modrinth:PA"]')).not.toBeNull();
+    // The graph has landed: Alpha's row counts the platform's dependency.
+    const chip = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="dep-expand-chip"]');
+      if (!el) throw new Error('dependency chip not rendered yet');
+      return el;
     });
-    expect(issuesChip()).toBeUndefined();
 
-    // Case A, measured: the claim is not hidden either — it is reported with
-    // attribution, in the neutral register, so the user can see what the author
-    // typed without the launcher adopting it as a finding.
-    await waitFor(() =>
-      expect(document.querySelector('[data-testid="author-claim-badge"]')).not.toBeNull(),
+    // Case A, measured: the claim is not hidden either, and it gets no badge on the row any more
+    // (D4). The tree says what the loader does about it — here nothing: the pre-flight judged
+    // Alpha and asked for nothing, so the mod starts without it. Neutral register, no danger.
+    expect(document.querySelector('[data-testid="author-claim-badge"]')).toBeNull();
+    await fireEvent.click(chip);
+    const node = await screen.findByText(
+      'not installed · per the platform; the mod starts without it',
     );
+    expect(node.closest('.text-danger')).toBeNull();
+    // That state stands on the pre-flight's answer — which found no issue here.
+    expect(issuesChip()).toBeUndefined();
     expect(document.querySelector('[data-testid="status-badge"]')).toBeNull();
   });
 

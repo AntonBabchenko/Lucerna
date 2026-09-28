@@ -570,6 +570,18 @@ body[data-tour-active] .tour-overlay {
   background-color: color-mix(in oklab, rgb(var(--accent)) 12%, transparent);
 }
 
+/* DepTree (the app's one WAI-ARIA tree): the treeitem <li> owns focus (roving
+   tabindex) but also wraps its nested group, so a ring on it would circle the
+   whole branch. The ring goes on the item's own row instead, inset like
+   .card-zone's — the rows are packed tight. */
+[role='treeitem']:focus-visible {
+  outline: none;
+}
+[role='treeitem']:focus-visible > .tree-row {
+  outline: 2px solid rgb(var(--focus-ring));
+  outline-offset: -2px;
+}
+
 /* Rotating disclosure caret for native <details>/<summary> sections
    (modpack import picker + imported-pack drawer). Wraps an <Icon name="caret" />. */
 .disclosure-caret {

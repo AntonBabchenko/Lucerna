@@ -52,7 +52,8 @@
     type OffPlatformRow,
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
-  import { depNameOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
+  import { depNameOf, depProjectOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
+  import type { DepTreeCtx } from '$lib/mods/dep-node-state';
   import { countFixed, fixAll } from '$lib/mods/fix-all';
   import { SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
@@ -278,6 +279,35 @@
     const own = v.provider_sha1 ? nameBySha.get(v.provider_sha1) : undefined;
     return own ?? depNameOf(instanceId, v.dependent_sha1, v.dep_id) ?? v.dep_id;
   }
+
+  // What the dependency trees need to say what the loader does (spec §6.3). The FULL report, not
+  // the blocking subset: "without it the game won't start" stays true while a pack is still
+  // completing itself. A tree knows a dependency by its project only, so its «Enable» looks the
+  // disabled jar up by (source, project id) and takes the row's own guarded path.
+  const shaByKey = (enabled: boolean) =>
+    new Map<string, string>(
+      data.rows
+        .filter((r) => r.installed.enabled === enabled)
+        .map((r) => [
+          modKey(r.installed.source, r.installed.project_id, r.installed.sha1),
+          r.installed.sha1,
+        ]),
+    );
+  const enabledShaByKey = $derived(shaByKey(true));
+  const disabledShaByKey = $derived(shaByKey(false));
+  const treeCtx: DepTreeCtx = {
+    get report() {
+      return preflight.report;
+    },
+    projectOf: (sha1, depId) => depProjectOf(instanceId, sha1, depId),
+    enabledShaOf: (key) => enabledShaByKey.get(key) ?? null,
+    onEnable: (node) => {
+      const sha1 = disabledShaByKey.get(`${node.source}:${node.project_id}`);
+      // Switched on or removed since the graph was built: nothing is off to switch on.
+      if (!sha1) return;
+      void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
+    },
+  };
 
   // Reset per-row remediation state on instance switch. The keys are dep-based
   // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
@@ -878,6 +908,7 @@
             : null}
           selected={selection.selected.has(row.installed.sha1)}
           {outOfRangeKeys}
+          {treeCtx}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
           onHover={(k) => (deps.hoveredKey = k)}
           onOpenDetail={() => {

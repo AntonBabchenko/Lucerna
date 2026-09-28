@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DepTreeNode } from '$lib/ipc/bindings';
 
 const mocks = vi.hoisted(() => ({
   modsDependencyGraph: vi.fn(),
@@ -92,6 +93,52 @@ describe('createDepGraph', () => {
     // No `missing` tally: the graph knows what the platform was told, not what
     // the loader enforces. The pre-flight owns "this is a problem".
     expect(d.depCounts(root)).toEqual({ total: 2 });
+  });
+
+  const n = (
+    pid: string,
+    children: DepTreeNode[] = [],
+    declared: 'required' | 'optional' = 'required',
+    cycle = false,
+  ): DepTreeNode => ({
+    source: 'modrinth',
+    project_id: pid,
+    name: pid,
+    installed: true,
+    declared,
+    cycle,
+    children,
+  });
+  const rootOf = (pid: string, required: DepTreeNode[]) => ({
+    sha1: 'r',
+    source: 'modrinth' as const,
+    project_id: pid,
+    name: pid,
+    required,
+    optional: [],
+  });
+
+  // Spec §6.3: a diamond visits a library twice, but it is one project the mod requires.
+  it('depCounts counts distinct required projects, not visits (REI: 3, not 4)', () => {
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      ctx,
+    );
+    const root = rootOf('REI', [n('arch'), n('cloth', [n('arch'), n('lib')])]);
+    expect(d.depCounts(root)).toEqual({ total: 3 });
+  });
+
+  it('depCounts skips optional children and a cycle back to the mod itself', () => {
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      ctx,
+    );
+    const root = rootOf('R', [
+      n('x', [n('o', [n('deep')], 'optional'), n('R', [], 'required', true)]),
+    ]);
+    expect(d.depCounts(root)).toEqual({ total: 1 });
   });
 
   // `missingShas` is gone on purpose: it made the graph the source of the issue

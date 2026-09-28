@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DepTreeNode } from '$lib/ipc/bindings';
+import { describe, expect, it, vi } from 'vitest';
+import type { DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import DepTree from '$lib/mods/DepTree.svelte';
-import { isClaimDismissed } from '$lib/mods/dep-claim-dismiss';
+import { type DepTreeCtx, EMPTY_TREE_CTX } from '$lib/mods/dep-node-state';
 import DepSection from '$lib/mods/installed/DepSection.svelte';
-import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
+import { describedText } from './test-utils/aria';
+import { rawRangeDesc } from './test-utils/range-desc';
 
 const tree: DepTreeNode[] = [
   {
@@ -101,28 +102,40 @@ describe('DepTree', () => {
   });
 });
 
-describe('DepSection — the author is credited, and the user can settle a claim', () => {
-  const modRef = { source: 'modrinth' as const, project_id: 'PA' };
-  const absentRequired = (pid: string, name: string): DepTreeNode => ({
-    source: 'modrinth',
-    project_id: pid,
-    name,
-    installed: false,
-    declared: 'required',
-    cycle: false,
-    children: [],
-  });
-  const root = () => ({
-    sha1: 'a',
-    source: 'modrinth' as const,
-    project_id: 'PA',
-    name: 'Alpha',
-    required: [absentRequired('PB', 'Stylish Effects'), absentRequired('PC', 'Some Lib')],
-    optional: [],
-  });
+const leaf = (pid: string, over: Partial<DepTreeNode> = {}): DepTreeNode => ({
+  source: 'modrinth',
+  project_id: pid,
+  name: pid.toUpperCase(),
+  installed: true,
+  declared: 'required',
+  cycle: false,
+  children: [],
+  ...over,
+});
+const treeProps = (over: Record<string, unknown> = {}) => ({
+  nodes: [leaf('a', { children: [leaf('b', { children: [leaf('c')] })] }), leaf('d')],
+  hoveredKey: null,
+  onHover: () => {},
+  onInstall: () => {},
+  onAdd: () => {},
+  onOpenDetail: () => {},
+  ...over,
+});
+const item = (name: string) =>
+  screen.getByText(name, { selector: 'button' }).closest('[role="treeitem"]') as HTMLElement;
+
+describe('DepSection — headings state the relation; nothing to dismiss', () => {
+  const absent = (pid: string, name: string): DepTreeNode => leaf(pid, { name, installed: false });
   const sectionProps = () => ({
-    root: root(),
-    requiredBy: [],
+    root: {
+      sha1: 'a',
+      source: 'modrinth' as const,
+      project_id: 'PA',
+      name: 'Alpha',
+      required: [absent('PB', 'Stylish Effects')],
+      optional: [{ ...absent('PO', 'Extras'), declared: 'optional' as const }],
+    },
+    requiredBy: [{ name: 'Gamma', source: 'modrinth' as const, projectId: 'PG', sha1: 'g' }],
     hoveredKey: null,
     onHover: () => {},
     onInstall: () => {},
@@ -130,35 +143,185 @@ describe('DepSection — the author is credited, and the user can settle a claim
     onOpenDetail: () => {},
   });
 
-  beforeEach(() => diagnosisDismiss.reset());
-
-  it('heads the section with attribution rather than an assertion', () => {
+  it('heads the lists «Requires» / «Optional» / «Required by» — the author-claim wording is gone', () => {
     render(DepSection, { props: sectionProps() });
-    expect(screen.getByText(/author marked required/i)).toBeTruthy();
-    expect(screen.queryByText(/^Requires$/)).toBeNull();
+    expect(screen.getByText('Requires')).toBeTruthy();
+    expect(screen.getByText('Optional')).toBeTruthy();
+    expect(screen.getByText('Required by')).toBeTruthy();
+    expect(screen.queryByText(/author marked/i)).toBeNull();
   });
 
-  it('dismissing one claim leaves the sibling claim visible', async () => {
+  it('offers no claim dismissal and no hidden-claims line', () => {
     render(DepSection, { props: sectionProps() });
-    expect(screen.getAllByTestId('claim-dismiss')).toHaveLength(2);
+    expect(screen.queryByTestId('claim-dismiss')).toBeNull();
     expect(screen.queryByTestId('claim-restore')).toBeNull();
-
-    await fireEvent.click(screen.getAllByTestId('claim-dismiss')[0]);
-
-    expect(screen.getAllByTestId('claim-dismiss')).toHaveLength(1);
-    expect(screen.getByText('Some Lib')).toBeTruthy();
-    expect(screen.queryByText('Stylish Effects')).toBeNull();
-    expect(screen.getByTestId('claim-restore').textContent).toMatch(/1/);
-    // Exactly the acknowledged pair is settled — not the mod, not the instance.
-    expect(isClaimDismissed(modRef, { source: 'modrinth', project_id: 'PB' })).toBe(true);
-    expect(isClaimDismissed(modRef, { source: 'modrinth', project_id: 'PC' })).toBe(false);
   });
 
-  it('restores the hidden claims', async () => {
+  it('labels each tree by its heading', () => {
     render(DepSection, { props: sectionProps() });
-    await fireEvent.click(screen.getAllByTestId('claim-dismiss')[0]);
-    await fireEvent.click(screen.getByTestId('claim-restore'));
-    expect(screen.getAllByTestId('claim-dismiss')).toHaveLength(2);
-    expect(screen.queryByTestId('claim-restore')).toBeNull();
+    const trees = screen.getAllByRole('tree');
+    expect(trees).toHaveLength(2);
+    expect(trees[0]?.getAttribute('aria-labelledby')).toBe('dep-req-a');
+    expect(document.getElementById('dep-req-a')?.textContent).toContain('Requires');
+    expect(trees[1]?.getAttribute('aria-labelledby')).toBe('dep-opt-a');
+    expect(document.getElementById('dep-opt-a')?.textContent).toContain('Optional');
+  });
+});
+
+describe('DepTree — each absent dependency says what the loader does', () => {
+  const miss = (depId: string): DepViolation => ({
+    kind: 'missing_required',
+    dependent_name: 'Alpha',
+    dependent_sha1: 'a',
+    dep_id: depId,
+    needed: '',
+    needed_desc: rawRangeDesc(''),
+    installed_version: null,
+    provider_project: null,
+    provider_sha1: null,
+    family: null,
+  });
+  const ctx = (report: PreflightReport | null, over: Partial<DepTreeCtx> = {}): DepTreeCtx => ({
+    ...EMPTY_TREE_CTX,
+    report,
+    projectOf: (_s, depId) => (depId === 'balm' ? { source: 'modrinth', project_id: 'pb' } : null),
+    ...over,
+  });
+  const one = (n: DepTreeNode, c: DepTreeCtx) =>
+    render(DepTree, { props: treeProps({ nodes: [n], dependentSha1: 'a', ctx: c }) });
+  const balm = leaf('pb', { name: 'Balm', installed: false });
+
+  it('red when the loader requires it', () => {
+    one(balm, ctx({ violations: [miss('balm')] }));
+    expect(item('Balm').getAttribute('data-node-state')).toBe('loader_required');
+    expect(
+      screen.getByText("not installed — the game won't start without it").closest('.text-danger'),
+    ).not.toBeNull();
+  });
+
+  it('neutral, and says the mod starts without it, when the loader asked for nothing', () => {
+    one(balm, ctx({ violations: [] }));
+    expect(item('Balm').getAttribute('data-node-state')).toBe('platform_only');
+    expect(
+      screen.getByText('not installed · per the platform; the mod starts without it'),
+    ).toBeTruthy();
+    expect(item('Balm').querySelector('.text-danger')).toBeNull();
+  });
+
+  it('makes no loader claim for an unjudged dependent', () => {
+    one(balm, ctx({ violations: [], unjudged: ['a'] }));
+    expect(screen.getByText('not installed · per the platform')).toBeTruthy();
+    expect(screen.queryByText(/starts without it|won't start/)).toBeNull();
+  });
+
+  it('a disabled dependency offers Enable', async () => {
+    const onEnable = vi.fn();
+    const x = leaf('px', { name: 'Xaero', installed: false, disabled: true });
+    one(x, ctx({ violations: [] }, { onEnable }));
+    expect(screen.getByText('disabled')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Enable Xaero' }));
+    expect(onEnable).toHaveBeenCalledWith(x);
+  });
+
+  // The item's name is the mod; what the tree says about it is its description — the state is
+  // never hidden behind a label, and nested items are not read as part of their parent's name.
+  it('names each item by its mod and describes it by what the tree says about it', () => {
+    one(balm, ctx({ violations: [miss('balm')] }));
+    const el = screen.getByRole('treeitem', { name: 'Balm' });
+    expect(describedText(el)).toBe("not installed — the game won't start without it");
+  });
+});
+
+describe('DepTree — a WAI-ARIA tree', () => {
+  it('one tree of treeitems in groups; top level open, deeper branches closed', () => {
+    render(DepTree, { props: treeProps() });
+    expect(screen.getAllByRole('tree')).toHaveLength(1);
+    expect(item('A').getAttribute('aria-expanded')).toBe('true');
+    expect(item('B').getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('C')).toBeNull();
+    expect(item('D').hasAttribute('aria-expanded')).toBe(false);
+    expect(item('B').parentElement?.getAttribute('role')).toBe('group');
+  });
+
+  it('keeps one tab stop and moves it with Up/Down', async () => {
+    render(DepTree, { props: treeProps() });
+    const stops = screen
+      .getAllByRole('treeitem')
+      .filter((el) => el.getAttribute('tabindex') === '0');
+    expect(stops).toEqual([item('A')]);
+    item('A').focus();
+    await fireEvent.keyDown(item('A'), { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(item('B'));
+    expect(item('A').getAttribute('tabindex')).toBe('-1');
+    await fireEvent.keyDown(item('B'), { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(item('A'));
+  });
+
+  // Tab from the tree's stop reaches that item's own actions, never another item's.
+  it('an item’s buttons follow its tab stop', () => {
+    render(DepTree, { props: treeProps() });
+    const tabIndexes = (el: HTMLElement) =>
+      [...(el.firstElementChild?.querySelectorAll('button') ?? [])].map((b) =>
+        b.getAttribute('tabindex'),
+      );
+    // name, ↗ — the chevron is a mouse affordance, never a tab stop
+    expect(tabIndexes(item('A')).filter((t) => t !== '-1')).toEqual(['0', '0']);
+    expect(tabIndexes(item('D')).every((t) => t === '-1')).toBe(true);
+  });
+
+  it('Right opens a closed branch; Left closes it, then climbs to the parent', async () => {
+    render(DepTree, { props: treeProps() });
+    item('B').focus();
+    await fireEvent.keyDown(item('B'), { key: 'ArrowRight' });
+    expect(item('B').getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('C')).toBeTruthy();
+    await fireEvent.keyDown(item('B'), { key: 'ArrowLeft' });
+    expect(item('B').getAttribute('aria-expanded')).toBe('false');
+    await fireEvent.keyDown(item('B'), { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(item('A'));
+  });
+
+  it('Home/End reach the ends; Enter opens the mod', async () => {
+    const onOpenDetail = vi.fn();
+    render(DepTree, { props: treeProps({ onOpenDetail }) });
+    item('A').focus();
+    await fireEvent.keyDown(item('A'), { key: 'End' });
+    expect(document.activeElement).toBe(item('D'));
+    await fireEvent.keyDown(item('D'), { key: 'Home' });
+    expect(document.activeElement).toBe(item('A'));
+    await fireEvent.keyDown(item('A'), { key: 'Enter' });
+    expect(onOpenDetail).toHaveBeenCalledWith('modrinth', 'a');
+  });
+
+  // Not the first item: the branch that hid the stop takes it.
+  it('a branch that closes around the tab stop takes the stop', async () => {
+    render(DepTree, {
+      props: treeProps({ nodes: [leaf('a'), leaf('d', { children: [leaf('e')] })] }),
+    });
+    item('A').focus();
+    await fireEvent.keyDown(item('A'), { key: 'End' }); // E holds the stop
+    expect(item('E').getAttribute('tabindex')).toBe('0');
+    const chevron = item('D').querySelector<HTMLElement>('[data-tree-toggle]');
+    await fireEvent.click(chevron as HTMLElement); // the mouse closes D around it
+    expect(item('D').getAttribute('aria-expanded')).toBe('false');
+    expect(item('D').getAttribute('tabindex')).toBe('0');
+    expect(item('A').getAttribute('tabindex')).toBe('-1');
+  });
+
+  // The graph is re-resolved after every mod change; the item holding the stop may be gone.
+  it('the first item takes the stop when the one holding it is gone', async () => {
+    const { rerender } = render(DepTree, { props: treeProps() });
+    item('A').focus();
+    await fireEvent.keyDown(item('A'), { key: 'End' }); // D holds the stop
+    expect(item('D').getAttribute('tabindex')).toBe('0');
+    await rerender(treeProps({ nodes: [leaf('a'), leaf('e')] }));
+    expect(item('A').getAttribute('tabindex')).toBe('0');
+    expect(item('E').getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('hover highlights but never selects', () => {
+    render(DepTree, { props: treeProps({ hoveredKey: 'modrinth:d' }) });
+    expect(item('D').getAttribute('aria-selected')).toBe('false');
+    expect(item('D').querySelector('.tree-row')?.classList.contains('bg-dep-highlight')).toBe(true);
   });
 });

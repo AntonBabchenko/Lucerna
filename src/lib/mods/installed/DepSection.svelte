@@ -4,8 +4,8 @@
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import DepTree from '../DepTree.svelte';
+  import { type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
   import type { RequiredByEntry } from './dep-graph.svelte';
-  import { dismissClaim, isClaimDismissed, restoreClaim } from '$lib/mods/dep-claim-dismiss';
 
   let {
     root,
@@ -16,6 +16,7 @@
     onJump,
     onOpenDetail,
     outOfRangeKeys = new Set(),
+    treeCtx = EMPTY_TREE_CTX,
   }: {
     root: DepRoot;
     requiredBy: RequiredByEntry[];
@@ -25,19 +26,13 @@
     onJump: (target: { source: ModSource; project_id: string }) => void;
     onOpenDetail: (source: ModSource, projectId: string) => void;
     outOfRangeKeys?: Set<string>;
+    // What the trees need to say what the loader does about each dependency.
+    treeCtx?: DepTreeCtx;
   } = $props();
 
-  // Owner of the claims rendered here. Dismissal is keyed on the (mod, dep)
-  // PAIR, so the acknowledgement travels with the mod rather than the instance.
-  const owner = $derived({ source: root.source, project_id: root.project_id });
-  const refOf = (n: DepTreeNode) => ({ source: n.source, project_id: n.project_id });
-
-  // An INSTALLED dependency is never hidden, even if its claim was settled while
-  // it was absent — the tree's job is still to show the relationship.
-  const isHidden = (n: DepTreeNode) =>
-    !n.installed && n.declared === 'required' && isClaimDismissed(owner, refOf(n));
-  const visibleRequired = $derived(root.required.filter((n) => !isHidden(n)));
-  const hidden = $derived(root.required.filter(isHidden));
+  // The headings name the trees (`aria-labelledby`); a row's mod appears once in the list.
+  const reqId = $derived(`dep-req-${root.sha1}`);
+  const optId = $derived(`dep-opt-${root.sha1}`);
 </script>
 
 <!-- onAdd and onInstall both resolve to the same install handler here: in this
@@ -47,15 +42,18 @@
      content under its mod and is clearly separated from the next mod row
      (a full-width grey block blended into the following row). -->
 <div class="mx-3 mb-2 rounded-md border border-border-subtle bg-subtle/40 px-3 py-2">
-  <!-- The headings attribute rather than assert. "Requires" was the launcher
-       speaking; the platform's dependency list is the author speaking, and a
-       measured mod's list is contradicted by its own jar descriptor. -->
-  {#if visibleRequired.length > 0}
-    <div class="text-[10px] uppercase tracking-wide text-muted mt-1">
-      {$t('mods.installed.sectionAuthorRequired')}
+  <!-- «Requires» is safe to say again: each absent node now carries its truthful state
+       (loader-required / platform-only / unknown) instead of the heading hedging for all of
+       them (spec 2026-09-28 D4, overriding 2026-08-03 descriptor-authority §6). -->
+  {#if root.required.length > 0}
+    <div id={reqId} class="text-[10px] uppercase tracking-wide text-muted mt-1">
+      {$t('mods.installed.sectionRequires')}
     </div>
     <DepTree
-      nodes={visibleRequired}
+      nodes={root.required}
+      labelledby={reqId}
+      dependentSha1={root.sha1}
+      ctx={treeCtx}
       {outOfRangeKeys}
       {hoveredKey}
       {onHover}
@@ -63,29 +61,17 @@
       onAdd={onInstall}
       {onJump}
       {onOpenDetail}
-      onDismissClaim={(n) => dismissClaim(owner, refOf(n))}
     />
   {/if}
-  {#if hidden.length > 0}
-    <!-- A muted line, not the amber DiagnosisRestoreButton: that is the
-         vocabulary of a warning, which is the tone being removed here. The
-         expand chip always renders when a mod has any relationship, so this
-         path back can never be lost. -->
-    <button
-      type="button"
-      class="btn-tertiary text-xs text-muted mt-2"
-      data-testid="claim-restore"
-      onclick={() => hidden.forEach((n) => restoreClaim(owner, refOf(n)))}
-    >
-      {$t('mods.deps.claimsHidden', { count: hidden.length })}
-    </button>
-  {/if}
   {#if root.optional.length > 0}
-    <div class="text-[10px] uppercase tracking-wide text-muted mt-2">
-      {$t('mods.installed.sectionAuthorOptional')}
+    <div id={optId} class="text-[10px] uppercase tracking-wide text-muted mt-2">
+      {$t('mods.installed.sectionOptional')}
     </div>
     <DepTree
       nodes={root.optional}
+      labelledby={optId}
+      dependentSha1={root.sha1}
+      ctx={treeCtx}
       {outOfRangeKeys}
       {hoveredKey}
       {onHover}
