@@ -132,14 +132,14 @@ const missingViolation: DepViolation = {
 describe('PreflightPanel', () => {
   it('renders nothing when report is null', () => {
     const { queryByTestId } = render(PreflightPanel, {
-      props: { report: null, onUpdate: () => {} },
+      props: { report: null },
     });
     expect(queryByTestId('preflight-panel')).toBeNull();
   });
 
   it('renders nothing when violations list is empty', () => {
     const { queryByTestId } = render(PreflightPanel, {
-      props: { report: { violations: [] }, onUpdate: () => {} },
+      props: { report: { violations: [] } },
     });
     expect(queryByTestId('preflight-panel')).toBeNull();
   });
@@ -152,7 +152,6 @@ describe('PreflightPanel', () => {
     const { getByTestId, getAllByTestId } = render(PreflightPanel, {
       props: {
         report: { violations: [outOfRangeViolation] },
-        onUpdate: () => {},
         depName: (v: { dep_id: string }) =>
           v.dep_id === 'sophisticatedcore' ? 'Sophisticated Core' : null,
       },
@@ -167,14 +166,14 @@ describe('PreflightPanel', () => {
 
   it('shows the raw dep id when no overlay is supplied — the launch-gate case', () => {
     const { getAllByTestId } = render(PreflightPanel, {
-      props: { report: { violations: [outOfRangeViolation] }, onUpdate: () => {} },
+      props: { report: { violations: [outOfRangeViolation] } },
     });
     expect(getAllByTestId('preflight-row')[0].textContent).toContain('sophisticatedcore');
   });
 
   it('renders one row for a missing_required violation with the dependent name and dep id', () => {
     const { getAllByTestId } = render(PreflightPanel, {
-      props: { report: { violations: [missingViolation] }, onUpdate: () => {} },
+      props: { report: { violations: [missingViolation] } },
     });
     const rows = getAllByTestId('preflight-row');
     expect(rows).toHaveLength(1);
@@ -183,16 +182,17 @@ describe('PreflightPanel', () => {
     expect(rowText).toContain('missingmod');
   });
 
-  it('renders an Update button for version_out_of_range and an Install button for missing_required', () => {
+  it('renders Fix… for version_out_of_range and an Install button for missing_required', () => {
     const reportWithBoth: PreflightReport = { violations: [outOfRangeViolation, missingViolation] };
-    const { getAllByRole, getByRole } = render(PreflightPanel, {
-      props: { report: reportWithBoth, onUpdate: () => {}, onInstallMissing: () => {} },
+    const { getAllByRole, getByRole, queryByRole } = render(PreflightPanel, {
+      props: { report: reportWithBoth, onInstallMissing: () => {} },
     });
     const buttons = getAllByRole('button');
-    // outOfRangeViolation → "Update" + "Choose version"; missingViolation →
+    // outOfRangeViolation → «Fix…» (the planner) + "Choose version"; missingViolation →
     // one "Install {dep}" button. Three action buttons total.
     expect(buttons).toHaveLength(3);
-    expect(getByRole('button', { name: /update/i })).toBeTruthy();
+    expect(getByRole('button', { name: 'Fix…' })).toBeTruthy();
+    expect(queryByRole('button', { name: /update/i })).toBeNull();
     expect(getByRole('button', { name: /choose version/i })).toBeTruthy();
     expect(getByRole('button', { name: /missingmod/i })).toBeTruthy();
   });

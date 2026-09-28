@@ -37,11 +37,12 @@
     createPreflight,
     hasBlocking,
     installMissing,
+    planVersionFix,
     remediatePickedVersion,
-    remediateViolation,
     toOverlayKeys,
     violationKey,
   } from '$lib/mods/preflight.svelte';
+  import type { PlanSide, PlanState } from '$lib/mods/violation-view';
   import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
   import MigrationPlanDialog from '../MigrationPlanDialog.svelte';
   import { modProjectUrl } from '$lib/mods/project-url';
@@ -55,7 +56,7 @@
   import { depNameOf, depProjectOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
   import type { DepTreeCtx } from '$lib/mods/dep-node-state';
   import { countFixed, fixAll } from '$lib/mods/fix-all';
-  import { SvelteSet } from 'svelte/reactivity';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
@@ -249,11 +250,13 @@
   );
 
   // Per-row pre-flight remediation state, keyed by violationKey. `busy` shows a
-  // spinner on the row; `deadEnd` flips it to the no-satisfying affordances
-  // (open mod page / find alternative). The picker + find-alternative dialogs
-  // are driven by the *Violation holders below.
+  // spinner on the row; `deadEnd` flips it to the no-fix affordances (open mod
+  // page / find alternative); `plans` holds the version planner's answer for a
+  // conflict (spec §6.5). The picker + find-alternative dialogs are driven by
+  // the *Violation holders below.
   let preflightBusy = $state(new SvelteSet<string>());
   let preflightDeadEnd = $state(new SvelteSet<string>());
+  const plans = new SvelteMap<string, PlanState>();
   let pickerViolation = $state<DepViolation | null>(null);
   let findAltViolation = $state<DepViolation | null>(null);
 
@@ -333,9 +336,20 @@
     void instanceId;
     preflightBusy.clear();
     preflightDeadEnd.clear();
+    plans.clear();
     pickerViolation = null;
     findAltViolation = null;
     offPlatformPrompt = null;
+  });
+
+  // A plan answers for the mods it read, and so does a dead end. Once the
+  // pre-flight reads the folder again — any install, toggle or removal, here or
+  // elsewhere — neither may still hold: a switch that "breaks nothing" may break
+  // a mod added since (D8). So both go, and the row's «Fix…» asks again.
+  $effect(() => {
+    void preflight.report;
+    plans.clear();
+    preflightDeadEnd.clear();
   });
 
   async function refreshAfterRemediate(): Promise<void> {
@@ -344,35 +358,59 @@
     await data.refresh();
   }
 
-  // Smart one-click update: install the newest version that satisfies the dep
-  // range AND the instance MC/loader. On a no-satisfying dead-end the row flips
-  // to the open-page / find-alternative affordances instead of a useless retry.
-  const onPreflightUpdate = async (v: DepViolation): Promise<void> => {
-    if (!instanceId || !mcVersion || !loader) return;
+  // «Fix…» on a version conflict (spec §6.5) — from the panel row, the row's
+  // own line or the dependency tree: ask the two-sided planner, the network
+  // only on this click. Its offers show in the panel row. An answer is not
+  // asked for again until the mods change (the effect above clears it).
+  async function planFix(v: DepViolation): Promise<void> {
+    const id = instanceId;
     const key = violationKey(v);
+    if (!id) return;
+    const from = typeof document === 'undefined' ? null : document.activeElement;
+    const asked = plans.get(key)?.status;
+    // Answered already — offers, or the dead end: take the user there.
+    if (asked === 'ready' || preflightDeadEnd.has(key)) return handFocusToPanelRow(key, from);
+    // One look at a time, and none while a fix of this row is being applied.
+    if (asked === 'loading' || preflightBusy.has(key)) return;
+    const report = preflight.report;
+    plans.set(key, { status: 'loading' });
+    const answer = await planVersionFix(id, v);
+    // Another profile now, or mods that changed while it was being made (the
+    // effect above has already dropped its spinner): the row asks again.
+    if (instanceId !== id || preflight.report !== report) return;
+    if (answer.status === 'dead_end') {
+      plans.delete(key);
+      preflightDeadEnd.add(key);
+    } else {
+      plans.set(key, answer);
+    }
+    await handFocusToPanelRow(key, from);
+  }
+
+  // Apply the side the user clicked, through the existing switch flows: the new
+  // build downloads before the old jar goes, an off-platform build is asked
+  // about, a toast says what happened, and the pre-flight runs again — only it
+  // says whether the row is gone.
+  async function applyPlan(v: DepViolation, side: PlanSide): Promise<void> {
+    const id = instanceId;
+    const key = violationKey(v);
+    const st = plans.get(key);
+    if (!id || st?.status !== 'ready' || preflightBusy.has(key)) return;
+    const { update_dependent: dependent, change_provider: provider } = st.plan;
     preflightBusy.add(key);
-    // finally clears the busy key even if an IPC call throws (bridge teardown),
-    // so a row can never get stuck showing a spinner.
     try {
-      const result = await remediateViolation(instanceId, v, mcVersion, loader);
-      if (result.ok) {
-        preflightDeadEnd.delete(key);
-        pushSuccess(
-          get(t)('mods.preflight.installedVersion', {
-            dep: depName(v),
-            version: result.installedVersion ?? '',
-          }),
-        );
-        await refreshAfterRemediate();
-      } else if (result.reason === 'no-satisfying') {
-        preflightDeadEnd.add(key);
-      } else {
-        pushWarning(get(t)('mods.browse.toastInstallFailed'));
+      if (side === 'dependent' && dependent) {
+        const name = nameBySha.get(v.dependent_sha1) ?? v.dependent_name;
+        await runVersionInstall(id, name, v.dependent_sha1, dependent.version, {});
+      } else if (side === 'provider' && provider) {
+        await runPickedInstall(id, v, provider.version, {});
       }
     } finally {
+      // Spent either way: a switch changed the mods, and a failed one may have.
+      plans.delete(key);
       preflightBusy.delete(key);
     }
-  };
+  }
 
   // Open the dependency's version list so the user can install any version
   // (including a downgrade) — routed in place via remediatePickedVersion.
@@ -443,7 +481,7 @@
     ) {
       return;
     }
-    pushWarning(get(t)('mods.browse.toastInstallFailed'));
+    pushWarning(get(t)('mods.browse.toastInstallFailed'), r.error ? [formatError(r.error)] : []);
   }
 
   // One-click install of a missing required dependency from the pre-flight
@@ -483,17 +521,31 @@
     return setEnabled([{ sha1, name: depName(v) }], true);
   }
 
+  // A «What stops the game» row by its key — matched by value, not by a
+  // selector: a key is data (a sha1 and a mod id).
+  const panelRow = (key: string): HTMLElement | undefined =>
+    [...document.querySelectorAll<HTMLElement>('[data-violation-key]')].find(
+      (el) => el.dataset.violationKey === key,
+    );
+
   // Bring a violation's panel row into view: the row line's «and N more», and
-  // its «Fix…» until the version-fix planner has a flow of its own.
+  // its «Fix…» — the planner's offers show in that row.
   async function revealInPanel(v: DepViolation): Promise<void> {
     await tick();
     if (typeof document === 'undefined') return;
-    const key = violationKey(v);
-    // Matched by value, not by a selector: a key is data (a sha1 and a mod id).
-    const row = [...document.querySelectorAll<HTMLElement>('[data-violation-key]')].find(
-      (el) => el.dataset.violationKey === key,
-    );
-    row?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    panelRow(violationKey(v))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }
+
+  // The planner's answer lands in the panel row; focus follows it when the user
+  // is still where they asked from (the row's or the tree's «Fix…») or lost it
+  // with the panel's own button, which the spinner replaced — never pulled from
+  // wherever they went meanwhile.
+  async function handFocusToPanelRow(key: string, from: Element | null): Promise<void> {
+    await tick();
+    if (typeof document === 'undefined') return;
+    const active = document.activeElement;
+    if (active !== from && active !== null && active !== document.body) return;
+    panelRow(key)?.querySelector<HTMLElement>('button')?.focus();
   }
 
   // ↗ from a panel row. A search or a chip that hides the dependent is cleared
@@ -575,6 +627,8 @@
         void onInstallMissingDep(fix.violation);
         return;
       case 'plan':
+        // The planner's offers show in the panel row: ask, and bring it into view.
+        void planFix(fix.violation);
         void revealInPanel(fix.violation);
         return;
       case 'choose_version':
@@ -873,7 +927,6 @@
     report={preflight.report}
     {instanceId}
     {depName}
-    onUpdate={onPreflightUpdate}
     onInstallMissing={onInstallMissingDep}
     onEnableProvider={enableProvider}
     onJumpToDependent={jumpToDependent}
@@ -886,6 +939,9 @@
     migrateCount={compat.incompatibleCount}
     busyKeys={preflightBusy}
     deadEndKeys={preflightDeadEnd}
+    {plans}
+    onPlan={planFix}
+    onApplyPlan={applyPlan}
   />
 
   {#if !instanceId}

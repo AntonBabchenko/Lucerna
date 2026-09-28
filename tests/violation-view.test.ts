@@ -4,6 +4,7 @@ import { locale, t } from '$lib/i18n';
 import type { DepViolation } from '$lib/ipc/bindings';
 import {
   isFixable,
+  planOffers,
   platformLabel,
   violationAction,
   violationMessage,
@@ -82,5 +83,59 @@ describe('violationAction', () => {
     expect(platformLabel('fabricloader')).toBe('Fabric Loader');
     expect(platformLabel('neoforge')).toBe('NeoForge');
     expect(platformLabel('somethingelse')).toBe('somethingelse');
+  });
+});
+
+// The planner's two fixes as buttons (spec D8, §6.5).
+describe('planOffers', () => {
+  beforeAll(() => locale.set('en'));
+  const v: DepViolation = {
+    ...base,
+    kind: 'version_out_of_range',
+    dependent_name: 'Indium',
+    dep_id: 'sodium',
+  };
+  const ver = (n: string) => ({ version_number: n }) as never;
+  const provider = (direction: 'upgrade' | 'downgrade' | 'unknown', breaks: string[] = []) => ({
+    update_dependent: null,
+    change_provider: { version: ver('0.5.11'), direction, breaks },
+  });
+
+  it('puts «update the dependent» first and makes it the primary action', () => {
+    const plan = {
+      update_dependent: { version: ver('1.2') },
+      change_provider: provider('downgrade').change_provider,
+    };
+    expect(planOffers(get(t), v, plan, 'Sodium').map((o) => [o.side, o.label, o.primary])).toEqual([
+      ['dependent', 'Update Indium to 1.2', true],
+      ['provider', 'Roll Sodium back to 0.5.11', false],
+    ]);
+  });
+
+  it('names a provider change by its real direction — neutrally when it is unknown (A-F5)', () => {
+    const label = (d: 'upgrade' | 'downgrade' | 'unknown') =>
+      planOffers(get(t), v, provider(d), 'Sodium')[0]?.label;
+    expect(label('upgrade')).toBe('Update Sodium to 0.5.11');
+    expect(label('downgrade')).toBe('Roll Sodium back to 0.5.11');
+    // Never a guessed «Update» or «Roll back» where a qualifier decides the order.
+    expect(label('unknown')).toBe('Switch Sodium to 0.5.11');
+  });
+
+  it('a lone provider change that breaks nothing is the primary action', () => {
+    expect(planOffers(get(t), v, provider('upgrade'), 'Sodium')[0]).toMatchObject({
+      side: 'provider',
+      primary: true,
+      breaks: [],
+    });
+  });
+
+  it('never makes a breaking change the primary action, and carries whom it breaks (D8)', () => {
+    const [o] = planOffers(get(t), v, provider('downgrade', ['Iris', 'Reese']), 'Sodium');
+    expect(o).toMatchObject({ side: 'provider', primary: false, breaks: ['Iris', 'Reese'] });
+  });
+
+  it('offers nothing for a plan with neither side', () => {
+    const none = { update_dependent: null, change_provider: null };
+    expect(planOffers(get(t), v, none, 'Sodium')).toEqual([]);
   });
 });

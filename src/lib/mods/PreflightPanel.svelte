@@ -7,7 +7,14 @@
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
   import { depNameOf } from '$lib/mods/dep-names.svelte';
   import { hasBlocking, isRangeRemediable, violationKey } from './preflight.svelte';
-  import { isFixable, violationAction, violationMessage } from './violation-view';
+  import {
+    isFixable,
+    type PlanSide,
+    type PlanState,
+    planOffers,
+    violationAction,
+    violationMessage,
+  } from './violation-view';
 
   // «What stops the game» (spec §6.2): the pre-flight's blocking reasons, each
   // with ↗ to its row and its fix. The same panel is the Play gate's list.
@@ -15,7 +22,6 @@
     report,
     instanceId = null,
     depName = undefined,
-    onUpdate = () => {},
     onInstallMissing = () => {},
     onEnableProvider = () => {},
     onChooseVersion = () => {},
@@ -28,6 +34,9 @@
     migrateCount = 0,
     busyKeys = new Set<string>(),
     deadEndKeys = new Set<string>(),
+    plans = new Map<string, PlanState>(),
+    onPlan = () => {},
+    onApplyPlan = () => {},
     showRowActions = true,
     showHeader = true,
   }: {
@@ -39,7 +48,6 @@
     // call between the user and Play. Unresolved → the raw loader id, per row.
     instanceId?: string | null;
     depName?: (v: DepViolation) => string | null;
-    onUpdate?: (v: DepViolation) => void;
     onInstallMissing?: (v: DepViolation) => void;
     // `required_disabled`: switch the disabled provider back on (mod-ops asks
     // first when it has disabled requirements of its own).
@@ -58,10 +66,18 @@
     // with no rows at all. Only the Installed tab passes it.
     onMigrate?: () => void;
     migrateCount?: number;
-    // Row keys (violationKey) mid-remediation / with no satisfying version.
-    // Pass a SvelteSet for live updates — a plain Set is read once.
+    // Row keys (violationKey) mid-remediation / where the planner found no
+    // build either side that fixes the conflict. Pass a SvelteSet for live
+    // updates — a plain Set is read once.
     busyKeys?: Set<string>;
     deadEndKeys?: Set<string>;
+    // The two-sided planner per row key (spec §5.4, §6.5) — a SvelteMap for
+    // live updates. «Fix…» asks for a plan (network only on that click); a
+    // ready plan's offers apply one side each, a breaking one only on its own
+    // click (D8).
+    plans?: Map<string, PlanState>;
+    onPlan?: (v: DepViolation) => void;
+    onApplyPlan?: (v: DepViolation, side: PlanSide) => void;
     // The launch gate mutes per-row actions (it repairs through its own
     // button), so it passes false to hide them.
     showRowActions?: boolean;
@@ -74,6 +90,10 @@
     depName?.(v) ??
     (instanceId ? depNameOf(instanceId, v.dependent_sha1, v.dep_id) : null) ??
     v.dep_id;
+
+  // Ids for the text a row's buttons are described by — the planner's note, a
+  // change's «Breaks:» — per row index (and offer side).
+  const uid = $props.id();
 
   // Blocking rows only, by the gate's own predicate: while a self-completing
   // pack is still fetching files its complaints are advisory, and a panel
@@ -148,7 +168,7 @@
         aria-label={$t('mods.preflight.panelTitle')}
         data-testid="preflight-scroll"
       >
-        {#each violations as v (violationKey(v))}
+        {#each violations as v, i (violationKey(v))}
           {@const key = violationKey(v)}
           {@const action = violationAction(v)}
           <div
@@ -179,45 +199,98 @@
                 >
                   {$t('mods.preflight.install', { dep: nameOf(v) })}
                 </button>
-              {:else if isRangeRemediable(v) && v.provider_project !== null}
+              {:else if action === 'plan'}
+                {@const plan = plans.get(key)}
+                {@const noteId = `${uid}-${i}-note`}
+                <!-- A version conflict (a range either way, or an incompatibility):
+                     «Fix…» asks the two-sided planner. A look that failed is not
+                     «no version» (spec §9); both sides empty is the honest dead end.
+                     What the planner said describes the buttons after it, so it is
+                     heard where focus lands, not only seen. -->
                 {#if busyKeys.has(key)}
                   <Spinner size="sm" class="shrink-0 text-secondary" />
+                {:else if plan?.status === 'loading'}
+                  <Spinner
+                    size="sm"
+                    labelPlacement="right"
+                    label={$t('mods.preflight.planLooking')}
+                    class="shrink-0 text-secondary"
+                  />
                 {:else if deadEndKeys.has(key)}
-                  <span class="shrink-0 text-xs text-secondary">
+                  <span id={noteId} class="shrink-0 text-xs text-secondary">
                     {$t('mods.preflight.noCompatible')}
                   </span>
+                  {#if v.provider_project !== null}
+                    <button
+                      type="button"
+                      class="btn-link text-xs shrink-0"
+                      aria-describedby={noteId}
+                      onclick={() => onOpenModPage(v)}
+                    >
+                      {$t('mods.preflight.openModPage')}
+                    </button>
+                  {/if}
                   <button
                     type="button"
                     class="btn-link text-xs shrink-0"
-                    onclick={() => onOpenModPage(v)}
-                  >
-                    {$t('mods.preflight.openModPage')}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn-link text-xs shrink-0"
+                    aria-describedby={noteId}
                     use:tooltip={{ text: $t('mods.preflight.findAlternativeTip'), describe: false }}
                     onclick={() => onFindAlternative(v)}
                   >
                     {$t('mods.preflight.findAlternative')}
                   </button>
                 {:else}
-                  <button
-                    type="button"
-                    class="btn-secondary btn-xs shrink-0"
-                    use:tooltip={{ text: $t('mods.preflight.updateTip'), describe: false }}
-                    onclick={() => onUpdate(v)}
-                  >
-                    {$t('mods.preflight.update')}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn-link text-xs shrink-0"
-                    use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
-                    onclick={() => onChooseVersion(v)}
-                  >
-                    {$t('mods.preflight.chooseVersion')}
-                  </button>
+                  {#if plan?.status === 'ready'}
+                    {#each planOffers($t, v, plan.plan, nameOf(v)) as o (o.side)}
+                      {@const breaksId = `${uid}-${i}-${o.side}-breaks`}
+                      <!-- What a change would break is said beside it and heard with it;
+                           it is never the default, and it takes its own click (D8). -->
+                      <button
+                        type="button"
+                        class="{o.primary ? 'btn-primary' : 'btn-secondary'} btn-xs shrink-0"
+                        data-testid="preflight-plan-{o.side}"
+                        aria-describedby={o.breaks.length > 0 ? breaksId : undefined}
+                        onclick={() => onApplyPlan(v, o.side)}
+                      >
+                        {o.label}
+                      </button>
+                      {#if o.breaks.length > 0}
+                        <span
+                          id={breaksId}
+                          class="shrink-0 text-xs text-warning-text"
+                          data-testid="preflight-plan-breaks"
+                        >
+                          {$t('mods.preflight.planBreaks', { names: o.breaks.join(', ') })}
+                        </span>
+                      {/if}
+                    {/each}
+                  {:else}
+                    {#if plan?.status === 'failed'}
+                      <span id={noteId} class="min-w-0 text-xs text-secondary">
+                        {$t('mods.preflight.planFailed', { reason: plan.message })}
+                      </span>
+                    {/if}
+                    <button
+                      type="button"
+                      class="btn-secondary btn-xs shrink-0"
+                      aria-describedby={plan?.status === 'failed' ? noteId : undefined}
+                      onclick={() => onPlan(v)}
+                    >
+                      {$t('mods.preflight.fixPlan')}
+                    </button>
+                  {/if}
+                  <!-- The manual path, for a range only: for an incompatibility the
+                       picker's "fits range" marks exactly the builds that clash. -->
+                  {#if isRangeRemediable(v) && v.provider_project !== null}
+                    <button
+                      type="button"
+                      class="btn-link text-xs shrink-0"
+                      use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
+                      onclick={() => onChooseVersion(v)}
+                    >
+                      {$t('mods.preflight.chooseVersion')}
+                    </button>
+                  {/if}
                 {/if}
               {/if}
               {#if onJumpToDependent}

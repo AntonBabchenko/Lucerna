@@ -4,9 +4,9 @@ import {
   type DepViolation,
   type InstallMissingOutcome,
   type Error as IpcError,
-  type LoaderKind,
   type ModVersion,
   type PreflightReport,
+  type VersionFixPlan,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import type { InstallOpts } from '$lib/tasks/adapters/mod-install';
@@ -36,14 +36,14 @@ export function toOverlayKeys(report: PreflightReport): Set<string> {
 }
 
 /**
- * True when "install a version that satisfies the declared range" is the right
- * repair for this violation.
+ * True when "install a version that satisfies the declared range" is a sound
+ * manual repair for this violation — the panel's «Choose version» picker, whose
+ * "fits range" marks come from `modsFilterSatisfying`.
  *
  * Deliberately EXCLUDES `incompatible_installed`: there the range names the
- * versions that clash, so the satisfying set is exactly what must be avoided —
- * remediating it with `modsFilterSatisfying` would install a worse version.
- * That row is informational until a dedicated "pick a version outside the
- * range" flow exists.
+ * versions that clash, so the satisfying set is exactly what must be avoided.
+ * That row's repair is the planner (`planVersionFix`), which judges the
+ * negation.
  */
 export function isRangeRemediable(v: DepViolation): boolean {
   return v.kind === 'version_out_of_range' || v.kind === 'optional_out_of_range';
@@ -75,70 +75,31 @@ export function hasBlocking(report: PreflightReport): boolean {
 // Remediation helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Extract a `{ source, project_id }` pair from a `DepProjectRef` in the same
- * string key format used by `depProjectRefKey` (curseforge uses `mod_id`).
- */
-function depRefToIds(ref: DepProjectRef): { source: 'modrinth' | 'curseforge'; projectId: string } {
-  if (ref.source === 'modrinth') {
-    return { source: 'modrinth', projectId: ref.project_id };
-  }
-  return { source: 'curseforge', projectId: String(ref.mod_id) };
-}
+/** What the two-sided planner said about one conflict (spec §5.4). */
+export type PlanAnswer =
+  | { status: 'ready'; plan: VersionFixPlan }
+  /** Neither side has a build that fixes it — the honest dead end. */
+  | { status: 'dead_end' }
+  /** The look itself failed (offline, rate-limited, no CurseForge key): never "no version". */
+  | { status: 'failed'; message: string };
 
 /**
- * Resolve and install the newest version that BOTH is MC/loader-compatible AND
- * satisfies the dependency's declared range, for a single `version_out_of_range`
- * violation that has a `provider_project`.
- *
- * The range check runs in Rust (`mods_filter_satisfying`, backed by
- * `version_range::satisfies`) on the version list we already fetched, so the
- * snapshot-beta case — newest-compatible but out of range — is skipped instead
- * of re-installed.
- *
- * Fail semantics (never throws):
- * - `no-provider`   — no provider project / family to resolve against.
- * - `no-version`    — the platform returned no versions.
- * - `no-satisfying` — versions exist but none satisfy the range (honest dead-end).
- * - `update-failed` — the install/update command errored.
- * On success returns the installed `version_number` for the toast.
+ * Ask the planner how to fix the conflict `v` reports — update the dependent to
+ * a build that accepts what is installed, or change the dependency to a build
+ * the dependent accepts, naming whom that breaks. The network is used only
+ * here, on the user's click. Never throws: a call that failed, or a bridge that
+ * threw, is `failed` with its reason — a look that could not be made is not a
+ * dead end (spec §9).
  */
-export async function remediateViolation(
-  instanceId: string,
-  v: DepViolation,
-  mc: string,
-  loader: LoaderKind,
-): Promise<{ ok: boolean; reason?: string; installedVersion?: string }> {
-  if (v.provider_project === null || v.family === null) {
-    return { ok: false, reason: 'no-provider' };
+export async function planVersionFix(instanceId: string, v: DepViolation): Promise<PlanAnswer> {
+  try {
+    const r = await commands.modsPlanVersionFix(instanceId, v.dependent_sha1, v.dep_id);
+    if (r.status === 'error') return { status: 'failed', message: formatError(r.error) };
+    const { update_dependent: dependent, change_provider: provider } = r.data;
+    return dependent || provider ? { status: 'ready', plan: r.data } : { status: 'dead_end' };
+  } catch (e) {
+    return { status: 'failed', message: e instanceof Error ? e.message : String(e) };
   }
-  const { source, projectId } = depRefToIds(v.provider_project);
-  const vr = await commands.modsVersions(source, projectId, mc, loader);
-  if (vr.status === 'error' || vr.data.length === 0) {
-    return { ok: false, reason: 'no-version' };
-  }
-  // Keep only versions that satisfy the declared range; the first index is the
-  // newest satisfying one (modsVersions is newest-first).
-  const idx = await commands.modsFilterSatisfying(
-    vr.data.map((x) => x.version_number),
-    v.needed,
-    v.family,
-  );
-  if (idx.length === 0) {
-    return { ok: false, reason: 'no-satisfying' };
-  }
-  const primary = vr.data[idx[0]];
-  const res = v.provider_sha1
-    ? await updateMod(instanceId, primary.name, v.provider_sha1, primary)
-    : await installModWithDeps(
-        instanceId,
-        primary.name,
-        { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
-        [],
-      );
-  return res.status === 'ok'
-    ? { ok: true, installedVersion: primary.version_number }
-    : { ok: false, reason: 'update-failed' };
 }
 
 /** Stable per-row key for a violation (matches `PreflightPanel`'s row key). */

@@ -1,5 +1,6 @@
 import type { Translate } from '$lib/i18n';
-import type { DepViolation } from '$lib/ipc/bindings';
+import type { TranslationKey } from '$lib/i18n/keys.generated';
+import type { ChangeDirection, DepViolation, VersionFixPlan } from '$lib/ipc/bindings';
 import { formatRange, isSoftRange } from './range-format';
 
 // What each pre-flight ViolationKind reads as, and which repair applies — one
@@ -103,4 +104,66 @@ export function violationAction(v: DepViolation): ViolationAction {
 /** Counted by «Fix all»: a violation with an automatic repair. */
 export function isFixable(v: DepViolation): boolean {
   return violationAction(v) !== 'none';
+}
+
+/** The planner's answer for one row, keyed by `violationKey` (the Installed tab's «Fix…»). */
+export type PlanState =
+  | { status: 'loading' }
+  | { status: 'ready'; plan: VersionFixPlan }
+  | { status: 'failed'; message: string };
+
+/** Which mod a planner fix changes: the one that declared the range, or the one it names. */
+export type PlanSide = 'dependent' | 'provider';
+
+export type PlanOffer = {
+  side: PlanSide;
+  label: string;
+  /** The row's default action — never a change that breaks another mod (spec D8). */
+  primary: boolean;
+  /** Enabled mods a change of the dependency would break: said beside it, applied only on its own click. */
+  breaks: string[];
+};
+
+// The verb follows the comparator's verdict. `unknown` (a qualifier decides the order) takes the
+// neutral one — never a guessed «Update» or «Roll back» (audit A-F5). A Record, so a new direction
+// is a compile error here rather than a mislabelled button.
+const PROVIDER_CHANGE_KEY: Record<ChangeDirection, TranslationKey> = {
+  upgrade: 'mods.preflight.planUpgradeDep',
+  downgrade: 'mods.preflight.planDowngradeDep',
+  unknown: 'mods.preflight.planSwitchDep',
+};
+
+/**
+ * The planner's fixes as buttons (spec D8, §6.5). A newer build of the dependent that accepts what
+ * is installed comes first: it changes no other mod. Then the change of the dependency, named by
+ * its real direction. Only a change that breaks nothing may be the primary action.
+ */
+export function planOffers(
+  t: Translate,
+  v: DepViolation,
+  plan: VersionFixPlan,
+  dep: string,
+): PlanOffer[] {
+  const out: PlanOffer[] = [];
+  if (plan.update_dependent) {
+    out.push({
+      side: 'dependent',
+      primary: true,
+      breaks: [],
+      label: t('mods.preflight.planUpdateDependent', {
+        dependent: v.dependent_name,
+        version: plan.update_dependent.version.version_number,
+      }),
+    });
+  }
+  const p = plan.change_provider;
+  if (p) {
+    out.push({
+      side: 'provider',
+      primary: out.length === 0 && p.breaks.length === 0,
+      breaks: [...p.breaks],
+      label: t(PROVIDER_CHANGE_KEY[p.direction], { dep, version: p.version.version_number }),
+    });
+  }
+  return out;
 }
