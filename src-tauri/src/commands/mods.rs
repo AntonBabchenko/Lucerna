@@ -3110,23 +3110,73 @@ pub struct DepNameQuery {
     pub dep_id: String,
 }
 
-/// A dependency id and the project name it resolved to.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
-pub struct DepNameResolved {
-    pub dep_id: String,
-    pub name: String,
+/// Which project a dependency id resolved to — enough to install it or open its
+/// page without resolving the name again.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DepProjectKey {
+    pub source: ModSource,
+    pub project_id: String,
 }
 
-/// Human names for missing dependencies, for the compatibility panel's label.
+/// A dependency id, the mod that declared it, and what it resolved to.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DepNameResolved {
+    /// Part of the key: two mods can declare the same bare id and mean
+    /// different projects (audit A-F3).
+    pub dependent_sha1: String,
+    pub dep_id: String,
+    pub name: String,
+    /// Always `Some` today — every resolution names its project — and kept an
+    /// `Option` so a future name-only source needs no wire change.
+    pub project: Option<DepProjectKey>,
+}
+
+/// Pure core of [`mods_resolve_dep_names`]: one resolution per
+/// `(dependent_sha1, dep_id)`, never per bare `dep_id` — the old per-id dedup
+/// handed every dependent whichever project the first one resolved to.
+async fn dep_names_scoped<F, Fut>(
+    queries: Vec<DepNameQuery>,
+    installed: &[crate::mods::platform::InstalledMod],
+    mut resolve: F,
+) -> Vec<DepNameResolved>
+where
+    F: FnMut(crate::mods::platform::InstalledMod, String) -> Fut,
+    Fut: std::future::Future<Output = Option<crate::mods::dep_project::DepProject>>,
+{
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let mut out: Vec<DepNameResolved> = Vec::new();
+    for q in queries {
+        if !seen.insert((q.dependent_sha1.clone(), q.dep_id.clone())) {
+            continue; // the same pair asked twice
+        }
+        // A dependent the registry no longer lists has no metadata to ask.
+        let Some(requiring) = installed.iter().find(|m| m.sha1 == q.dependent_sha1) else {
+            continue;
+        };
+        if let Some(p) = resolve(requiring.clone(), q.dep_id.clone()).await {
+            out.push(DepNameResolved {
+                dependent_sha1: q.dependent_sha1,
+                dep_id: q.dep_id,
+                name: p.name,
+                project: Some(DepProjectKey {
+                    source: p.source,
+                    project_id: p.project_id,
+                }),
+            });
+        }
+    }
+    out
+}
+
+/// Human names for dependencies, keyed by `(dependent_sha1, dep_id)`, each with
+/// the project it points at.
 ///
-/// Called ONLY from the Installed tab. The launch gate deliberately does not
-/// call it: nothing may sit between the user and the Play button, so the gate
-/// renders the raw loader id. That asymmetry is the design, not an omission.
-///
-/// Best-effort per id — anything unresolved is simply absent from the result
-/// and the panel falls back to the id. Never invents a name: resolution goes
+/// Best-effort per pair — anything unresolved is simply absent from the result
+/// and the UI falls back to the id. Never invents a name: resolution goes
 /// through the strict matcher, because unlike the install path there is no
-/// downloaded jar here to check a guess against.
+/// downloaded jar here to check a guess against. The launch gate does not call
+/// it — nothing may sit between the user and Play — so any name the gate shows
+/// was resolved earlier.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_resolve_dep_names(
@@ -3137,23 +3187,13 @@ pub async fn mods_resolve_dep_names(
     let inst_root = instance_root(&app, &instance_id)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
     let installed = crate::mods::installed::list(&inst_root).await?;
-    let mut out: Vec<DepNameResolved> = Vec::new();
-    for q in queries {
-        if out.iter().any(|r| r.dep_id == q.dep_id) {
-            continue; // two mods can want the same dependency
-        }
-        let Some(requiring) = installed.iter().find(|m| m.sha1 == q.dependent_sha1) else {
-            continue;
-        };
-        if let Some(p) = resolve_dep_project(&app, requiring, &q.dep_id, &mc_version, loader).await
-        {
-            out.push(DepNameResolved {
-                dep_id: q.dep_id,
-                name: p.name,
-            });
-        }
-    }
-    Ok(out)
+    let (app, mc) = (&app, mc_version.as_str());
+    Ok(
+        dep_names_scoped(queries, &installed, move |requiring, dep_id| async move {
+            resolve_dep_project(app, &requiring, &dep_id, mc, loader).await
+        })
+        .await,
+    )
 }
 
 /// One-click install of a missing required dependency identified only by its
@@ -4587,6 +4627,91 @@ mod tests {
         assert!(
             !dest.path().join("Digestless-1.0.jar").exists(),
             "the digestless dep must never be written"
+        );
+    }
+
+    fn named_dependent(sha1: &str) -> crate::mods::platform::InstalledMod {
+        crate::mods::platform::InstalledMod {
+            filename: format!("{sha1}.jar"),
+            sha1: sha1.into(),
+            source: Some(ModSource::Modrinth),
+            project_id: Some(format!("P-{sha1}")),
+            version_id: Some(format!("V-{sha1}")),
+            name: sha1.to_uppercase(),
+            version_number: None,
+            installed_at: "2026-09-28T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        }
+    }
+
+    /// Audit A-F3: two dependents sharing a bare id each get THEIR project.
+    #[tokio::test]
+    async fn dep_names_are_resolved_per_dependent_not_per_bare_id() {
+        let installed = vec![named_dependent("d1"), named_dependent("d2")];
+        let q = |d: &str| DepNameQuery {
+            dependent_sha1: d.into(),
+            dep_id: "lib".into(),
+        };
+        let mut asked: Vec<String> = Vec::new();
+        let got = dep_names_scoped(vec![q("d1"), q("d2"), q("d1")], &installed, |m, _| {
+            asked.push(m.sha1.clone());
+            let pid = if m.sha1 == "d1" { "LIB-A" } else { "LIB-B" };
+            std::future::ready(Some(crate::mods::dep_project::DepProject {
+                source: ModSource::Modrinth,
+                project_id: pid.into(),
+                name: format!("Lib {pid}"),
+            }))
+        })
+        .await;
+        assert_eq!(asked, ["d1", "d2"], "the repeated pair is asked once");
+        let rows: Vec<(&str, &str, Option<&str>)> = got
+            .iter()
+            .map(|r| {
+                let pid = r.project.as_ref().map(|p| p.project_id.as_str());
+                (r.dependent_sha1.as_str(), r.name.as_str(), pid)
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("d1", "Lib LIB-A", Some("LIB-A")),
+                ("d2", "Lib LIB-B", Some("LIB-B"))
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unresolved_or_unknown_dependent_query_stays_absent() {
+        let installed = vec![named_dependent("d1")];
+        let q = |d: &str| DepNameQuery {
+            dependent_sha1: d.into(),
+            dep_id: "lib".into(),
+        };
+        let got = dep_names_scoped(vec![q("d1"), q("ghost")], &installed, |m, _| {
+            assert_ne!(m.sha1, "ghost", "no row, nothing to ask about");
+            std::future::ready(None)
+        })
+        .await;
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn dep_name_resolved_wire_shape_names_the_dependent_and_the_project() {
+        let r = DepNameResolved {
+            dependent_sha1: "d1".into(),
+            dep_id: "lib".into(),
+            name: "Lib".into(),
+            project: Some(DepProjectKey {
+                source: ModSource::Curseforge,
+                project_id: "123".into(),
+            }),
+        };
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            serde_json::json!({"dependent_sha1": "d1", "dep_id": "lib", "name": "Lib",
+                               "project": {"source": "curseforge", "project_id": "123"}})
         );
     }
 }
