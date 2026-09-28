@@ -397,7 +397,8 @@ struct ClosureInstall {
 }
 
 /// The body `mods_install_with_deps` always ran, from "the primary version is
-/// known" to "the batch, its journal row and the primary's edges are written":
+/// known" to "the batch, its journal row and the primary's edges are written"
+/// (an edge write that fails is logged, not the install's verdict):
 /// the primary's required closure (+ manifest extras, + chosen optionals),
 /// warmed, then committed atomically by `install_batch`. Shared with the
 /// dependency installs (§5.6) so a dependency brings its own closure exactly
@@ -733,7 +734,11 @@ async fn install_with_closure(
         },
     );
     if let Some(sha1) = primary_sha1 {
-        crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
+        // Not the install's verdict: the run is committed, journalled and
+        // announced (see `log_unrecorded_edges`).
+        let edges =
+            crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await;
+        log_unrecorded_edges(instance_id, &sha1, edges);
     }
     Ok(ClosureInstall {
         summary: crate::mods::platform::InstallSummary {
@@ -764,6 +769,35 @@ async fn record_dependent_edges(
         Some(edges) => crate::mods::installed::add_requires(inst_root, dependent_sha1, edges).await,
         None => Ok(()),
     }
+}
+
+/// A finished install's `requires`-edge write, reported as what it is. By the
+/// time it runs the jars are placed, journalled and announced, so its failure is
+/// not the install's: the edges only feed orphan detection, and one that did
+/// not land means those dependencies are never offered as orphans — the
+/// restrictive direction — while `mods_find_orphans` re-checks every offer
+/// against pre-flight regardless (A14). So it is logged, naming the instance
+/// and the row, and never returned as the install's verdict.
+fn log_unrecorded_edges(instance_id: &str, sha1: &str, result: crate::error::Result<()>) {
+    if let Err(e) = result {
+        crate::diag!(
+            "mods: install finished in {instance_id}, but the requires edges of {sha1} were not recorded: {e}"
+        );
+    }
+}
+
+/// The end of a dependency install (§5.6): the run is committed, the dependent
+/// records what it pulled in when it can ([`log_unrecorded_edges`] says why a
+/// failure there is not the install's), and the summary is the answer either way.
+async fn finish_dependency_install(
+    instance_id: &str,
+    inst_root: &std::path::Path,
+    dependent_sha1: &str,
+    run: ClosureInstall,
+) -> crate::mods::platform::InstallSummary {
+    let edges = record_dependent_edges(inst_root, dependent_sha1, &run).await;
+    log_unrecorded_edges(instance_id, dependent_sha1, edges);
+    run.summary
 }
 
 /// Refuse to install `(source, project_id)` when the registry already has a row
@@ -840,8 +874,7 @@ pub async fn mods_install_dependency(
                 &[],
             )
             .await?;
-            record_dependent_edges(&inst_root, &dependent_sha1, &run).await?;
-            Ok(run.summary)
+            Ok(finish_dependency_install(&instance_id, &inst_root, &dependent_sha1, run).await)
         })
         .await;
     drop(write);
@@ -3724,10 +3757,10 @@ pub async fn mods_install_missing_required(
         &[],
     ))
     .await?;
-    record_dependent_edges(&inst_root, &dependent_sha1, &run).await?;
+    let summary = finish_dependency_install(&instance_id, &inst_root, &dependent_sha1, run).await;
     drop(write);
     Ok(InstallMissingOutcome::Installed {
-        name: run.summary.primary_name,
+        name: summary.primary_name,
     })
 }
 
@@ -5189,6 +5222,44 @@ mod tests {
             refuse_if_installed(&installed, ModSource::Modrinth, "P-other"),
             Ok(()),
             "a project the registry does not list installs"
+        );
+    }
+
+    /// The end of a dependency install. Its jars are placed, journalled and
+    /// announced by now, so the summary is the answer: the dependent records
+    /// what it pulled in when it can, and an edge write that fails (it only
+    /// feeds orphan detection) never turns the finished install into a failure.
+    #[tokio::test]
+    async fn a_finished_dependency_install_is_reported_done_even_if_its_edges_fail() {
+        let run = || ClosureInstall {
+            summary: crate::mods::platform::InstallSummary {
+                primary_name: "Lib".into(),
+                installed_dependencies: vec![],
+                details: vec![],
+            },
+            registry_before: vec![named_dependent("d1")],
+            installed: vec![mv("lib")],
+        };
+
+        let ok = tempfile::tempdir().unwrap();
+        crate::mods::installed::add(ok.path(), named_dependent("d1"))
+            .await
+            .unwrap();
+        let done = finish_dependency_install("inst", ok.path(), "d1", run()).await;
+        assert_eq!(done.primary_name, "Lib");
+        let rows = crate::mods::installed::read_or_empty(ok.path())
+            .await
+            .unwrap()
+            .mods;
+        assert_eq!(rows[0].requires, ["lib"], "the dependent records the edge");
+
+        let broken = tempfile::tempdir().unwrap();
+        // A folder where the registry file belongs: the edge write cannot land.
+        std::fs::create_dir_all(crate::mods::installed::registry_path(broken.path())).unwrap();
+        let done = finish_dependency_install("inst", broken.path(), "d1", run()).await;
+        assert_eq!(
+            done.primary_name, "Lib",
+            "a finished install is reported done"
         );
     }
 
