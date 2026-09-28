@@ -15,9 +15,10 @@
 //! the file named — nothing is deleted.
 //!
 //! Purge: entries older than [`TRASH_TTL_MS`] at every uninstall; entries from
-//! earlier launcher sessions at start ([`purge_all_instances`]). Only a
-//! directory whose name is exactly a token is ever deleted — anything else under
-//! `trash/` (a `-kept` entry a failed rollback set aside) is not ours to delete.
+//! earlier launcher sessions at start ([`purge_earlier_sessions`]). Both run
+//! under the trash lock. Only a directory whose name is exactly a token is ever
+//! deleted — anything else under `trash/` (a `-kept` entry a failed rollback set
+//! aside) is not ours to delete.
 //!
 //! Fallback discipline: a move that fails midway puts back what it moved and
 //! checks that (Q4); a jar that cannot go back — or whose name a concurrent
@@ -118,8 +119,9 @@ enum Item {
     Skipped(RestoreSkipReason),
 }
 
-/// Serialises uninstall, restore and the per-uninstall purge, so a restore never
-/// reads an entry a concurrent purge is deleting. Process-wide: these are clicks.
+/// Serialises uninstall, restore and both purges (per uninstall, at start), so a
+/// restore never reads an entry a concurrent purge is deleting. Process-wide:
+/// these are clicks, plus one pass per launcher start.
 fn trash_lock() -> &'static tokio::sync::Mutex<()> {
     static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
@@ -555,10 +557,25 @@ pub(crate) fn purge(instance_root: &Path, created_before_ms: u64) -> Vec<String>
     lines
 }
 
-/// Launcher start: empty every instance's trash of entries from EARLIER sessions
-/// ("cleared at next start"). The cutoff is this session's start, so an uninstall
-/// made while this runs keeps its undo window.
-pub fn purge_all_instances(instances_dir: &Path, session_start: SystemTime) -> Vec<String> {
+/// Launcher start: `purge_all_instances` behind the trash lock, like every
+/// other trash writer, so it never deletes an entry a restore is reading. One
+/// line per failure for the caller to `diag!` — a purge that could not run at
+/// all is one line too.
+pub async fn purge_earlier_sessions(
+    instances_dir: PathBuf,
+    session_start: SystemTime,
+) -> Vec<String> {
+    let _serial = trash_lock().lock().await;
+    tokio::task::spawn_blocking(move || purge_all_instances(&instances_dir, session_start))
+        .await
+        .unwrap_or_else(|e| vec![format!("mods trash: start purge task failed: {e}")])
+}
+
+/// Empty every instance's trash of entries from EARLIER sessions ("cleared at
+/// next start"). The cutoff is this session's start, so an uninstall made while
+/// this runs keeps its undo window. Unlocked: reached only through
+/// [`purge_earlier_sessions`].
+fn purge_all_instances(instances_dir: &Path, session_start: SystemTime) -> Vec<String> {
     let cutoff = unix_ms(session_start);
     let entries = match std::fs::read_dir(instances_dir) {
         Ok(rd) => rd,
@@ -985,5 +1002,30 @@ mod tests {
             "this session's undo window survives"
         );
         assert!(purge_all_instances(&td.path().join("none"), start).is_empty());
+    }
+
+    /// The start purge is a trash writer like any other: it waits while an
+    /// uninstall or a restore holds the lock, then empties the earlier
+    /// sessions' entries and keeps this session's.
+    #[tokio::test]
+    async fn the_start_purge_waits_for_the_trash_lock_and_keeps_this_session() {
+        let td = TempDir::new().unwrap();
+        let start = SystemTime::now();
+        let inst = td.path().join("inst-a");
+        let earlier = trash_dir(&inst).join(token_at(unix_ms(start) - 1));
+        let later = trash_dir(&inst).join(token_at(unix_ms(start) + 1));
+        std::fs::create_dir_all(&earlier).unwrap();
+        std::fs::create_dir_all(&later).unwrap();
+
+        let held = trash_lock().lock().await;
+        let purge = tokio::spawn(purge_earlier_sessions(td.path().to_path_buf(), start));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(earlier.exists(), "nothing is purged while the lock is held");
+        drop(held);
+
+        let lines = purge.await.unwrap();
+        assert!(lines.is_empty(), "{lines:?}");
+        assert!(!earlier.exists(), "an earlier session's entry is purged");
+        assert!(later.exists(), "this session's undo window survives");
     }
 }

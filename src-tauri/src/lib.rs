@@ -809,16 +809,19 @@ pub fn run() {
 
             // Empty every instance's mod trash of entries from EARLIER sessions:
             // an uninstall stays undoable for the session that offered it, never
-            // past a restart (D2). Own thread, no delay — unlike the webview sweep
-            // below there is nothing to wait for. The cutoff is this session's
-            // start, so an uninstall made while it runs keeps its undo window.
+            // past a restart (D2). Own task, no delay — unlike the webview sweep
+            // below it waits for nothing but the trash lock, which it takes like
+            // every other trash writer. The cutoff is this session's start, so an
+            // uninstall made while it runs keeps its undo window.
             // `paths::instances_dir` is the throwaway root in a recovery session,
             // so the unreachable data folder is never touched.
             let session_start = std::time::SystemTime::now();
             match crate::paths::instances_dir(app.handle()) {
                 Ok(dir) => {
-                    std::thread::spawn(move || {
-                        for line in crate::mods::trash::purge_all_instances(&dir, session_start) {
+                    tauri::async_runtime::spawn(async move {
+                        let lines =
+                            crate::mods::trash::purge_earlier_sessions(dir, session_start).await;
+                        for line in lines {
                             crate::diag!("{line}");
                         }
                     });
