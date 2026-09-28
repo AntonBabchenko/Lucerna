@@ -3652,47 +3652,58 @@ pub async fn instance_dependency_preflight(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
-    let root = instance_root(&app, &instance_id)?;
-    // AA-1: the panel this report feeds names the requiring mod, so the repair
-    // has to have run before the report is built — not merely before the
-    // Installed list renders. Best-effort; a failure never blocks pre-flight.
-    if let Err(e) = backfill_display_names(&app, &root).await {
-        crate::diag!("[mods] display-name backfill failed: {e}");
-    }
-    // The MC version decides which descriptor the loader opens — Forge 1.12.2
-    // reads the `@Mod` annotation, Forge 1.13+ reads `META-INF/mods.toml`.
-    let inst = crate::instances::read_instance(&app, &instance_id)?;
-    let cache = jar_scan_cache_path(&app);
+    let input = preflight_input(&app, &instance_id).await?;
     crate::mods::preflight::dependency_preflight_for_root(
-        &root,
-        cache.as_deref(),
-        inst.loader,
-        &inst.mc_version,
-        inst.loader_version.as_deref(),
+        &input.root,
+        input.cache.as_deref(),
+        input.inst.loader,
+        &input.inst.mc_version,
+        input.inst.loader_version.as_deref(),
     )
     .await
 }
 
+/// What every pre-flight read starts from: the instance root with its display
+/// names repaired, the instance record and the jar-scan cache path.
+struct PreflightInput {
+    root: std::path::PathBuf,
+    inst: crate::instances::schema::InstanceFile,
+    cache: Option<std::path::PathBuf>,
+}
+
+/// The shared front half of `instance_dependency_preflight` and
+/// [`parsed_instance`]. Offline: the name backfill is cache-only.
+async fn preflight_input(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> crate::error::Result<PreflightInput> {
+    let root = instance_root(app, instance_id)?;
+    // AA-1: every answer built from this names the requiring mod, so the repair
+    // has to have run before it is built — not merely before the Installed list
+    // renders. Best-effort; a failure never blocks pre-flight.
+    if let Err(e) = backfill_display_names(app, &root).await {
+        crate::diag!("[mods] display-name backfill failed: {e}");
+    }
+    // The MC version decides which descriptor the loader opens — Forge 1.12.2
+    // reads the `@Mod` annotation, Forge 1.13+ reads `META-INF/mods.toml`.
+    let inst = crate::instances::read_instance(app, instance_id)?;
+    let cache = jar_scan_cache_path(app);
+    Ok(PreflightInput { root, inst, cache })
+}
+
 /// Everything `instance_dependency_preflight` reads, parsed once — the shared
-/// front half of the impact checks. Offline: the name backfill is cache-only.
+/// front half of the impact checks and the version-fix planner.
 async fn parsed_instance(
     app: &tauri::AppHandle,
     instance_id: &str,
 ) -> crate::error::Result<crate::mods::preflight::ParsedInstance> {
-    let root = instance_root(app, instance_id)?;
-    // These answers name mods, so names are repaired first — the same
-    // best-effort step the pre-flight takes; a failure never blocks.
-    if let Err(e) = backfill_display_names(app, &root).await {
-        crate::diag!("[mods] display-name backfill failed: {e}");
-    }
-    let inst = crate::instances::read_instance(app, instance_id)?;
-    let cache = jar_scan_cache_path(app);
+    let input = preflight_input(app, instance_id).await?;
     crate::mods::preflight::parse_instance(
-        &root,
-        cache.as_deref(),
-        inst.loader,
-        &inst.mc_version,
-        inst.loader_version.as_deref(),
+        &input.root,
+        input.cache.as_deref(),
+        input.inst.loader,
+        &input.inst.mc_version,
+        input.inst.loader_version.as_deref(),
     )
     .await
 }

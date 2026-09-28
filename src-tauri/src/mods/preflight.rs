@@ -955,9 +955,11 @@ pub struct ParsedRow {
     /// Jar-in-Jar providers: an embedded library answers only for an id
     /// nothing top-level claims, and only while its host is switched on.
     pub jij_provided: Vec<ProvidedMod>,
-    /// The registry's flag. A disabled row is parsed for what it PROVIDES;
-    /// [`ParsedInstance::resolve`] reads its requirements only when the caller's
-    /// enabled set contains it.
+    /// The registry's flag. A disabled row is parsed in full, but its
+    /// declarations are never READ AS requirements unless the row enters the
+    /// counterfactual enabled set a caller hands [`ParsedInstance::resolve`]
+    /// (e.g. [`ParsedInstance::enable_impact`]). Outside that set it only
+    /// answers what it would provide (`RequiredDisabled`).
     pub enabled: bool,
     pub source: Option<ModSource>,
     pub project_id: Option<String>,
@@ -1078,6 +1080,22 @@ impl ParsedInstance {
         self.rows.iter().find(|r| r.parsed.sha1 == sha1)
     }
 
+    /// `ModsNotFound` — the answer `mods_enable` gives for the same digest —
+    /// when the registry does not list one of `targets` (gone since the caller
+    /// read it), readable or not: an impact of a mod that is not there would be
+    /// a guess, never "nothing".
+    fn refuse_unlisted(&self, targets: &HashSet<String>) -> crate::error::Result<()> {
+        let listed =
+            |t: &String| self.row(t).is_some() || self.unreadable.iter().any(|m| &m.sha1 == t);
+        if targets.iter().all(listed) {
+            Ok(())
+        } else {
+            Err(crate::error::Error::ModsNotFound {
+                platform: "installed".into(),
+            })
+        }
+    }
+
     /// Enabled mods, other than `targets`, that gain a violation when `targets`
     /// leave the enabled set — removed or disabled alike (spec §5.1). Each names
     /// the targets that provided what it loses.
@@ -1085,6 +1103,7 @@ impl ParsedInstance {
     /// Errors when an ENABLED target's jar could not be read: what it provides
     /// is unknown, so "nothing depends on it" would be a guess. A disabled
     /// target satisfies nothing today, so its leaving is known to break nothing.
+    /// Errors, too, when the registry does not list a target.
     pub fn removal_impact(&self, targets: &HashSet<String>) -> crate::error::Result<RemovalImpact> {
         if let Some(m) = self
             .unreadable
@@ -1096,6 +1115,7 @@ impl ParsedInstance {
                 "the jar could not be read, so what depends on it is unknown",
             ));
         }
+        self.refuse_unlisted(targets)?;
         let enabled = self.registry_enabled();
         let remaining: HashSet<String> = enabled.difference(targets).cloned().collect();
         let before = self.resolve(&enabled);
@@ -1144,13 +1164,7 @@ impl ParsedInstance {
                 "the jar could not be read, so what it requires is unknown",
             ));
         }
-        if targets.iter().any(|t| self.row(t).is_none()) {
-            // Gone since the caller listed it — the answer `mods_enable` gives
-            // for the same digest.
-            return Err(crate::error::Error::ModsNotFound {
-                platform: "installed".into(),
-            });
-        }
+        self.refuse_unlisted(targets)?;
         let mut enabled = self.registry_enabled();
         enabled.extend(targets.iter().cloned());
         let mut asking: HashSet<String> = targets.clone();
@@ -2952,6 +2966,39 @@ mod tests {
         );
     }
 
+    /// The umbrella alias counts on the way out too: a target that answers
+    /// `fabric-api` only as `forgified_fabric_api` leaves it unmet, and the
+    /// dependent names that target as what it loses.
+    #[test]
+    fn a_provider_known_only_by_an_alias_is_what_its_dependent_loses() {
+        let ff = row(
+            modz("ff", vec![prov("forgified_fabric_api", "2.2")], vec![]),
+            true,
+        );
+        let c = row(
+            modz(
+                "c",
+                vec![],
+                vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+            ),
+            true,
+        );
+        let mut inst = instance(vec![ff, c]);
+        inst.loader = LoaderKind::Fabric;
+        assert!(
+            inst.resolve(&inst.registry_enabled()).is_empty(),
+            "installed, the alias satisfies the requirement"
+        );
+        assert_eq!(
+            inst.removal_impact(&set(&["ff"])).unwrap().dependents,
+            vec![ImpactedMod {
+                sha1: "c".into(),
+                name: "C".into(),
+                needs: vec!["FF".into()],
+            }]
+        );
+    }
+
     /// §9 Q1/Q2: an ENABLED jar we could not read may provide anything, so what
     /// breaks without it is unknown — an error, never "no dependents". A
     /// DISABLED one satisfies nothing, so its leaving is known to break nothing.
@@ -2972,6 +3019,23 @@ mod tests {
             .unwrap()
             .dependents
             .is_empty());
+    }
+
+    /// A target the registry no longer lists (removed since the UI read it) is
+    /// "could not tell", not "breaks nothing" — the `ModsNotFound`
+    /// `enable_impact` answers with for the same digest.
+    #[test]
+    fn removal_impact_refuses_a_mod_the_registry_does_not_know() {
+        let a = row(modz("a", vec![prov("core", "1.0")], vec![]), true);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![a, d]);
+        assert!(matches!(
+            inst.removal_impact(&set(&["a", "ghost"])),
+            Err(crate::error::Error::ModsNotFound { platform }) if platform == "installed"
+        ));
     }
 
     /// Transitive to a fixed point: t → a → b; b → t closes a cycle. `zmod` is

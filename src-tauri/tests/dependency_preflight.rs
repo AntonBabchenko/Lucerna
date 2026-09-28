@@ -231,9 +231,9 @@ version=\"3.20\"
 /// A disabled mod never declares requirements: the loader never reads a
 /// `.jar.disabled`, so nothing it requires can stop the launch.
 ///
-/// The pre-flight does read the jar — for what it PROVIDES, so a requirement
-/// only a disabled mod could meet is reported as `RequiredDisabled` rather than
-/// plain "missing" — but never for what it requires, and a disabled jar still
+/// The pre-flight does read the jar — so a requirement only a disabled mod
+/// could meet is reported as `RequiredDisabled` rather than plain "missing" —
+/// but never reads its declarations as requirements, and a disabled jar still
 /// satisfies nothing (its ids never enter the provider index).
 ///
 /// A disabled mod jar lives on disk as `<name>.jar.disabled`. The registry
