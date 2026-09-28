@@ -27,7 +27,7 @@ pub struct ParsedMod {
 
 /// Canonical id form for provider matching: lowercase, `-` → `_`. Mod ecosystems
 /// use the two interchangeably (`fabric-api` vs `fabric_api`).
-fn canon_id(id: &str) -> String {
+pub(crate) fn canon_id(id: &str) -> String {
     id.trim().to_ascii_lowercase().replace('-', "_")
 }
 
@@ -896,6 +896,52 @@ async fn scan_jar(bytes: Vec<u8>, want_legacy: bool) -> Option<JarScan> {
     }
 }
 
+/// A jar that is not installed — a candidate build in the download cache — read
+/// the way [`parse_instance`] reads an installed one.
+#[derive(Debug, Clone)]
+pub struct LooseJar {
+    /// Legacy-era `@Mod` requirements already merged into `deps`.
+    pub manifest: ManifestDeps,
+    pub jij_provided: Vec<ProvidedMod>,
+}
+
+/// `None` is "could not tell" (an unreadable zip), exactly as for an installed
+/// jar — never "declares nothing".
+pub(crate) async fn scan_loose_jar(bytes: Vec<u8>, era: DescriptorEra) -> Option<LooseJar> {
+    let scan = scan_jar(bytes, era == DescriptorEra::Legacy).await?;
+    let mut manifest = scan.manifest;
+    manifest.deps.extend(scan.legacy_deps);
+    Some(LooseJar {
+        manifest,
+        jij_provided: scan.jij_provided,
+    })
+}
+
+/// The version `jar` would answer `dep_id` with, under the index's own version
+/// authority ([`ProviderIndex::build`]). `None`: it does not provide the id, or
+/// names no readable version — the pre-flight skips the range check then too.
+pub(crate) fn provided_version(
+    jar: &LooseJar,
+    dep_id: &str,
+    loader: LoaderKind,
+    era: DescriptorEra,
+) -> Option<String> {
+    let one = [ParsedMod {
+        sha1: String::new(),
+        name: String::new(),
+        manifest: jar.manifest.clone(),
+    }];
+    let jij: Vec<(String, Option<String>)> = jar
+        .jij_provided
+        .iter()
+        .map(|p| (p.mod_id.clone(), p.version.clone()))
+        .collect();
+    ProviderIndex::build(&one, &jij, loader, era)
+        .get(dep_id)
+        .cloned()
+        .flatten()
+}
+
 /// One registry row joined with what its jar says, kept PER ROW — its own
 /// Jar-in-Jar providers included — so a resolution over any subset of the
 /// instance ("without these", "with this one switched on") comes from one parse.
@@ -1197,6 +1243,18 @@ impl ParsedInstance {
             }
         }
         (owner, by_id)
+    }
+
+    /// The enabled row «Обновить» is routed to for `dep_id` — the same
+    /// first-in-registry-order owner `ranged()` reports as `provider_sha1`.
+    /// `None` when only an embedded (JIJ) copy provides it.
+    pub(crate) fn provider_row(
+        &self,
+        enabled: &HashSet<String>,
+        dep_id: &str,
+    ) -> Option<&ParsedRow> {
+        let (_, by_id) = self.provider_maps(enabled);
+        by_id.get(&canon_id(dep_id)).and_then(|sha| self.row(sha))
     }
 }
 

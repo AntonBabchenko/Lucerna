@@ -3729,6 +3729,83 @@ pub async fn mods_enable_impact(
     parsed.enable_impact(&targets)
 }
 
+/// Download one candidate build into the shared, content-addressed cache — never
+/// into the instance — and read it the way the pre-flight reads an installed jar.
+/// `Ok(None)`: a zip that would not open. A build the install pipeline would
+/// refuse (`guard_version`) never gets here — the planner filters by the same
+/// guard — and is refused with that guard's own error if it does.
+async fn read_candidate_jar(
+    dd: &std::path::Path,
+    candidate: ModVersion,
+    era: crate::mods::local::DescriptorEra,
+) -> crate::error::Result<Option<crate::mods::preflight::LooseJar>> {
+    let sha = crate::mods::install::guard_version(&candidate)?;
+    let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+    let cached = crate::mods::install::fetch_to_cache(
+        dd,
+        &candidate.primary_file.url,
+        &sha,
+        candidate.primary_file.size,
+        "mods",
+        &nop,
+    )
+    .await?;
+    let bytes = tokio::fs::read(&cached.path)
+        .await
+        .map_err(|e| crate::error::Error::io("<version-fix-candidate>", e))?;
+    let jar = crate::mods::preflight::scan_loose_jar(bytes, era).await;
+    if jar.is_none() {
+        // Verified bytes that are not a readable jar: the planner skips the
+        // build (it cannot be judged, so it is never offered); logged so the
+        // missing offer is explainable.
+        crate::diag!(
+            "[mods] version-fix candidate {} ({}) would not open as a jar",
+            candidate.version_id,
+            candidate.primary_file.filename
+        );
+    }
+    Ok(jar)
+}
+
+/// Two-sided fix for a version conflict (spec §5.4). Network only here, on the
+/// user's click: each side's build list and at most three candidate jars per
+/// side, downloaded into the shared cache. Read-only for the instance; the
+/// chosen fix is a gated update or install. Any fetch failure is an error —
+/// CurseForge without a key stays the typed key error — never "no version".
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_plan_version_fix(
+    app: tauri::AppHandle,
+    instance_id: String,
+    dependent_sha1: String,
+    dep_id: String,
+) -> crate::error::Result<crate::mods::version_fix::VersionFixPlan> {
+    crate::network::throttle::with_interactive(async move {
+        let parsed = parsed_instance(&app, &instance_id).await?;
+        let dd = data_dir(&app)?;
+        let (mc, loader, era) = (parsed.mc.clone(), parsed.loader, parsed.era);
+        crate::mods::version_fix::plan_version_fix(
+            &parsed,
+            &dependent_sha1,
+            &dep_id,
+            |source, project_id| {
+                let mc = mc.clone();
+                async move {
+                    platform_for(source)
+                        .versions(&project_id, Some(&mc), Some(loader))
+                        .await
+                }
+            },
+            |candidate| {
+                let dd = dd.clone();
+                async move { read_candidate_jar(&dd, candidate, era).await }
+            },
+        )
+        .await
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

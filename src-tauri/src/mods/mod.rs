@@ -46,6 +46,7 @@ pub mod summary_cache;
 pub mod unsupported;
 pub mod updates;
 pub mod version_cache;
+pub mod version_fix;
 pub mod version_range;
 pub mod version_support_matrix;
 pub mod word_segment;

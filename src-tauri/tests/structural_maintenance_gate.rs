@@ -565,6 +565,13 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
         "reads jars and the registry to predict what an enable needs — reconcile, display-name \
          backfill and the app-dir jar-scan cache only; the enable itself is gated",
     ),
+    (
+        "commands/mods.rs",
+        "mods_plan_version_fix",
+        "reads jars and the registry (reconcile, display-name backfill and the app-dir jar-scan \
+         cache only) and downloads candidate builds into the app-dir download cache, never the \
+         instance; the chosen fix is a gated update or install",
+    ),
     // commands/modpack_cmds.rs
     (
         "commands/modpack_cmds.rs",
