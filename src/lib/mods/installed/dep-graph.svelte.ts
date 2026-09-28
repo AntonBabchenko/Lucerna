@@ -117,17 +117,21 @@ export function createDepGraph(
     return { total: seen.size };
   }
 
+  // Every mod change re-resolves the graph, so loads overlap and may answer out
+  // of order. Latest wins: an older answer describes a mod set that is gone, and
+  // its `graphLoading = false` would hide the newer load still in flight.
+  let loadTicket = 0;
   async function reloadGraphNow() {
     const id = getInstanceId();
     if (!id) return;
+    const ticket = ++loadTicket;
     graphLoading = true;
     error = null;
     const r = await commands.modsDependencyGraph(id);
-    if (getInstanceId() !== id) {
-      graphLoading = false; // reset even when discarding the stale result
-      return;
-    }
-    graphLoading = false;
+    // Superseded: the newer load owns the result and the spinner.
+    if (ticket !== loadTicket) return;
+    graphLoading = false; // reset even when the answer is for a profile left meanwhile
+    if (getInstanceId() !== id) return;
     if (r.status === 'ok') {
       graph = r.data;
       depGraphCache.set(id, r.data);
@@ -140,8 +144,9 @@ export function createDepGraph(
     }
   }
 
-  // Force a fresh resolve after the installed SET changes (install/uninstall).
-  // Debounced: a bulk uninstall emits one event per mod; collapse the burst.
+  // Force a fresh resolve after the mods change (install, uninstall, and a
+  // toggle: the graph is rooted at the ENABLED mods and marks the disabled ones).
+  // Debounced: a bulk operation emits one event per mod; collapse the burst.
   let graphReloadTimer: ReturnType<typeof setTimeout> | null = null;
   function reloadGraph() {
     const id = getInstanceId();
@@ -270,10 +275,11 @@ export function createDepGraph(
         if (cached) {
           // Reuse the session-cached graph — do NOT re-resolve. Re-resolving on
           // every Installed-tab open / instance switch re-hit the mod platforms
-          // (a 429 rate-limit source). The cache is invalidated whenever the
-          // installed set actually changes (install/uninstall events ->
-          // reloadGraph, installDepNode -> invalidateGraph) and by the explicit
-          // "Re-check deps" button, so a stale graph can't persist past a real change.
+          // (a 429 rate-limit source). The entry is dropped whenever the mods
+          // change — every install, removal, toggle or external change, by the
+          // always-mounted page for any profile and by this view's own reloads
+          // (installDepNode -> invalidateGraph) — and by the explicit "Re-check
+          // deps" button, so a stale graph can't persist past a real change.
           graph = cached;
         } else {
           graph = null;
@@ -282,7 +288,8 @@ export function createDepGraph(
       });
     });
   } catch {
-    /* no Svelte runtime (vitest) — effect inert, which is what unit tests want */
+    /* no reactive runtime to root the effect in — it stays inert. Under vitest the runtime IS
+       there: the effect runs at a test's first await, and may start a load of its own. */
   }
 
   return {

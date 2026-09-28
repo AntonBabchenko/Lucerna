@@ -101,6 +101,8 @@ const h = vi.hoisted(() => {
     },
     instanceDependencyPreflight: vi.fn(),
     listInstalled: vi.fn(),
+    // The view's `mod-toggle` listener, so a case can play the event a switch emits.
+    onToggle: null as null | (() => void),
   };
 });
 
@@ -127,7 +129,12 @@ vi.mock('$lib/ipc/bindings', () => ({
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
     modUninstalled: { listen: () => Promise.resolve(() => {}) },
-    modToggle: { listen: () => Promise.resolve(() => {}) },
+    modToggle: {
+      listen: (cb: () => void) => {
+        h.onToggle = cb;
+        return Promise.resolve(() => {});
+      },
+    },
     modsReconciled: { listen: () => Promise.resolve(() => {}) },
     gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
@@ -171,8 +178,9 @@ describe('Installed — library chips and search', () => {
     await waitFor(() => expect(shown()).toEqual(['modrinth:PL']));
   });
 
-  // The graph is rebuilt on install and removal, not on a toggle, and the backend roots it at the
-  // ENABLED mods only. So a toggle leaves it stale; the chips must not repeat what it says then.
+  // The backend roots the graph at the ENABLED mods only, and a toggle re-reads the list before
+  // the re-resolved graph lands. Until it does, the graph is stale; the chips must not repeat
+  // what it says then.
   it('a mod switched off since the graph was built no longer makes its library needed', async () => {
     h.instanceDependencyPreflight.mockResolvedValue(clean);
     // Alpha is off now; the graph still roots it (built while it was on).
@@ -199,6 +207,46 @@ describe('Installed — library chips and search', () => {
     // … yet it does not know every enabled mod, so neither view is a fact.
     expect(screen.queryByRole('radio', { name: /Unused libraries/ })).toBeNull();
     expect(screen.queryByRole('radio', { name: /Needed by others/ })).toBeNull();
+  });
+
+  // …and the switch itself re-resolves the graph: the mod switched on gets its root, and the
+  // views are facts again without a reload.
+  it('a toggle re-resolves the graph, so the views come back for a mod switched on', async () => {
+    h.instanceDependencyPreflight.mockResolvedValue(clean);
+    render(InstalledModsView, { props: props('toggle-reresolves') });
+    const unused = await waitFor(() => screen.getByRole('radio', { name: /Unused libraries/ }));
+    expect(unused.textContent).toContain('1');
+
+    // Dormant is switched on: the list re-reads it enabled, and the graph, asked again, roots it.
+    const dormantRoot = {
+      sha1: 'd',
+      source: 'modrinth',
+      project_id: 'PD',
+      name: 'Dormant',
+      required: [],
+      optional: [],
+    };
+    h.listInstalled.mockResolvedValue({ status: 'ok', data: rowsWith('d', true) });
+    vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
+      status: 'ok',
+      data: { roots: [...h.graph.roots, dormantRoot] },
+    } as never);
+    try {
+      h.onToggle?.();
+      // Unused and now Dormant — a library, on, and nothing requires it.
+      await waitFor(
+        () =>
+          expect(screen.getByRole('radio', { name: /Unused libraries/ }).textContent).toContain(
+            '2',
+          ),
+        { timeout: 3000 },
+      );
+    } finally {
+      vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
+        status: 'ok',
+        data: h.graph,
+      } as never);
+    }
   });
 
   it('finds a mod by its file name or its slug, not only its name', async () => {

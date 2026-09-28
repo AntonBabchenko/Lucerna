@@ -156,9 +156,9 @@
   );
   // The chip turns red only while a row IS red — the same statuses it counts.
   const anyBlocking = $derived([...statusBySha.values()].some((s) => s.level === 'blocking'));
-  // The dependency graph is rebuilt on install and removal, not on a toggle,
-  // and the backend roots it at the ENABLED mods only — so after a toggle it is
-  // stale. What the rows can tell is taken from the rows:
+  // The backend roots the dependency graph at the ENABLED mods only, and after a
+  // toggle the list is re-read before the re-resolved graph lands — so for that
+  // moment the graph is stale. What the rows can tell is taken from the rows:
   // - a mod switched off since requires nothing at load time: only roots that
   //   are enabled NOW count (`requiredByCount`);
   // - a mod switched on since has no root yet, so what it requires is unknown:
@@ -303,7 +303,8 @@
     enabledShaOf: (key) => enabledShaByKey.get(key) ?? null,
     onEnable: (node) => {
       const sha1 = disabledShaByKey.get(`${node.source}:${node.project_id}`);
-      // Switched on or removed since the graph was built: nothing is off to switch on.
+      // Switched on or removed since the graph was built: nothing is off to switch on, and
+      // that change is already re-resolving the graph.
       if (!sha1) return;
       void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
     },
@@ -762,14 +763,15 @@
   // was born here and is now the shared helper). Handlers are debounced: a
   // with-deps install emits one event per jar, and each un-coalesced event
   // used to trigger a full refresh + preflight resolve + compat scan.
-  const debouncedSetChanged = debounceTrailing(() => {
+  //
+  // A toggle refreshes exactly what an install or a removal does, the graph
+  // included: it is rooted at the ENABLED mods and marks the disabled ones, so a
+  // switch changes both — without a re-resolve, «Disable all» left the tree
+  // offering to enable mods that were on and the library chips counting roots
+  // that were off.
+  const debouncedModsChanged = debounceTrailing(() => {
     void data.refresh();
     deps.reloadGraph();
-    preflight.invalidate();
-    void compat.runOfflineScan({ force: true });
-  }, 150);
-  const debouncedToggle = debounceTrailing(() => {
-    void data.refresh();
     preflight.invalidate();
     void compat.runOfflineScan({ force: true });
   }, 150);
@@ -784,14 +786,13 @@
     void compat.runOfflineScan({ force: true });
   }, 150);
   listenUntilDestroyed([
-    events.modInstalled.listen(debouncedSetChanged.call),
-    events.modUninstalled.listen(debouncedSetChanged.call),
-    events.modToggle.listen(debouncedToggle.call),
+    events.modInstalled.listen(debouncedModsChanged.call),
+    events.modUninstalled.listen(debouncedModsChanged.call),
+    events.modToggle.listen(debouncedModsChanged.call),
     events.modsReconciled.listen(debouncedExternalChange.call),
   ]);
   onDestroy(() => {
-    debouncedSetChanged.cancel();
-    debouncedToggle.cancel();
+    debouncedModsChanged.cancel();
     debouncedExternalChange.cancel();
     data.dispose();
     filters.dispose();

@@ -68,6 +68,7 @@
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import OptimiseDialog from '$lib/mods/OptimiseDialog.svelte';
   import { preflightCache } from '$lib/mods/preflight-cache';
+  import { depGraphCache } from '$lib/mods/dep-graph-cache';
   import { createPreflight, decideLaunch, hasBlocking } from '$lib/mods/preflight.svelte';
   import { problemCounts } from '$lib/mods/installed/mod-status';
   import { repairForLaunch } from '$lib/mods/fix-all';
@@ -1021,20 +1022,41 @@
         trayQuitRefusedUnlisten = u;
       });
 
-    events.modInstalled.listen(debouncedModSetStats.call).then((u) => {
-      modInstalledUnlisten = u;
-    });
-    events.modUninstalled.listen(debouncedModSetStats.call).then((u) => {
-      modUninstalledUnlisten = u;
-    });
-    events.modToggle.listen(debouncedModToggleStats.call).then((u) => {
-      modToggleUnlisten = u;
-    });
+    // The dependency graph cache is per-instance, and this page is the one
+    // listener mounted all session: every mod event drops the changed
+    // instance's graph, so an Installed view opened later never seeds from a
+    // graph built before a change made elsewhere — the Play gate's repair, a
+    // pack update, a switch while the Add-ons tab was closed.
+    events.modInstalled
+      .listen(({ payload }) => {
+        depGraphCache.delete(payload.instance_id);
+        debouncedModSetStats.call();
+      })
+      .then((u) => {
+        modInstalledUnlisten = u;
+      });
+    events.modUninstalled
+      .listen(({ payload }) => {
+        depGraphCache.delete(payload.instance_id);
+        debouncedModSetStats.call();
+      })
+      .then((u) => {
+        modUninstalledUnlisten = u;
+      });
+    events.modToggle
+      .listen(({ payload }) => {
+        depGraphCache.delete(payload.instance_id);
+        debouncedModToggleStats.call();
+      })
+      .then((u) => {
+        modToggleUnlisten = u;
+      });
     events.modsReconciled
       .listen(({ payload }) => {
         // The pre-flight cache is per-instance, so evicting the key that changed
         // is always right — even for an instance that is not on screen.
         preflightCache.delete(payload.instance_id);
+        depGraphCache.delete(payload.instance_id);
         // The compat scan, in contrast, is ONE shared store holding ONE
         // instance's verdicts. Scanning a background instance into it would
         // replace what the Overview is currently displaying with another

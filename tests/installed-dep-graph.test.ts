@@ -245,6 +245,50 @@ describe('createDepGraph', () => {
     expect(d.graph?.roots ?? []).toEqual([]); // stale "A" graph NOT committed
   });
 
+  // Every mod change re-resolves the graph, so loads overlap: the one started last is the truth,
+  // whichever order the answers arrive in.
+  it('an older graph load that lands late never replaces a newer one', async () => {
+    const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+    (depGraphCache as Map<string, unknown>).set('i', { roots: [] }); // nothing loads on mount
+    const graphOf = (sha1: string) => ({
+      roots: [
+        {
+          sha1,
+          source: 'modrinth',
+          project_id: `P${sha1}`,
+          name: sha1,
+          required: [],
+          optional: [],
+        },
+      ],
+    });
+    let landOlder: () => void = () => {};
+    mocks.modsDependencyGraph
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            landOlder = () => resolve({ status: 'ok', data: graphOf('older') });
+          }),
+      )
+      .mockImplementationOnce(() => Promise.resolve({ status: 'ok', data: graphOf('newer') }));
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      ctx,
+    );
+    await new Promise((r) => setTimeout(r, 0)); // mounted: the seed effect read the cache
+
+    const older = d.reloadGraphNow();
+    await d.reloadGraphNow(); // started later, answers first
+    expect(d.graph?.roots[0]?.sha1).toBe('newer');
+    expect(d.graphLoading).toBe(false);
+
+    landOlder();
+    await older;
+    expect(d.graph?.roots[0]?.sha1).toBe('newer');
+    expect(d.graphLoading).toBe(false);
+  });
+
   it('reuses the session-cached graph without re-resolving on mount', async () => {
     const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
     (depGraphCache as Map<string, unknown>).set('cachedInst', {
