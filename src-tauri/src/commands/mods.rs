@@ -745,6 +745,44 @@ fn mod_install_details(
         .collect()
 }
 
+/// `mods_update_one`'s answer, in the shape a fresh install returns (D9): the
+/// target, the required dependencies the update installed — named by PROJECT
+/// title where the summary cache knows it, as the install path's names are
+/// (`update_one` records version titles) — and one report row per landed jar.
+/// `install_seq` and `landed` share order and length (target, then its deps).
+///
+/// Unlike an install's closure, an update's dependency list is not pruned of
+/// what is installed, so a dependency `update_one` found already in place byte
+/// for byte (`placement: None`) was NOT installed by it: it is left out of
+/// `installed_dependencies` — which the UI announces whenever it is non-empty —
+/// and its report row says `Unchanged`.
+fn update_summary(
+    install_seq: &[ModVersion],
+    landed: &[crate::mods::install::Installed],
+    titles: &std::collections::HashMap<(ModSource, String), String>,
+) -> crate::mods::platform::InstallSummary {
+    let installed_dependencies = install_seq
+        .iter()
+        .zip(landed)
+        .skip(1)
+        .filter(|(_, inst)| inst.placement.is_some())
+        .map(|(v, inst)| {
+            titles
+                .get(&(v.source, v.project_id.clone()))
+                .cloned()
+                .unwrap_or_else(|| inst.name.clone())
+        })
+        .collect();
+    crate::mods::platform::InstallSummary {
+        primary_name: install_seq
+            .first()
+            .map(|v| v.name.clone())
+            .unwrap_or_default(),
+        installed_dependencies,
+        details: mod_install_details(install_seq, landed),
+    }
+}
+
 // =========================================================================
 // Server browse-and-install kernel (S2 #3)
 // =========================================================================
@@ -1969,6 +2007,9 @@ pub async fn mods_enrich_pack_mods(
 /// After the swap the new row inherits the outgoing row's `requires` edges
 /// plus whatever this update pulled in (`orphans::requires_edges`).
 ///
+/// Returns the `InstallSummary` a fresh install returns — the dependencies it
+/// installed included (`update_summary`).
+///
 /// Under the shared maintenance claim for the whole update, as
 /// `mods_install_with_deps`.
 #[tauri::command]
@@ -1979,11 +2020,11 @@ pub async fn mods_update_one(
     old_sha1: String,
     target: ModVersion,
     allow_off_platform: bool,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<crate::mods::platform::InstallSummary> {
     // Held across the download and the swap: an exclusive claim taken between
     // them would rewrite `mods/` while this removes the old jar.
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
-    let updated: crate::error::Result<()> =
+    let updated: crate::error::Result<crate::mods::platform::InstallSummary> =
         crate::network::throttle::with_interactive(async move {
             let inst_root = instance_root(&app, &instance_id)?;
             let dd = data_dir(&app)?;
@@ -2013,6 +2054,12 @@ pub async fn mods_update_one(
             let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
             let required_deps: Vec<ModVersion> =
                 resolved.required.into_iter().map(|r| r.version).collect();
+            // The summary's names, in `update_one`'s install order — cache-first and
+            // before anything is touched, like every other network step here.
+            let install_seq: Vec<ModVersion> = std::iter::once(target.clone())
+                .chain(required_deps.iter().cloned())
+                .collect();
+            let titles = project_titles_for(&app, &install_seq).await;
 
             // Progress events tagged with the target's project_id so the UI can
             // route the bar to the right card (same pattern as install).
@@ -2104,12 +2151,16 @@ pub async fn mods_update_one(
                         sha1: outcome.removed_sha1,
                     }
                     .emit(&app);
-                    for inst in std::iter::once(outcome.primary).chain(outcome.deps) {
+                    let landed: Vec<crate::mods::install::Installed> =
+                        std::iter::once(outcome.primary)
+                            .chain(outcome.deps)
+                            .collect();
+                    for inst in &landed {
                         let _ = ModInstalled {
                             instance_id: instance_id.clone(),
-                            sha1: inst.sha1,
-                            filename: inst.filename,
-                            name: inst.name,
+                            sha1: inst.sha1.clone(),
+                            filename: inst.filename.clone(),
+                            name: inst.name.clone(),
                         }
                         .emit(&app);
                     }
@@ -2119,7 +2170,7 @@ pub async fn mods_update_one(
                     // failure is reported as itself — it must not erase the
                     // record of a change that really happened.
                     crate::mods::installed::set_requires(&inst_root, &new_sha1, requires).await?;
-                    Ok(())
+                    Ok(update_summary(&install_seq, &landed, &titles))
                 }
                 Err(e) => {
                     let _ = ModInstallFailed {
@@ -4299,6 +4350,55 @@ mod tests {
             crate::tasks::DetailOutcome::Unchanged,
             "placement: None must map to Unchanged, not a false Installed"
         );
+    }
+
+    /// What `update_one` landed for `install_seq`, every jar freshly placed.
+    fn landed_for(install_seq: &[ModVersion]) -> Vec<crate::mods::install::Installed> {
+        install_seq
+            .iter()
+            .map(|v| crate::mods::install::Installed {
+                sha1: "aa".into(),
+                filename: v.primary_file.filename.clone(),
+                name: format!("{} 1.0", v.project_id), // what update_one records: a version title
+                placement: Some(crate::mods::store::Placement::Linked),
+                fetched: crate::tasks::Fetched::Downloaded,
+                source: ModSource::Modrinth,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn update_summary_names_what_the_update_installed() {
+        let install_seq = vec![mv("sodium"), mv("fabric-api"), mv("indium")];
+        let landed = landed_for(&install_seq);
+        let titles = HashMap::from([(
+            (ModSource::Modrinth, "fabric-api".to_string()),
+            "Fabric API".to_string(),
+        )]);
+        let s = update_summary(&install_seq, &landed, &titles);
+        assert_eq!(s.primary_name, "sodium");
+        assert_eq!(
+            s.installed_dependencies,
+            ["Fabric API", "indium 1.0"],
+            "the project title where known, else the recorded name"
+        );
+        assert_eq!(s.details.len(), 3, "one report row per landed jar");
+    }
+
+    /// An update resolves its target's required dependencies unpruned, so one
+    /// already in place byte for byte comes back with `placement: None` —
+    /// nothing was installed, and the summary must not say it was (the toast
+    /// speaks exactly when this list is non-empty). Its report row stays, as
+    /// `Unchanged`.
+    #[test]
+    fn update_summary_leaves_out_a_dependency_that_was_already_in_place() {
+        let install_seq = vec![mv("sodium"), mv("fabric-api"), mv("indium")];
+        let mut landed = landed_for(&install_seq);
+        landed[1].placement = None;
+        let s = update_summary(&install_seq, &landed, &HashMap::new());
+        assert_eq!(s.installed_dependencies, ["indium 1.0"]);
+        assert_eq!(s.details.len(), 3);
+        assert_eq!(s.details[1].outcome, crate::tasks::DetailOutcome::Unchanged);
     }
 
     #[test]
