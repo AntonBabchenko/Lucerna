@@ -2015,6 +2015,7 @@
         "modInstalled": "Mod installed",
         "modUpdated": "Mod updated",
         "modRemoved": "Mod removed",
+        "modRestored": "Mod restored",
         "modEnabled": "Mod enabled",
         "modDisabled": "Mod disabled",
         "assetInstalled": "Add-on installed",

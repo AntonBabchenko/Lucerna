@@ -238,6 +238,18 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	openModsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder", { instanceId })),
 	/**
+	 *  Show an installed mod's jar in the OS file manager, selected — the file as
+	 *  it is on disk, `<file>` or `<file>.disabled`; `reveal_screenshot`'s shape.
+	 * 
+	 *  Lives beside `open_mods_folder` rather than with the other `mods_*`
+	 *  commands: an opener call spawns the file manager, a process documented in
+	 *  `docs/PRINCIPLES.md` Appendix A and allowed only in the files on
+	 *  `structural_no_raw_spawn.rs`'s allowlist, which this file is on for the mods
+	 *  folder already. Takes no maintenance claim: the lookup is `installed::list`,
+	 *  whose reconcile persists registry metadata like every read of the list.
+	 */
+	modsRevealFile: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_reveal_file", { instanceId, sha1 })),
+	/**
 	 *  List singleplayer worlds in `instance_id`, newest-first by mtime.
 	 *  Empty Vec for an instance with no `.minecraft/saves/` dir yet.
 	 */
@@ -777,11 +789,27 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modsEnable: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_enable", { instanceId, sha1 })),
 	/**
-	 *  Remove the jar (enabled or disabled flavor) and drop the registry
-	 *  entry. The shared cache copy survives. Emits `mod-uninstalled`.
-	 *  Same shared maintenance claim as `mods_disable`.
+	 *  Move the jar (enabled or disabled flavor) into the instance's trash and drop
+	 *  its registry row; `mods_restore_uninstalled` undoes it until the entry is
+	 *  purged (older than ten minutes at a later uninstall, or the next launcher
+	 *  start). The shared cache copy survives. An unknown sha is already gone and
+	 *  is skipped — the receipt then lists no items. Emits `mod-uninstalled` per
+	 *  removed mod. Same shared maintenance claim as `mods_disable`.
 	 */
-	modsUninstall: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_uninstall", { instanceId, sha1 })),
+	modsUninstall: (instanceId: string, sha1: string) => typedError<UninstallReceipt, Error>(__TAURI_INVOKE("mods_uninstall", { instanceId, sha1 })),
+	/**
+	 *  `mods_uninstall` for several mods: ONE trash entry and ONE token, so a bulk
+	 *  removal is one undo.
+	 */
+	modsUninstallMany: (instanceId: string, sha1s: string[]) => typedError<UninstallReceipt, Error>(__TAURI_INVOKE("mods_uninstall_many", { instanceId, sha1s })),
+	/**
+	 *  Undo a `mods_uninstall[_many]`: put the token's jars back and re-add their
+	 *  registry rows verbatim. Never overwrites — a taken name or a project that is
+	 *  installed again is skipped with its reason. `expired` when the entry was
+	 *  purged. Emits `mod-installed` per restored mod, also for the ones restored
+	 *  before an item failed (those jars ARE back). Shared maintenance claim.
+	 */
+	modsRestoreUninstalled: (instanceId: string, token: string) => typedError<RestoreReport, Error>(__TAURI_INVOKE("mods_restore_uninstalled", { instanceId, token })),
 	/**
 	 *  Check every eligible installed user-mod for a newer version. For
 	 *  each mod with platform identity that is not a modpack-origin mod,
@@ -791,10 +819,31 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  (2026-09-21 spec, D7); the rest ask per project. A single mod's
 	 *  query failure becomes that mod's `CheckFailed` state — the command
 	 *  fails wholesale only on a catastrophic error (instance missing,
-	 *  registry unreadable). Modpack-origin and hand-dropped mods are
-	 *  absent from the result.
+	 *  registry or hold list unreadable). Modpack-origin and hand-dropped mods
+	 *  are absent from the result, and so are projects on hold
+	 *  (`mods_set_hold`). The result is persisted for `mods_last_update_check`.
 	 */
 	modsCheckUpdates: (instanceId: string) => typedError<ModUpdateCheck_Serialize[], Error>(__TAURI_INVOKE("mods_check_updates", { instanceId })),
+	/**  The instance's held projects (`mods_set_hold`). Read-only. */
+	modsListHolds: (instanceId: string) => typedError<HeldProject[], Error>(__TAURI_INVOKE("mods_list_holds", { instanceId })),
+	/**
+	 *  Hold a project at its installed version («Не обновлять») or release it.
+	 *  Keyed by project, so it survives updates and restores. Shared claim.
+	 */
+	modsSetHold: (instanceId: string, source: ModSource, projectId: string, hold: boolean) => typedError<null, Error>(__TAURI_INVOKE("mods_set_hold", { instanceId, source, projectId, hold })),
+	/**
+	 *  The last `mods_check_updates` result, with rows only for jars still installed
+	 *  and projects not on hold. `None` = never checked, or the stored check is
+	 *  unreadable (logged). Read-only.
+	 */
+	modsLastUpdateCheck: (instanceId: string) => typedError<{
+	/**
+	 *  Unix seconds. `u32`: specta forbids 64-bit integers and an `f64` reaches
+	 *  TS as `number | null`. Fits until 2106.
+	 */
+	checked_at_secs: number,
+	results: ModUpdateCheck_Serialize[],
+} | null, Error>(__TAURI_INVOKE("mods_last_update_check", { instanceId })),
 	/**
 	 *  Download + install a resource pack or shader version into an instance,
 	 *  recording it in the assets registry. No progress events yet (no UI
@@ -956,17 +1005,28 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  After the swap the new row inherits the outgoing row's `requires` edges
 	 *  plus whatever this update pulled in (`orphans::requires_edges`).
 	 * 
+	 *  Returns the `InstallSummary` a fresh install returns — the dependencies it
+	 *  installed included (`update_summary`).
+	 * 
 	 *  Under the shared maintenance claim for the whole update, as
 	 *  `mods_install_with_deps`.
 	 */
-	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion_Deserialize, allowOffPlatform: boolean) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target, allowOffPlatform })),
+	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion_Deserialize, allowOffPlatform: boolean) => typedError<InstallSummary, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target, allowOffPlatform })),
+	/**
+	 *  Libraries that nothing would need once `removing` is gone, to offer for
+	 *  removal with it. The registry's `requires` edges propose them; the jars
+	 *  decide: a candidate whose removal together with `removing` (and the other
+	 *  offers) would give a mod that stays enabled a pre-flight violation is
+	 *  dropped (A14), however incomplete the edges are. An error — never an
+	 *  unchecked offer — when the jars could not be read.
+	 */
 	modsFindOrphans: (instanceId: string, removing: string[]) => typedError<OrphanRef[], Error>(__TAURI_INVOKE("mods_find_orphans", { instanceId, removing })),
 	/**
 	 *  Build a full nested dependency graph for all platform-identified mods in
-	 *  `instance_id`. Each installed mod is a root; its required and optional
-	 *  subtrees are walked recursively (cycle-guarded, memoized) and classified as
-	 *  `satisfied / missing_required / optional_present / optional_absent` against
-	 *  the installed set.
+	 *  `instance_id`. Each enabled mod is a root; its required and optional
+	 *  subtrees are walked recursively (cycle-guarded, memoized), and every node
+	 *  says whether an enabled jar of it is `installed`, a switched-off one
+	 *  `disabled`, and what the author `declared` — facts, never a verdict.
 	 * 
 	 *  Network-frugal by construction. The old approach queried each mod's newest
 	 *  version and resolved every dependency one project at a time — ~1000+
@@ -996,24 +1056,63 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  historical path: Modrinth-slug-first + name-search — now also querying the
 	 *  word-segmented form of a slammed id — then CF, the latter loader/MC-
 	 *  decoupled. Either way the downloaded jar is verified to actually provide
-	 *  that id before it is installed. No manifest range context on this bare-id
-	 *  path → `range = None`. On any resolution/verification miss returns
-	 *  `OpenSearch` so the UI can offer a pre-filled search instead of guessing.
+	 *  that id before it is installed — with its own required closure, like a
+	 *  Browse install — and the pulled-in projects are added to the requiring mod's
+	 *  `requires`. No manifest range context on this bare-id path → `range = None`.
+	 *  On any resolution/verification miss returns `OpenSearch` so the UI can offer
+	 *  a pre-filled search instead of guessing. A resolved project the registry
+	 *  already lists (enabled or not) is refused with `ModsAlreadyInstalled` before
+	 *  its jar is downloaded.
 	 */
 	modsInstallMissingRequired: (instanceId: string, dependentSha1: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, dependentSha1, depId })),
 	/**
-	 *  Human names for missing dependencies, for the compatibility panel's label.
+	 *  Install a dependency a known dependent needs (tree node, panel row, gate):
+	 *  the newest build the platform lists for this instance, with its own required
+	 *  closure, committed like a Browse install; then the dependent records what it
+	 *  pulled in. A project the registry already lists (enabled or not) is refused
+	 *  with `ModsAlreadyInstalled` before the platform is asked. No build listed for
+	 *  this instance is `ModsDependencyUnresolvable`; a platform that cannot be
+	 *  asked (network, a missing CurseForge key) is its own typed error — never a
+	 *  guessed build.
 	 * 
-	 *  Called ONLY from the Installed tab. The launch gate deliberately does not
-	 *  call it: nothing may sit between the user and the Play button, so the gate
-	 *  renders the raw loader id. That asymmetry is the design, not an omission.
+	 *  Runs under the instance's SHARED maintenance claim, like every per-item mod
+	 *  writer.
+	 */
+	modsInstallDependency: (instanceId: string, dependentSha1: string, source: ModSource, projectId: string) => typedError<InstallSummary, Error>(__TAURI_INVOKE("mods_install_dependency", { instanceId, dependentSha1, source, projectId })),
+	/**
+	 *  Human names for dependencies, keyed by `(dependent_sha1, dep_id)`, each with
+	 *  the project it points at.
 	 * 
-	 *  Best-effort per id — anything unresolved is simply absent from the result
-	 *  and the panel falls back to the id. Never invents a name: resolution goes
+	 *  Best-effort per pair — anything unresolved is simply absent from the result
+	 *  and the UI falls back to the id. Never invents a name: resolution goes
 	 *  through the strict matcher, because unlike the install path there is no
-	 *  downloaded jar here to check a guess against.
+	 *  downloaded jar here to check a guess against. The launch gate does not call
+	 *  it — nothing may sit between the user and Play — so any name the gate shows
+	 *  was resolved earlier.
 	 */
 	modsResolveDepNames: (instanceId: string, queries: DepNameQuery[]) => typedError<DepNameResolved[], Error>(__TAURI_INVOKE("mods_resolve_dep_names", { instanceId, queries })),
+	/**
+	 *  Which enabled mods lose something they need if `sha1s` leave the instance —
+	 *  removed or disabled alike (spec §5.1, D3). Offline and read-only: it feeds a
+	 *  dialog; the removal itself is gated. An error — never an empty list — when
+	 *  an enabled target's jar could not be read.
+	 */
+	modsRemovalImpact: (instanceId: string, sha1s: string[]) => typedError<RemovalImpact, Error>(__TAURI_INVOKE("mods_removal_impact", { instanceId, sha1s })),
+	/**
+	 *  The disabled mods `sha1s` need switched on with them, transitively, when
+	 *  they are enabled together (spec §5.1, D3). Offline and read-only. An error —
+	 *  never an empty list — when a target's jar could not be read or the registry
+	 *  no longer lists it.
+	 */
+	modsEnableImpact: (instanceId: string, sha1s: string[]) => typedError<EnableImpact, Error>(__TAURI_INVOKE("mods_enable_impact", { instanceId, sha1s })),
+	/**
+	 *  Two-sided fix for a version conflict (spec §5.4). Network only here, on the
+	 *  user's click: each side's build list and at most three candidate jars per
+	 *  side, downloaded into the shared cache. Read-only for the instance; the
+	 *  chosen fix is a gated update or install. Any fetch failure is an error —
+	 *  CurseForge without a key stays the typed key error — never "no version".
+	 */
+	modsPlanVersionFix: (instanceId: string, dependentSha1: string, depId: string) => typedError<VersionFixPlan_Serialize, Error>(__TAURI_INVOKE("mods_plan_version_fix", { instanceId, dependentSha1, depId })),
 	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader-family and
 	 *  platform (Minecraft / loader-version range) compatibility against the
@@ -2780,6 +2879,10 @@ export type CategoryReport = {
 	corrupt: number,
 };
 
+export type ChangeDirection = "upgrade" | "downgrade" | 
+/**  A qualifier (rc/beta/snapshot) decides: the UI uses a neutral verb. */
+"unknown";
+
 /**
  *  The full cumulative changelog for one update. `sections` are newest→oldest.
  *  `truncated` is `Some(total)` when the window exceeded the cap.
@@ -2966,7 +3069,9 @@ export type ConflictPolicy = "keep_mine" | "take_file";
  *  icon/tone/copy row on the frontend, and two locale keys — the frontend
  *  completeness test enforces the latter two.
  */
-export type ContentAction = "mod_installed" | "mod_updated" | "mod_removed" | "mod_enabled" | "mod_disabled" | "asset_installed" | "asset_updated" | "asset_removed" | "modpack_imported" | "modpack_updated" | "integrity_repaired";
+export type ContentAction = "mod_installed" | "mod_updated" | "mod_removed" | 
+/**  A trashed mod put back by «Вернуть» (`mods_restore_uninstalled`). */
+"mod_restored" | "mod_enabled" | "mod_disabled" | "asset_installed" | "asset_updated" | "asset_removed" | "modpack_imported" | "modpack_updated" | "integrity_repaired";
 
 /**  One copyable content category in a foreign instance. */
 export type ContentCategory = "mods" | "config" | "saves" | "resource_packs" | "shaderpacks" | "options_txt";
@@ -3256,10 +3361,29 @@ export type DepNameQuery = {
 	dep_id: string,
 };
 
-/**  A dependency id and the project name it resolved to. */
+/**  A dependency id, the mod that declared it, and what it resolved to. */
 export type DepNameResolved = {
+	/**
+	 *  Part of the key: two mods can declare the same bare id and mean
+	 *  different projects (audit A-F3).
+	 */
+	dependent_sha1: string,
 	dep_id: string,
 	name: string,
+	/**
+	 *  Always `Some` today — every resolution names its project — and kept an
+	 *  `Option` so a future name-only source needs no wire change.
+	 */
+	project: DepProjectKey | null,
+};
+
+/**
+ *  Which project a dependency id resolved to — enough to install it or open its
+ *  page without resolving the name again.
+ */
+export type DepProjectKey = {
+	source: ModSource,
+	project_id: string,
 };
 
 export type DepProjectRef = { source: "modrinth"; project_id: string; version_id: string | null } | { source: "curseforge"; mod_id: number; file_id: number | null };
@@ -3277,8 +3401,16 @@ export type DepTreeNode = {
 	source: ModSource,
 	project_id: string,
 	name: string,
-	/**  A jar for this project is present in the instance. */
+	/**  An ENABLED jar for this project is present in the instance. */
 	installed: boolean,
+	/**
+	 *  A registry row for this project exists but is switched off. Never set
+	 *  together with `installed` — an enabled jar of the project wins — and a
+	 *  disabled jar still satisfies nothing; the tree offers «Включить» where it
+	 *  would otherwise offer an install that duplicates the jar.
+	 *  `#[serde(default)]` so specta emits it optional.
+	 */
+	disabled?: boolean,
 	declared: DepDeclaration,
 	/**
 	 *  True when this project was already expanded higher on the path; its
@@ -3299,16 +3431,19 @@ export type DepViolation = {
 	dependent_name: string,
 	/**  Mod-id of the missing / out-of-range dependency. */
 	dep_id: string,
-	/**  `MissingRequired` or `VersionOutOfRange`. */
+	/**  What the loader would object to — see [`ViolationKind`]. */
 	kind: ViolationKind,
-	/**  The version that is actually installed (`None` for `MissingRequired`). */
+	/**
+	 *  The version that is actually installed (`None` for `MissingRequired`
+	 *  and `RequiredDisabled`: nothing enabled provides it).
+	 */
 	installed_version: string | null,
 	/**
 	 *  The version range the dependent declared (empty string for
-	 *  `MissingRequired`), verbatim from the jar. Kept for remediation
-	 *  (`mods_filter_satisfying` evaluates it) and for the log line — the UI
-	 *  renders `needed_desc` instead, because raw Maven bracket notation is
-	 *  unreadable.
+	 *  `MissingRequired` and `RequiredDisabled`), verbatim from the jar. Kept
+	 *  for remediation (`mods_filter_satisfying` evaluates it) and for the log
+	 *  line — the UI renders `needed_desc` instead, because raw Maven bracket
+	 *  notation is unreadable.
 	 */
 	needed: string,
 	/**
@@ -3323,17 +3458,18 @@ export type DepViolation = {
 	 */
 	provider_project: DepProjectRef | null,
 	/**
-	 *  SHA-1 of the installed jar that currently provides `dep_id`.
-	 *  Present only for `VersionOutOfRange` violations where the provider
-	 *  is a tracked installed mod. Used by the UI to route "Обновить"
-	 *  through `mods_update_one` (remove-old + install-new) instead of a
-	 *  bare `mods_install_with_deps` that would leave duplicate jars.
+	 *  SHA-1 of the jar that provides `dep_id`. For the range kinds: the
+	 *  ENABLED provider, so the UI routes "Обновить" through `mods_update_one`
+	 *  (remove-old + install-new) instead of a bare `mods_install_with_deps`
+	 *  that would leave duplicate jars. For `RequiredDisabled`: the DISABLED jar
+	 *  to switch back on. `None` otherwise.
 	 */
 	provider_sha1: string | null,
 	/**
 	 *  Range grammar for `needed` (Maven / Fabric / Quilt). `None` for
-	 *  `MissingRequired` (no range to interpret). Lets the UI pick a version
-	 *  that actually satisfies `needed` via `mods_filter_satisfying`.
+	 *  `MissingRequired` and `RequiredDisabled` (no range to interpret). Lets
+	 *  the UI pick a version that actually satisfies `needed` via
+	 *  `mods_filter_satisfying`.
 	 */
 	family: RangeFamily | null,
 };
@@ -3386,6 +3522,12 @@ export type DiagnosisStatus =
 /**  A fix was already applied for the current latest log. */
 "handled";
 
+/**  A disabled mod that must be switched on together with the ones being enabled. */
+export type DisabledRequirement = {
+	sha1: string,
+	name: string,
+};
+
 /**
  *  Result of an auto-discovery sweep. `empty_launchers` lists launchers whose
  *  install root exists on disk but yielded no importable instance — so the UI
@@ -3409,6 +3551,15 @@ export type DownloadProgress = {
 	bytes_done: number | null,
 	/**  `None` if the server did not send `Content-Length`. */
 	bytes_total: number | null,
+};
+
+/**  What enabling a set of mods needs switched on with them (`mods_enable_impact`). */
+export type EnableImpact = {
+	/**
+	 *  Disabled mods the targets need, transitively, each once, never a target
+	 *  itself — in the order they were found.
+	 */
+	requirements: DisabledRequirement[],
 };
 
 export type EnvSupport = "required" | "optional" | "unsupported";
@@ -3470,7 +3621,14 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  what differs and ask before installing it anyway — the fields are typed,
  *  never pre-formatted, so the sentence is built in the user's language.
  */
-{ kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
+{ kind: "mod_version_not_for_instance"; version_mc: string[]; version_loaders: LoaderKind[]; instance_mc: string; instance_loader: LoaderKind } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "changelog_unsupported" } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | 
+/**
+ *  The project is already in this instance, enabled or switched off: a
+ *  second jar of one mod stops the game on the duplicate mod id, so the
+ *  install is refused before its jar is downloaded. `name` is the installed
+ *  row's display name.
+ */
+{ kind: "mods_already_installed"; name: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
 /**
  *  A client data-pack change (add, remove or switch, from a world's tab)
  *  was asked for in a `saves/` folder that has neither `level.dat` nor
@@ -4378,6 +4536,11 @@ export type Greeting = {
 	message: string,
 };
 
+export type HeldProject = {
+	source: ModSource,
+	project_id: string,
+};
+
 /**
  *  Host-key fingerprint surfaced to the user on first connect (#24). `trusted`
  *  is true iff this exact fingerprint is already the stored TOFU value.
@@ -4409,6 +4572,17 @@ export type IgnoredReason =
  *  (§0.5 A1). Never produced here: `state::derive` sets it from `loadable`.
  */
 "not_loadable";
+
+/**  A mod that loses something it needs when others leave the enabled set. */
+export type ImpactedMod = {
+	sha1: string,
+	name: string,
+	/**
+	 *  Display names (registry names — the project title for platform mods) of
+	 *  the leaving mods that provided what it loses.
+	 */
+	needs: string[],
+};
 
 /**  Typed progress streamed to the UI during an import. */
 export type ImportProgress = { phase: "creating_instance"; name: string } | { phase: "copying"; category: ContentCategory; current: number; total: number } | { phase: "recovering_identities" } | 
@@ -4529,7 +4703,11 @@ export type InstallProgress = {
 	current_step: string | null,
 };
 
-/**  Returned by `mods_install_with_deps` so the UI can show a per-mod toast. */
+/**
+ *  Returned by the mod install commands (`mods_install_with_deps`,
+ *  `mods_install_dependency`) and by `mods_update_one`, so the UI can show a
+ *  per-mod toast.
+ */
 export type InstallSummary = {
 	primary_name: string,
 	/**
@@ -4541,10 +4719,9 @@ export type InstallSummary = {
 	 *  One row per installed jar (primary + dependencies), in `install_seq`
 	 *  order. Unlike the modpack import/update paths — which carry their
 	 *  per-file report on the terminal `Channel` message because they already
-	 *  take one — this command has no channel, so the report rides the
-	 *  return value instead. `InstallSummary` has exactly one producer
-	 *  (`mods_install_with_deps`) and one consumer (the UI toast), which is
-	 *  what makes widening the return value cheap here; the same design was
+	 *  take one — these commands have no channel, so the report rides the
+	 *  return value instead. Their one consumer is the UI toast, which is what
+	 *  makes widening the return value cheap here; the same design was
 	 *  rejected for the modpack paths, where it would have meant inventing an
 	 *  envelope across three unrelated command signatures.
 	 */
@@ -5694,6 +5871,16 @@ export type ModSummary = {
 	 *  `summary_cache` and re-fetch it on every resolve.
 	 */
 	loaders?: LoaderKind[] | null,
+	/**
+	 *  Whether the platform files this project as a library / API (Modrinth tag
+	 *  `library`; CurseForge «API and Library»). Feeds «Неиспользуемые
+	 *  библиотеки». `None` means ONLY "this source cannot report categories"
+	 *  ([`supplies_project_library`]) or "this entry predates the field" — never
+	 *  "not a library", and nothing treats `None` as a library. A source that can
+	 *  report always yields `Some`, `Some(false)` included, for the staleness
+	 *  reason `loaders` spells out.
+	 */
+	library?: boolean | null,
 };
 
 export type ModToggle = {
@@ -5714,12 +5901,14 @@ export type ModUninstalled = {
 /**
  *  One installed user-mod's update-check result. One per *eligible*
  *  mod — see [`eligible_identity`]; ineligible mods are absent.
+ *  `Deserialize` for the persisted check (`update_check_store`).
  */
 export type ModUpdateCheck = ModUpdateCheck_Serialize | ModUpdateCheck_Deserialize;
 
 /**
  *  One installed user-mod's update-check result. One per *eligible*
  *  mod — see [`eligible_identity`]; ineligible mods are absent.
+ *  `Deserialize` for the persisted check (`update_check_store`).
  */
 export type ModUpdateCheck_Deserialize = {
 	/**
@@ -5739,6 +5928,7 @@ export type ModUpdateCheck_Deserialize = {
 /**
  *  One installed user-mod's update-check result. One per *eligible*
  *  mod — see [`eligible_identity`]; ineligible mods are absent.
+ *  `Deserialize` for the persisted check (`update_check_store`).
  */
 export type ModUpdateCheck_Serialize = {
 	/**
@@ -6568,6 +6758,19 @@ export type PlannedDep_Serialize = {
 	selection_reason: SelectionReason,
 };
 
+/**  A newer build of the dependent that accepts the installed provider. */
+export type PlannedVersion = PlannedVersion_Serialize | PlannedVersion_Deserialize;
+
+/**  A newer build of the dependent that accepts the installed provider. */
+export type PlannedVersion_Deserialize = {
+	version: ModVersion_Deserialize,
+};
+
+/**  A newer build of the dependent that accepts the installed provider. */
+export type PlannedVersion_Serialize = {
+	version: ModVersion_Serialize,
+};
+
 /**
  *  Which half of the platform a verdict is about. Two unit variants, no
  *  payload — crosses IPC directly (a later task puts `Option<PlatformAxis>`
@@ -6649,6 +6852,12 @@ export type PreflightReport = {
 	 *  existing `PreflightReport` literal in the frontend stops type-checking.
 	 */
 	pack_completion?: PackCompletion | null,
+	/**
+	 *  Registry digests of ENABLED mods whose jar was missing from disk or would
+	 *  not parse: their dependencies were not judged, so their silence is not "no
+	 *  problem". `#[serde(default)]` for the same reason as `pack_completion`.
+	 */
+	unjudged?: string[],
 };
 
 export type ProblemArtifact = {
@@ -6692,6 +6901,25 @@ export type ProgressTick = {
 	phase: ModInstallPhase,
 	current: number | null,
 	total: number | null,
+};
+
+/**  A provider build the dependent accepts. */
+export type ProviderChange = ProviderChange_Serialize | ProviderChange_Deserialize;
+
+/**  A provider build the dependent accepts. */
+export type ProviderChange_Deserialize = {
+	version: ModVersion_Deserialize,
+	direction: ChangeDirection,
+	/**  Registry names of enabled mods this build would newly fail. */
+	breaks: string[],
+};
+
+/**  A provider build the dependent accepts. */
+export type ProviderChange_Serialize = {
+	version: ModVersion_Serialize,
+	direction: ChangeDirection,
+	/**  Registry names of enabled mods this build would newly fail. */
+	breaks: string[],
 };
 
 /**
@@ -6803,6 +7031,15 @@ old_root_is_default: boolean;
  *  restart whatever is tried).
  */
 retry_possible: boolean };
+
+/**  What removing or disabling a set of mods breaks (`mods_removal_impact`). */
+export type RemovalImpact = {
+	/**
+	 *  Enabled mods, other than the leaving ones, that gain a violation. Empty
+	 *  means nothing the pre-flight can read loses anything it needs.
+	 */
+	dependents: ImpactedMod[],
+};
 
 /**
  *  What Remove account left behind. Account ids are random `ms-<uuid_v4>`
@@ -7010,6 +7247,24 @@ export type RestartBlock = "none" |
 "unknown";
 
 export type RestoreMode = "replace" | "as_copy";
+
+/**
+ *  `restored` and `skipped[].name` are display names. `expired`: the token's
+ *  entry is gone (purged) and nothing was restored.
+ */
+export type RestoreReport = {
+	restored: string[],
+	skipped: SkippedRestore[],
+	expired: boolean,
+};
+
+export type RestoreSkipReason = 
+/**  A file already answers to the mod's name, in either spelling — never overwritten. */
+"name_taken" | 
+/**  The jar is no longer in the trash. */
+"missing" | 
+/**  The same jar, or another build of the same project, is installed again. */
+"already_installed";
 
 /**
  *  Returned by `restore_backup` so the UI knows where the restored
@@ -7624,6 +7879,11 @@ export type SkippedOverride = {
 	size: number | null,
 };
 
+export type SkippedRestore = {
+	name: string,
+	reason: RestoreSkipReason,
+};
+
 /**
  *  Capability descriptor read by the UI to drive source-specific affordances
  *  without hardcoding `if source == ftb`. Each field maps to a *present*
@@ -7647,6 +7907,26 @@ export type SourceCaps = {
  *  toast sentence.
  */
 export type SourceState = { kind: "untouched" } | { kind: "removed" } | { kind: "left_intact"; reason: string } | { kind: "left_partial"; reason: string };
+
+export type StoredUpdateCheck = StoredUpdateCheck_Serialize | StoredUpdateCheck_Deserialize;
+
+export type StoredUpdateCheck_Deserialize = {
+	/**
+	 *  Unix seconds. `u32`: specta forbids 64-bit integers and an `f64` reaches
+	 *  TS as `number | null`. Fits until 2106.
+	 */
+	checked_at_secs: number,
+	results: ModUpdateCheck_Deserialize[],
+};
+
+export type StoredUpdateCheck_Serialize = {
+	/**
+	 *  Unix seconds. `u32`: specta forbids 64-bit integers and an `f64` reaches
+	 *  TS as `number | null`. Fits until 2106.
+	 */
+	checked_at_secs: number,
+	results: ModUpdateCheck_Serialize[],
+};
 
 /**
  *  Disposition the user chose for one [`StrandedRow`]. Deliberately carries
@@ -7871,6 +8151,20 @@ export type TrayQuitRefused = {
 export type UiErrorLevel = "error" | "warn";
 
 /**
+ *  `token` undoes the whole batch; `items` are the mods it removed, in the
+ *  order asked. No items (every digest was already gone) = nothing to undo.
+ */
+export type UninstallReceipt = {
+	token: string,
+	items: UninstalledItem[],
+};
+
+export type UninstalledItem = {
+	sha1: string,
+	name: string,
+};
+
+/**
  *  Why a mod could not be judged either way. Crosses IPC — each variant is a
  *  distinct real state with its own copy; a missing CurseForge key must never
  *  read as a claim about the mod.
@@ -8082,6 +8376,30 @@ export type VersionEntry = {
 	url: string,
 };
 
+/**
+ *  Both sides `None`: an honest dead end — no build either side offers fixes
+ *  the conflict (or the conflict is already gone).
+ */
+export type VersionFixPlan = VersionFixPlan_Serialize | VersionFixPlan_Deserialize;
+
+/**
+ *  Both sides `None`: an honest dead end — no build either side offers fixes
+ *  the conflict (or the conflict is already gone).
+ */
+export type VersionFixPlan_Deserialize = {
+	update_dependent: PlannedVersion_Deserialize | null,
+	change_provider: ProviderChange_Deserialize | null,
+};
+
+/**
+ *  Both sides `None`: an honest dead end — no build either side offers fixes
+ *  the conflict (or the conflict is already gone).
+ */
+export type VersionFixPlan_Serialize = {
+	update_dependent: PlannedVersion_Serialize | null,
+	change_provider: ProviderChange_Serialize | null,
+};
+
 export type VersionRef = {
 	source: ModSource,
 	project_id: string,
@@ -8116,7 +8434,12 @@ export type ViolationKind =
  *  The jar was built for a Minecraft or loader version this instance does
  *  not provide.
  */
-"platform_mismatch";
+"platform_mismatch" | 
+/**
+ *  A required dependency no enabled mod provides, that a disabled mod does.
+ *  `provider_sha1` names that disabled jar.
+ */
+"required_disabled";
 
 export type VtCatalogue = {
 	versionName?: string,

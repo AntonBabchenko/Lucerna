@@ -956,6 +956,7 @@ export type TranslationKey =
   | 'logs.journal.action.modEnabled'
   | 'logs.journal.action.modInstalled'
   | 'logs.journal.action.modRemoved'
+  | 'logs.journal.action.modRestored'
   | 'logs.journal.action.modUpdated'
   | 'logs.journal.action.modpackImported'
   | 'logs.journal.action.modpackUpdated'

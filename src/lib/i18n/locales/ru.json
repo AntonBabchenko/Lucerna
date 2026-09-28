@@ -2015,6 +2015,7 @@
         "modInstalled": "Мод установлен",
         "modUpdated": "Мод обновлён",
         "modRemoved": "Мод удалён",
+        "modRestored": "Мод возвращён",
         "modEnabled": "Мод включён",
         "modDisabled": "Мод отключён",
         "assetInstalled": "Дополнение установлено",
