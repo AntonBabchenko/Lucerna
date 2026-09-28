@@ -612,11 +612,11 @@ pub struct RemovalImpact {
     /// once, in ONE SAFE DISABLE ORDER: switched off one by one as listed, a
     /// mod goes off before any of them it needs, so a run that stops early
     /// leaves none of them on without one it needs — save inside a cycle,
-    /// broken at its earliest mod. A target goes ahead of a dependent only
-    /// where a need says so: of the mods free to go next, the earliest goes
-    /// first — the dependents as listed, then the targets in registry order.
-    /// Filtered to any subset — the targets alone, for "only these" — it is
-    /// still a safe order for that subset.
+    /// broken at its earliest mod. Of the mods free to go next, the earliest
+    /// goes first — the dependents as listed, then the targets in registry
+    /// order — so where no target needs a dependent, this is `dependents`,
+    /// then the targets. Filtered to any subset — the targets alone, for "only
+    /// these" — it is still a safe order for that subset.
     pub order: Vec<String>,
 }
 
@@ -644,11 +644,11 @@ pub struct EnableImpact {
     /// once, in ONE SAFE ENABLE ORDER: switched on one by one as listed, a mod
     /// comes on after any of them it needs, so a run that stops early leaves
     /// none of them on without one it needs — save inside a cycle, broken at
-    /// its earliest mod. A target goes ahead of a requirement only where a need
-    /// says so: of the mods free to go next, the earliest goes first — the
-    /// requirements as listed, then the targets in registry order. Filtered to
-    /// any subset — the targets alone, for "only these" — it is still a safe
-    /// order for that subset.
+    /// its earliest mod. Of the mods free to go next, the earliest goes first —
+    /// the requirements as listed, then the targets in registry order — so
+    /// where no requirement needs a target, this is `requirements`, then the
+    /// targets. Filtered to any subset — the targets alone, for "only these" —
+    /// it is still a safe order for that subset.
     pub order: Vec<String>,
 }
 
@@ -1153,7 +1153,7 @@ impl ParsedInstance {
     /// targets among them ([`Self::with_targets`]) — a target may need a
     /// dependent, and targets may need each other — so a run that switches off
     /// `order`, or any part of it, and stops early leaves none of them on
-    /// without one it needs.
+    /// without one it needs, save inside a cycle.
     ///
     /// Monotone: once broken, a mod stays counted, even where a later wave takes
     /// away the provider whose version broke it (an optional or incompatible
@@ -1202,10 +1202,11 @@ impl ParsedInstance {
     /// The one order to switch `listed` — dependents or requirements, already in
     /// a safe order among themselves — and `targets` together, as registry
     /// digests ([`Self::flip_order`]). Today's order is `listed`, then the
-    /// targets in registry order (the readable rows, then the unreadable ones),
-    /// so a target moves ahead of a listed mod only where a need says so, and
-    /// targets that need each other are ordered too. Every target is named,
-    /// readable or not: the caller switches exactly what this names.
+    /// targets in registry order (the readable rows, then the unreadable ones):
+    /// where no need puts a target ahead of a listed mod, `listed` keeps its
+    /// order and the targets follow, ordered among themselves where they need
+    /// each other. Every target is named, readable or not: the caller switches
+    /// exactly what this names.
     fn with_targets(&self, listed: &[&str], targets: &HashSet<String>, flip: Flip) -> Vec<String> {
         let in_registry_order = self
             .rows
@@ -1378,7 +1379,8 @@ impl ParsedInstance {
     /// one found first goes first. `order` places the targets among them
     /// ([`Self::with_targets`]) — a requirement may need a target, and targets
     /// may need each other — so a run that switches on `order`, or any part of
-    /// it, and stops early leaves none of them on without one it needs.
+    /// it, and stops early leaves none of them on without one it needs, save
+    /// inside a cycle.
     ///
     /// Errors when a target's jar could not be read, or the registry does not
     /// list it: "none" would be a guess.

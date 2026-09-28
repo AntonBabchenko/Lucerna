@@ -3578,11 +3578,11 @@ export type EnableImpact = {
 	 *  once, in ONE SAFE ENABLE ORDER: switched on one by one as listed, a mod
 	 *  comes on after any of them it needs, so a run that stops early leaves
 	 *  none of them on without one it needs — save inside a cycle, broken at
-	 *  its earliest mod. A target goes ahead of a requirement only where a need
-	 *  says so: of the mods free to go next, the earliest goes first — the
-	 *  requirements as listed, then the targets in registry order. Filtered to
-	 *  any subset — the targets alone, for "only these" — it is still a safe
-	 *  order for that subset.
+	 *  its earliest mod. Of the mods free to go next, the earliest goes first —
+	 *  the requirements as listed, then the targets in registry order — so
+	 *  where no requirement needs a target, this is `requirements`, then the
+	 *  targets. Filtered to any subset — the targets alone, for "only these" —
+	 *  it is still a safe order for that subset.
 	 */
 	order: string[],
 };
@@ -7081,11 +7081,11 @@ export type RemovalImpact = {
 	 *  once, in ONE SAFE DISABLE ORDER: switched off one by one as listed, a
 	 *  mod goes off before any of them it needs, so a run that stops early
 	 *  leaves none of them on without one it needs — save inside a cycle,
-	 *  broken at its earliest mod. A target goes ahead of a dependent only
-	 *  where a need says so: of the mods free to go next, the earliest goes
-	 *  first — the dependents as listed, then the targets in registry order.
-	 *  Filtered to any subset — the targets alone, for "only these" — it is
-	 *  still a safe order for that subset.
+	 *  broken at its earliest mod. Of the mods free to go next, the earliest
+	 *  goes first — the dependents as listed, then the targets in registry
+	 *  order — so where no target needs a dependent, this is `dependents`,
+	 *  then the targets. Filtered to any subset — the targets alone, for "only
+	 *  these" — it is still a safe order for that subset.
 	 */
 	order: string[],
 };

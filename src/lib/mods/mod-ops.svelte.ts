@@ -12,10 +12,11 @@
  *   dialog says the check failed and asks.
  * - Every flip keeps each step launchable. The impact answer carries ONE safe flip `order` over
  *   the targets and the mods they carry along — switching off, a mod before any of them it needs;
- *   switching on, after — because targets may need each other, and a target may need a mod it
- *   carries along. The flip follows it exactly as given, filtered to the targets for «Only this
- *   one», and the first failure ends the run: the steps after it count as failed for the same
- *   reason. Only when the check could not run is there no order: then every target gets its try.
+ *   switching on, after — because targets may need each other, and a need can run either way
+ *   between a target and a mod it carries along. The flip follows it exactly as given, filtered
+ *   to the targets for «Only this one», and the first failure ends the run: the steps after it
+ *   count as failed for the same reason. Only when the check could not run is there no order:
+ *   then every target gets its try.
  * - One question at a time. A newer question supersedes an unanswered one (that flow settles as
  *   cancelled), but never a dialog whose chosen mutation still runs: the question waits until
  *   that dialog closes. Once the last ModOpsHost is gone, every flow still waiting for an answer
