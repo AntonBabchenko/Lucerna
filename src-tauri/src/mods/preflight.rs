@@ -2,13 +2,19 @@
 //! installed mod's parsed manifest and an index of available providers,
 //! returns the required-dependency violations the loader would hit.
 //!
-//! The module also exposes `dependency_preflight_for_root` — the testable
-//! core of the `instance_dependency_preflight` Tauri command — along with
-//! the `ViolationKind`, `DepViolation`, and `PreflightReport` IPC types.
+//! The module also exposes [`parse_instance`] — one read of every registry
+//! row, after which [`ParsedInstance::resolve`] answers for any enabled set —
+//! and `dependency_preflight_for_root`, the testable core of the
+//! `instance_dependency_preflight` Tauri command, along with the
+//! `ViolationKind`, `DepViolation`, and `PreflightReport` IPC types.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::mods::local::{DepSide, DependencyKind, ManifestDeps};
+use crate::instances::schema::LoaderKind;
+use crate::mods::local::{
+    DeclaredDep, DepSide, DependencyKind, DescriptorEra, ManifestDeps, ProvidedMod,
+};
+use crate::mods::platform::{InstalledMod, ModSource};
 use crate::mods::version_range::{satisfies, Satisfaction};
 
 /// One installed mod joined with its parsed manifest.
@@ -179,6 +185,62 @@ pub enum Violation {
     },
 }
 
+impl Violation {
+    fn parts(&self) -> (&str, &str, &str) {
+        match self {
+            Self::MissingRequired {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+            }
+            | Self::VersionOutOfRange {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::OptionalOutOfRange {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::IncompatibleInstalled {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::PlatformMismatch {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            } => (
+                dependent_sha1.as_str(),
+                dependent_name.as_str(),
+                dep_id.as_str(),
+            ),
+        }
+    }
+
+    /// Registry digest of the mod that declared the dependency.
+    pub fn dependent_sha1(&self) -> &str {
+        self.parts().0
+    }
+
+    /// Display name of the mod that declared the dependency.
+    pub fn dependent_name(&self) -> &str {
+        self.parts().1
+    }
+
+    /// The dependency id the violation is about (`"minecraft"` or the loader's
+    /// canonical id for a platform mismatch).
+    pub fn dep_id(&self) -> &str {
+        self.parts().2
+    }
+}
+
 /// Where a descriptor sits in the order this instance's loader reads files.
 ///
 /// `None` — the loader never opens this file on this instance.
@@ -275,6 +337,29 @@ pub(crate) fn effective_rank(
     Some(rank)
 }
 
+/// The declarations of one jar that this instance's loader enforces — the ONE
+/// admission test, shared by [`resolve`] and the version-fix planner so they can
+/// never disagree about what a jar requires (audit A-F4):
+///
+/// - side first, matching `ModSorter.java:275` — a SERVER-only dep is invisible
+///   to every check on the client we launch;
+/// - only from a descriptor the loader opens for THIS jar ([`effective_rank`],
+///   shadowing included): a Forge instance never loads `fabric.mod.json`, and a
+///   1.12.2 one never loads `mods.toml`. Anything else is a declaration the
+///   loader cannot enforce, so it is not a launch-readiness problem;
+/// - never `Discouraged`: the loader only logs a warning and carries on.
+pub(crate) fn active_deps_for(
+    manifest: &ManifestDeps,
+    loader: LoaderKind,
+    era: DescriptorEra,
+) -> impl Iterator<Item = &DeclaredDep> {
+    manifest.deps.iter().filter(move |dep| {
+        dep.side != DepSide::Server
+            && effective_rank(dep.source, &manifest.sources_present, loader, era).is_some()
+            && dep.kind != DependencyKind::Discouraged
+    })
+}
+
 /// The launcher launches a client; a SERVER-only dep is not enforced.
 pub fn resolve(
     mods: &[ParsedMod],
@@ -286,23 +371,7 @@ pub fn resolve(
 ) -> Vec<Violation> {
     let mut out = Vec::new();
     for m in mods {
-        for dep in &m.manifest.deps {
-            // Side is filtered BEFORE the kind, matching `ModSorter.java:275`
-            // — a side-filtered dep is invisible to every check.
-            if dep.side == DepSide::Server {
-                continue;
-            }
-            // Only enforce deps from the descriptor the instance's loader opens:
-            // a Forge instance never loads fabric.mod.json, and a 1.12.2 one
-            // never loads mods.toml. Anything else is a declaration the loader
-            // cannot enforce, so it is not a launch-readiness problem.
-            if effective_rank(dep.source, &m.manifest.sources_present, loader, era).is_none() {
-                continue;
-            }
-            // The loader only logs a warning for `discouraged` and carries on.
-            if dep.kind == DependencyKind::Discouraged {
-                continue;
-            }
+        for dep in active_deps_for(&m.manifest, loader, era) {
             if !index.is_provided(&dep.dep_id) {
                 // Absent: only a requirement is a problem. An optional or an
                 // incompatible declaration is satisfied by absence.
@@ -744,28 +813,214 @@ async fn scan_jar(bytes: Vec<u8>, want_legacy: bool) -> Option<JarScan> {
     }
 }
 
-/// The testable core of the `instance_dependency_preflight` Tauri command.
-/// Accepts a resolved `instance_root` path so integration tests can call it
-/// without a `tauri::AppHandle`.
+/// One registry row joined with what its jar says, kept PER ROW — its own
+/// Jar-in-Jar providers included — so a resolution over any subset of the
+/// instance ("without these", "with this one switched on") comes from one parse.
+/// An ownerless JIJ list would keep a leaving jar's embedded libraries alive
+/// (audit A-F1).
+#[derive(Debug, Clone)]
+pub struct ParsedRow {
+    /// Registry digest and name; the manifest has the legacy-era `@Mod`
+    /// requirements merged into `deps`.
+    pub parsed: ParsedMod,
+    /// Jar-in-Jar providers: an embedded library answers only for an id
+    /// nothing top-level claims, and only while its host is switched on.
+    pub jij_provided: Vec<ProvidedMod>,
+    /// The registry's flag. A disabled row is parsed for what it PROVIDES;
+    /// [`ParsedInstance::resolve`] reads its requirements only when the caller's
+    /// enabled set contains it.
+    pub enabled: bool,
+    pub source: Option<ModSource>,
+    pub project_id: Option<String>,
+    pub version_id: Option<String>,
+    pub version_number: Option<String>,
+}
+
+/// Every registry row the pre-flight could read, in registry order — the order
+/// every "first provider wins" tie has always been broken in — plus the context
+/// a resolution needs. Built once by [`parse_instance`]; everything after is pure.
+#[derive(Debug, Clone)]
+pub struct ParsedInstance {
+    pub rows: Vec<ParsedRow>,
+    /// Rows whose jar was missing from disk or would not parse — the two places
+    /// the scan cannot tell what a jar says. Never guessed into `rows`.
+    pub unreadable: Vec<InstalledMod>,
+    pub loader: LoaderKind,
+    pub era: DescriptorEra,
+    pub mc: String,
+    pub loader_version: Option<String>,
+}
+
+impl ParsedInstance {
+    /// The rows the registry has switched on.
+    pub fn registry_enabled(&self) -> HashSet<String> {
+        self.rows
+            .iter()
+            .filter(|r| r.enabled)
+            .map(|r| r.parsed.sha1.clone())
+            .collect()
+    }
+
+    /// The rows in `enabled`, in registry order.
+    fn active<'a>(
+        &'a self,
+        enabled: &'a HashSet<String>,
+    ) -> impl Iterator<Item = &'a ParsedRow> + 'a {
+        self.rows
+            .iter()
+            .filter(move |r| enabled.contains(&r.parsed.sha1))
+    }
+
+    /// The violations the loader would hit with exactly `enabled` switched on.
+    /// With the registry's enabled set this is the pre-flight; with any other set
+    /// it is the counterfactual the impact checks ask for. The index — JIJ
+    /// included — is rebuilt from `enabled` alone, and rows outside it never emit.
+    pub fn resolve(&self, enabled: &HashSet<String>) -> Vec<Violation> {
+        let mods: Vec<ParsedMod> = self.active(enabled).map(|r| r.parsed.clone()).collect();
+        // Jar-in-Jar providers, so an embedded lib is not falsely flagged as a
+        // missing dependency — but only those whose host is in `enabled`.
+        let jij: Vec<(String, Option<String>)> = self
+            .active(enabled)
+            .flat_map(|r| {
+                r.jij_provided
+                    .iter()
+                    .map(|p| (p.mod_id.clone(), p.version.clone()))
+            })
+            .collect();
+        let index = ProviderIndex::build(&mods, &jij, self.loader, self.era);
+        // The module-level resolver, not this method.
+        self::resolve(
+            &mods,
+            &index,
+            self.loader,
+            self.era,
+            &self.mc,
+            self.loader_version.as_deref(),
+        )
+    }
+
+    /// [`Self::resolve`], enriched for the UI. The provider maps come from the
+    /// same `enabled` set, so a jar outside it can never be where «Обновить»
+    /// (`ranged()`) is routed.
+    pub fn report(&self, enabled: &HashSet<String>) -> Vec<DepViolation> {
+        let (owner, by_id) = self.provider_maps(enabled);
+        self.resolve(enabled)
+            .into_iter()
+            .map(|v| enrich(v, &owner, &by_id))
+            .collect()
+    }
+
+    /// Canon provided id → platform ref / registry digest of the first row in
+    /// registry order that provides it. Top-level ids only: an embedded library
+    /// has no row of its own to update or link to.
+    fn provider_maps(
+        &self,
+        enabled: &HashSet<String>,
+    ) -> (
+        HashMap<String, crate::mods::platform::DepProjectRef>,
+        HashMap<String, String>,
+    ) {
+        let mut owner = HashMap::new();
+        let mut by_id = HashMap::new();
+        for r in self.active(enabled) {
+            // Populated regardless of source, so even FTB/ATL mods (which yield
+            // no DepProjectRef) still route updates. The REGISTRY digest, not
+            // the on-disk one: it routes UI actions (`mods_update_one`, row
+            // identity) against `installed-mods.json`. Canonicalized
+            // ('-'/'_' equivalent, lowercase) like `enrich`'s lookup, so a
+            // `fabric-api` dep matches a `fabric_api` provider.
+            for p in &r.parsed.manifest.provided {
+                by_id
+                    .entry(canon_id(&p.mod_id))
+                    .or_insert_with(|| r.parsed.sha1.clone());
+            }
+            // FTB/ATLauncher yield no ref (no per-mod browser) and must not
+            // create a spurious link.
+            let ref_ = r
+                .source
+                .zip(r.project_id.as_deref())
+                .and_then(|(s, pid)| dep_project_ref(s, pid));
+            if let Some(ref_) = ref_ {
+                for p in &r.parsed.manifest.provided {
+                    owner
+                        .entry(canon_id(&p.mod_id))
+                        .or_insert_with(|| ref_.clone());
+                }
+            }
+        }
+        (owner, by_id)
+    }
+}
+
+/// One row's jar: through the cache when its record answers this era, else read
+/// from disk, queuing a fresh record in `fresh`. `None` is "could not tell": no
+/// jar under either spelling, or a zip that would not parse.
+async fn scan_row(
+    mods_dir: &std::path::Path,
+    m: &InstalledMod,
+    cached: &crate::mods::jar_scan_cache::ScanCache,
+    want_legacy: bool,
+    fresh: &mut Vec<(String, crate::mods::jar_scan_cache::CachedScan)>,
+) -> Option<JarScan> {
+    // The cache key is the digest of the bytes on disk RIGHT NOW, never
+    // `m.sha1`: the registry deliberately keeps a record's EXPECTED digest when
+    // the file under that name was replaced, so keying on it would serve the
+    // previous jar's dependencies for the current one. `None` — no file, or a
+    // digest we could not compute — means no cache participation for this jar
+    // in either direction.
+    let cache_key = crate::mods::installed::on_disk_sha1(mods_dir, &m.filename).await;
+    if let Some(s) = usable_hit(
+        cache_key.as_deref().and_then(|k| cached.get(k)),
+        want_legacy,
+    ) {
+        return Some(s);
+    }
+    // Jar missing from disk: "could not tell", reported by the caller.
+    let bytes = crate::mods::local::read_jar_for(mods_dir, &m.filename).await?;
+    // Unreadable zip: the same.
+    let s = scan_jar(bytes, want_legacy).await?;
+    // Only a key computed from the real bytes may be written: without one we do
+    // not know WHICH jar this record describes.
+    if let Some(k) = cache_key {
+        fresh.push((
+            k,
+            crate::mods::jar_scan_cache::CachedScan {
+                // Not read on this path. `None` says exactly that, leaving
+                // `local::scan_instance`'s half of the record for whoever
+                // measures it.
+                meta: None,
+                manifest: Some(s.manifest.clone()),
+                // `Some(vec![])` only when the reader actually ran. A
+                // modern-era scan stores `None`, so a later legacy-era scan
+                // re-reads instead of believing an emptiness nobody measured.
+                legacy_deps: want_legacy.then(|| s.legacy_deps.clone()),
+                jij_provided: Some(s.jij_provided.clone()),
+            },
+        ));
+    }
+    Some(s)
+}
+
+/// Parse every registry row — enabled AND disabled — once. Unchanged cost for
+/// enabled mods (same cache, same readers); a disabled jar is read through the
+/// `.disabled` spelling `read_jar_for` / `on_disk_sha1` already try.
 ///
 /// `cache_path` is the shared jar-scan cache (`paths::jar_scan_cache_file`).
 /// `None` runs the scan uncached: the same answer, only slower. That is the
 /// deliberate direction — a data root that cannot be resolved right now must
 /// not fail a check sitting in the launch chokepoint.
-pub async fn dependency_preflight_for_root(
+pub async fn parse_instance(
     root: &std::path::Path,
     cache_path: Option<&std::path::Path>,
-    loader: crate::instances::schema::LoaderKind,
+    loader: LoaderKind,
     mc: &str,
     loader_version: Option<&str>,
-) -> crate::error::Result<PreflightReport> {
-    use crate::mods::jar_scan_cache::{CachedScan, ScanCache};
-    use crate::mods::local::{descriptor_era, DescriptorEra};
-    use std::collections::HashMap;
+) -> crate::error::Result<ParsedInstance> {
+    use crate::mods::jar_scan_cache::ScanCache;
 
     // Which descriptor this instance's loader actually opens. Decided by the
     // instance's MC version, never by which files a jar happens to ship.
-    let era = descriptor_era(mc);
+    let era = crate::mods::local::descriptor_era(mc);
     let want_legacy = era == DescriptorEra::Legacy;
 
     let installed = crate::mods::installed::list(root).await?;
@@ -774,107 +1029,33 @@ pub async fn dependency_preflight_for_root(
     // One read of a small JSON for the whole scan, then a map lookup per jar —
     // the shape `l10n::coverage::scan_instance` uses.
     let cached = cache_path.map(ScanCache::load).unwrap_or_default();
-    let mut fresh: Vec<(String, CachedScan)> = Vec::new();
-
-    // Map lowercased provided mod_id → DepProjectRef for violation enrichment
-    // (powers the "view on platform" link). Built from mods with source identity.
-    let mut provider_owner: HashMap<String, crate::mods::platform::DepProjectRef> = HashMap::new();
-    // Map lowercased provided mod_id → SHA-1 of the jar that provides it.
-    // Used to route "Обновить" through mods_update_one (remove-old + install-new).
-    let mut provider_sha1: HashMap<String, String> = HashMap::new();
-
-    let mut parsed: Vec<ParsedMod> = Vec::new();
-    let mut jij: Vec<(String, Option<String>)> = Vec::new();
-
-    for m in &installed {
-        if !m.enabled {
+    let mut fresh = Vec::new();
+    let mut rows = Vec::new();
+    let mut unreadable = Vec::new();
+    for m in installed {
+        let Some(scan) = scan_row(&mods_dir, &m, &cached, want_legacy, &mut fresh).await else {
+            // Skipped, never fatal — one bad jar must not fail the whole scan —
+            // and recorded, so nobody reads the silence as "declares nothing".
+            unreadable.push(m);
             continue;
-        }
-        // The cache key is the digest of the bytes on disk RIGHT NOW, never
-        // `m.sha1`: the registry deliberately keeps a record's EXPECTED digest
-        // when the file under that name was replaced, so keying on it would
-        // serve the previous jar's dependencies for the current one. `None` —
-        // no file, or a digest we could not compute — means no cache
-        // participation for this jar in either direction.
-        let cache_key = crate::mods::installed::on_disk_sha1(&mods_dir, &m.filename).await;
-        let hit = cache_key.as_deref().and_then(|k| cached.get(k));
-
-        let scan = match usable_hit(hit, want_legacy) {
-            Some(s) => s,
-            None => {
-                let Some(bytes) = crate::mods::local::read_jar_for(&mods_dir, &m.filename).await
-                else {
-                    continue; // jar missing from disk — skip gracefully
-                };
-                let Some(s) = scan_jar(bytes, want_legacy).await else {
-                    continue; // unreadable zip — skip, never fail the whole scan
-                };
-                // Only a key computed from the real bytes may be written:
-                // without one we do not know WHICH jar this record describes.
-                if let Some(k) = cache_key.as_deref() {
-                    fresh.push((
-                        k.to_string(),
-                        CachedScan {
-                            // Not read on this path. `None` says exactly that,
-                            // leaving `local::scan_instance`'s half of the
-                            // record for whoever measures it.
-                            meta: None,
-                            manifest: Some(s.manifest.clone()),
-                            // `Some(vec![])` only when the reader actually ran.
-                            // A modern-era scan stores `None`, so a later
-                            // legacy-era scan re-reads instead of believing an
-                            // emptiness nobody measured.
-                            legacy_deps: want_legacy.then(|| s.legacy_deps.clone()),
-                            jij_provided: Some(s.jij_provided.clone()),
-                        },
-                    ));
-                }
-                s
-            }
         };
-
         let mut manifest = scan.manifest;
         // On the legacy era the requirements live nowhere else: `mcmod.info`'s
         // own `dependencies` array is cosmetic and FML enforces the
         // `@Mod(dependencies = …)` annotation instead. Empty on every other era.
         manifest.deps.extend(scan.legacy_deps);
-
-        // Collect JIJ (Jar-in-Jar) providers so an embedded lib is not
-        // falsely flagged as a missing dependency.
-        for p in scan.jij_provided {
-            jij.push((p.mod_id, p.version));
-        }
-
-        // Register provided mod-ids → platform identity and SHA-1 for enrichment.
-        // provider_sha1 is populated regardless of source so that even FTB/ATL
-        // mods (which yield no DepProjectRef) can still route updates correctly.
-        // Deliberately `m.sha1`, the REGISTRY digest, not the on-disk one above:
-        // this value routes UI actions (`mods_update_one`, row identity) against
-        // `installed-mods.json`, so it must be the record's own key.
-        for p in &manifest.provided {
-            // Canonicalize ('-'/'_' equivalent, lowercase) so the enrichment
-            // lookup in `enrich` — which uses the same `canon_id` — matches a
-            // `fabric-api` dep against a `fabric_api` provider.
-            let key = canon_id(&p.mod_id);
-            provider_sha1.entry(key).or_insert_with(|| m.sha1.clone());
-        }
-        // Only insert a DepProjectRef when dep_project_ref returns Some;
-        // FTB/ATLauncher sources return None (no per-mod browser) and must
-        // not create a spurious link.
-        if let (Some(source), Some(project_id)) = (m.source, m.project_id.as_deref()) {
-            if let Some(ref_) = dep_project_ref(source, project_id) {
-                for p in &manifest.provided {
-                    provider_owner
-                        .entry(canon_id(&p.mod_id))
-                        .or_insert_with(|| ref_.clone());
-                }
-            }
-        }
-
-        parsed.push(ParsedMod {
-            sha1: m.sha1.clone(),
-            name: m.name.clone(),
-            manifest,
+        rows.push(ParsedRow {
+            parsed: ParsedMod {
+                sha1: m.sha1,
+                name: m.name,
+                manifest,
+            },
+            jij_provided: scan.jij_provided,
+            enabled: m.enabled,
+            source: m.source,
+            project_id: m.project_id,
+            version_id: m.version_id,
+            version_number: m.version_number,
         });
     }
 
@@ -890,14 +1071,29 @@ pub async fn dependency_preflight_for_root(
         }
     }
 
-    let index = ProviderIndex::build(&parsed, &jij, loader, era);
-    let raw = resolve(&parsed, &index, loader, era, mc, loader_version);
-    let violations = raw
-        .into_iter()
-        .map(|v| enrich(v, &provider_owner, &provider_sha1))
-        .collect();
+    Ok(ParsedInstance {
+        rows,
+        unreadable,
+        loader,
+        era,
+        mc: mc.to_string(),
+        loader_version: loader_version.map(str::to_string),
+    })
+}
+
+/// The testable core of the `instance_dependency_preflight` Tauri command.
+/// Accepts a resolved `instance_root` path so integration tests can call it
+/// without a `tauri::AppHandle`. `cache_path` as for [`parse_instance`].
+pub async fn dependency_preflight_for_root(
+    root: &std::path::Path,
+    cache_path: Option<&std::path::Path>,
+    loader: LoaderKind,
+    mc: &str,
+    loader_version: Option<&str>,
+) -> crate::error::Result<PreflightReport> {
+    let parsed = parse_instance(root, cache_path, loader, mc, loader_version).await?;
     Ok(PreflightReport {
-        violations,
+        violations: parsed.report(&parsed.registry_enabled()),
         pack_completion: crate::mods::pack_completion::read(root),
     })
 }
@@ -1944,5 +2140,184 @@ mod tests {
         };
         assert!(usable_hit(Some(&compat_written), false).is_none());
         assert!(usable_hit(None, false).is_none());
+    }
+
+    // ── the split: one parse, any enabled set ─────────────────────────────
+
+    fn row(m: ParsedMod, enabled: bool) -> ParsedRow {
+        ParsedRow {
+            parsed: m,
+            jij_provided: vec![],
+            enabled,
+            source: None,
+            project_id: None,
+            version_id: None,
+            version_number: None,
+        }
+    }
+    fn instance(rows: Vec<ParsedRow>) -> ParsedInstance {
+        ParsedInstance {
+            rows,
+            unreadable: vec![],
+            loader: LoaderKind::NeoForge,
+            era: DescriptorEra::Modern,
+            mc: "1.20.1".into(),
+            loader_version: None,
+        }
+    }
+    fn set(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The pre-split algorithm, kept as the oracle: enabled rows only, their JIJ
+    /// flattened into one ownerless list, first-in-registry-order provider maps —
+    /// the post-parse half of `dependency_preflight_for_root` as it stood before
+    /// the split, over the SAME free `resolve`, `ProviderIndex::build` and
+    /// `enrich` it called.
+    fn pre_split_report(inst: &ParsedInstance) -> Vec<DepViolation> {
+        let on: Vec<&ParsedRow> = inst.rows.iter().filter(|r| r.enabled).collect();
+        let mods: Vec<ParsedMod> = on.iter().map(|r| r.parsed.clone()).collect();
+        let mut jij = Vec::new();
+        let mut owner = HashMap::new();
+        let mut sha = HashMap::new();
+        for r in &on {
+            for p in &r.jij_provided {
+                jij.push((p.mod_id.clone(), p.version.clone()));
+            }
+            for p in &r.parsed.manifest.provided {
+                sha.entry(canon_id(&p.mod_id))
+                    .or_insert_with(|| r.parsed.sha1.clone());
+            }
+            if let (Some(s), Some(pid)) = (r.source, r.project_id.as_deref()) {
+                if let Some(rf) = dep_project_ref(s, pid) {
+                    for p in &r.parsed.manifest.provided {
+                        owner
+                            .entry(canon_id(&p.mod_id))
+                            .or_insert_with(|| rf.clone());
+                    }
+                }
+            }
+        }
+        let index = ProviderIndex::build(&mods, &jij, inst.loader, inst.era);
+        resolve(&mods, &index, inst.loader, inst.era, &inst.mc, None)
+            .into_iter()
+            .map(|v| enrich(v, &owner, &sha))
+            .collect()
+    }
+
+    /// Disabled rows are parsed now, yet with the registry's enabled set the
+    /// answer is exactly the old one. `pnew` is DISABLED, listed FIRST and would
+    /// satisfy `d` — if it leaked into the index, the provider maps or the
+    /// dependents, this report would change.
+    #[test]
+    fn resolving_the_registry_enabled_set_reproduces_the_pre_split_report() {
+        let mut pnew = row(modz("pnew", vec![prov("core", "9.0")], vec![]), false);
+        pnew.source = Some(ModSource::Modrinth);
+        pnew.project_id = Some("CORE-NEW".into());
+        let mut p = row(modz("p", vec![prov("core", "1.0")], vec![]), true);
+        p.source = Some(ModSource::Modrinth);
+        p.project_id = Some("CORE".into());
+        let d = row(
+            modz("d", vec![], vec![dep("core", "[2.0,)", RangeFamily::Maven)]),
+            true,
+        );
+        let mut j = row(modz("j", vec![prov("host", "1.0")], vec![]), true);
+        j.jij_provided = vec![prov("lib", "3.0")];
+        let u = row(
+            modz("u", vec![], vec![dep("lib", "[4.0,)", RangeFamily::Maven)]),
+            true,
+        );
+        let x = row(
+            modz("x", vec![], vec![dep("ghost", "", RangeFamily::Maven)]),
+            false,
+        );
+        let m = row(
+            modz("m", vec![], vec![dep("absent", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![pnew, p, d, j, u, x, m]);
+
+        let got = inst.report(&inst.registry_enabled());
+        assert_eq!(format!("{got:?}"), format!("{:?}", pre_split_report(&inst)));
+        let summary: Vec<(&str, &str, ViolationKind, Option<&str>)> = got
+            .iter()
+            .map(|v| {
+                let k = v.kind.clone();
+                (
+                    v.dependent_sha1.as_str(),
+                    v.dep_id.as_str(),
+                    k,
+                    v.provider_sha1.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("d", "core", ViolationKind::VersionOutOfRange, Some("p")),
+                ("u", "lib", ViolationKind::VersionOutOfRange, None),
+                ("m", "absent", ViolationKind::MissingRequired, None),
+            ]
+        );
+        assert!(matches!(
+            &got[0].provider_project,
+            Some(crate::mods::platform::DepProjectRef::Modrinth { project_id, .. }) if project_id == "CORE"
+        ));
+    }
+
+    /// Audit A-F1: an embedded library belongs to its host. With the host out of
+    /// the enabled set, the library is gone too.
+    #[test]
+    fn a_hosts_embedded_library_leaves_the_index_with_its_host() {
+        let mut host = row(modz("a", vec![prov("host", "1.0")], vec![]), true);
+        host.jij_provided = vec![prov("lib", "1.0")];
+        let user = row(
+            modz("u", vec![], vec![dep("lib", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![host, user]);
+        assert!(
+            inst.resolve(&set(&["a", "u"])).is_empty(),
+            "the embedded lib satisfies u"
+        );
+        let without = inst.resolve(&set(&["u"]));
+        assert_eq!(without.len(), 1, "{without:?}");
+        assert_eq!(
+            (without[0].dependent_sha1(), without[0].dep_id()),
+            ("u", "lib")
+        );
+    }
+
+    /// One admission test, each exclusion by exactly one rule.
+    #[test]
+    fn active_deps_for_is_the_one_admission_test() {
+        use crate::mods::local::DescriptorSource as S;
+        let neo = |id: &str, kind| dep_from(id, "", RangeFamily::Maven, kind, S::NeoForgeToml);
+        let mut server = neo("serveronly", DependencyKind::Required);
+        server.side = DepSide::Server;
+        let shadowed = dep_from(
+            "shadowed",
+            "",
+            RangeFamily::Maven,
+            DependencyKind::Required,
+            S::ModsToml,
+        );
+        let m = modz_from(
+            "aa",
+            vec![],
+            vec![
+                server,
+                shadowed,
+                neo("discouraged", DependencyKind::Discouraged),
+                neo("real", DependencyKind::Required),
+                neo("opt", DependencyKind::Optional),
+            ],
+            vec![S::NeoForgeToml, S::ModsToml],
+        );
+        let ids: Vec<&str> =
+            active_deps_for(&m.manifest, LoaderKind::NeoForge, DescriptorEra::Modern)
+                .map(|d| d.dep_id.as_str())
+                .collect();
+        assert_eq!(ids, ["real", "opt"]);
     }
 }
