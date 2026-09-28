@@ -1026,19 +1026,23 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `instance_id`. Each enabled mod is a root; its required and optional
 	 *  subtrees are walked recursively (cycle-guarded, memoized), and every node
 	 *  says whether an enabled jar of it is `installed`, a switched-off one
-	 *  `disabled`, and what the author `declared` — facts, never a verdict.
+	 *  `disabled`, and what the author `declared` — facts, never a verdict. An
+	 *  installed mod whose installed version the platform could not describe says
+	 *  so (`deps_unknown`) instead of showing no children.
 	 * 
 	 *  Network-frugal by construction. The old approach queried each mod's newest
 	 *  version and resolved every dependency one project at a time — ~1000+
 	 *  individual requests on a large instance, a 429 rate-limit storm. Instead
 	 *  this:
-	 *    1. batch-fetches each installed mod's *installed* version by id (the
-	 *       version object carries its declared deps), and
+	 *    1. reads each enabled mod's *installed* version by id (the version object
+	 *       carries its declared deps) from the session cache, batch-fetching only
+	 *       the ids it misses ([`installed_version_meta`]), and
 	 *    2. batch-fetches every referenced project's summary into the shared cache
-	 *       for display names + loader-slug detection,
-	 *  then runs the recursion over that in-memory data: an installed project
-	 *  contributes its version's deps; a non-installed project is a leaf (no
-	 *  recursion, no network). Informational only — no files are written.
+	 *       for display names + loader-slug detection ([`graph_summaries`]),
+	 *  then runs the recursion over that in-memory data ([`graph_from_meta`]): an
+	 *  installed project contributes its version's deps; a non-installed project is
+	 *  a leaf (no recursion, no network). Informational only — nothing in the
+	 *  instance is written.
 	 */
 	modsDependencyGraph: (instanceId: string) => typedError<DependencyGraph, Error>(__TAURI_INVOKE("mods_dependency_graph", { instanceId })),
 	/**
@@ -3401,6 +3405,13 @@ export type DepRoot = {
 	name: string,
 	required: DepTreeNode[],
 	optional: DepTreeNode[],
+	/**
+	 *  Why this mod's dependencies are unknown, when they are (see
+	 *  [`DepTreeNode::deps_unknown`]); `required` and `optional` are then empty.
+	 *  While such a mod is enabled, "required by nothing" is not a fact for any
+	 *  other mod. `#[serde(default)]` so specta emits it optional.
+	 */
+	deps_unknown?: DepsUnknown | null,
 };
 
 export type DepTreeNode = {
@@ -3424,6 +3435,13 @@ export type DepTreeNode = {
 	 */
 	cycle: boolean,
 	children: DepTreeNode[],
+	/**
+	 *  Set on an INSTALLED node whose installed version the platform could not
+	 *  describe: its `children` are empty because they are unknown, not because
+	 *  there are none. Always `None` on a node that is not installed — a leaf by
+	 *  design. `#[serde(default)]` so specta emits it optional.
+	 */
+	deps_unknown?: DepsUnknown | null,
 };
 
 /**
@@ -3483,6 +3501,26 @@ export type DepViolation = {
 export type DependencyGraph = {
 	roots: DepRoot[],
 };
+
+/**
+ *  Why an installed project's dependencies are unknown. The graph says so
+ *  instead of showing no children: "could not tell" is never "declares
+ *  nothing" (CLAUDE.md, fallback discipline), and while such a mod is enabled
+ *  no library can be called unused.
+ */
+export type DepsUnknown = 
+/**
+ *  The platform could not be asked, or did not answer: offline,
+ *  rate-limited, a server error, no usable CurseForge key.
+ */
+"unreachable" | 
+/**
+ *  The platform's answer holds no version for this jar: the registry
+ *  stores no version id (an ambiguous hash match records only the
+ *  project), or the platform does not list the stored one (a version
+ *  removed from it; a pack-only source with no per-version data).
+ */
+"unidentified";
 
 /**
  *  What happened to one file.

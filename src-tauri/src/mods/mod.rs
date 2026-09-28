@@ -48,6 +48,7 @@ pub mod trash;
 pub mod unsupported;
 pub mod update_check_store;
 pub mod updates;
+pub mod version_by_id_cache;
 pub mod version_cache;
 pub mod version_fix;
 pub mod version_range;

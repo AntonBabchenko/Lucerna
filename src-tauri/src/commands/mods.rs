@@ -3784,55 +3784,58 @@ pub async fn mods_install_missing_required(
 /// `instance_id`. Each enabled mod is a root; its required and optional
 /// subtrees are walked recursively (cycle-guarded, memoized), and every node
 /// says whether an enabled jar of it is `installed`, a switched-off one
-/// `disabled`, and what the author `declared` — facts, never a verdict.
+/// `disabled`, and what the author `declared` — facts, never a verdict. An
+/// installed mod whose installed version the platform could not describe says
+/// so (`deps_unknown`) instead of showing no children.
 ///
 /// Network-frugal by construction. The old approach queried each mod's newest
 /// version and resolved every dependency one project at a time — ~1000+
 /// individual requests on a large instance, a 429 rate-limit storm. Instead
 /// this:
-///   1. batch-fetches each installed mod's *installed* version by id (the
-///      version object carries its declared deps), and
+///   1. reads each enabled mod's *installed* version by id (the version object
+///      carries its declared deps) from the session cache, batch-fetching only
+///      the ids it misses ([`installed_version_meta`]), and
 ///   2. batch-fetches every referenced project's summary into the shared cache
-///      for display names + loader-slug detection,
-/// then runs the recursion over that in-memory data: an installed project
-/// contributes its version's deps; a non-installed project is a leaf (no
-/// recursion, no network). Informational only — no files are written.
+///      for display names + loader-slug detection ([`graph_summaries`]),
+/// then runs the recursion over that in-memory data ([`graph_from_meta`]): an
+/// installed project contributes its version's deps; a non-installed project is
+/// a leaf (no recursion, no network). Informational only — nothing in the
+/// instance is written.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_dependency_graph(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> crate::error::Result<crate::mods::depgraph::DependencyGraph> {
-    use crate::mods::depgraph::{build_graph, DependencyGraph, InstalledNode, NodeDeps};
-    use std::collections::{HashMap, HashSet};
-    use std::sync::Arc;
-
     let root = instance_root(&app, &instance_id)?;
     // The instance loader scopes the graph: a declaring mod whose loader family
     // this instance cannot load is inert here, so its declared deps must not be
     // shown as required (the depgraph analogue of preflight's #154 scoping).
     let loader = crate::instances::read_instance(&app, &instance_id)?.loader;
-    // One read of the registry, unfiltered (spec §5.1). The ENABLED rows are the
-    // roots and the "installed" set, matching the pre-flight: the loader never
-    // reads a `.disabled` jar, so a disabled mod neither declares dependencies nor
-    // satisfies anyone else's — otherwise the two panels would contradict each
-    // other. The DISABLED rows only mark a node `disabled`, so the tree can offer
-    // to switch the jar back on instead of installing a duplicate beside it.
-    let (installed_mods, disabled_mods): (Vec<_>, Vec<_>) = crate::mods::installed::list(&root)
-        .await?
-        .into_iter()
-        .partition(|m| m.enabled);
-    let disabled_projects: Vec<(ModSource, String)> = disabled_mods
-        .iter()
-        .filter_map(|m| Some((m.source?, m.project_id.clone()?)))
-        .collect();
+    // One read of the registry, unfiltered (spec §5.1): the ENABLED rows are the
+    // roots, the disabled ones only mark nodes (see `graph_from_meta`).
+    let rows = crate::mods::installed::list(&root).await?;
+    let roots = graph_roots(&rows);
+    if roots.is_empty() {
+        return Ok(crate::mods::depgraph::DependencyGraph { roots: Vec::new() });
+    }
+    let meta = installed_version_meta(
+        &rows,
+        &crate::mods::version_by_id_cache::SESSION,
+        platform_for,
+    )
+    .await;
+    let summaries = graph_summaries(&app, &roots, &meta).await?;
+    graph_from_meta(&rows, &roots, &meta, &summaries, loader).await
+}
 
-    // Roots: platform-identified installed mods only (anonymous local jars have
-    // no source metadata and cannot be queried for deps).
-    let roots: Vec<InstalledNode> = installed_mods
-        .iter()
+/// The graph's roots: the ENABLED platform-identified mods (an anonymous local
+/// jar has no source metadata and cannot be asked for its deps).
+fn graph_roots(rows: &[InstalledMod]) -> Vec<crate::mods::depgraph::InstalledNode> {
+    rows.iter()
+        .filter(|m| m.enabled)
         .filter_map(|m| match (m.source, m.project_id.as_ref()) {
-            (Some(source), Some(pid)) => Some(InstalledNode {
+            (Some(source), Some(pid)) => Some(crate::mods::depgraph::InstalledNode {
                 sha1: m.sha1.clone(),
                 source,
                 project_id: pid.clone(),
@@ -3840,69 +3843,140 @@ pub async fn mods_dependency_graph(
             }),
             _ => None,
         })
-        .collect();
-    if roots.is_empty() {
-        return Ok(DependencyGraph { roots: Vec::new() });
-    }
+        .collect()
+}
 
-    // Lowercased installed jar filenames — the cross-source recognition signal
-    // (a dep installed from the other platform has a different ProjectKey but the
-    // same jar). Declared dep links in this batch path carry no filename, so the
-    // signal only fires once a child's expected filename can be threaded in; the
-    // set is still passed so the mechanism is wired end-to-end.
-    let installed_filenames: HashSet<String> = installed_mods
-        .iter()
-        .map(|m| m.filename.to_ascii_lowercase())
-        .collect();
+/// Per enabled platform project, keyed like the graph's nodes: what its
+/// installed version declares, or why that is unknown.
+type VersionMeta = std::collections::HashMap<
+    (ModSource, String),
+    Result<DepNodeMeta, crate::mods::depgraph::DepsUnknown>,
+>;
 
-    // 1. Batch-fetch each installed mod's *installed* version by id, per source.
-    //    The version object carries its declared deps. A mod with no stored
-    //    version_id contributes no entry → it becomes a root with no children.
-    let mut version_ids: HashMap<ModSource, Vec<String>> = HashMap::new();
-    for m in &installed_mods {
-        if let (Some(source), Some(_), Some(vid)) =
-            (m.source, m.project_id.as_ref(), m.version_id.as_ref())
-        {
-            version_ids.entry(source).or_default().push(vid.clone());
-        }
-    }
-    // (source, project_id) -> that mod's installed-version dependency links.
-    let mut deps_by_project: HashMap<(ModSource, String), DepNodeMeta> = HashMap::new();
-    for (source, vids) in &version_ids {
-        let refs: Vec<&str> = vids.iter().map(String::as_str).collect();
-        let versions = match platform_for(*source).versions_by_ids(&refs).await {
-            Ok(v) => v,
-            Err(e) => {
-                // Degrade to roots-with-no-children for this source, but record
-                // why (missing CF key, transient 429) so it's diagnosable.
-                crate::diag!("[depgraph] versions_by_ids failed for {source:?}: {e}");
-                Vec::new()
-            }
+/// Step 1 of [`mods_dependency_graph`]: what each ENABLED platform mod's
+/// installed version declares — or why that is unknown, never an empty answer
+/// in place of one it could not get (CLAUDE.md, fallback discipline: "could not
+/// tell" is not "declares nothing").
+///
+/// Versions come from `cache` first; only the ids it misses are asked of the
+/// platform, one batch per source, and what the platform answers is kept. A
+/// failed batch leaves exactly its own ids [`Unreachable`] (logged); a mod with
+/// no stored version id, or whose id the platform's answer does not hold, is
+/// [`Unidentified`].
+///
+/// [`Unreachable`]: crate::mods::depgraph::DepsUnknown::Unreachable
+/// [`Unidentified`]: crate::mods::depgraph::DepsUnknown::Unidentified
+async fn installed_version_meta<P>(
+    rows: &[InstalledMod],
+    cache: &crate::mods::version_by_id_cache::VersionByIdCache,
+    platform_of: P,
+) -> VersionMeta
+where
+    P: Fn(ModSource) -> Box<dyn crate::mods::platform::ModPlatform>,
+{
+    use crate::mods::depgraph::DepsUnknown;
+    use std::collections::{HashMap, HashSet};
+
+    let mut meta = VersionMeta::new();
+    // Per source: (project_id, version_id) of each enabled mod that names one.
+    let mut wanted: HashMap<ModSource, Vec<(String, String)>> = HashMap::new();
+    for m in rows.iter().filter(|m| m.enabled) {
+        let (Some(source), Some(pid)) = (m.source, m.project_id.as_ref()) else {
+            continue;
         };
-        for v in versions {
-            deps_by_project.insert(
-                (*source, v.project_id.clone()),
-                DepNodeMeta {
-                    loaders: v.loaders,
-                    deps: v.deps,
-                },
-            );
+        match &m.version_id {
+            Some(vid) => wanted
+                .entry(source)
+                .or_default()
+                .push((pid.clone(), vid.clone())),
+            // An ambiguous hash match records the project but not the version:
+            // nothing says what this jar declares.
+            None => record_version_meta(
+                &mut meta,
+                (source, pid.clone()),
+                Err(DepsUnknown::Unidentified),
+            ),
         }
     }
+    for (source, mods) in wanted {
+        let mut ids: Vec<String> = mods.iter().map(|(_, vid)| vid.clone()).collect();
+        ids.sort();
+        ids.dedup();
+        let (mut versions, misses) = cache.lookup(source, &ids);
+        let mut unreachable: HashSet<String> = HashSet::new();
+        if !misses.is_empty() {
+            let refs: Vec<&str> = misses.iter().map(String::as_str).collect();
+            match platform_of(source).versions_by_ids(&refs).await {
+                Ok(fetched) => {
+                    cache.remember(source, &fetched);
+                    versions.extend(fetched);
+                }
+                Err(e) => {
+                    // Only what the cache could not answer is unknown, and each
+                    // of those mods says so; why is diagnosable here (a missing
+                    // CurseForge key, a transient 429, offline).
+                    crate::diag!(
+                        "[depgraph] versions_by_ids failed for {source:?} ({} ids): {e}",
+                        misses.len()
+                    );
+                    unreachable.extend(misses);
+                }
+            }
+        }
+        let by_id: HashMap<&str, &ModVersion> = versions
+            .iter()
+            .map(|v| (v.version_id.as_str(), v))
+            .collect();
+        for (pid, vid) in mods {
+            let answer = match by_id.get(vid.as_str()) {
+                Some(v) => Ok(DepNodeMeta {
+                    loaders: v.loaders.clone(),
+                    deps: v.deps.clone(),
+                }),
+                None if unreachable.contains(&vid) => Err(DepsUnknown::Unreachable),
+                None => Err(DepsUnknown::Unidentified),
+            };
+            record_version_meta(&mut meta, (source, pid), answer);
+        }
+    }
+    meta
+}
 
-    // 2. Batch every referenced project_id (roots + dep children) into the
-    //    shared summary cache, per source, for display names + loader slugs.
-    let ttl = mod_metadata_ttl_days(&app)?;
-    let cache_path = crate::paths::mods_cache_file(&app)
+/// Record one mod's answer. Two enabled jars of one project share one graph
+/// node: while what either declares is unknown, so is the project's — an
+/// unknown answer is never overwritten.
+fn record_version_meta(
+    meta: &mut VersionMeta,
+    key: (ModSource, String),
+    answer: Result<DepNodeMeta, crate::mods::depgraph::DepsUnknown>,
+) {
+    if !matches!(meta.get(&key), Some(Err(_))) {
+        meta.insert(key, answer);
+    }
+}
+
+/// Step 2 of [`mods_dependency_graph`]: every project the graph names — the
+/// roots and the children their known versions declare — batched per source
+/// through the shared summary cache, for display names and the loader slugs /
+/// loaders the scoping reads.
+async fn graph_summaries(
+    app: &tauri::AppHandle,
+    roots: &[crate::mods::depgraph::InstalledNode],
+    meta: &VersionMeta,
+) -> crate::error::Result<std::collections::HashMap<(ModSource, String), ModSummary>> {
+    use std::collections::{HashMap, HashSet};
+
+    let ttl = mod_metadata_ttl_days(app)?;
+    let cache_path = crate::paths::mods_cache_file(app)
         .map_err(|e| crate::error::Error::io("<mods_cache_file>", e))?;
     let mut ids_by_source: HashMap<ModSource, HashSet<String>> = HashMap::new();
-    for n in &roots {
+    for n in roots {
         ids_by_source
             .entry(n.source)
             .or_default()
             .insert(n.project_id.clone());
     }
-    for node in deps_by_project.values() {
+    for node in meta.values().filter_map(|answer| answer.as_ref().ok()) {
         for d in &node.deps {
             let (src, pid) = dep_ref_key(&d.project_ref);
             ids_by_source.entry(src).or_default().insert(pid);
@@ -3934,27 +4008,56 @@ pub async fn mods_dependency_graph(
             summaries.insert((source, s.project_id.clone()), s);
         }
     }
+    Ok(summaries)
+}
 
-    // 3. Build the graph over in-memory data. `fetch` is a synchronous lookup:
-    //    an installed project yields its version's required/optional children
-    //    (loader-only deps dropped via cached slug; names from the cache,
-    //    falling back to the project id); a non-installed project yields
-    //    nothing → emitted as a leaf, no recursion, no network.
-    let deps_by_project = Arc::new(deps_by_project);
-    let summaries = Arc::new(summaries);
-    let fetch = move |source: ModSource, project_id: String| {
-        let deps_by_project = deps_by_project.clone();
-        let summaries = summaries.clone();
-        async move {
-            let result = match deps_by_project.get(&(source, project_id)) {
-                Some(node) => node_deps_scoped(node, loader, &summaries),
-                None => NodeDeps::default(),
-            };
-            Ok::<NodeDeps, crate::error::Error>(result)
-        }
+/// Step 3 of [`mods_dependency_graph`]: the graph over in-memory data. `fetch`
+/// is a synchronous lookup: an installed project answers its version's
+/// required/optional children (loader-scoped, loader projects dropped via the
+/// cached slug, named from the summaries, falling back to the project id) or
+/// why they are unknown; a project that is not installed answers nothing and
+/// is emitted as a leaf — no recursion, no network.
+async fn graph_from_meta(
+    rows: &[InstalledMod],
+    roots: &[crate::mods::depgraph::InstalledNode],
+    meta: &VersionMeta,
+    summaries: &std::collections::HashMap<(ModSource, String), ModSummary>,
+    loader: LoaderKind,
+) -> crate::error::Result<crate::mods::depgraph::DependencyGraph> {
+    use crate::mods::depgraph::{build_graph, NodeAnswer, NodeDeps};
+    use std::collections::HashSet;
+
+    // The ENABLED rows are the roots and the "installed" set, matching the
+    // pre-flight: the loader never reads a `.disabled` jar, so a disabled mod
+    // neither declares dependencies nor satisfies anyone else's — otherwise the
+    // two panels would contradict each other. The DISABLED rows only mark a node
+    // `disabled`, so the tree can offer to switch the jar back on instead of
+    // installing a duplicate beside it.
+    let disabled_projects: Vec<(ModSource, String)> = rows
+        .iter()
+        .filter(|m| !m.enabled)
+        .filter_map(|m| Some((m.source?, m.project_id.clone()?)))
+        .collect();
+    // Lowercased installed jar filenames — the cross-source recognition signal
+    // (a dep installed from the other platform has a different ProjectKey but the
+    // same jar). Declared dep links in this batch path carry no filename, so the
+    // signal only fires once a child's expected filename can be threaded in; the
+    // set is still passed so the mechanism is wired end-to-end.
+    let installed_filenames: HashSet<String> = rows
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| m.filename.to_ascii_lowercase())
+        .collect();
+    let fetch = |source: ModSource, project_id: String| {
+        let answer = match meta.get(&(source, project_id)) {
+            Some(Ok(node)) => NodeAnswer::Deps(node_deps_scoped(node, loader, summaries)),
+            Some(Err(why)) => NodeAnswer::Unknown(*why),
+            // Not an enabled platform mod: a leaf by design.
+            None => NodeAnswer::Deps(NodeDeps::default()),
+        };
+        std::future::ready(Ok::<NodeAnswer, crate::error::Error>(answer))
     };
-
-    build_graph(&roots, &disabled_projects, &installed_filenames, fetch).await
+    build_graph(roots, &disabled_projects, &installed_filenames, fetch).await
 }
 
 /// Map a dependency reference to the `(source, project_id)` key used by the
@@ -5372,5 +5475,254 @@ mod tests {
             serde_json::json!({"dependent_sha1": "d1", "dep_id": "lib", "name": "Lib",
                                "project": {"source": "curseforge", "project_id": "123"}})
         );
+    }
+
+    // =====================================================================
+    // Dependency graph: installed versions through the session cache.
+    // =====================================================================
+
+    use crate::mods::depgraph::{DependencyGraph, DepsUnknown};
+    use crate::mods::version_by_id_cache::VersionByIdCache;
+
+    fn stub_unsupported() -> crate::error::Error {
+        crate::error::Error::ModsPlatformUnsupported {
+            platform: ModSource::Modrinth,
+        }
+    }
+
+    /// A platform whose one live method is `versions_by_ids`: it answers from
+    /// `versions` (an id it does not know is omitted, as the real APIs do) or,
+    /// `offline`, fails like an unreachable host. Every call's ids are recorded.
+    #[derive(Clone, Default)]
+    struct StubVersionsPlatform {
+        versions: Vec<ModVersion>,
+        offline: bool,
+        asked: std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::mods::platform::ModPlatform for StubVersionsPlatform {
+        async fn search(&self, _q: &ModSearchQuery) -> Result<ModSearchPage, crate::error::Error> {
+            Err(stub_unsupported())
+        }
+
+        async fn project(&self, _project_id: &str) -> Result<ModProject, crate::error::Error> {
+            Err(stub_unsupported())
+        }
+
+        async fn versions(
+            &self,
+            _project_id: &str,
+            _mc_version: Option<&str>,
+            _loader: Option<LoaderKind>,
+        ) -> Result<Vec<ModVersion>, crate::error::Error> {
+            Err(stub_unsupported())
+        }
+
+        async fn resolve_deps(
+            &self,
+            _version: &ModVersion,
+            _mc_version: &str,
+            _loader: LoaderKind,
+        ) -> Result<ResolvedDeps, crate::error::Error> {
+            Err(stub_unsupported())
+        }
+
+        async fn versions_by_ids(
+            &self,
+            version_ids: &[&str],
+        ) -> Result<Vec<ModVersion>, crate::error::Error> {
+            self.asked
+                .lock()
+                .unwrap()
+                .push(version_ids.iter().map(|s| s.to_string()).collect());
+            if self.offline {
+                return Err(crate::error::Error::ModsNetwork {
+                    url: "https://api.modrinth.com/v2/versions".into(),
+                    details: "offline".into(),
+                });
+            }
+            Ok(self
+                .versions
+                .iter()
+                .filter(|v| version_ids.contains(&v.version_id.as_str()))
+                .cloned()
+                .collect())
+        }
+    }
+
+    /// An ENABLED registry row of platform project `pid`.
+    fn graph_row(
+        sha1: &str,
+        source: ModSource,
+        pid: &str,
+        version_id: Option<&str>,
+    ) -> InstalledMod {
+        InstalledMod {
+            filename: format!("{sha1}.jar"),
+            sha1: sha1.into(),
+            source: Some(source),
+            project_id: Some(pid.into()),
+            version_id: version_id.map(Into::into),
+            name: pid.into(),
+            version_number: None,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        }
+    }
+
+    /// Version `vid` of Modrinth project `pid`, requiring each of `requires`.
+    fn version_requiring(pid: &str, vid: &str, requires: &[&str]) -> ModVersion {
+        ModVersion {
+            version_id: vid.into(),
+            deps: requires.iter().map(|r| required_dep(r)).collect(),
+            ..mv(pid)
+        }
+    }
+
+    /// Steps 1 and 3 of `mods_dependency_graph` (step 2 only names nodes).
+    async fn graph_of(
+        rows: &[InstalledMod],
+        cache: &VersionByIdCache,
+        platform_of: impl Fn(ModSource) -> StubVersionsPlatform,
+    ) -> DependencyGraph {
+        let meta = installed_version_meta(
+            rows,
+            cache,
+            |source: ModSource| -> Box<dyn crate::mods::platform::ModPlatform> {
+                Box::new(platform_of(source))
+            },
+        )
+        .await;
+        graph_from_meta(
+            rows,
+            &graph_roots(rows),
+            &meta,
+            &HashMap::new(),
+            LoaderKind::NeoForge,
+        )
+        .await
+        .unwrap()
+    }
+
+    /// Offline, rate-limited, no CurseForge key: a source whose lookup fails
+    /// leaves ITS mods' dependencies unknown — said per mod, never shown as
+    /// "none" — while the other source's mods keep theirs.
+    #[tokio::test]
+    async fn a_source_whose_version_lookup_fails_leaves_its_mods_dependencies_unknown() {
+        let rows = [
+            graph_row("a", ModSource::Modrinth, "alpha", Some("alpha-v")),
+            graph_row("b", ModSource::Curseforge, "123", Some("456")),
+        ];
+        let modrinth = StubVersionsPlatform {
+            versions: vec![version_requiring("alpha", "alpha-v", &["lib"])],
+            ..Default::default()
+        };
+        let curseforge = StubVersionsPlatform {
+            offline: true,
+            ..Default::default()
+        };
+        let g = graph_of(&rows, &VersionByIdCache::default(), |source| {
+            if source == ModSource::Curseforge {
+                curseforge.clone()
+            } else {
+                modrinth.clone()
+            }
+        })
+        .await;
+
+        let root = |sha1: &str| g.roots.iter().find(|r| r.sha1 == sha1).unwrap();
+        assert_eq!(root("b").deps_unknown, Some(DepsUnknown::Unreachable));
+        assert!(root("b").required.is_empty() && root("b").optional.is_empty());
+        assert_eq!(root("a").deps_unknown, None);
+        assert_eq!(
+            root("a").required.len(),
+            1,
+            "the reachable source's mod keeps its dependency"
+        );
+    }
+
+    /// Nothing names the version, so nothing says what it declares: a mod with
+    /// no stored version id (an ambiguous hash match), or one whose id the
+    /// platform's answer does not hold, is unidentified — not dependency-free.
+    #[tokio::test]
+    async fn a_mod_whose_version_nobody_names_has_unknown_dependencies() {
+        let rows = [
+            graph_row("c", ModSource::Modrinth, "gamma", None),
+            graph_row("d", ModSource::Modrinth, "delta", Some("delta-gone")),
+            graph_row("a", ModSource::Modrinth, "alpha", Some("alpha-v")),
+        ];
+        let platform = StubVersionsPlatform {
+            versions: vec![version_requiring("alpha", "alpha-v", &[])],
+            ..Default::default()
+        };
+        let g = graph_of(&rows, &VersionByIdCache::default(), |_| platform.clone()).await;
+
+        let root = |sha1: &str| g.roots.iter().find(|r| r.sha1 == sha1).unwrap();
+        assert_eq!(
+            root("c").deps_unknown,
+            Some(DepsUnknown::Unidentified),
+            "no version id"
+        );
+        assert_eq!(
+            root("d").deps_unknown,
+            Some(DepsUnknown::Unidentified),
+            "not in the platform's answer"
+        );
+        assert_eq!(
+            root("a").deps_unknown,
+            None,
+            "a described version that declares nothing is a fact"
+        );
+    }
+
+    /// Version objects by id do not change: after one good load a rebuild (a
+    /// toggle burst) asks the platform nothing, and still knows everything while
+    /// the platform is down. Only the ids the cache misses are asked, and only
+    /// they go unknown when that fails.
+    #[tokio::test]
+    async fn a_rebuild_is_served_from_the_session_cache_while_the_platform_is_down() {
+        let cache = VersionByIdCache::default();
+        let alpha = [graph_row(
+            "a",
+            ModSource::Modrinth,
+            "alpha",
+            Some("alpha-v"),
+        )];
+        let online = StubVersionsPlatform {
+            versions: vec![version_requiring("alpha", "alpha-v", &["lib"])],
+            ..Default::default()
+        };
+        let first = graph_of(&alpha, &cache, |_| online.clone()).await;
+        assert_eq!(first.roots[0].required.len(), 1);
+
+        let offline = StubVersionsPlatform {
+            offline: true,
+            ..Default::default()
+        };
+        let again = graph_of(&alpha, &cache, |_| offline.clone()).await;
+        assert_eq!(again.roots[0].deps_unknown, None);
+        assert_eq!(again.roots[0].required.len(), 1, "served from the cache");
+        assert!(
+            offline.asked.lock().unwrap().is_empty(),
+            "a full hit asks the platform nothing"
+        );
+
+        // A mod installed since is the one miss: only it is asked, only it is unknown.
+        let with_epsilon = [
+            alpha[0].clone(),
+            graph_row("e", ModSource::Modrinth, "epsilon", Some("epsilon-v")),
+        ];
+        let later = graph_of(&with_epsilon, &cache, |_| offline.clone()).await;
+        assert_eq!(
+            *offline.asked.lock().unwrap(),
+            [vec!["epsilon-v".to_string()]]
+        );
+        let root = |sha1: &str| later.roots.iter().find(|r| r.sha1 == sha1).unwrap();
+        assert_eq!(root("a").deps_unknown, None);
+        assert_eq!(root("a").required.len(), 1);
+        assert_eq!(root("e").deps_unknown, Some(DepsUnknown::Unreachable));
     }
 }
