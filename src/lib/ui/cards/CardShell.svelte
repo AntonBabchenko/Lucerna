@@ -12,7 +12,6 @@
     accent = 'none',
     dim = false,
     highlighted = false,
-    depHighlighted = false,
     testid = undefined,
     children,
   }: {
@@ -21,8 +20,6 @@
     dim?: boolean;
     // The amber `.bg-highlight` (an installed pack version).
     highlighted?: boolean;
-    // The neutral dependency cross-highlight `.bg-dep-highlight`.
-    depHighlighted?: boolean;
     testid?: string | undefined;
     children: Snippet;
   } = $props();
@@ -38,7 +35,7 @@
 <div
   data-card-shell
   data-testid={testid}
-  class={`${VARIANT[variant]} ${dim ? 'opacity-60' : ''} ${highlighted ? 'bg-highlight' : ''} ${depHighlighted ? 'bg-dep-highlight' : ''}`}
+  class={`${VARIANT[variant]} ${dim ? 'opacity-60' : ''} ${highlighted ? 'bg-highlight' : ''}`}
 >
   <span
     data-card-accent

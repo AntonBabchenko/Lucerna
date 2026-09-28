@@ -131,7 +131,7 @@ describe('"required by" entries are interactive', () => {
     expect(onOpenDetail).not.toHaveBeenCalled();
   });
 
-  it('toggles bg-dep-highlight on the wrapper when hoveredKey matches the entry', () => {
+  it('toggles dep-highlight on the wrapper when hoveredKey matches the entry', () => {
     const { container } = render(DepSection, {
       props: {
         root,
@@ -144,6 +144,6 @@ describe('"required by" entries are interactive', () => {
       },
     });
     const wrapper = container.querySelector('[data-mod-key="modrinth:PA"]') as HTMLElement;
-    expect(wrapper.classList.contains('bg-dep-highlight')).toBe(true);
+    expect(wrapper.classList.contains('dep-highlight')).toBe(true);
   });
 });

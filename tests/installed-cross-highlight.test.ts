@@ -173,22 +173,24 @@ describe('hover cross-highlight across dep-tree nodes and rows', () => {
     });
 
     // Hovering the dep-tree node sets hoveredKey = "modrinth:PB" via onHover,
-    // which propagates back to B's main row's class:bg-dep-highlight binding.
+    // which propagates back to B's main row's class:dep-highlight binding.
     await fireEvent.mouseEnter(depNode);
 
     const bRow = document.querySelector('[data-mod-row="modrinth:PB"]');
-    expect(bRow?.classList.contains('bg-dep-highlight')).toBe(true);
+    expect(bRow?.classList.contains('dep-highlight')).toBe(true);
 
-    // The wrapper highlight alone was visually masked: ModCard's list-row paints
-    // an opaque bg-surface that covers the parent's wash. The fix routes the
-    // highlight into ModCard via its `depHighlighted` prop, so the inner row
-    // itself must carry bg-dep-highlight (this is the part that was broken) —
-    // and not the amber `bg-highlight`, which marks an installed pack version.
+    // Drawn ONCE, by the row: the highlight is a ring its host draws above its
+    // children (a wash on the wrapper was hidden under ModCard's opaque row, and
+    // a second wash on that row compounded the first to 3.31:1 for muted text).
+    // So the inner card row carries none of its own — and not the amber
+    // `bg-highlight` either, which marks an installed pack version.
     const bInnerRow = document.querySelector(
       '[data-mod-row="modrinth:PB"] [data-testid="card-list-row"]',
     );
-    expect(bInnerRow?.classList.contains('bg-dep-highlight')).toBe(true);
+    expect(bInnerRow).not.toBeNull();
+    expect(bInnerRow?.classList.contains('dep-highlight')).toBe(false);
     expect(bInnerRow?.classList.contains('bg-highlight')).toBe(false);
+    expect(bRow?.querySelectorAll('.dep-highlight')).toHaveLength(0);
   });
 
   it('hovering a mod row highlights only that row, not its expanded dep node', async () => {
@@ -227,9 +229,9 @@ describe('hover cross-highlight across dep-tree nodes and rows', () => {
     await fireEvent.mouseEnter(aRow);
 
     // A's row highlights...
-    expect(aRow.classList.contains('bg-dep-highlight')).toBe(true);
+    expect(aRow.classList.contains('dep-highlight')).toBe(true);
     // ...but the B dep-node does NOT (its key is PB ≠ PA).
-    expect(depNode.classList.contains('bg-dep-highlight')).toBe(false);
+    expect(depNode.classList.contains('dep-highlight')).toBe(false);
 
     // The load-bearing structural guard: the expanded dep node must NOT be a
     // descendant of A's hover-region element. On the OLD structure the

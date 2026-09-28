@@ -40,8 +40,10 @@
      resolve-and-install path. DepTree keeps them separate for other callers. -->
 <!-- Inset, bordered, and gapped below so the expanded tree reads as nested
      content under its mod and is clearly separated from the next mod row
-     (a full-width grey block blended into the following row). -->
-<div class="mx-3 mb-2 rounded-md border border-border-subtle bg-subtle/40 px-3 py-2">
+     (a full-width grey block blended into the following row). On the surface,
+     not a grey tint: the muted headings and cycle marker were 4.46:1 on the old
+     bg-subtle/40 in the light theme. -->
+<div class="mx-3 mb-2 rounded-md border border-border-subtle bg-surface px-3 py-2">
   <!-- «Requires» is safe to say again: each absent node now carries its truthful state
        (loader-required / platform-only / unknown) instead of the heading hedging for all of
        them (spec 2026-09-28 D4, overriding 2026-08-03 descriptor-authority §6). -->
@@ -95,8 +97,8 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span
           data-mod-key={k}
-          class="inline-flex items-center gap-1 rounded px-1 -mx-1"
-          class:bg-dep-highlight={hoveredKey === k}
+          class="relative inline-flex items-center gap-1 rounded px-1 -mx-1"
+          class:dep-highlight={hoveredKey === k}
           onmouseenter={() => onHover(k)}
           onmouseleave={() => onHover(null)}
         >

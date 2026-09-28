@@ -151,6 +151,15 @@ describe('DepSection — headings state the relation; nothing to dismiss', () =>
     expect(screen.queryByText(/author marked/i)).toBeNull();
   });
 
+  // Its muted headings and cycle marker were 4.46:1 on the old bg-subtle/40 tint in the light
+  // theme; on the surface every text colour the section uses clears AA in both themes.
+  it('sits on the surface, where its muted text clears AA', () => {
+    const { container } = render(DepSection, { props: sectionProps() });
+    const panel = container.firstElementChild as HTMLElement;
+    expect(panel.classList.contains('bg-surface')).toBe(true);
+    expect([...panel.classList].some((c) => c.startsWith('bg-subtle'))).toBe(false);
+  });
+
   it('offers no claim dismissal and no hidden-claims line', () => {
     render(DepSection, { props: sectionProps() });
     expect(screen.queryByTestId('claim-dismiss')).toBeNull();
@@ -322,6 +331,6 @@ describe('DepTree — a WAI-ARIA tree', () => {
   it('hover highlights but never selects', () => {
     render(DepTree, { props: treeProps({ hoveredKey: 'modrinth:d' }) });
     expect(item('D').getAttribute('aria-selected')).toBe('false');
-    expect(item('D').querySelector('.tree-row')?.classList.contains('bg-dep-highlight')).toBe(true);
+    expect(item('D').querySelector('.tree-row')?.classList.contains('dep-highlight')).toBe(true);
   });
 });

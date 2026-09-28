@@ -208,3 +208,37 @@ describe('segmented control tokens', () => {
     });
   }
 });
+
+// The dependency cross-highlight (a mod's row, its tree nodes and its «Required by» entries light
+// up together). It was a 12% accent wash, and in the light theme no visible wash can keep text on
+// it at AA: --text-muted is only ~4.5:1 on the page itself, so any tint dark enough to see drops
+// it below. It is therefore a RING — it paints nothing under text, drawn once over its host, and
+// only the ring itself is measured: WCAG 1.4.11 wants 3:1 for a state indicator, against every
+// surface it is drawn over (the page, a card row, a hovered card row, the dependency section).
+describe('dependency cross-highlight (.dep-highlight)', () => {
+  const rule = (selector: RegExp): string => {
+    const match = selector.exec(withoutComments(appCss));
+    if (match === null) throw new Error(`no ${selector} rule — was it renamed or reshaped?`);
+    return match[1];
+  };
+
+  it('paints no background under the text it marks', () => {
+    const css = withoutComments(appCss);
+    expect(css).not.toMatch(/\.bg-dep-highlight\b/);
+    for (const [, body] of css.matchAll(/\.dep-highlight[^{]*\{([^}]*)\}/g)) {
+      expect(body).not.toMatch(/background/);
+    }
+    expect(rule(/\.dep-highlight::after\s*\{([^}]*)\}/)).toContain('var(--dep-highlight)');
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    it(`the ring clears 3:1 against every surface it is drawn over in the ${theme} theme`, () => {
+      const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
+      const ring = token(block, 'dep-highlight', theme);
+      for (const surface of ['bg-base', 'bg-surface', 'bg-subtle']) {
+        const ratio = contrastRatio(ring, token(block, surface, theme));
+        expect(ratio, `--dep-highlight on --${surface}`).toBeGreaterThanOrEqual(3);
+      }
+    });
+  }
+});

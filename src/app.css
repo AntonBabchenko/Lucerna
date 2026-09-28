@@ -56,6 +56,9 @@
   --danger-bg: 254 242 242; /* red-50 */
   --warning-bg: 255 251 235; /* amber-50 */
   --warning-text: 146 64 14; /* amber-800 */
+  /* The dependency cross-highlight ring (.dep-highlight): 4.95:1 on the page,
+     5.17:1 on a card row, 4.74:1 on a hovered one. */
+  --dep-highlight: 37 99 235; /* blue-600 — the accent */
 
   /* ── Scale tokens ─────────────────────────────────────────────────────────
      Theme-independent design-system scales (raw custom props, so no Tailwind
@@ -144,6 +147,10 @@
   --danger-bg: 127 29 29; /* red-900 */
   --warning-bg: 120 53 15; /* amber-900 — was 69 26 3 (amber-950) */
   --warning-text: 252 211 77;
+  /* A tier lighter than the dark --accent, which is only 2.82:1 on a hovered
+     card row (--bg-subtle); blue-400 is 4.08:1 there, 5.95:1 on a card row and
+     7.05:1 on the page. */
+  --dep-highlight: 96 165 250; /* blue-400 */
   --focus-ring: 59 130 246; /* = --accent (blue-500) */
   color-scheme: dark;
 }
@@ -562,24 +569,44 @@ body[data-tour-active] .tour-overlay {
 }
 
 /* Dependency cross-highlight: a mod's row, its DepTree nodes and its «Required
-   by» entries light up together on hover/focus. A neutral accent wash,
-   deliberately NOT `.bg-highlight`: that amber also marks the installed pack
-   version, and amber means "warning" in the problem model (spec D6 — the
-   hover highlight is neutral). */
-.bg-dep-highlight {
-  background-color: color-mix(in oklab, rgb(var(--accent)) 12%, transparent);
+   by» entries light up together on hover/focus. Accent, deliberately NOT
+   `.bg-highlight`: that amber also marks the installed pack version, and amber
+   means "warning" in the problem model (spec D6).
+   A RING, not a wash. The 12% accent wash it replaced dropped text to 3.85:1
+   (muted) and 3.93:1 (danger) in the light theme, and to 3.31:1 on the card
+   row, which a wrapper and a card each washed. No visible wash can do better
+   there: --text-muted is 4.54:1 on the page itself, so any tint dark enough to
+   see drops it under AA. A ring leaves every background alone, so text keeps
+   the contrast it has; only the ring is measured (≥ 3:1, WCAG 1.4.11, on every
+   surface it is drawn over — tests/intent/design-tokens.test.ts).
+   Drawn once, by the host, ABOVE its children: a positioned ::after after them
+   in tree order, so an opaque child (the ModCard row) cannot hide it and a
+   dimmed one (a disabled mod) cannot dim it. The host must be positioned —
+   give it `relative`. Thinner than the 2px focus ring, so the two never read
+   as one. */
+.dep-highlight::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgb(var(--dep-highlight));
+  pointer-events: none;
 }
 
 /* DepTree (the app's one WAI-ARIA tree): the treeitem <li> owns focus (roving
    tabindex) but also wraps its nested group, so a ring on it would circle the
    whole branch. The ring goes on the item's own row instead, inset like
-   .card-zone's — the rows are packed tight. */
+   .card-zone's — the rows are packed tight. A focused row is also the hovered
+   one; the focus ring alone marks it. */
 [role='treeitem']:focus-visible {
   outline: none;
 }
 [role='treeitem']:focus-visible > .tree-row {
   outline: 2px solid rgb(var(--focus-ring));
   outline-offset: -2px;
+}
+[role='treeitem']:focus-visible > .tree-row.dep-highlight::after {
+  content: none;
 }
 
 /* Rotating disclosure caret for native <details>/<summary> sections

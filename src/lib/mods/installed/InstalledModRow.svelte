@@ -148,18 +148,20 @@
 <div role="group" aria-label={installed.name}>
   <!-- Hover region = the mod row + its problem and chip lines ONLY. The
        expanded DepSection is a sibling below, so its per-node hover doesn't
-       fight the row's hover over the shared hoveredKey. -->
+       fight the row's hover over the shared hoveredKey. It draws the
+       cross-highlight once, as a ring above the card and both lines
+       (`relative`: the ring's containing block). -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     data-mod-key={rowKey}
     data-mod-row={rowKey}
-    class:bg-dep-highlight={hoveredKey === rowKey}
+    class="relative"
+    class:dep-highlight={hoveredKey === rowKey}
     onmouseenter={() => onHover(rowKey)}
     onmouseleave={() => onHover(null)}
   >
     <ModCard
       layout="list"
-      depHighlighted={hoveredKey === rowKey}
       {summary}
       {installed}
       onInstall={() => {}}

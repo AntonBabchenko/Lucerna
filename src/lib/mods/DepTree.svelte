@@ -202,8 +202,8 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         data-mod-key={k}
-        class="tree-row flex items-center gap-2 py-0.5 px-1 rounded"
-        class:bg-dep-highlight={hoveredKey === k}
+        class="tree-row relative flex items-center gap-2 py-0.5 px-1 rounded"
+        class:dep-highlight={hoveredKey === k}
         onmouseenter={() => onHover(k)}
         onmouseleave={() => onHover(null)}
       >

@@ -220,9 +220,7 @@ describe('InstalledModsView selection', () => {
     const alphaOccurrences = container.querySelectorAll('[data-mod-key="modrinth:Alpha"]');
     expect(alphaOccurrences.length).toBeGreaterThanOrEqual(2); // row + tree node
     await fireEvent.mouseEnter(alphaOccurrences[0] as Element);
-    const highlighted = container.querySelectorAll(
-      '[data-mod-key="modrinth:Alpha"].bg-dep-highlight',
-    );
+    const highlighted = container.querySelectorAll('[data-mod-key="modrinth:Alpha"].dep-highlight');
     expect(highlighted.length).toBeGreaterThanOrEqual(2);
   });
 
