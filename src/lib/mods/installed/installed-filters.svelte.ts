@@ -108,10 +108,11 @@ export function createInstalledFilters<R>(
             return isUpdatable(fr.id);
           case 'issues':
             return hasIssue(fr.id);
+          // Like their counts, the graph views list only facts: nothing until the graph is in.
           case 'needed':
-            return isNeeded(fr.id);
+            return graphReady() && isNeeded(fr.id);
           case 'unusedLibraries':
-            return isUnusedLibrary(fr.id);
+            return graphReady() && isUnusedLibrary(fr.id);
           default:
             return true; // 'all'
         }

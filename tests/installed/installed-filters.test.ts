@@ -53,6 +53,15 @@ describe('installed-filters — graph views and search', () => {
     f.dispose();
   });
 
+  it('a graph view lists nothing before the graph has loaded, like its count', () => {
+    const f = make(false);
+    f.viewFilter = 'needed';
+    expect(f.filtered).toEqual([]);
+    f.viewFilter = 'unusedLibraries';
+    expect(f.filtered).toEqual([]);
+    f.dispose();
+  });
+
   it('a caller without the graph predicates never counts the graph views', () => {
     const f = withStatus({});
     expect(f.counts.needed).toBe(0);

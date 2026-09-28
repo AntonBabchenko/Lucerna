@@ -156,9 +156,23 @@
       ]),
     ),
   );
-  // How many installed mods require this row's project (dependency graph).
+  // The dependency graph is rebuilt on install and removal, not on a toggle,
+  // and the backend roots it at the ENABLED mods only — so after a toggle it is
+  // stale. What the rows can tell is taken from the rows:
+  // - a mod switched off since requires nothing at load time: only roots that
+  //   are enabled NOW count (`requiredByCount`);
+  // - a mod switched on since has no root yet, so what it requires is unknown:
+  //   the graph views are no fact until the graph knows every enabled platform
+  //   mod (`graphCoversEnabled`) — a library it needs could read as unused.
   const requiredByCount = (r: Row | undefined): number =>
-    deps.requiredBy.get(r?.installed.project_id ?? '')?.length ?? 0;
+    (deps.requiredBy.get(r?.installed.project_id ?? '') ?? []).filter(
+      (e) => rowBySha.get(e.sha1)?.installed.enabled === true,
+    ).length;
+  const graphCoversEnabled = (): boolean =>
+    deps.graph !== null &&
+    data.rows.every(
+      ({ installed: m }) => !m.enabled || !m.source || !m.project_id || deps.rootBySha.has(m.sha1),
+    );
 
   const filters = createInstalledFilters(
     () => data.rows,
@@ -173,7 +187,11 @@
     {
       isUpdatable: (id) => updates.updatableShas.has(id),
       hasIssue: (id) => isProblem(statusBySha.get(id)),
-      isNeeded: (id) => requiredByCount(rowBySha.get(id)) > 0,
+      // Enabled, like the graph's own "installed": a switched-off jar satisfies nobody.
+      isNeeded: (id) => {
+        const r = rowBySha.get(id);
+        return !!r && r.installed.enabled && requiredByCount(r) > 0;
+      },
       // `library === true` only: `null` (a source that cannot tell) is never a library.
       isUnusedLibrary: (id) => {
         const r = rowBySha.get(id);
@@ -182,7 +200,7 @@
         );
       },
       // `deps` is created below; these thunks only run once counts are read.
-      graphReady: () => deps.graph !== null,
+      graphReady: graphCoversEnabled,
     },
     // A status count of 0 is "not known yet" until the rows AND the pre-flight
     // have answered (a report or an error — either settles it). `refresh()`

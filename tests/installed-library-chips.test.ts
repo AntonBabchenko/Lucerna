@@ -8,7 +8,7 @@
  * Play gate.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => {
   const mod = (sha1: string, projectId: string, name: string, enabled = true) => ({
@@ -100,12 +100,13 @@ const h = vi.hoisted(() => {
       ],
     },
     instanceDependencyPreflight: vi.fn(),
+    listInstalled: vi.fn(),
   };
 });
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: h.rows }),
+    modsListInstalled: h.listInstalled,
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     modsProjects: vi.fn((_source: string, ids: string[]) =>
@@ -143,6 +144,13 @@ const props = (instanceId: string) => ({
 const shown = () =>
   [...document.querySelectorAll('[data-mod-row]')].map((el) => el.getAttribute('data-mod-row'));
 const clean = { status: 'ok', data: { violations: [] } };
+const rowsWith = (sha1: string, enabled: boolean) =>
+  h.rows.map((r) => (r.sha1 === sha1 ? { ...r, enabled } : r));
+
+beforeEach(() => {
+  h.listInstalled.mockReset();
+  h.listInstalled.mockResolvedValue({ status: 'ok', data: h.rows });
+});
 
 describe('Installed — library chips and search', () => {
   it('offers «Needed by others» and «Unused libraries», each naming exactly its mods', async () => {
@@ -160,6 +168,36 @@ describe('Installed — library chips and search', () => {
 
     await fireEvent.click(screen.getByRole('radio', { name: /Needed by others/ }));
     await waitFor(() => expect(shown()).toEqual(['modrinth:PL']));
+  });
+
+  // The graph is rebuilt on install and removal, not on a toggle, and the backend roots it at the
+  // ENABLED mods only. So a toggle leaves it stale; the chips must not repeat what it says then.
+  it('a mod switched off since the graph was built no longer makes its library needed', async () => {
+    h.instanceDependencyPreflight.mockResolvedValue(clean);
+    // Alpha is off now; the graph still roots it (built while it was on).
+    h.listInstalled.mockResolvedValue({ status: 'ok', data: rowsWith('a', false) });
+    render(InstalledModsView, { props: props('switched-off') });
+
+    const unused = await waitFor(() => screen.getByRole('radio', { name: /Unused libraries/ }));
+    expect(unused.textContent).toContain('2'); // Lib and Unused
+    expect(screen.queryByRole('radio', { name: /Needed by others/ })).toBeNull();
+  });
+
+  it('a mod switched on since the graph was built hides the graph views until the graph knows it', async () => {
+    h.instanceDependencyPreflight.mockResolvedValue(clean);
+    // Dormant is on now, but the graph (built while it was off) has no root for it: what it
+    // requires is unknown, and «Unused» may be exactly that.
+    h.listInstalled.mockResolvedValue({ status: 'ok', data: rowsWith('d', true) });
+    render(InstalledModsView, { props: props('switched-on') });
+
+    // The graph has loaded (Alpha's row shows its dependency chip) …
+    await waitFor(() => {
+      expect(shown()).toHaveLength(5);
+      expect(document.querySelector('[data-testid="dep-expand-chip"]')).not.toBeNull();
+    });
+    // … yet it does not know every enabled mod, so neither view is a fact.
+    expect(screen.queryByRole('radio', { name: /Unused libraries/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Needed by others/ })).toBeNull();
   });
 
   it('finds a mod by its file name or its slug, not only its name', async () => {
