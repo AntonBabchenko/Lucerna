@@ -1574,6 +1574,7 @@ export type TranslationKey =
   | 'mods.preflight.checkFailed'
   | 'mods.preflight.chooseVersion'
   | 'mods.preflight.chooseVersionTip'
+  | 'mods.preflight.dependentGone'
   | 'mods.preflight.enable'
   | 'mods.preflight.enableTip'
   | 'mods.preflight.findAlternative'

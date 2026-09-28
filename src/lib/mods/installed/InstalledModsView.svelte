@@ -10,7 +10,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
-  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
   import { onDestroy, tick } from 'svelte';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
@@ -480,14 +480,24 @@
     row?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   }
 
-  // ↗ from a panel row. A dependent is always in the problem view, so a search
-  // or chip that hides it is cleared rather than the jump silently doing nothing.
+  // ↗ from a panel row. A search or a chip that hides the dependent is cleared
+  // for the view that holds it: the problem view while it is a problem (it is,
+  // while the report is current), else every mod. A report that predates a
+  // removal names a mod no view holds — say so, and change no filter for
+  // nothing (clearing them would show nothing anyway).
   async function jumpToDependent(v: DepViolation): Promise<void> {
-    if (await deps.jumpToSha1(v.dependent_sha1)) return;
+    const sha1 = v.dependent_sha1;
+    if (await deps.jumpToSha1(sha1)) return;
+    const gone = () => pushInfo(get(t)('mods.preflight.dependentGone', { name: v.dependent_name }));
+    if (!rowBySha.has(sha1)) {
+      gone();
+      return;
+    }
     filters.filter = '';
-    filters.viewFilter = 'issues';
+    filters.viewFilter = isProblem(statusBySha.get(sha1)) ? 'issues' : 'all';
     await tick();
-    await deps.jumpToSha1(v.dependent_sha1);
+    // Removed in the meantime (the list re-read while the view changed).
+    if (!(await deps.jumpToSha1(sha1))) gone();
   }
 
   // «Fix all (N)»: the Play gate's repair (fix-all.ts), then a FRESH pre-flight
