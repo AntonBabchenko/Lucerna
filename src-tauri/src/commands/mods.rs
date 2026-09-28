@@ -159,6 +159,19 @@ async fn project_titles_for(
     out
 }
 
+/// The name an install summary gives `v`: its project title where `titles`
+/// ([`project_titles_for`], plus any title the caller already resolved) knows
+/// it, else the platform's VERSION title as the last resort.
+fn summary_name(
+    v: &ModVersion,
+    titles: &std::collections::HashMap<(ModSource, String), String>,
+) -> String {
+    titles
+        .get(&(v.source, v.project_id.clone()))
+        .cloned()
+        .unwrap_or_else(|| v.name.clone())
+}
+
 /// Batch-fetch project summaries (name / slug / icon) for the installed list.
 /// Serves fresh entries from the shared disk cache and batch-fetches the
 /// missing/stale set in one request via `ModPlatform::summaries`, collapsing
@@ -403,7 +416,9 @@ struct ClosureInstall {
 /// warmed, then committed atomically by `install_batch`. Shared with the
 /// dependency installs (§5.6) so a dependency brings its own closure exactly
 /// like a Browse install. `primary_title`: a project title the caller already
-/// resolved — used for the row, the journal subject and `primary_name`.
+/// resolved — used for the row, the journal subject and `primary_name`. Without
+/// one, the row and `primary_name` take the cached project title (the version
+/// title only when none is known); the journal subject stays the version title.
 ///
 /// The caller holds the instance's shared maintenance claim across the call.
 #[allow(clippy::too_many_arguments)]
@@ -742,7 +757,8 @@ async fn install_with_closure(
     }
     Ok(ClosureInstall {
         summary: crate::mods::platform::InstallSummary {
-            primary_name: primary_title.unwrap_or_else(|| primary_v.name.clone()),
+            // `titles` holds `primary_title` when the caller had one.
+            primary_name: summary_name(&primary_v, &titles),
             installed_dependencies,
             details,
         },
@@ -4604,6 +4620,26 @@ mod tests {
             "the project title where known, else the recorded name"
         );
         assert_eq!(s.details.len(), 3, "one report row per landed jar");
+    }
+
+    /// An install summary names the mod, not its build: the platform's VERSION
+    /// title is the answer only when no project title is known.
+    #[test]
+    fn an_install_summary_names_the_project_not_its_version_title() {
+        let v = ModVersion {
+            name: "fabric-api-0.92.2+1.20.1".into(),
+            ..mv("fabric-api")
+        };
+        let titles = HashMap::from([(
+            (ModSource::Modrinth, "fabric-api".to_string()),
+            "Fabric API".to_string(),
+        )]);
+        assert_eq!(summary_name(&v, &titles), "Fabric API");
+        assert_eq!(
+            summary_name(&v, &HashMap::new()),
+            "fabric-api-0.92.2+1.20.1",
+            "the version title only as a last resort"
+        );
     }
 
     /// An update resolves its target's required dependencies unpruned, so one
