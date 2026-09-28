@@ -586,15 +586,21 @@ pub struct ImpactedMod {
     pub sha1: String,
     pub name: String,
     /// Display names (registry names — the project title for platform mods) of
-    /// the leaving mods that provided what it loses.
+    /// the leaving mods — targets, or dependents listed before it — that
+    /// provided what it loses.
     pub needs: Vec<String>,
 }
 
 /// What removing or disabling a set of mods breaks (`mods_removal_impact`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct RemovalImpact {
-    /// Enabled mods, other than the leaving ones, that gain a violation. Empty
-    /// means nothing the pre-flight can read loses anything it needs.
+    /// Enabled mods, other than the leaving ones, that gain a violation: those
+    /// the targets' leaving breaks, then — wave by wave — those that break once
+    /// the earlier ones are off too; each wave in registry order. With all of
+    /// them off as well, no enabled mod has gained a violation. Switch them off
+    /// last-first, before the targets: a mod goes off before the earlier-wave
+    /// one it needs. Empty means nothing the pre-flight can read loses anything
+    /// it needs.
     pub dependents: Vec<ImpactedMod>,
 }
 
@@ -1096,9 +1102,25 @@ impl ParsedInstance {
         }
     }
 
-    /// Enabled mods, other than `targets`, that gain a violation when `targets`
-    /// leave the enabled set — removed or disabled alike (spec §5.1). Each names
-    /// the targets that provided what it loses.
+    /// Every enabled mod, other than `targets`, that breaks when `targets` leave
+    /// the enabled set — removed or disabled alike (spec §5.1) — and, to a fixed
+    /// point, every mod that breaks once THOSE are switched off too: the dialog
+    /// offers to switch all of them off, and nothing left on may be broken by
+    /// it. A mod breaks when it gains a violation the registry's enabled set
+    /// does not have. Each names the leaving mods — targets, or dependents of an
+    /// earlier wave — that provided what it lost.
+    ///
+    /// Order: wave by wave — what breaks directly, then what breaks once that is
+    /// off too, and so on — each wave in registry order, each mod once, in the
+    /// wave it breaks in. Switched off in REVERSE, before the targets, a
+    /// later-wave mod goes off before the earlier-wave mod it needs. Waves do
+    /// not order two mods of one wave, nor a mod that also needs one of a later
+    /// wave, and no order keeps a cycle whole: a step that fails between two
+    /// such mods can leave one on without the other.
+    ///
+    /// Monotone: once broken, a mod stays counted, even where a later wave takes
+    /// away the provider whose version broke it (an optional or incompatible
+    /// declaration, which absence satisfies) — the restrictive answer.
     ///
     /// Errors when an ENABLED target's jar could not be read: what it provides
     /// is unknown, so "nothing depends on it" would be a guess. A disabled
@@ -1117,37 +1139,63 @@ impl ParsedInstance {
         }
         self.refuse_unlisted(targets)?;
         let enabled = self.registry_enabled();
-        let remaining: HashSet<String> = enabled.difference(targets).cloned().collect();
         let before = self.resolve(&enabled);
+        // The targets and every dependent found so far — all of them off.
+        let mut gone: HashSet<String> = targets.clone();
         let mut dependents: Vec<ImpactedMod> = Vec::new();
+        // Each wave adds at least one row not yet in `gone` (`newly_broken` never
+        // names one that is), or it is empty and the loop ends. Every row it names
+        // is a registry row, so the rows bound the fixed point.
+        loop {
+            let wave = self.newly_broken(&enabled, &gone, &before);
+            if wave.is_empty() {
+                break;
+            }
+            gone.extend(wave.iter().map(|d| d.sha1.clone()));
+            dependents.extend(wave);
+        }
+        Ok(RemovalImpact { dependents })
+    }
+
+    /// One wave of [`Self::removal_impact`]: the rows of `enabled` outside
+    /// `gone` that gain a violation over `before`, in registry order, each
+    /// naming the `gone` rows that provided what it lost.
+    fn newly_broken(
+        &self,
+        enabled: &HashSet<String>,
+        gone: &HashSet<String>,
+        before: &[Violation],
+    ) -> Vec<ImpactedMod> {
+        let remaining: HashSet<String> = enabled.difference(gone).cloned().collect();
+        let mut wave: Vec<ImpactedMod> = Vec::new();
         for v in self.resolve(&remaining) {
             // Only what the leaving mods cause, and never about a mod that is
-            // leaving too.
-            if before.contains(&v) || targets.contains(v.dependent_sha1()) {
+            // leaving too — the check the fixed point's termination rests on.
+            if before.contains(&v) || gone.contains(v.dependent_sha1()) {
                 continue;
             }
-            let at = match dependents.iter().position(|d| d.sha1 == v.dependent_sha1()) {
+            let at = match wave.iter().position(|d| d.sha1 == v.dependent_sha1()) {
                 Some(i) => i,
                 None => {
-                    dependents.push(ImpactedMod {
+                    wave.push(ImpactedMod {
                         sha1: v.dependent_sha1().to_string(),
                         name: v.dependent_name().to_string(),
                         needs: Vec::new(),
                     });
-                    dependents.len() - 1
+                    wave.len() - 1
                 }
             };
             let lost = self
                 .rows
                 .iter()
-                .filter(|r| targets.contains(&r.parsed.sha1) && row_provides(r, v.dep_id()));
+                .filter(|r| gone.contains(&r.parsed.sha1) && row_provides(r, v.dep_id()));
             for r in lost {
-                if !dependents[at].needs.contains(&r.parsed.name) {
-                    dependents[at].needs.push(r.parsed.name.clone());
+                if !wave[at].needs.contains(&r.parsed.name) {
+                    wave[at].needs.push(r.parsed.name.clone());
                 }
             }
         }
-        Ok(RemovalImpact { dependents })
+        wave
     }
 
     /// The `candidates` that can leave together with `targets` without a mod
@@ -3103,6 +3151,223 @@ mod tests {
             inst.removal_impact(&set(&["a", "ghost"])),
             Err(crate::error::Error::ModsNotFound { platform }) if platform == "installed"
         ));
+    }
+
+    /// The `ImpactedMod` a `modz` fixture yields: its name is its sha1 in capitals.
+    fn impacted(sha1: &str, needs: &[&str]) -> ImpactedMod {
+        ImpactedMod {
+            sha1: sha1.into(),
+            name: sha1.to_uppercase(),
+            needs: needs.iter().map(|n| n.to_string()).collect(),
+        }
+    }
+
+    /// S ← A ← B: switching A off with S is not enough, because B needs A. The
+    /// dialog's «Disable all» exists so that what remains still launches, so B is
+    /// named too — and it names A, the mod it loses, not S.
+    #[test]
+    fn removing_a_mod_also_names_what_breaks_once_its_dependents_are_off() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let b = row(
+            modz("b", vec![], vec![dep("amod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![s, a, b]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![impacted("a", &["S"]), impacted("b", &["A"])]
+        );
+    }
+
+    /// S ← L, S ← R, and D needs both: D breaks once, when L and R leave
+    /// together, and names both.
+    #[test]
+    fn a_mod_two_dependents_feed_is_named_once_with_both() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let l = row(
+            modz(
+                "l",
+                vec![prov("lmod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let r = row(
+            modz(
+                "r",
+                vec![prov("rmod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let d = row(
+            modz(
+                "d",
+                vec![],
+                vec![
+                    dep("lmod", "", RangeFamily::Maven),
+                    dep("rmod", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let inst = instance(vec![s, l, r, d]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![
+                impacted("l", &["S"]),
+                impacted("r", &["S"]),
+                impacted("d", &["L", "R"]),
+            ]
+        );
+    }
+
+    /// A needs S and C, B needs A, C needs B — a cycle among the dependents: the
+    /// fixed point ends, and each mod is named once, in the wave it breaks in.
+    #[test]
+    fn a_cycle_among_dependents_ends_with_each_named_once() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![
+                    dep("smod", "", RangeFamily::Maven),
+                    dep("cmod", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let b = row(
+            modz(
+                "b",
+                vec![prov("bmod", "1.0")],
+                vec![dep("amod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let c = row(
+            modz(
+                "c",
+                vec![prov("cmod", "1.0")],
+                vec![dep("bmod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let inst = instance(vec![s, a, b, c]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![
+                impacted("a", &["S"]),
+                impacted("b", &["A"]),
+                impacted("c", &["B"]),
+            ]
+        );
+    }
+
+    /// Only what really breaks is carried along: B needs `amod`, which P still
+    /// provides after A is switched off, so B stays on — while C, which needs
+    /// what only Q provided, is carried along.
+    #[test]
+    fn a_mod_another_enabled_provider_still_covers_is_not_carried_along() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let q = row(
+            modz(
+                "q",
+                vec![prov("qmod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let p = row(modz("p", vec![prov("amod", "1.0")], vec![]), true);
+        let b = row(
+            modz("b", vec![], vec![dep("amod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let c = row(
+            modz("c", vec![], vec![dep("qmod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![s, a, q, p, b, c]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![
+                impacted("a", &["S"]),
+                impacted("q", &["S"]),
+                impacted("c", &["Q"]),
+            ]
+        );
+    }
+
+    /// Wave by wave — what breaks directly, then what breaks once those are off
+    /// too, and so on — each wave in registry order, even where the registry
+    /// lists a later wave's mod first. The answer never depends on a hash set's
+    /// iteration order, which is seeded anew for every set.
+    #[test]
+    fn dependents_come_wave_by_wave_each_wave_in_registry_order() {
+        let w = row(
+            modz("w", vec![], vec![dep("xmod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let z = row(
+            modz("z", vec![], vec![dep("amod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let y = row(
+            modz(
+                "y",
+                vec![prov("ymod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let x = row(
+            modz(
+                "x",
+                vec![prov("xmod", "1.0")],
+                vec![dep("ymod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let inst = instance(vec![w, z, s, y, a, x]);
+        let expected = vec![
+            impacted("y", &["S"]),
+            impacted("a", &["S"]),
+            impacted("z", &["A"]),
+            impacted("x", &["Y"]),
+            impacted("w", &["X"]),
+        ];
+        for _ in 0..16 {
+            assert_eq!(
+                inst.removal_impact(&set(&["s"])).unwrap().dependents,
+                expected
+            );
+        }
     }
 
     // ── orphan offers (A14) ───────────────────────────────────────────────

@@ -4140,9 +4140,11 @@ async fn parsed_instance(
 }
 
 /// Which enabled mods lose something they need if `sha1s` leave the instance —
-/// removed or disabled alike (spec §5.1, D3). Offline and read-only: it feeds a
-/// dialog; the removal itself is gated. An error — never an empty list — when
-/// an enabled target's jar could not be read.
+/// removed or disabled alike (spec §5.1, D3) — and, transitively, which lose
+/// something once those are switched off too, wave by wave. Offline and
+/// read-only: it feeds a dialog; the removal itself is gated. An error — never
+/// an empty list — when an enabled target's jar could not be read or the
+/// registry no longer lists a target.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_removal_impact(

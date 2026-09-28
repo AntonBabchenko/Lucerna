@@ -1093,9 +1093,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	modsResolveDepNames: (instanceId: string, queries: DepNameQuery[]) => typedError<DepNameResolved[], Error>(__TAURI_INVOKE("mods_resolve_dep_names", { instanceId, queries })),
 	/**
 	 *  Which enabled mods lose something they need if `sha1s` leave the instance —
-	 *  removed or disabled alike (spec §5.1, D3). Offline and read-only: it feeds a
-	 *  dialog; the removal itself is gated. An error — never an empty list — when
-	 *  an enabled target's jar could not be read.
+	 *  removed or disabled alike (spec §5.1, D3) — and, transitively, which lose
+	 *  something once those are switched off too, wave by wave. Offline and
+	 *  read-only: it feeds a dialog; the removal itself is gated. An error — never
+	 *  an empty list — when an enabled target's jar could not be read or the
+	 *  registry no longer lists a target.
 	 */
 	modsRemovalImpact: (instanceId: string, sha1s: string[]) => typedError<RemovalImpact, Error>(__TAURI_INVOKE("mods_removal_impact", { instanceId, sha1s })),
 	/**
@@ -4579,7 +4581,8 @@ export type ImpactedMod = {
 	name: string,
 	/**
 	 *  Display names (registry names — the project title for platform mods) of
-	 *  the leaving mods that provided what it loses.
+	 *  the leaving mods — targets, or dependents listed before it — that
+	 *  provided what it loses.
 	 */
 	needs: string[],
 };
@@ -7035,8 +7038,13 @@ retry_possible: boolean };
 /**  What removing or disabling a set of mods breaks (`mods_removal_impact`). */
 export type RemovalImpact = {
 	/**
-	 *  Enabled mods, other than the leaving ones, that gain a violation. Empty
-	 *  means nothing the pre-flight can read loses anything it needs.
+	 *  Enabled mods, other than the leaving ones, that gain a violation: those
+	 *  the targets' leaving breaks, then — wave by wave — those that break once
+	 *  the earlier ones are off too; each wave in registry order. With all of
+	 *  them off as well, no enabled mod has gained a violation. Switch them off
+	 *  last-first, before the targets: a mod goes off before the earlier-wave
+	 *  one it needs. Empty means nothing the pre-flight can read loses anything
+	 *  it needs.
 	 */
 	dependents: ImpactedMod[],
 };
