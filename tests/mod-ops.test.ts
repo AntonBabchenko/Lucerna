@@ -43,6 +43,7 @@ import {
   uninstallMods,
 } from '$lib/mods/mod-ops.svelte';
 import ModOpsHost from '$lib/mods/ops/ModOpsHost.svelte';
+import ModOpsHostToggle from './fixtures/ModOpsHostToggle.svelte';
 
 const ok = <T>(data: T) => ({ status: 'ok' as const, data });
 // A mod write takes the SHARED claim: it is refused only while a long operation holds the
@@ -66,6 +67,20 @@ type ToastCall = [
 ];
 const toast = (n: number) => h.pushActionToast.mock.calls[n] as ToastCall;
 const host = (activeInstanceId = 'inst') => render(ModOpsHost, { props: { activeInstanceId } });
+/** The sha1s a flip command was called with, in call order. */
+const flipped = (fn: typeof h.modsDisable) => fn.mock.calls.map((c) => c[1] as string);
+/** A promise the test settles by hand — a mutation still running. */
+function deferred<T>() {
+  let resolve: (v: T) => void = () => {};
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+/** One macrotask: every microtask-only continuation (a flow after its IPC answer) has run. */
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+/** What `p` settled with, or 'still waiting' when it has not settled by the next macrotask. */
+const settledSoon = <T>(p: Promise<T>) => Promise.race([p, flush().then(() => 'still waiting')]);
 
 beforeAll(() => locale.set('en'));
 beforeEach(() => {
@@ -200,13 +215,14 @@ describe('guarded enable', () => {
     expect(h.pushSuccess).toHaveBeenCalledWith('Enabled 2 mods', []);
   });
 
-  it('turns requirements on deepest first, so a chain never runs half-enabled', async () => {
-    // Found in this order: Indium needs Sodium, Sodium needs Fabric API.
+  it('turns requirements on in the order the backend lists them, so a chain never runs half-enabled', async () => {
+    // Indium needs Sodium, Sodium needs Fabric API: mods_enable_impact lists them in a safe enable
+    // order — Fabric API before Sodium, which needs it — and the flip keeps that order.
     h.modsEnableImpact.mockResolvedValue(
       ok({
         requirements: [
-          { sha1: 's', name: 'Sodium' },
           { sha1: 'f', name: 'Fabric API' },
+          { sha1: 's', name: 'Sodium' },
         ],
       }),
     );
@@ -219,6 +235,175 @@ describe('guarded enable', () => {
       ['inst', 's'],
       ['inst', 'i'],
     ]);
+  });
+});
+
+describe('flip order: as the backend lists it', () => {
+  // mods_removal_impact and mods_enable_impact return their lists in a safe flip order (a stable
+  // topological sort over what each mod needs). Re-sorting or reversing them here would undo it.
+  const listed = [
+    { sha1: 'c', name: 'Gamma' },
+    { sha1: 'a', name: 'Alpha' },
+    { sha1: 'b', name: 'Beta' },
+  ];
+  const dependents = listed.map((m) => ({ ...m, needs: ['Sodium'] }));
+
+  it('flips exactly in the listed order, then the targets — never re-sorted, never reversed', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
+    h.modsEnableImpact.mockResolvedValue(ok({ requirements: listed }));
+    host();
+    const off = disableMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 4' }));
+    await expect(off).resolves.toBe('applied');
+    expect(flipped(h.modsDisable)).toEqual(['c', 'a', 'b', 's']);
+    const on = enableMods(scope, [{ sha1: 't', name: 'Target' }]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Enable together' }));
+    await expect(on).resolves.toBe('applied');
+    expect(flipped(h.modsEnable)).toEqual(['c', 'a', 'b', 't']);
+  });
+
+  it('a removal disables its dependents in the listed order; Undo re-enables them in reverse, providers first', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
+    host();
+    const done = uninstallMods(scope, [sodium]);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove and disable 3 dependents' }),
+    );
+    await expect(done).resolves.toBe('applied');
+    expect(flipped(h.modsDisable)).toEqual(['c', 'a', 'b']);
+    toast(0)[2].run();
+    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+    expect(flipped(h.modsEnable)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('after a removal, a dependent that will not switch off does not stop the others', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
+    h.modsDisable.mockResolvedValueOnce(ioErr);
+    host();
+    const done = uninstallMods(scope, [sodium]);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove and disable 3 dependents' }),
+    );
+    await expect(done).resolves.toBe('applied');
+    // The removal already happened: every dependent still gets its try.
+    expect(flipped(h.modsDisable)).toEqual(['c', 'a', 'b']);
+    expect(toast(0)[3]).toEqual([
+      'Also disabled: Alpha, Beta',
+      expect.stringMatching(/^Couldn't disable Gamma: /),
+    ]);
+  });
+
+  it('Undo stops at the first dependent it cannot switch back on, so none comes on without what it needs', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
+    host();
+    const done = uninstallMods(scope, [sodium]);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove and disable 3 dependents' }),
+    );
+    await done;
+    h.modsEnable.mockResolvedValueOnce(busyErr);
+    toast(0)[2].run();
+    await waitFor(() =>
+      expect(h.pushWarning).toHaveBeenCalledWith('Restored 1 mod', [
+        `Couldn't re-enable Beta: ${BUSY}`,
+        `Couldn't re-enable Alpha: ${BUSY}`,
+        `Couldn't re-enable Gamma: ${BUSY}`,
+      ]),
+    );
+    expect(flipped(h.modsEnable)).toEqual(['b']);
+  });
+});
+
+describe('one dialog at a time', () => {
+  it('a question never replaces a dialog whose operation still runs: it shows once that one closes', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsEnableImpact.mockResolvedValue(ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }] }));
+    const running = deferred<ReturnType<typeof ok<null>>>();
+    h.modsDisable.mockReturnValueOnce(running.promise);
+    host();
+    const first = disableMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    const second = enableMods(scope, [{ sha1: 'b', name: 'Beta' }]);
+    await flush();
+    expect(h.modsEnableImpact).toHaveBeenCalledTimes(1); // the second flow has asked by now
+    // The first dialog stays, its button still spinning (the spinner's status label joins the
+    // button's name); the new question waits.
+    within(screen.getByRole('dialog', { name: 'Disable Sodium?' })).getByRole('button', {
+      name: /Disable all 2/,
+      busy: true,
+    });
+    expect(
+      screen.queryByRole('dialog', { name: 'Enable Beta together with Fabric API?' }),
+    ).toBeNull();
+    running.resolve(ok(null));
+    await expect(first).resolves.toBe('applied');
+    const next = await screen.findByRole('dialog', {
+      name: 'Enable Beta together with Fabric API?',
+    });
+    await fireEvent.click(within(next).getByRole('button', { name: 'Cancel' }));
+    await expect(second).resolves.toBe('cancelled');
+    expect(h.modsEnable).not.toHaveBeenCalled();
+  });
+
+  it('a removal that disables its dependents can still offer the libraries nothing else needs', async () => {
+    // The flow's own follow-up question takes its own running dialog's place: waiting for that
+    // dialog to close would wait for itself.
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsFindOrphans.mockResolvedValue(
+      ok([{ sha1: 'c', name: 'Cloth Config', project_id: 'cc' }]),
+    );
+    h.modsUninstallMany.mockResolvedValue(
+      ok({
+        token: 't4',
+        items: [
+          { sha1: 's', name: 's' },
+          { sha1: 'c', name: 'c' },
+        ],
+      }),
+    );
+    host();
+    const done = uninstallMods(scope, [sodium], { offerOrphans: true });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove and disable 1 dependent' }),
+    );
+    const offer = await screen.findByRole('dialog', {
+      name: 'Also remove libraries nothing else needs?',
+    });
+    await fireEvent.click(within(offer).getByRole('checkbox'));
+    await fireEvent.click(within(offer).getByRole('button', { name: /uninstall 2 mods/i }));
+    await expect(settledSoon(done)).resolves.toBe('applied');
+    expect(h.modsUninstallMany).toHaveBeenCalledWith('inst', ['s', 'c']);
+    expect(flipped(h.modsDisable)).toEqual(['i']);
+  });
+});
+
+describe('when the host goes away', () => {
+  it('a question still waiting for an answer settles as cancelled', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    const { rerender } = render(ModOpsHostToggle, { props: { shown: true } });
+    const done = disableMods(scope, [sodium]);
+    await screen.findByRole('dialog', { name: 'Disable Sodium?' });
+    await rerender({ shown: false });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await expect(settledSoon(done)).resolves.toBe('cancelled');
+    expect(h.modsDisable).not.toHaveBeenCalled();
+  });
+
+  it('so does a question waiting behind a running operation, which itself runs to its end', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsEnableImpact.mockResolvedValue(ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }] }));
+    const running = deferred<ReturnType<typeof ok<null>>>();
+    h.modsDisable.mockReturnValueOnce(running.promise);
+    const { rerender } = render(ModOpsHostToggle, { props: { shown: true } });
+    const first = disableMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    const second = enableMods(scope, [{ sha1: 'b', name: 'Beta' }]);
+    await flush();
+    await rerender({ shown: false });
+    await expect(settledSoon(second)).resolves.toBe('cancelled');
+    running.resolve(ok(null));
+    await expect(settledSoon(first)).resolves.toBe('applied');
+    expect(h.modsEnable).not.toHaveBeenCalled();
   });
 });
 

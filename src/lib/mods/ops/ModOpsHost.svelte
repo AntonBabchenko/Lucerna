@@ -4,8 +4,14 @@
   // subtrees, one inside a Modal, so the question is a module store and this self-gating host
   // renders it. Mounted after </main> in +page.svelte: modals stack by DOM order, and the drawer
   // that may have asked must be under it.
+  import { onMount } from 'svelte';
   import OrphanUninstallDialog from '$lib/mods/OrphanUninstallDialog.svelte';
-  import { answerDialog, opsDialog, setOpsActiveInstance } from '$lib/mods/mod-ops.svelte';
+  import {
+    answerDialog,
+    attachOpsHost,
+    opsDialog,
+    setOpsActiveInstance,
+  } from '$lib/mods/mod-ops.svelte';
   import ModImpactDialog from './ModImpactDialog.svelte';
 
   let { activeInstanceId = null }: { activeInstanceId?: string | null } = $props();
@@ -14,6 +20,11 @@
   $effect(() => {
     setOpsActiveInstance(activeInstanceId);
   });
+
+  // Once the last host is gone nothing can answer a question: mod-ops then cancels every flow
+  // still waiting for one. It decides from its plain module state, never from `$state` read here —
+  // a teardown sees pre-batch values.
+  onMount(attachOpsHost);
 
   const dialog = opsDialog();
 </script>

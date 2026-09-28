@@ -10,12 +10,18 @@
  *   button runs.
  * - A check that could not run is never read as "nothing depends on it" (fallback Q1/Q2): the
  *   dialog says the check failed and asks.
- * - A flip that carries its dependents or requirements along keeps every step launchable: what
- *   needs a target is switched off before it, what a target needs is switched on before it, and
- *   the first failure ends the run.
+ * - A flip that carries its dependents or requirements along keeps every step launchable. The
+ *   backend lists them in a safe flip order — a dependent before any listed mod it needs, a
+ *   requirement after — and the flip follows it exactly as given, then the targets; the first
+ *   failure ends the run.
+ * - One question at a time. A newer question supersedes an unanswered one (that flow settles as
+ *   cancelled), but never a dialog whose chosen mutation still runs: the question waits until
+ *   that dialog closes. Once the last ModOpsHost is gone, every flow still waiting for an answer
+ *   settles as cancelled.
  * - Uninstall ends with an Undo toast (10 s, paused on hover/focus) that restores the batch from
  *   the per-instance trash by its token; once everything is back, the dependents the same removal
- *   disabled are switched on again (plan A7). Toasts are module-level, so Undo outlives tab and
+ *   disabled are switched on again (plan A7) — in reverse of the order they went off, providers
+ *   first, stopping at the first failure. Toasts are module-level, so Undo outlives tab and
  *   profile switches; every flow captures its instance id at call time.
  * - A refusal closes the dialog and says why; nothing is half-done. A mod write takes the SHARED
  *   maintenance claim, so `instance_busy` here means a long operation (a pack update, a migration,
@@ -82,25 +88,42 @@ const SKIP_KEY: Record<RestoreSkipReason, TranslationKey> = {
   already_installed: 'mods.ops.restore.alreadyInstalled',
 };
 
-let dialogId = $state(0);
-// Replaced whole, never mutated: no deep proxy.
-let dialogView = $state.raw<OpsView | null>(null);
-let dialogBusy = $state<OpsBusy>(null);
+/** A question put to the user, with the way to settle the flow that asked it. */
+type Question = { id: number; view: OpsView; resolve: (a: Answer) => void };
+/** What ModOpsHost renders: the open question, and which of its buttons runs. */
+type Shown = { readonly id: number; readonly view: OpsView | null; readonly busy: OpsBusy };
+
+// Every decision reads PLAIN module state, so one taken while the host is being torn down — when
+// Svelte serves pre-batch `$state` values — still sees what is current. `shown` is its reactive
+// copy for ModOpsHost: replaced whole by `publish`, never read here.
+let current: Shown = { id: 0, view: null, busy: null };
+let shown = $state.raw<Shown>(current);
+/** The flow waiting for an answer to the question on screen. */
 let pending: { id: number; resolve: (a: Answer) => void } | null = null;
+/** A question that arrived while another flow's mutation ran under its dialog. */
+let waiting: Question | null = null;
+let hosts = 0;
 let seq = 0;
 let activeInstanceId: string | null = null;
 
 const reader: OpsDialog = {
   get id() {
-    return dialogId;
+    return shown.id;
   },
   get view() {
-    return dialogView;
+    return shown.view;
   },
   get busy() {
-    return dialogBusy;
+    return shown.busy;
   },
 };
+
+const cancelled = (): Answer => ({ choice: 'cancel', alsoRemove: [] });
+
+function publish(next: Shown): void {
+  current = next;
+  shown = next;
+}
 
 /** The open question (reactive getters), read by ModOpsHost. */
 export function opsDialog(): OpsDialog {
@@ -112,31 +135,73 @@ export function setOpsActiveInstance(id: string | null): void {
   activeInstanceId = id;
 }
 
+/**
+ * ModOpsHost registers while it is mounted; the returned function unregisters it. Once no host is
+ * left nothing can answer a question, so every flow still waiting for one — on screen or queued —
+ * settles as cancelled. A dialog whose mutation still runs is left to its flow, which closes it.
+ */
+export function attachOpsHost(): () => void {
+  hosts += 1;
+  let attached = true;
+  return () => {
+    if (!attached) return;
+    attached = false;
+    hosts -= 1;
+    if (hosts > 0) return;
+    dropWaiting();
+    settle(cancelled());
+  };
+}
+
 /** ModOpsHost → the flow waiting on the open dialog. Ignored while the chosen mutation runs. */
 export function answerDialog(choice: ImpactChoice, alsoRemove: readonly string[] = []): void {
-  if (dialogBusy !== null) return;
+  if (current.busy !== null) return;
   settle({ choice, alsoRemove: [...alsoRemove] });
 }
 
 export function __resetModOpsForTests(): void {
-  settle({ choice: 'cancel', alsoRemove: [] });
-  close(dialogId);
+  dropWaiting();
+  settle(cancelled());
+  close(current.id);
   activeInstanceId = null;
 }
 
-function ask(view: OpsView): { id: number; answer: Promise<Answer> } {
-  // A newer question supersedes an unanswered one: the older flow settles as cancelled instead
-  // of waiting on a dialog nobody can see any more.
-  settle({ choice: 'cancel', alsoRemove: [] });
+/**
+ * Put `view` to the user; `answer` settles with the choice. A newer question supersedes an
+ * unanswered one, shown or waiting: the older flow settles as cancelled instead of waiting on a
+ * dialog nobody will see. A dialog whose chosen mutation still runs is never replaced — its
+ * spinner is the only sign the operation is under way — so the question waits until that dialog
+ * closes, then shows. `own` is the asking flow's own dialog: its follow-up question (the orphan
+ * offer) takes that dialog's place, and a question waiting behind it keeps waiting.
+ */
+function ask(view: OpsView, own: number | null = null): { id: number; answer: Promise<Answer> } {
   seq += 1;
   const id = seq;
-  dialogId = id;
-  dialogView = view;
-  dialogBusy = null;
   const answer = new Promise<Answer>((resolve) => {
-    pending = { id, resolve };
+    const q: Question = { id, view, resolve };
+    if (own !== null && current.id === own) {
+      show(q);
+      return;
+    }
+    dropWaiting();
+    if (current.busy !== null) waiting = q;
+    else show(q);
   });
   return { id, answer };
+}
+
+function show(q: Question): void {
+  // The question on screen, if still unanswered, is superseded.
+  settle(cancelled());
+  pending = { id: q.id, resolve: q.resolve };
+  publish({ id: q.id, view: q.view, busy: null });
+}
+
+/** The question waiting behind a running dialog is superseded or orphaned: cancel its flow. */
+function dropWaiting(): void {
+  const w = waiting;
+  waiting = null;
+  w?.resolve(cancelled());
 }
 
 function settle(a: Answer): void {
@@ -145,15 +210,18 @@ function settle(a: Answer): void {
   pending = null;
   // The orphan question has no busy state and closes at once; an impact dialog stays open with
   // the chosen button spinning until its mutation ends (`finish`).
-  if (a.choice === 'cancel' || dialogView?.mode === 'orphans') close(p.id);
-  else dialogBusy = a.choice;
+  if (a.choice === 'cancel' || current.view?.mode === 'orphans') close(p.id);
+  else publish({ ...current, busy: a.choice });
   p.resolve(a);
 }
 
 function close(id: number): void {
-  if (dialogId !== id) return;
-  dialogView = null;
-  dialogBusy = null;
+  if (current.id !== id || current.view === null) return;
+  publish({ id, view: null, busy: null });
+  // A question that waited for this dialog shows now.
+  const next = waiting;
+  waiting = null;
+  if (next) show(next);
 }
 
 /** Close dialog `id` and report `outcome` — for an answer that runs nothing. */
@@ -316,7 +384,8 @@ export async function disableMods(
   const { choice } = await q.answer;
   if (choice === 'cancel') return 'cancelled';
   if (choice === 'secondary') return finish(q.id, applyEnabled(scope, targets, false, bulk));
-  // Dependents first: a target switched off while a mod that needs it stayed on would not load.
+  // Dependents first, exactly as the backend lists them — a safe disable order, each before any
+  // listed mod it needs — then the targets: nothing goes off while a mod that needs it stays on.
   const flip = [...dependents.map(asTarget), ...targets];
   return finish(q.id, applyEnabled(scope, flip, false, bulk, true));
 }
@@ -343,23 +412,25 @@ export async function enableMods(
   const { choice } = await q.answer;
   if (choice === 'cancel') return 'cancelled';
   if (choice === 'secondary') return finish(q.id, applyEnabled(scope, targets, true, bulk));
-  // Requirements first, deepest first: the backend lists them in the order it found them, a
-  // requirement's own requirement after it. So nothing comes up without what it needs.
-  const flip = [...requirements.map(asTarget).reverse(), ...targets];
+  // Requirements first, exactly as the backend lists them — a safe enable order, each after any
+  // listed mod it needs — then the targets: nothing comes on without what it needs.
+  const flip = [...requirements.map(asTarget), ...targets];
   return finish(q.id, applyEnabled(scope, flip, true, bulk, true));
 }
 
 // The optional "also remove unneeded libraries" question (bulk). A failed lookup offers nothing:
 // the restrictive direction — nothing extra is removed, which is what "no" would have done — and
-// the removal the user asked for goes ahead.
+// the removal the user asked for goes ahead. `own`: the flow's dependents dialog, spinning while
+// this runs, whose place the question takes.
 async function withOrphans(
   scope: ModOpScope,
   targets: readonly ModOpTarget[],
+  own: number | null,
 ): Promise<ModOpTarget[] | null> {
   const r = await settleCall(() => commands.modsFindOrphans(scope.instanceId, shas(targets)));
   const orphans = r.ok ? r.data : [];
   if (orphans.length === 0) return [...targets];
-  const { choice, alsoRemove } = await ask({ mode: 'orphans', targets: [...targets], orphans })
+  const { choice, alsoRemove } = await ask({ mode: 'orphans', targets: [...targets], orphans }, own)
     .answer;
   if (choice === 'cancel') return null;
   const picked = orphans
@@ -394,7 +465,7 @@ export async function uninstallMods(
     if (choice === 'primary') alsoDisable = dependents.map(asTarget);
   }
   try {
-    const removing = opts.offerOrphans ? await withOrphans(scope, targets) : [...targets];
+    const removing = opts.offerOrphans ? await withOrphans(scope, targets, dialog) : [...targets];
     if (removing === null) return 'cancelled';
     const gone = new Set(shas(removing));
     return await removeNow(
@@ -431,7 +502,9 @@ async function removeNow(
     return 'failed';
   }
   // Only after the removal happened: a refused removal must not leave its dependents disabled.
-  // Each dependent is independent of the others, so every one gets its try.
+  // In the backend's safe disable order, each before any listed mod it needs. They may need each
+  // other, but the removal already broke them, so a failure does not end the run: every one gets
+  // its try, and as few as possible stay on without what they need.
   const disabled = await flipAll(scope.instanceId, alsoDisable, false);
   pushUndo(scope, r.data, removing, disabled);
   return 'applied';
@@ -514,7 +587,10 @@ async function restoreUninstalled(
   const skipped = report.skipped.map((s) => tt(SKIP_KEY[s.reason], { name: s.name }));
   let dependentLines: string[] = [];
   if (reEnable.length > 0 && skipped.length === 0) {
-    const back = await flipAll(scope.instanceId, reEnable, true);
+    // In reverse of the order they went off — the safe disable order put each before what it
+    // needs — so a provider comes back first; the first failure ends the run, so nothing comes
+    // back on without what it needs.
+    const back = await flipAll(scope.instanceId, [...reEnable].reverse(), true, true);
     dependentLines = back.failed.map(
       (f) => `${tt('mods.ops.restore.reenableFailed', { name: f.target.name })}: ${f.message}`,
     );
