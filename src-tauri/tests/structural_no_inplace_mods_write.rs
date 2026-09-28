@@ -95,6 +95,14 @@ const ALLOWLIST: &[&str] = &[
     // protects. Same class, same temp-then-rename shape, and the same per-write
     // sequence number as `mods/installed.rs` above.
     "mods/hash_cache.rs",
+    // `{instance}/lucerna/trash/<token>/record.json` and its `json.tmp.<pid>.<seq>`
+    // sibling — the undo record of a user-facing uninstall. Writes no content
+    // bytes: the path is built from `installed::registry_dir(instance_root)`, the
+    // instance's `lucerna/` METADATA directory, a sibling of `.minecraft/`. The
+    // jars it keeps are MOVED with `fs::rename` — a directory-entry change that
+    // never opens the file, so a hardlinked jar stays one inode with the store —
+    // and moved back the same way. Same temp-then-rename shape as above.
+    "mods/trash.rs",
     "mods/summary_cache.rs", // mod summary JSON cache
     "mods/assets.rs",        // installed-assets registry JSON (temp + rename)
     // `<app_data>/mods-cache/jar-scans.json` and its `tmp.<pid>` sibling —

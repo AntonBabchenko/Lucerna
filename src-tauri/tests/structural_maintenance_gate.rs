@@ -279,7 +279,19 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "commands/mods.rs",
         "mods_uninstall",
         SHARED_WRITE_GATE,
-        "removes a jar from mods/ and its registry row",
+        "moves a jar from mods/ into the instance's trash and drops its registry row",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_uninstall_many",
+        SHARED_WRITE_GATE,
+        "moves several jars from mods/ into one trash entry and drops their registry rows",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_restore_uninstalled",
+        SHARED_WRITE_GATE,
+        "moves trashed jars back into mods/ and re-adds their registry rows",
     ),
     (
         "commands/modpack_cmds.rs",

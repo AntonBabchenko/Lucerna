@@ -195,6 +195,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_disable,
             commands::mods_enable,
             commands::mods_uninstall,
+            commands::mods_uninstall_many,
+            commands::mods_restore_uninstalled,
             commands::mods_check_updates,
             commands::asset_install,
             commands::assets_list,
@@ -799,6 +801,25 @@ pub fn run() {
             // restart until the user re-saves settings. Best-effort; spawns its
             // own tasks internally.
             crate::commands::rearm_backup_schedulers(app.handle());
+
+            // Empty every instance's mod trash of entries from EARLIER sessions:
+            // an uninstall stays undoable for the session that offered it, never
+            // past a restart (D2). Own thread, no delay — unlike the webview sweep
+            // below there is nothing to wait for. The cutoff is this session's
+            // start, so an uninstall made while it runs keeps its undo window.
+            // `paths::instances_dir` is the throwaway root in a recovery session,
+            // so the unreachable data folder is never touched.
+            let session_start = std::time::SystemTime::now();
+            match crate::paths::instances_dir(app.handle()) {
+                Ok(dir) => {
+                    std::thread::spawn(move || {
+                        for line in crate::mods::trash::purge_all_instances(&dir, session_start) {
+                            crate::diag!("{line}");
+                        }
+                    });
+                }
+                Err(e) => crate::diag!("[setup] mod trash purge skipped: instances_dir: {e}"),
+            }
 
             // Remove `webview/` profiles that an earlier data-root move left in
             // its old root (they were in use by that process). Delayed: the

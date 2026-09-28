@@ -1590,36 +1590,113 @@ pub async fn mods_enable(
     Ok(())
 }
 
-/// Remove the jar (enabled or disabled flavor) and drop the registry
-/// entry. The shared cache copy survives. Emits `mod-uninstalled`.
-/// Same shared maintenance claim as `mods_disable`.
+/// Move the jar (enabled or disabled flavor) into the instance's trash and drop
+/// its registry row; `mods_restore_uninstalled` undoes it until the entry is
+/// purged (older than ten minutes at a later uninstall, or the next launcher
+/// start). The shared cache copy survives. An unknown sha is already gone and
+/// is skipped — the receipt then lists no items. Emits `mod-uninstalled` per
+/// removed mod. Same shared maintenance claim as `mods_disable`.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_uninstall(
     app: tauri::AppHandle,
     instance_id: String,
     sha1: String,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<crate::mods::trash::UninstallReceipt> {
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     let inst_root = instance_root(&app, &instance_id)?;
-    // Resolve BEFORE the removal: afterwards the registry row is gone and the
-    // mod has no name left to record.
-    let identity = mod_identity(&inst_root, &sha1).await;
-    crate::mods::install::uninstall(&inst_root, &sha1).await?;
-    if let Some((name, version)) = identity {
+    let trashed = crate::mods::trash::uninstall_to_trash(
+        &inst_root,
+        std::slice::from_ref(&sha1),
+        std::time::SystemTime::now(),
+    )
+    .await?;
+    drop(write);
+    Ok(announce_trashed(&app, &instance_id, &inst_root, trashed))
+}
+
+/// `mods_uninstall` for several mods: ONE trash entry and ONE token, so a bulk
+/// removal is one undo.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_uninstall_many(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1s: Vec<String>,
+) -> crate::error::Result<crate::mods::trash::UninstallReceipt> {
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let trashed =
+        crate::mods::trash::uninstall_to_trash(&inst_root, &sha1s, std::time::SystemTime::now())
+            .await?;
+    drop(write);
+    Ok(announce_trashed(&app, &instance_id, &inst_root, trashed))
+}
+
+/// One `ModRemoved` journal row and one `mod-uninstalled` per removed mod.
+fn announce_trashed(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    inst_root: &std::path::Path,
+    trashed: crate::mods::trash::Trashed,
+) -> crate::mods::trash::UninstallReceipt {
+    for row in &trashed.removed {
         crate::journal::record(
-            &inst_root,
+            inst_root,
             crate::journal::content_versioned(
                 crate::journal::ContentAction::ModRemoved,
-                name,
-                version,
+                row.name.clone(),
+                row.version_number.clone(),
                 None,
             ),
         );
+        let _ = ModUninstalled {
+            instance_id: instance_id.to_string(),
+            sha1: row.sha1.clone(),
+        }
+        .emit(app);
     }
+    trashed.receipt
+}
+
+/// Undo a `mods_uninstall[_many]`: put the token's jars back and re-add their
+/// registry rows verbatim. Never overwrites — a taken name or a project that is
+/// installed again is skipped with its reason. `expired` when the entry was
+/// purged. Emits `mod-installed` per restored mod, also for the ones restored
+/// before an item failed (those jars ARE back). Shared maintenance claim.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_restore_uninstalled(
+    app: tauri::AppHandle,
+    instance_id: String,
+    token: String,
+) -> crate::error::Result<crate::mods::trash::RestoreReport> {
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let outcome = crate::mods::trash::restore(&inst_root, &token).await?;
     drop(write);
-    let _ = ModUninstalled { instance_id, sha1 }.emit(&app);
-    Ok(())
+    for row in &outcome.rows {
+        crate::journal::record(
+            &inst_root,
+            crate::journal::content_versioned(
+                crate::journal::ContentAction::ModRestored,
+                row.name.clone(),
+                None,
+                row.version_number.clone(),
+            ),
+        );
+        let _ = ModInstalled {
+            instance_id: instance_id.clone(),
+            sha1: row.sha1.clone(),
+            filename: row.filename.clone(),
+            name: row.name.clone(),
+        }
+        .emit(&app);
+    }
+    match outcome.failure {
+        Some(e) => Err(e),
+        None => Ok(outcome.report),
+    }
 }
 
 /// Check every eligible installed user-mod for a newer version. For

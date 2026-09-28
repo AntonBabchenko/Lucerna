@@ -104,6 +104,8 @@ pub enum ContentAction {
     ModInstalled,
     ModUpdated,
     ModRemoved,
+    /// A trashed mod put back by «Вернуть» (`mods_restore_uninstalled`).
+    ModRestored,
     ModEnabled,
     ModDisabled,
     AssetInstalled,
@@ -738,5 +740,13 @@ mod tests {
         }
         .with_report_id("task-abc");
         assert!(matches!(event, JournalEvent::Launch { .. }));
+    }
+
+    #[test]
+    fn a_restore_is_recorded_as_mod_restored() {
+        let json = serde_json::to_string(&ContentAction::ModRestored).unwrap();
+        assert_eq!(json, "\"mod_restored\"");
+        let back: ContentAction = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ContentAction::ModRestored);
     }
 }

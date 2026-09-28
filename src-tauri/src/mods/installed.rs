@@ -312,6 +312,17 @@ pub fn mods_dir(instance_root: &Path) -> PathBuf {
     instance_root.join(".minecraft").join("mods")
 }
 
+/// The name a row's jar has on disk: `<file>` when enabled, `<file>.disabled`
+/// when not — the spelling `install::flip_enabled` reads. Exact after a
+/// [`list`], whose reconcile syncs `enabled` and `filename` with the disk.
+pub fn on_disk_name(m: &InstalledMod) -> String {
+    if m.enabled {
+        m.filename.clone()
+    } else {
+        format!("{}.disabled", m.filename)
+    }
+}
+
 /// Read the registry from disk and reconcile against the actual `mods/`
 /// directory contents. Runs the one-shot schema migration before
 /// reconciling so callers see the post-migration `mods` slice — without
