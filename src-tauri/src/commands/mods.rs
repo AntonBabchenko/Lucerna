@@ -4141,11 +4141,12 @@ async fn parsed_instance(
 
 /// Which enabled mods lose something they need if `sha1s` leave the instance —
 /// removed or disabled alike (spec §5.1, D3) — and, transitively, which lose
-/// something once those are switched off too. Listed in a safe disable order:
-/// switched off one by one as listed, then the targets, a mod goes off before
-/// any listed mod it needs. Offline and read-only: it feeds a dialog; the
-/// removal itself is gated. An error — never an empty list — when an enabled
-/// target's jar could not be read or the registry no longer lists a target.
+/// something once those are switched off too. `order` names the targets and
+/// those dependents in one safe disable order: switched off one by one as
+/// listed — all of them, or only the targets — a mod goes off before any of
+/// them it needs. Offline and read-only: it feeds a dialog; the removal itself
+/// is gated. An error — never an empty list — when an enabled target's jar
+/// could not be read or the registry no longer lists a target.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_removal_impact(
@@ -4159,10 +4160,11 @@ pub async fn mods_removal_impact(
 }
 
 /// The disabled mods `sha1s` need switched on with them, transitively, when
-/// they are enabled together (spec §5.1, D3). Listed in a safe enable order:
-/// switched on one by one as listed, then the targets, a mod comes on after any
-/// listed mod it needs. Offline and read-only. An error — never an empty list —
-/// when a target's jar could not be read or the registry no longer lists it.
+/// they are enabled together (spec §5.1, D3). `order` names the targets and
+/// those requirements in one safe enable order: switched on one by one as
+/// listed — all of them, or only the targets — a mod comes on after any of them
+/// it needs. Offline and read-only. An error — never an empty list — when a
+/// target's jar could not be read or the registry no longer lists it.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_enable_impact(

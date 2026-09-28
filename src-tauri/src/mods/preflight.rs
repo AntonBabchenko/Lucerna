@@ -600,14 +600,24 @@ pub struct RemovalImpact {
     /// has gained a violation. Empty means nothing the pre-flight can read loses
     /// anything it needs.
     ///
-    /// In a SAFE DISABLE ORDER: switch them off one by one as listed, then the
-    /// targets. A mod comes before any listed mod it needs — one whose jar
-    /// answers a requirement the loader enforces on it — so a run that stops
-    /// early leaves no listed mod on without a listed mod it needs, save inside
-    /// a cycle, which no order keeps whole: it is broken at its earliest mod.
-    /// Of the mods free to go next, the earliest in wave order (what breaks
-    /// directly first), each wave in registry order, goes first.
+    /// In a safe disable order among themselves: a mod comes before any listed
+    /// mod it needs — one whose jar answers a requirement the loader enforces
+    /// on it — save inside a cycle, which no order keeps whole: it is broken at
+    /// its earliest mod. Of the mods free to go next, the earliest in wave order
+    /// (what breaks directly first), each wave in registry order, goes first.
+    /// Switched off together with the targets, they follow `order`: a target
+    /// may need one of them.
     pub dependents: Vec<ImpactedMod>,
+    /// The targets and every mod in `dependents`, as registry digests, each
+    /// once, in ONE SAFE DISABLE ORDER: switched off one by one as listed, a
+    /// mod goes off before any of them it needs, so a run that stops early
+    /// leaves none of them on without one it needs — save inside a cycle,
+    /// broken at its earliest mod. A target goes ahead of a dependent only
+    /// where a need says so: of the mods free to go next, the earliest goes
+    /// first — the dependents as listed, then the targets in registry order.
+    /// Filtered to any subset — the targets alone, for "only these" — it is
+    /// still a safe order for that subset.
+    pub order: Vec<String>,
 }
 
 /// A disabled mod that must be switched on together with the ones being enabled.
@@ -623,13 +633,23 @@ pub struct EnableImpact {
     /// Disabled mods the targets need, transitively, each once, never a target
     /// itself.
     ///
-    /// In a SAFE ENABLE ORDER: switch them on one by one as listed, then the
-    /// targets. A mod comes after any listed mod it needs — one whose jar answers
-    /// a requirement the loader enforces on it — so a run that stops early leaves
-    /// no listed mod on without a listed mod it needs, save inside a cycle, which
-    /// no order keeps whole: it is broken at its earliest mod. Of the mods free to
-    /// go next, the one found first goes first.
+    /// In a safe enable order among themselves: a mod comes after any listed
+    /// mod it needs — one whose jar answers a requirement the loader enforces
+    /// on it — save inside a cycle, which no order keeps whole: it is broken at
+    /// its earliest mod. Of the mods free to go next, the one found first goes
+    /// first. Switched on together with the targets, they follow `order`: one
+    /// of them may need a target.
     pub requirements: Vec<DisabledRequirement>,
+    /// The targets and every mod in `requirements`, as registry digests, each
+    /// once, in ONE SAFE ENABLE ORDER: switched on one by one as listed, a mod
+    /// comes on after any of them it needs, so a run that stops early leaves
+    /// none of them on without one it needs — save inside a cycle, broken at
+    /// its earliest mod. A target goes ahead of a requirement only where a need
+    /// says so: of the mods free to go next, the earliest goes first — the
+    /// requirements as listed, then the targets in registry order. Filtered to
+    /// any subset — the targets alone, for "only these" — it is still a safe
+    /// order for that subset.
+    pub order: Vec<String>,
 }
 
 /// Map a `ModSource` + `project_id` to a `DepProjectRef` for the
@@ -1123,14 +1143,17 @@ impl ParsedInstance {
     /// does not have. Each names the leaving mods — targets, or dependents of an
     /// earlier wave — that provided what it lost.
     ///
-    /// Order: safe to switch off one by one as listed, before the targets. A mod
-    /// comes before any listed mod it needs ([`Self::flip_order`]), so a run that
-    /// stops early leaves no listed mod on without a listed mod it needs — save
-    /// inside a cycle, which no order keeps whole and which is broken at its
-    /// earliest mod. Of the mods free to go next, the earliest in today's order
-    /// goes first: wave by wave — what breaks directly, then what breaks once
-    /// that is off too — each wave in registry order, each mod once, in the wave
-    /// it breaks in.
+    /// Order: the dependents are safe to switch off one by one as listed, among
+    /// themselves. A mod comes before any listed mod it needs
+    /// ([`Self::flip_order`]) — save inside a cycle, which no order keeps whole
+    /// and which is broken at its earliest mod. Of the mods free to go next, the
+    /// earliest in today's order goes first: wave by wave — what breaks
+    /// directly, then what breaks once that is off too — each wave in registry
+    /// order, each mod once, in the wave it breaks in. `order` places the
+    /// targets among them ([`Self::with_targets`]) — a target may need a
+    /// dependent, and targets may need each other — so a run that switches off
+    /// `order`, or any part of it, and stops early leaves none of them on
+    /// without one it needs.
     ///
     /// Monotone: once broken, a mod stays counted, even where a later wave takes
     /// away the provider whose version broke it (an optional or incompatible
@@ -1169,10 +1192,30 @@ impl ParsedInstance {
             dependents.extend(wave);
         }
         let sha1s: Vec<&str> = dependents.iter().map(|d| d.sha1.as_str()).collect();
-        let order = self.flip_order(&sha1s, Flip::Off);
-        Ok(RemovalImpact {
-            dependents: reordered(dependents, &order),
-        })
+        let at = self.flip_order(&sha1s, Flip::Off);
+        let dependents = reordered(dependents, &at);
+        let listed: Vec<&str> = dependents.iter().map(|d| d.sha1.as_str()).collect();
+        let order = self.with_targets(&listed, targets, Flip::Off);
+        Ok(RemovalImpact { dependents, order })
+    }
+
+    /// The one order to switch `listed` — dependents or requirements, already in
+    /// a safe order among themselves — and `targets` together, as registry
+    /// digests ([`Self::flip_order`]). Today's order is `listed`, then the
+    /// targets in registry order (the readable rows, then the unreadable ones),
+    /// so a target moves ahead of a listed mod only where a need says so, and
+    /// targets that need each other are ordered too. Every target is named,
+    /// readable or not: the caller switches exactly what this names.
+    fn with_targets(&self, listed: &[&str], targets: &HashSet<String>, flip: Flip) -> Vec<String> {
+        let in_registry_order = self
+            .rows
+            .iter()
+            .map(|r| r.parsed.sha1.as_str())
+            .chain(self.unreadable.iter().map(|m| m.sha1.as_str()))
+            .filter(|s| targets.contains(*s));
+        let all: Vec<&str> = listed.iter().copied().chain(in_registry_order).collect();
+        let at = self.flip_order(&all, flip);
+        reordered(all, &at).into_iter().map(String::from).collect()
     }
 
     /// The order to switch `sha1s` — registry digests, in today's order — one by
@@ -1187,6 +1230,8 @@ impl ParsedInstance {
     /// the other does not undo the need. Optional and incompatible declarations
     /// are satisfied by absence and never order a flip — counted, a library's
     /// optional integration with a mod that requires it would read as a cycle.
+    /// A digest with no parsed row — a jar that could not be read — needs
+    /// nothing and answers nothing, so no need orders it.
     fn flip_order(&self, sha1s: &[&str], flip: Flip) -> Vec<usize> {
         let rows: Vec<Option<&ParsedRow>> = sha1s.iter().map(|s| self.row(s)).collect();
         // Once per mod, not once per pair.
@@ -1326,11 +1371,14 @@ impl ParsedInstance {
     /// targets and of what they pull in count — another mod's disabled
     /// dependency is not theirs — and a target is never its own requirement.
     ///
-    /// Order: safe to switch on one by one as listed, before the targets. A mod
-    /// comes after any listed mod it needs ([`Self::flip_order`]), so a run that
-    /// stops early leaves no listed mod on without a listed mod it needs — save
-    /// inside a cycle, which no order keeps whole and which is broken at its
-    /// earliest mod. Of the mods free to go next, the one found first goes first.
+    /// Order: the requirements are safe to switch on one by one as listed,
+    /// among themselves. A mod comes after any listed mod it needs
+    /// ([`Self::flip_order`]) — save inside a cycle, which no order keeps whole
+    /// and which is broken at its earliest mod. Of the mods free to go next, the
+    /// one found first goes first. `order` places the targets among them
+    /// ([`Self::with_targets`]) — a requirement may need a target, and targets
+    /// may need each other — so a run that switches on `order`, or any part of
+    /// it, and stops early leaves none of them on without one it needs.
     ///
     /// Errors when a target's jar could not be read, or the registry does not
     /// list it: "none" would be a guess.
@@ -1382,9 +1430,13 @@ impl ParsedInstance {
             })
             .collect();
         let sha1s: Vec<&str> = requirements.iter().map(|r| r.sha1.as_str()).collect();
-        let order = self.flip_order(&sha1s, Flip::On);
+        let at = self.flip_order(&sha1s, Flip::On);
+        let requirements = reordered(requirements, &at);
+        let listed: Vec<&str> = requirements.iter().map(|r| r.sha1.as_str()).collect();
+        let order = self.with_targets(&listed, targets, Flip::On);
         Ok(EnableImpact {
-            requirements: reordered(requirements, &order),
+            requirements,
+            order,
         })
     }
 
@@ -3874,5 +3926,101 @@ mod tests {
             mod_row("x", &[], false),
         ]);
         assert_eq!(on_order(&inst, &["t"]), shas(&["p", "q", "x", "y"]));
+    }
+
+    // ── one order over the targets too ────────────────────────────────────
+
+    /// Fails unless `order` names each of `want` exactly once.
+    fn assert_names_each_once<'a>(order: &[String], want: impl Iterator<Item = &'a str>) {
+        let mut got: Vec<&str> = order.iter().map(String::as_str).collect();
+        let mut want: Vec<&str> = want.collect();
+        got.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(
+            got, want,
+            "the order names every target and listed mod once"
+        );
+    }
+
+    /// The order a removal switches `targets` and their dependents off in.
+    fn removal_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.removal_impact(&set(targets)).unwrap();
+        let listed = impact.dependents.iter().map(|d| d.sha1.as_str());
+        assert_names_each_once(&impact.order, listed.chain(targets.iter().copied()));
+        impact.order
+    }
+
+    /// The order an enable switches `targets` and their requirements on in.
+    fn enable_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.enable_impact(&set(targets)).unwrap();
+        let listed = impact.requirements.iter().map(|r| r.sha1.as_str());
+        assert_names_each_once(&impact.order, listed.chain(targets.iter().copied()));
+        impact.order
+    }
+
+    /// Sodium, Indium and Fabric API switched off together, where Indium needs
+    /// the other two and nothing else needs any of them: Indium goes off first
+    /// — off after either, one step would leave it on without what it needs.
+    /// Switched on together, it comes on last.
+    #[test]
+    fn targets_that_need_each_other_are_switched_in_a_safe_order() {
+        let rows = |on| {
+            vec![
+                mod_row("s", &[], on),
+                mod_row("i", &["s", "f"], on),
+                mod_row("f", &[], on),
+            ]
+        };
+        let targets = ["s", "i", "f"];
+        assert_eq!(
+            removal_order(&instance(rows(true)), &targets),
+            shas(&["i", "s", "f"])
+        );
+        assert_eq!(
+            enable_order(&instance(rows(false)), &targets),
+            shas(&["s", "f", "i"])
+        );
+    }
+
+    /// U and T leave together; D needs U, and T needs D. D is carried along —
+    /// it loses U — but T, still on, needs D: T goes off before D, and D before
+    /// U. The dependents, then the targets (D, U, T), would switch D off while
+    /// T still needs it.
+    #[test]
+    fn a_target_goes_off_before_a_dependent_it_needs() {
+        let inst = instance(vec![
+            mod_row("u", &[], true),
+            mod_row("t", &["d"], true),
+            mod_row("d", &["u"], true),
+        ]);
+        assert_eq!(off_order(&inst, &["u", "t"]), shas(&["d"]));
+        assert_eq!(removal_order(&inst, &["u", "t"]), shas(&["t", "d", "u"]));
+    }
+
+    /// T and U come on together; T needs R, which is off, and R needs U. R is
+    /// switched on with them — after U, which it needs, and before T, which
+    /// needs it. The requirements, then the targets (R, T, U), would switch R
+    /// on without U.
+    #[test]
+    fn a_target_comes_on_before_a_requirement_that_needs_it() {
+        let inst = instance(vec![
+            mod_row("t", &["r"], false),
+            mod_row("r", &["u"], false),
+            mod_row("u", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t", "u"]), shas(&["r"]));
+        assert_eq!(enable_order(&inst, &["t", "u"]), shas(&["u", "r", "t"]));
+    }
+
+    /// The caller switches exactly what `order` names, so it names every
+    /// target — a disabled one whose jar could not be read too, after the
+    /// readable ones.
+    #[test]
+    fn the_order_names_a_target_whose_jar_could_not_be_read() {
+        let mut inst = instance(vec![mod_row("a", &[], true)]);
+        let mut off = installed_jar("off.jar", "off", "Off");
+        off.enabled = false;
+        inst.unreadable = vec![off];
+        assert_eq!(removal_order(&inst, &["off", "a"]), shas(&["a", "off"]));
     }
 }

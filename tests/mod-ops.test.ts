@@ -58,6 +58,9 @@ const ioErr = {
 const scope = { instanceId: 'inst', profileName: 'Alpha Pack' };
 const sodium = { sha1: 's', name: 'Sodium' };
 const indium = { sha1: 'i', name: 'Indium', needs: ['Sodium'] };
+// What mods_removal_impact answers for Sodium, which Indium needs: `order` is the one safe
+// disable order over the targets and the dependents — Indium before Sodium.
+const sodiumImpact = ok({ dependents: [indium], order: ['i', 's'] });
 type ToastCall = [
   string,
   string,
@@ -85,8 +88,13 @@ const settledSoon = <T>(p: Promise<T>) => Promise.race([p, flush().then(() => 's
 beforeAll(() => locale.set('en'));
 beforeEach(() => {
   vi.resetAllMocks();
-  h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [] }));
-  h.modsEnableImpact.mockResolvedValue(ok({ requirements: [] }));
+  // Nothing to carry along: `order` names just the targets (none of these needs another).
+  h.modsRemovalImpact.mockImplementation(async (_id: string, sha1s: string[]) =>
+    ok({ dependents: [], order: sha1s }),
+  );
+  h.modsEnableImpact.mockImplementation(async (_id: string, sha1s: string[]) =>
+    ok({ requirements: [], order: sha1s }),
+  );
   h.modsDisable.mockResolvedValue(ok(null));
   h.modsEnable.mockResolvedValue(ok(null));
   h.modsUninstall.mockResolvedValue(
@@ -110,7 +118,7 @@ describe('guarded disable', () => {
   });
 
   it('names the mods that need it; «Disable all N» disables them too', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     host();
     const done = disableMods(scope, [sodium]);
     const dialog = await screen.findByRole('dialog', { name: 'Disable Sodium?' });
@@ -131,7 +139,7 @@ describe('guarded disable', () => {
   });
 
   it('a dependent that could not be disabled keeps the mod it needs enabled', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     h.modsDisable.mockResolvedValueOnce(ioErr);
     host();
     const done = disableMods(scope, [sodium]);
@@ -144,7 +152,7 @@ describe('guarded disable', () => {
   });
 
   it('«Only this one» leaves the dependents enabled', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     host();
     const done = disableMods(scope, [sodium]);
     await fireEvent.click(await screen.findByRole('button', { name: 'Only this one' }));
@@ -153,7 +161,7 @@ describe('guarded disable', () => {
   });
 
   it('Cancel changes nothing', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     host();
     const done = disableMods(scope, [sodium]);
     await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
@@ -175,7 +183,7 @@ describe('guarded disable', () => {
   });
 
   it('a long operation took the profile mid-dialog: the refusal closes the dialog and says why', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     h.modsDisable.mockResolvedValue(busyErr);
     host();
     const done = disableMods(scope, [sodium]);
@@ -189,7 +197,9 @@ describe('guarded disable', () => {
 
 describe('guarded enable', () => {
   it('asks to enable the disabled mods it needs together with it', async () => {
-    h.modsEnableImpact.mockResolvedValue(ok({ requirements: [{ sha1: 's', name: 'Sodium' }] }));
+    h.modsEnableImpact.mockResolvedValue(
+      ok({ requirements: [{ sha1: 's', name: 'Sodium' }], order: ['s', 'i'] }),
+    );
     host();
     const done = enableMods(scope, [{ sha1: 'i', name: 'Indium' }]);
     const dialog = await screen.findByRole('dialog', {
@@ -215,15 +225,16 @@ describe('guarded enable', () => {
     expect(h.pushSuccess).toHaveBeenCalledWith('Enabled 2 mods', []);
   });
 
-  it('turns requirements on in the order the backend lists them, so a chain never runs half-enabled', async () => {
-    // Indium needs Sodium, Sodium needs Fabric API: mods_enable_impact lists them in a safe enable
-    // order — Fabric API before Sodium, which needs it — and the flip keeps that order.
+  it('turns requirements on in the order the backend gives, so a chain never runs half-enabled', async () => {
+    // Indium needs Sodium, Sodium needs Fabric API: mods_enable_impact orders them safely —
+    // Fabric API before Sodium, which needs it, and both before Indium — and the flip keeps it.
     h.modsEnableImpact.mockResolvedValue(
       ok({
         requirements: [
           { sha1: 'f', name: 'Fabric API' },
           { sha1: 's', name: 'Sodium' },
         ],
+        order: ['f', 's', 'i'],
       }),
     );
     host();
@@ -238,19 +249,22 @@ describe('guarded enable', () => {
   });
 });
 
-describe('flip order: as the backend lists it', () => {
-  // mods_removal_impact and mods_enable_impact return their lists in a safe flip order (a stable
-  // topological sort over what each mod needs). Re-sorting or reversing them here would undo it.
+describe("flip order: the backend's, targets included", () => {
+  // mods_removal_impact and mods_enable_impact answer with ONE safe flip `order` over the targets
+  // and the mods they carry along (a stable topological sort over what each mod needs). Targets
+  // may need each other, and a target may need a mod it carries along, so the targets do not
+  // simply go last. Re-sorting or reversing the order here would undo it.
   const listed = [
     { sha1: 'c', name: 'Gamma' },
     { sha1: 'a', name: 'Alpha' },
     { sha1: 'b', name: 'Beta' },
   ];
   const dependents = listed.map((m) => ({ ...m, needs: ['Sodium'] }));
+  const offImpact = ok({ dependents, order: ['c', 'a', 'b', 's'] });
 
-  it('flips exactly in the listed order, then the targets — never re-sorted, never reversed', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
-    h.modsEnableImpact.mockResolvedValue(ok({ requirements: listed }));
+  it('flips exactly in the given order — never re-sorted, never reversed', async () => {
+    h.modsRemovalImpact.mockResolvedValue(offImpact);
+    h.modsEnableImpact.mockResolvedValue(ok({ requirements: listed, order: ['c', 'a', 'b', 't'] }));
     host();
     const off = disableMods(scope, [sodium]);
     await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 4' }));
@@ -262,8 +276,101 @@ describe('flip order: as the backend lists it', () => {
     expect(flipped(h.modsEnable)).toEqual(['c', 'a', 'b', 't']);
   });
 
+  it('a target goes off ahead of a dependent it needs', async () => {
+    // Sodium and Tweaks leave together; Dynamic Lights needs Sodium, and Tweaks needs Dynamic
+    // Lights — so Tweaks goes off first. The dependents, then the targets, would switch Dynamic
+    // Lights off while Tweaks still needs it.
+    const lights = { sha1: 'd', name: 'Dynamic Lights', needs: ['Sodium'] };
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [lights], order: ['t', 'd', 's'] }));
+    host();
+    const done = disableMods(scope, [sodium, { sha1: 't', name: 'Tweaks' }]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 3' }));
+    await expect(done).resolves.toBe('applied');
+    expect(flipped(h.modsDisable)).toEqual(['t', 'd', 's']);
+  });
+
+  it('a target comes on ahead of a requirement that needs it', async () => {
+    // Tweaks and Utils come on together; Tweaks needs Reach, which is off, and Reach needs Utils
+    // — so Utils comes on first. The requirements, then the targets, would switch Reach on
+    // without Utils.
+    h.modsEnableImpact.mockResolvedValue(
+      ok({ requirements: [{ sha1: 'r', name: 'Reach' }], order: ['u', 'r', 't'] }),
+    );
+    host();
+    const done = enableMods(scope, [
+      { sha1: 't', name: 'Tweaks' },
+      { sha1: 'u', name: 'Utils' },
+    ]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Enable together' }));
+    await expect(done).resolves.toBe('applied');
+    expect(flipped(h.modsEnable)).toEqual(['u', 'r', 't']);
+  });
+
+  it('«Only these» flips just the targets, still in the given order', async () => {
+    // Indium needs Sodium, and Xray needs both: switching only the two off, Indium goes first.
+    const xray = { sha1: 'x', name: 'Xray', needs: ['Sodium', 'Indium'] };
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [xray], order: ['x', 'i', 's'] }));
+    host();
+    const done = disableMods(scope, [sodium, { sha1: 'i', name: 'Indium' }]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Only these' }));
+    await expect(done).resolves.toBe('applied');
+    expect(flipped(h.modsDisable)).toEqual(['i', 's']);
+  });
+
+  it('targets that need each other stop at the first failure, the rest counted as failed', async () => {
+    // Nothing else needs them, but Indium needs Sodium and Fabric API: it goes off first, and
+    // when it cannot, the other two stay on — Indium keeps what it needs.
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [], order: ['i', 's', 'f'] }));
+    h.modsDisable.mockResolvedValueOnce(ioErr);
+    host();
+    const targets = [sodium, { sha1: 'i', name: 'Indium' }, { sha1: 'f', name: 'Fabric API' }];
+    await expect(disableMods(scope, targets, { bulk: true })).resolves.toBe('failed');
+    expect(flipped(h.modsDisable)).toEqual(['i']);
+    expect(h.pushWarning).toHaveBeenCalledWith('Disabled 0 mods, 3 failed', [expect.any(String)]);
+  });
+
+  it('with no order to follow — the check could not run — every target gets its try', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ioErr);
+    h.modsDisable.mockResolvedValueOnce(ioErr);
+    host();
+    const done = disableMods(scope, [sodium, { sha1: 'i', name: 'Indium' }], { bulk: true });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable anyway' }));
+    await expect(done).resolves.toBe('applied');
+    expect(flipped(h.modsDisable)).toEqual(['s', 'i']);
+    expect(h.pushWarning).toHaveBeenCalledWith('Disabled 1 mod, 1 failed', [expect.any(String)]);
+  });
+
+  it('a removal disables its dependents in the order given, which may differ from their list', async () => {
+    // Sodium and Tweaks leave; Dynamic Lights and Zoom need Sodium, and Tweaks needs Dynamic
+    // Lights, so the order puts Zoom first. Undo re-enables them in reverse.
+    const lights = { sha1: 'd', name: 'Dynamic Lights', needs: ['Sodium'] };
+    const zoom = { sha1: 'z', name: 'Zoom', needs: ['Sodium'] };
+    h.modsRemovalImpact.mockResolvedValue(
+      ok({ dependents: [lights, zoom], order: ['z', 't', 'd', 's'] }),
+    );
+    h.modsUninstallMany.mockResolvedValue(
+      ok({
+        token: 't5',
+        items: [
+          { sha1: 's', name: 's' },
+          { sha1: 't', name: 't' },
+        ],
+      }),
+    );
+    host();
+    const done = uninstallMods(scope, [sodium, { sha1: 't', name: 'Tweaks' }]);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove and disable 2 dependents' }),
+    );
+    await expect(done).resolves.toBe('applied');
+    expect(flipped(h.modsDisable)).toEqual(['z', 'd']);
+    toast(0)[2].run();
+    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+    expect(flipped(h.modsEnable)).toEqual(['d', 'z']);
+  });
+
   it('a removal disables its dependents in the listed order; Undo re-enables them in reverse, providers first', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
+    h.modsRemovalImpact.mockResolvedValue(offImpact);
     host();
     const done = uninstallMods(scope, [sodium]);
     await fireEvent.click(
@@ -277,7 +384,7 @@ describe('flip order: as the backend lists it', () => {
   });
 
   it('after a removal, a dependent that will not switch off does not stop the others', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
+    h.modsRemovalImpact.mockResolvedValue(offImpact);
     h.modsDisable.mockResolvedValueOnce(ioErr);
     host();
     const done = uninstallMods(scope, [sodium]);
@@ -294,7 +401,7 @@ describe('flip order: as the backend lists it', () => {
   });
 
   it('Undo stops at the first dependent it cannot switch back on, so none comes on without what it needs', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents }));
+    h.modsRemovalImpact.mockResolvedValue(offImpact);
     host();
     const done = uninstallMods(scope, [sodium]);
     await fireEvent.click(
@@ -316,8 +423,10 @@ describe('flip order: as the backend lists it', () => {
 
 describe('one dialog at a time', () => {
   it('a question never replaces a dialog whose operation still runs: it shows once that one closes', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
-    h.modsEnableImpact.mockResolvedValue(ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
+    h.modsEnableImpact.mockResolvedValue(
+      ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }], order: ['f', 'b'] }),
+    );
     const running = deferred<ReturnType<typeof ok<null>>>();
     h.modsDisable.mockReturnValueOnce(running.promise);
     host();
@@ -348,7 +457,7 @@ describe('one dialog at a time', () => {
   it('a removal that disables its dependents can still offer the libraries nothing else needs', async () => {
     // The flow's own follow-up question takes its own running dialog's place: waiting for that
     // dialog to close would wait for itself.
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     h.modsFindOrphans.mockResolvedValue(
       ok([{ sha1: 'c', name: 'Cloth Config', project_id: 'cc' }]),
     );
@@ -379,7 +488,7 @@ describe('one dialog at a time', () => {
 
 describe('when the host goes away', () => {
   it('a question still waiting for an answer settles as cancelled', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     const { rerender } = render(ModOpsHostToggle, { props: { shown: true } });
     const done = disableMods(scope, [sodium]);
     await screen.findByRole('dialog', { name: 'Disable Sodium?' });
@@ -390,8 +499,10 @@ describe('when the host goes away', () => {
   });
 
   it('so does a question waiting behind a running operation, which itself runs to its end', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
-    h.modsEnableImpact.mockResolvedValue(ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
+    h.modsEnableImpact.mockResolvedValue(
+      ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }], order: ['f', 'b'] }),
+    );
     const running = deferred<ReturnType<typeof ok<null>>>();
     h.modsDisable.mockReturnValueOnce(running.promise);
     const { rerender } = render(ModOpsHostToggle, { props: { shown: true } });
@@ -434,7 +545,7 @@ describe('uninstall and undo', () => {
   });
 
   it('a mod others need: «Remove and disable 1 dependent», dependents disabled AFTER the removal', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     host();
     const done = uninstallMods(scope, [sodium]);
     const dialog = await screen.findByRole('dialog', { name: 'Remove Sodium?' });
@@ -452,7 +563,7 @@ describe('uninstall and undo', () => {
   });
 
   it('an Undo that could not bring everything back leaves the dependents disabled and says so', async () => {
-    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     host();
     const done = uninstallMods(scope, [sodium]);
     await fireEvent.click(

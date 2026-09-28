@@ -10,10 +10,12 @@
  *   button runs.
  * - A check that could not run is never read as "nothing depends on it" (fallback Q1/Q2): the
  *   dialog says the check failed and asks.
- * - A flip that carries its dependents or requirements along keeps every step launchable. The
- *   backend lists them in a safe flip order — a dependent before any listed mod it needs, a
- *   requirement after — and the flip follows it exactly as given, then the targets; the first
- *   failure ends the run.
+ * - Every flip keeps each step launchable. The impact answer carries ONE safe flip `order` over
+ *   the targets and the mods they carry along — switching off, a mod before any of them it needs;
+ *   switching on, after — because targets may need each other, and a target may need a mod it
+ *   carries along. The flip follows it exactly as given, filtered to the targets for «Only this
+ *   one», and the first failure ends the run: the steps after it count as failed for the same
+ *   reason. Only when the check could not run is there no order: then every target gets its try.
  * - One question at a time. A newer question supersedes an unanswered one (that flow settles as
  *   cancelled), but never a dialog whose chosen mutation still runs: the question waits until
  *   that dialog closes. Once the last ModOpsHost is gone, every flow still waiting for an answer
@@ -271,6 +273,18 @@ const named = <T extends { sha1: string; name: string }>(scope: ModOpScope, x: T
   name: scope.nameOf?.(x.sha1) ?? x.name,
 });
 
+/**
+ * `items` in the backend's safe flip `order` (sha1s) — any part of it is still safe for that
+ * part. An item `order` does not name keeps its place after those it does: a mod asked for is
+ * never dropped.
+ */
+function inOrder(order: readonly string[], items: readonly ModOpTarget[]): ModOpTarget[] {
+  const at = new Map<string, number>(order.map((sha1, i) => [sha1, i]));
+  const rank = (x: ModOpTarget) => at.get(x.sha1) ?? order.length;
+  // `sort` is stable: items of equal rank keep the order they came in.
+  return [...items].sort((a, b) => rank(a) - rank(b));
+}
+
 function listLines(names: readonly string[]): string[] {
   if (names.length <= LIST_CAP + 1) return [...names];
   return [
@@ -287,10 +301,10 @@ function profileLine(scope: ModOpScope): string[] {
 type FlipResult = { done: ModOpTarget[]; failed: { target: ModOpTarget; message: string }[] };
 
 /**
- * Enable or disable `targets` one by one, in order. `stopOnFailure`: each step relies on the
- * ones before it (a requirement before what needs it, a dependent before what it needs), so the
- * first failure ends the run and the steps after it count as failed for the same reason —
- * untried. Otherwise every target gets its try.
+ * Enable or disable `targets` one by one, in order. `stopOnFailure`: they come in a safe flip
+ * order, where each step relies on the ones before it (a mod comes on after what it needs, goes
+ * off before it), so the first failure ends the run and the steps after it count as failed for
+ * the same reason — untried. Otherwise every target gets its try.
  */
 async function flipAll(
   instanceId: string,
@@ -319,14 +333,17 @@ async function flipAll(
   return { done, failed };
 }
 
+/**
+ * Flip `flip` and say what happened. `bulk`: a batch says what it did even when it is one mod.
+ * `ordered`: `flip` follows the backend's safe order, so the first failure ends the run.
+ */
 async function applyEnabled(
   scope: ModOpScope,
   flip: readonly ModOpTarget[],
   enabled: boolean,
-  bulk: boolean,
-  stopOnFailure = false,
+  { bulk, ordered }: { bulk: boolean; ordered: boolean },
 ): Promise<ModOpOutcome> {
-  const r = await flipAll(scope.instanceId, flip, enabled, stopOnFailure);
+  const r = await flipAll(scope.instanceId, flip, enabled, ordered);
   const tt = tr();
   const where = profileLine(scope);
   if (r.failed.length === 0) {
@@ -376,18 +393,21 @@ export async function disableMods(
   if (!impact.ok) {
     const q = checkFailed('disable', targets, impact.message);
     if ((await q.answer).choice !== 'primary') return closeAs(q.id, 'cancelled');
-    return finish(q.id, applyEnabled(scope, targets, false, bulk));
+    return finish(q.id, applyEnabled(scope, targets, false, { bulk, ordered: false }));
   }
+  // In the backend's safe disable order — a mod goes off before any of them it needs — so
+  // nothing goes off while a mod that needs it stays on; the targets too may need each other.
+  const { order } = impact.data;
+  const flipInOrder = (flip: readonly ModOpTarget[]) =>
+    applyEnabled(scope, inOrder(order, flip), false, { bulk, ordered: true });
   const dependents = impact.data.dependents.map((d) => named(scope, d));
-  if (dependents.length === 0) return applyEnabled(scope, targets, false, bulk);
+  if (dependents.length === 0) return flipInOrder(targets);
   const q = ask({ mode: 'dependents-on-disable', targets: [...targets], dependents });
   const { choice } = await q.answer;
   if (choice === 'cancel') return 'cancelled';
-  if (choice === 'secondary') return finish(q.id, applyEnabled(scope, targets, false, bulk));
-  // Dependents first, exactly as the backend lists them — a safe disable order, each before any
-  // listed mod it needs — then the targets: nothing goes off while a mod that needs it stays on.
-  const flip = [...dependents.map(asTarget), ...targets];
-  return finish(q.id, applyEnabled(scope, flip, false, bulk, true));
+  // «Only this one» leaves the dependents enabled; «Disable all» takes them along.
+  const flip = choice === 'secondary' ? targets : [...dependents.map(asTarget), ...targets];
+  return finish(q.id, flipInOrder(flip));
 }
 
 /** Enable `targets`, asking first when they need mods that are disabled. */
@@ -404,18 +424,21 @@ export async function enableMods(
   if (!impact.ok) {
     const q = checkFailed('enable', targets, impact.message);
     if ((await q.answer).choice !== 'primary') return closeAs(q.id, 'cancelled');
-    return finish(q.id, applyEnabled(scope, targets, true, bulk));
+    return finish(q.id, applyEnabled(scope, targets, true, { bulk, ordered: false }));
   }
+  // In the backend's safe enable order — a mod comes on after any of them it needs — so nothing
+  // comes on without what it needs; the targets too may need each other.
+  const { order } = impact.data;
+  const flipInOrder = (flip: readonly ModOpTarget[]) =>
+    applyEnabled(scope, inOrder(order, flip), true, { bulk, ordered: true });
   const requirements = impact.data.requirements.map((r) => named(scope, r));
-  if (requirements.length === 0) return applyEnabled(scope, targets, true, bulk);
+  if (requirements.length === 0) return flipInOrder(targets);
   const q = ask({ mode: 'enable-with-requirements', targets: [...targets], requirements });
   const { choice } = await q.answer;
   if (choice === 'cancel') return 'cancelled';
-  if (choice === 'secondary') return finish(q.id, applyEnabled(scope, targets, true, bulk));
-  // Requirements first, exactly as the backend lists them — a safe enable order, each after any
-  // listed mod it needs — then the targets: nothing comes on without what it needs.
-  const flip = [...requirements.map(asTarget), ...targets];
-  return finish(q.id, applyEnabled(scope, flip, true, bulk, true));
+  // «Only this one» leaves the requirements disabled; «Enable together» takes them along.
+  const flip = choice === 'secondary' ? targets : [...requirements.map(asTarget), ...targets];
+  return finish(q.id, flipInOrder(flip));
 }
 
 // The optional "also remove unneeded libraries" question (bulk). A failed lookup offers nothing:
@@ -461,8 +484,9 @@ export async function uninstallMods(
     const { choice } = await q.answer;
     if (choice === 'cancel') return 'cancelled';
     dialog = q.id;
-    // Dependents are disabled, never removed (D3); «Only this one» leaves them enabled.
-    if (choice === 'primary') alsoDisable = dependents.map(asTarget);
+    // Dependents are disabled, never removed (D3), in the backend's safe disable order; «Only
+    // this one» leaves them enabled.
+    if (choice === 'primary') alsoDisable = inOrder(impact.data.order, dependents.map(asTarget));
   }
   try {
     const removing = opts.offerOrphans ? await withOrphans(scope, targets, dialog) : [...targets];
@@ -502,7 +526,7 @@ async function removeNow(
     return 'failed';
   }
   // Only after the removal happened: a refused removal must not leave its dependents disabled.
-  // In the backend's safe disable order, each before any listed mod it needs. They may need each
+  // In the backend's safe disable order, each before any of them it needs. They may need each
   // other, but the removal already broke them, so a failure does not end the run: every one gets
   // its try, and as few as possible stay on without what they need.
   const disabled = await flipAll(scope.instanceId, alsoDisable, false);

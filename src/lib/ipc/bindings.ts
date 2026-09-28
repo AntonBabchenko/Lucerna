@@ -1094,19 +1094,21 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Which enabled mods lose something they need if `sha1s` leave the instance —
 	 *  removed or disabled alike (spec §5.1, D3) — and, transitively, which lose
-	 *  something once those are switched off too. Listed in a safe disable order:
-	 *  switched off one by one as listed, then the targets, a mod goes off before
-	 *  any listed mod it needs. Offline and read-only: it feeds a dialog; the
-	 *  removal itself is gated. An error — never an empty list — when an enabled
-	 *  target's jar could not be read or the registry no longer lists a target.
+	 *  something once those are switched off too. `order` names the targets and
+	 *  those dependents in one safe disable order: switched off one by one as
+	 *  listed — all of them, or only the targets — a mod goes off before any of
+	 *  them it needs. Offline and read-only: it feeds a dialog; the removal itself
+	 *  is gated. An error — never an empty list — when an enabled target's jar
+	 *  could not be read or the registry no longer lists a target.
 	 */
 	modsRemovalImpact: (instanceId: string, sha1s: string[]) => typedError<RemovalImpact, Error>(__TAURI_INVOKE("mods_removal_impact", { instanceId, sha1s })),
 	/**
 	 *  The disabled mods `sha1s` need switched on with them, transitively, when
-	 *  they are enabled together (spec §5.1, D3). Listed in a safe enable order:
-	 *  switched on one by one as listed, then the targets, a mod comes on after any
-	 *  listed mod it needs. Offline and read-only. An error — never an empty list —
-	 *  when a target's jar could not be read or the registry no longer lists it.
+	 *  they are enabled together (spec §5.1, D3). `order` names the targets and
+	 *  those requirements in one safe enable order: switched on one by one as
+	 *  listed — all of them, or only the targets — a mod comes on after any of them
+	 *  it needs. Offline and read-only. An error — never an empty list — when a
+	 *  target's jar could not be read or the registry no longer lists it.
 	 */
 	modsEnableImpact: (instanceId: string, sha1s: string[]) => typedError<EnableImpact, Error>(__TAURI_INVOKE("mods_enable_impact", { instanceId, sha1s })),
 	/**
@@ -3563,14 +3565,26 @@ export type EnableImpact = {
 	 *  Disabled mods the targets need, transitively, each once, never a target
 	 *  itself.
 	 * 
-	 *  In a SAFE ENABLE ORDER: switch them on one by one as listed, then the
-	 *  targets. A mod comes after any listed mod it needs — one whose jar answers
-	 *  a requirement the loader enforces on it — so a run that stops early leaves
-	 *  no listed mod on without a listed mod it needs, save inside a cycle, which
-	 *  no order keeps whole: it is broken at its earliest mod. Of the mods free to
-	 *  go next, the one found first goes first.
+	 *  In a safe enable order among themselves: a mod comes after any listed
+	 *  mod it needs — one whose jar answers a requirement the loader enforces
+	 *  on it — save inside a cycle, which no order keeps whole: it is broken at
+	 *  its earliest mod. Of the mods free to go next, the one found first goes
+	 *  first. Switched on together with the targets, they follow `order`: one
+	 *  of them may need a target.
 	 */
 	requirements: DisabledRequirement[],
+	/**
+	 *  The targets and every mod in `requirements`, as registry digests, each
+	 *  once, in ONE SAFE ENABLE ORDER: switched on one by one as listed, a mod
+	 *  comes on after any of them it needs, so a run that stops early leaves
+	 *  none of them on without one it needs — save inside a cycle, broken at
+	 *  its earliest mod. A target goes ahead of a requirement only where a need
+	 *  says so: of the mods free to go next, the earliest goes first — the
+	 *  requirements as listed, then the targets in registry order. Filtered to
+	 *  any subset — the targets alone, for "only these" — it is still a safe
+	 *  order for that subset.
+	 */
+	order: string[],
 };
 
 export type EnvSupport = "required" | "optional" | "unsupported";
@@ -7053,15 +7067,27 @@ export type RemovalImpact = {
 	 *  has gained a violation. Empty means nothing the pre-flight can read loses
 	 *  anything it needs.
 	 * 
-	 *  In a SAFE DISABLE ORDER: switch them off one by one as listed, then the
-	 *  targets. A mod comes before any listed mod it needs — one whose jar
-	 *  answers a requirement the loader enforces on it — so a run that stops
-	 *  early leaves no listed mod on without a listed mod it needs, save inside
-	 *  a cycle, which no order keeps whole: it is broken at its earliest mod.
-	 *  Of the mods free to go next, the earliest in wave order (what breaks
-	 *  directly first), each wave in registry order, goes first.
+	 *  In a safe disable order among themselves: a mod comes before any listed
+	 *  mod it needs — one whose jar answers a requirement the loader enforces
+	 *  on it — save inside a cycle, which no order keeps whole: it is broken at
+	 *  its earliest mod. Of the mods free to go next, the earliest in wave order
+	 *  (what breaks directly first), each wave in registry order, goes first.
+	 *  Switched off together with the targets, they follow `order`: a target
+	 *  may need one of them.
 	 */
 	dependents: ImpactedMod[],
+	/**
+	 *  The targets and every mod in `dependents`, as registry digests, each
+	 *  once, in ONE SAFE DISABLE ORDER: switched off one by one as listed, a
+	 *  mod goes off before any of them it needs, so a run that stops early
+	 *  leaves none of them on without one it needs — save inside a cycle,
+	 *  broken at its earliest mod. A target goes ahead of a dependent only
+	 *  where a need says so: of the mods free to go next, the earliest goes
+	 *  first — the dependents as listed, then the targets in registry order.
+	 *  Filtered to any subset — the targets alone, for "only these" — it is
+	 *  still a safe order for that subset.
+	 */
+	order: string[],
 };
 
 /**
