@@ -1707,8 +1707,9 @@ pub async fn mods_restore_uninstalled(
 /// (2026-09-21 spec, D7); the rest ask per project. A single mod's
 /// query failure becomes that mod's `CheckFailed` state — the command
 /// fails wholesale only on a catastrophic error (instance missing,
-/// registry unreadable). Modpack-origin and hand-dropped mods are
-/// absent from the result.
+/// registry or hold list unreadable). Modpack-origin and hand-dropped mods
+/// are absent from the result, and so are projects on hold
+/// (`mods_set_hold`).
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_check_updates(
@@ -1717,7 +1718,7 @@ pub async fn mods_check_updates(
 ) -> crate::error::Result<Vec<crate::mods::updates::ModUpdateCheck>> {
     use crate::mods::hash_probe::{BatchFailure, HashProbeCache};
     use crate::mods::updates::{
-        batch_update_state, classify_update, eligible_identity, ModUpdateCheck, ModUpdateState,
+        batch_update_state, check_identity, classify_update, ModUpdateCheck, ModUpdateState,
     };
     use futures_util::stream::{self, StreamExt};
 
@@ -1725,6 +1726,9 @@ pub async fn mods_check_updates(
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
     let installed = crate::mods::installed::list(&inst_root).await?;
     let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+    // Held projects are not checked at all (D9). An unreadable hold file fails
+    // the check: offering an update the user said no to is the wrong answer.
+    let holds = crate::mods::holds::load(&inst_root).await?;
 
     // Bound platform polling so a large instance doesn't fan out dozens of
     // simultaneous requests (which intermittently trips per-IP rate limits).
@@ -1744,9 +1748,9 @@ pub async fn mods_check_updates(
         .iter()
         .enumerate()
         .filter_map(|(i, m)| {
-            eligible_identity(m, pack_origin.as_ref()).map(|(source, project_id, version_id)| {
-                (i, m.clone(), source, project_id, version_id)
-            })
+            check_identity(m, pack_origin.as_ref(), &holds).map(
+                |(source, project_id, version_id)| (i, m.clone(), source, project_id, version_id),
+            )
         })
         .collect();
 
@@ -1825,6 +1829,36 @@ pub async fn mods_check_updates(
     // Restore installed-list order: the poll yields completions out of order.
     results.sort_by_key(|(i, _)| *i);
     Ok(results.into_iter().map(|(_, c)| c).collect())
+}
+
+/// The instance's held projects (`mods_set_hold`). Read-only.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_list_holds(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Vec<crate::mods::holds::HeldProject>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    crate::mods::holds::load(&inst_root).await
+}
+
+/// Hold a project at its installed version («Не обновлять») or release it.
+/// Keyed by project, so it survives updates and restores. Shared claim.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_set_hold(
+    app: tauri::AppHandle,
+    instance_id: String,
+    source: ModSource,
+    project_id: String,
+    hold: bool,
+) -> crate::error::Result<()> {
+    let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let project = crate::mods::holds::HeldProject { source, project_id };
+    crate::mods::holds::set(&inst_root, project, hold).await?;
+    drop(write);
+    Ok(())
 }
 
 /// One `mods_check_updates` row.

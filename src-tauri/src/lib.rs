@@ -198,6 +198,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_uninstall_many,
             commands::mods_restore_uninstalled,
             commands::mods_check_updates,
+            commands::mods_list_holds,
+            commands::mods_set_hold,
             commands::asset_install,
             commands::assets_list,
             commands::asset_uninstall,

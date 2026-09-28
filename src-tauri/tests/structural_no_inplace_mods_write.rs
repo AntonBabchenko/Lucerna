@@ -103,6 +103,10 @@ const ALLOWLIST: &[&str] = &[
     // never opens the file, so a hardlinked jar stays one inode with the store —
     // and moved back the same way. Same temp-then-rename shape as above.
     "mods/trash.rs",
+    // `{instance}/lucerna/holds.json` — the per-project "don't update" list.
+    // Same class, same `lucerna/` directory, same temp-then-rename shape as
+    // `mods/hash_cache.rs`; never a path inside `.minecraft/`.
+    "mods/holds.rs",
     "mods/summary_cache.rs", // mod summary JSON cache
     "mods/assets.rs",        // installed-assets registry JSON (temp + rename)
     // `<app_data>/mods-cache/jar-scans.json` and its `tmp.<pid>` sibling —

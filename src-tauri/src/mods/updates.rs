@@ -156,6 +156,17 @@ pub fn eligible_identity(
     }
 }
 
+/// [`eligible_identity`] minus the projects on hold — the filter
+/// `mods_check_updates` runs (D9: a held mod is not checked at all).
+pub fn check_identity(
+    installed: &InstalledMod,
+    pack_origin: Option<&PackOrigin>,
+    holds: &[crate::mods::holds::HeldProject],
+) -> Option<(ModSource, String, String)> {
+    eligible_identity(installed, pack_origin)
+        .filter(|(source, project_id, _)| !crate::mods::holds::is_held(holds, *source, project_id))
+}
+
 /// The platform identity a REPLACEMENT search needs: a project to ask about.
 ///
 /// Deliberately weaker than [`eligible_identity`], which additionally demands
@@ -568,6 +579,24 @@ mod tests {
         assert!(
             decided >= 4,
             "only {decided} decided — the batch is not being exercised"
+        );
+    }
+
+    #[test]
+    fn check_identity_skips_a_held_project_and_only_that_project() {
+        use crate::mods::holds::HeldProject;
+        let held = vec![HeldProject {
+            source: ModSource::Modrinth,
+            project_id: "p".into(),
+        }];
+        let m = installed_mod("aa", Some(ModSource::Modrinth), Some("p"), Some("v1"));
+        assert_eq!(check_identity(&m, None, &held), None);
+        let other = installed_mod("bb", Some(ModSource::Modrinth), Some("q"), Some("v1"));
+        assert!(check_identity(&other, None, &held).is_some());
+        let cf = installed_mod("cc", Some(ModSource::Curseforge), Some("p"), Some("v1"));
+        assert!(
+            check_identity(&cf, None, &held).is_some(),
+            "a hold is per source"
         );
     }
 }

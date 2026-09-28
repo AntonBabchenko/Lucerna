@@ -294,6 +294,12 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "moves trashed jars back into mods/ and re-adds their registry rows",
     ),
     (
+        "commands/mods.rs",
+        "mods_set_hold",
+        SHARED_WRITE_GATE,
+        "read-modify-writes the instance's holds sidecar",
+    ),
+    (
         "commands/modpack_cmds.rs",
         "modpack_restore_file",
         SHARED_WRITE_GATE,
@@ -511,6 +517,11 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
         "commands/mods.rs",
         "mods_check_updates",
         "network query over the installed list (reconcile only); updates nothing",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_list_holds",
+        "reads the holds sidecar",
     ),
     (
         "commands/mods.rs",
