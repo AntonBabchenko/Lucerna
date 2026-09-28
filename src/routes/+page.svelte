@@ -68,7 +68,8 @@
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import OptimiseDialog from '$lib/mods/OptimiseDialog.svelte';
   import { preflightCache } from '$lib/mods/preflight-cache';
-  import { createPreflight, decideLaunch } from '$lib/mods/preflight.svelte';
+  import { createPreflight, decideLaunch, hasBlocking } from '$lib/mods/preflight.svelte';
+  import { problemCounts } from '$lib/mods/installed/mod-status';
   import { repairForLaunch } from '$lib/mods/fix-all';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -275,6 +276,17 @@
   // FRESH check through it, so the two never show different verdicts.
   const pagePreflight = createPreflight(() => activeInstance?.id ?? null);
   onDestroy(() => pagePreflight.dispose());
+  // One problem model on the Overview (spec §6.2): each mod at the level its
+  // Installed row gets (`statusOf`), from the page pre-flight's blocking rows —
+  // the gate's predicate — and compat's reasons. `modsProblemCount` is null
+  // until the pre-flight has answered: "—", never a reassuring 0.
+  const modProblems = $derived.by(() => {
+    const r = pagePreflight.report;
+    return problemCounts(r && hasBlocking(r) ? r.violations : [], stats.compatHints);
+  });
+  const modsProblemCount = $derived(
+    pagePreflight.report === null ? null : modProblems.blocking + modProblems.warning,
+  );
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
@@ -591,6 +603,7 @@
         void stats.refreshInstalledStats(newId);
         void stats.refreshPackStatus(newId);
         void stats.refreshPlaytime(newId);
+        void stats.refreshUpdateCount(newId);
       }
     });
   });
@@ -866,6 +879,8 @@
     void stats.refreshInstalledStats(activeInstance?.id ?? null);
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
     void stats.refreshPackStatus(activeInstance?.id ?? null);
+    // An update or a removal changes which jars the persisted check still lists.
+    void stats.refreshUpdateCount(activeInstance?.id ?? null);
   }, 150);
   const debouncedModToggleStats = debounceTrailing(() => {
     pagePreflight.invalidate();
@@ -1739,7 +1754,10 @@
               {activeInstance}
               installedStats={stats.installedStats}
               playtime={stats.playtime}
-              incompatibleCount={stats.incompatibleCount}
+              incompatibleCount={modProblems.warning}
+              blockingModsCount={modProblems.blocking}
+              problemCount={modsProblemCount}
+              updateCount={stats.updateCount}
               missingModsCount={stats.unresolvedMissing.length}
               running={selectedRunning}
               {installing}

@@ -604,3 +604,69 @@ describe('OverviewTab contextual tour', () => {
     expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
   });
 });
+
+describe('OverviewTab — mods problems', () => {
+  it('names mods that stop the game and routes to the Issues view', async () => {
+    const onNavInstalled = vi.fn();
+    const { getByTestId, queryByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        blockingModsCount: 1,
+        incompatibleCount: 2,
+        onNavInstalled,
+      },
+    });
+    // ONE mods item: what stops the game — the «may not work» count is not repeated.
+    expect(queryByTestId('overview-attention-incompatible')).toBeNull();
+    expect(getByTestId('overview-attention-mods_blocking').textContent).toContain(
+      '1 mod will stop the game from starting',
+    );
+    await fireEvent.click(getByTestId('overview-attention-mods_blocking'));
+    expect(onNavInstalled).toHaveBeenCalledWith('issues');
+  });
+
+  it('says «may not work» when nothing blocks', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 3 },
+    });
+    expect(getByTestId('overview-attention-incompatible').textContent).toContain(
+      '3 mods may not work',
+    );
+  });
+
+  it('adds problems and updates to the Mods card, "—" for what is not known', () => {
+    const { unmount } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        problemCount: 3,
+        blockingModsCount: 1,
+        updateCount: 2,
+      },
+    });
+    const zone = screen.getByTestId('overview-mods-health');
+    expect(zone.textContent).toMatch(/Problems:\s*3/);
+    expect(zone.textContent).toMatch(/Updates:\s*2/);
+    unmount();
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    const unknown = screen.getByTestId('overview-mods-health');
+    expect(unknown.textContent).toMatch(/Problems:\s*—/);
+    expect(unknown.textContent).toMatch(/Updates:\s*—/);
+  });
+
+  it('the health row opens Installed on Issues only when there are problems', async () => {
+    const onNavInstalled = vi.fn();
+    const { unmount } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, problemCount: 2, onNavInstalled },
+    });
+    await fireEvent.click(screen.getByTestId('overview-mods-health'));
+    expect(onNavInstalled).toHaveBeenLastCalledWith('issues');
+    unmount();
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, problemCount: 0, onNavInstalled },
+    });
+    await fireEvent.click(screen.getByTestId('overview-mods-health'));
+    expect(onNavInstalled).toHaveBeenLastCalledWith(undefined);
+  });
+});

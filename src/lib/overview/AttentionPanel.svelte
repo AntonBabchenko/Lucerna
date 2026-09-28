@@ -20,6 +20,7 @@
     log_fix: 'page.overview.attnLogFixAvailable',
     pick_version: 'page.overview.attnPickVersion',
     missing_mods: 'page.overview.attnMissingMods',
+    mods_blocking: 'page.overview.attnModsBlocking',
     incompatible: 'page.overview.attnIncompatible',
     integrity: 'page.overview.attnIntegrity',
     modpack_update: 'page.overview.attnModpackUpdate',
@@ -32,6 +33,7 @@
     log_fix: 'wrench',
     pick_version: 'warning',
     missing_mods: 'warning',
+    mods_blocking: 'circleX',
     incompatible: 'warning',
     integrity: 'warning',
     modpack_update: 'update',
@@ -40,6 +42,10 @@
     // the absence of an answer. `info` is the neutral glyph in the registry.
     preflight_unknown: 'info',
   };
+
+  // Red is red everywhere (spec D6) — on the icon only: red TEXT on this amber
+  // panel is ~3.3:1 in the dark theme, under AA.
+  const ICON_TONE: Partial<Record<AttentionKind, string>> = { mods_blocking: 'text-danger' };
 </script>
 
 {#if items.length > 0}
@@ -70,7 +76,7 @@
         data-testid="overview-attention-{item.kind}"
         onclick={() => onAction(item.kind)}
       >
-        <Icon name={ICON_KEY[item.kind]} class="text-warning-text" />
+        <Icon name={ICON_KEY[item.kind]} class={ICON_TONE[item.kind] ?? 'text-warning-text'} />
         <span class="flex-1 text-sm text-warning-text">
           {$t(TEXT_KEY[item.kind], { count: item.count })}
         </span>

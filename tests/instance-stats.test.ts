@@ -7,12 +7,14 @@ const {
   checkInstanceModCompat,
   getPlaytime,
   modpackStatus,
+  modsLastUpdateCheck,
 } = vi.hoisted(() => ({
   modsListInstalled: vi.fn(),
   scanInstanceModCompat: vi.fn(),
   checkInstanceModCompat: vi.fn(),
   getPlaytime: vi.fn(),
   modpackStatus: vi.fn(),
+  modsLastUpdateCheck: vi.fn(),
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -22,6 +24,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     checkInstanceModCompat,
     getPlaytime,
     modpackStatus,
+    modsLastUpdateCheck,
   },
 }));
 
@@ -31,8 +34,9 @@ import { __resetLiveVerdictsForTests } from '$lib/mods/installed/compat-check.sv
 
 // Minimal typed stubs — the composable only touches the named fields.
 const mod = (enabled: boolean): InstalledMod => ({ enabled }) as unknown as InstalledMod;
+let compatSeq = 0;
 const compat = (loader_mismatch: boolean, live_checkable: boolean) =>
-  ({ loader_mismatch, live_checkable }) as never;
+  ({ sha1: `jar-${++compatSeq}`, loader_mismatch, live_checkable }) as never;
 const missing = (state: MissingModStatus['state']): MissingModStatus =>
   ({ state }) as unknown as MissingModStatus;
 const forgeInstance = (id: string): InstanceWithStatus =>
@@ -46,6 +50,7 @@ describe('createInstanceStats', () => {
     scanInstanceModCompat.mockReset();
     getPlaytime.mockReset();
     modpackStatus.mockReset();
+    modsLastUpdateCheck.mockReset();
     // The compat scan is an app-wide singleton shared with the Installed tab —
     // without this, a test reusing an earlier test's (instance, mc, loader) key
     // is deduplicated away and asserts against the previous test's entries.
@@ -103,7 +108,7 @@ describe('createInstanceStats', () => {
       const s = createInstanceStats();
       await s.refreshIncompatible('i1', [forgeInstance('i1')]);
       expect(scanInstanceModCompat).toHaveBeenCalledWith('i1');
-      expect(s.incompatibleCount).toBe(3);
+      expect(s.compatHints.size).toBe(3);
     });
 
     it('scans a vanilla instance too, and gets 0 by computation', async () => {
@@ -116,14 +121,14 @@ describe('createInstanceStats', () => {
       const s = createInstanceStats();
       await s.refreshIncompatible('i1', [vanillaInstance('i1')]);
       expect(scanInstanceModCompat).toHaveBeenCalledWith('i1');
-      expect(s.incompatibleCount).toBe(0);
+      expect(s.compatHints.size).toBe(0);
     });
 
     it('clears the shared scan when the requested id is not in the instances list', async () => {
       const s = createInstanceStats();
       await s.refreshIncompatible('ghost', [forgeInstance('i1')]);
       expect(scanInstanceModCompat).not.toHaveBeenCalled();
-      expect(s.incompatibleCount).toBe(0);
+      expect(s.compatHints.size).toBe(0);
     });
 
     it('follows the shared store without a refresh of its own', async () => {
@@ -133,10 +138,10 @@ describe('createInstanceStats', () => {
       // makes that drift unrepresentable.
       scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [compat(true, false)] });
       const s = createInstanceStats();
-      expect(s.incompatibleCount).toBe(0);
+      expect(s.compatHints.size).toBe(0);
 
       await ensureCompatScan('i1', '1.20.1', 'forge');
-      expect(s.incompatibleCount).toBe(1);
+      expect(s.compatHints.size).toBe(1);
     });
 
     it('forces a rescan when asked, so a mod change is not deduplicated away', async () => {
@@ -151,6 +156,29 @@ describe('createInstanceStats', () => {
 
       await s.refreshIncompatible('i1', [forgeInstance('i1')], { force: true });
       expect(scanInstanceModCompat).toHaveBeenCalledTimes(2);
+    });
+
+    it('hands the Overview each flagged mod with its reason, for the profile it scanned', async () => {
+      // The Overview decides each mod's level with the rows' own statusOf, so it needs the
+      // reason — the live half is looked up under the triple this refresh ran for.
+      scanInstanceModCompat.mockResolvedValue({
+        status: 'ok',
+        data: [
+          { sha1: 'x', loader_mismatch: true, detected_loader: 'Fabric', live_checkable: false },
+          { sha1: 'y', loader_mismatch: false, live_checkable: true },
+        ],
+      });
+      checkInstanceModCompat.mockResolvedValue({
+        status: 'ok',
+        data: [{ sha1: 'y', name: 'y', status: { status: 'incompatible' } }],
+      });
+      const s = createInstanceStats();
+      await s.refreshIncompatible('i1', [forgeInstance('i1')]);
+      await vi.waitFor(() => expect(s.compatHints.size).toBe(2));
+      expect([...s.compatHints]).toEqual([
+        ['x', { key: 'loader', detected: 'Fabric' }],
+        ['y', { key: 'noRelease' }],
+      ]);
     });
   });
 
@@ -209,6 +237,51 @@ describe('createInstanceStats', () => {
       await s.refreshPackStatus('i1');
       expect(s.packMissingMods).toEqual([]);
       expect(s.unresolvedMissing).toEqual([]);
+    });
+  });
+
+  describe('refreshUpdateCount', () => {
+    const upd = (kind: string) => ({ state: { kind } }) as never;
+
+    it('counts the pending updates of the persisted check', async () => {
+      modsLastUpdateCheck.mockResolvedValue({
+        status: 'ok',
+        data: {
+          checked_at_secs: 1,
+          results: [upd('update_available'), upd('up_to_date'), upd('update_available')],
+        },
+      });
+      const s = createInstanceStats();
+      await s.refreshUpdateCount('i1');
+      expect(modsLastUpdateCheck).toHaveBeenCalledWith('i1');
+      expect(s.updateCount).toBe(2);
+    });
+
+    it('says "not known", never 0, when nothing was checked or the file could not be read', async () => {
+      const s = createInstanceStats();
+      modsLastUpdateCheck.mockResolvedValue({ status: 'ok', data: null });
+      await s.refreshUpdateCount('i1');
+      expect(s.updateCount).toBeNull();
+      modsLastUpdateCheck.mockResolvedValue({ status: 'error', error: { kind: 'io' } });
+      await s.refreshUpdateCount('i1');
+      expect(s.updateCount).toBeNull();
+    });
+
+    it('a slower answer for the previous profile never lands on the next one', async () => {
+      let answer: (v: unknown) => void = () => {};
+      modsLastUpdateCheck
+        .mockReturnValueOnce(
+          new Promise((r) => {
+            answer = r;
+          }),
+        )
+        .mockResolvedValueOnce({ status: 'ok', data: null });
+      const s = createInstanceStats();
+      const first = s.refreshUpdateCount('old');
+      await s.refreshUpdateCount('new');
+      answer({ status: 'ok', data: { checked_at_secs: 1, results: [upd('update_available')] } });
+      await first;
+      expect(s.updateCount).toBeNull();
     });
   });
 });

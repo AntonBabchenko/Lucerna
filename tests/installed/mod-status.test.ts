@@ -5,7 +5,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { DepViolation, ModUpdateState, ViolationKind } from '$lib/ipc/bindings';
-import { isProblem, type StatusInput, statusOf } from '$lib/mods/installed/mod-status';
+import type { CompatHint } from '$lib/mods/installed/compat-check.svelte';
+import {
+  isProblem,
+  problemCounts,
+  type StatusInput,
+  statusOf,
+} from '$lib/mods/installed/mod-status';
 import { rawRangeDesc } from '../test-utils/range-desc';
 
 const v = (kind: ViolationKind, depId = 'dep'): DepViolation => ({
@@ -153,5 +159,31 @@ describe('isProblem', () => {
       isProblem(statusOf(input({ enabled: false, violations: [v('missing_required')] }))),
     ).toBe(false);
     expect(isProblem(undefined)).toBe(false);
+  });
+});
+
+describe("problemCounts — the Overview's numbers", () => {
+  it('counts each mod once, at the level its row gets — so the Overview and the chip agree', () => {
+    const of = (sha: string, kind: ViolationKind, depId: string) => ({
+      ...v(kind, depId),
+      dependent_sha1: sha,
+    });
+    const hints = new Map<string, CompatHint>([
+      // Blocking already: its compat reason does not make it a second problem.
+      ['a', { key: 'noRelease' }],
+      ['c', { key: 'loader', detected: 'Fabric' }],
+      // A platform flag is the pre-flight's fact; with no violation it is no problem here either.
+      ['d', { key: 'platformMc', declared: '1.20.1' }],
+    ]);
+    const violations = [
+      of('a', 'missing_required', 'balm'),
+      of('a', 'version_out_of_range', 'sodium'),
+      of('b', 'required_disabled', 'cloth'),
+    ];
+    expect(problemCounts(violations, hints)).toEqual({ blocking: 2, warning: 1 });
+  });
+
+  it('nothing reported, nothing flagged: no problems', () => {
+    expect(problemCounts([], new Map())).toEqual({ blocking: 0, warning: 0 });
   });
 });

@@ -124,3 +124,34 @@ export function statusOf(input: StatusInput): ModStatus {
 export function isProblem(status: ModStatus | undefined): boolean {
   return status?.level === 'blocking' || status?.level === 'warning';
 }
+
+/**
+ * How many mods stop the game and how many may not work — the Overview's numbers (spec §6.2),
+ * without the rows: each mod the pre-flight or compat names gets the level `statusOf` gives its
+ * Installed row, from the same inputs. `violations` are the BLOCKING ones (`hasBlocking` applied
+ * by the caller, as the Installed tab does); `hints` are compat's, by sha1. Both judge enabled
+ * mods only, so every mod they name is enabled.
+ */
+export function problemCounts(
+  violations: readonly DepViolation[],
+  hints: ReadonlyMap<string, CompatHint>,
+): { blocking: number; warning: number } {
+  const bySha = new Map<string, DepViolation[]>();
+  for (const v of violations) {
+    bySha.set(v.dependent_sha1, [...(bySha.get(v.dependent_sha1) ?? []), v]);
+  }
+  let blocking = 0;
+  let warning = 0;
+  for (const sha of new Set([...bySha.keys(), ...hints.keys()])) {
+    const { level } = statusOf({
+      enabled: true,
+      violations: bySha.get(sha) ?? [],
+      compat: hints.get(sha) ?? null,
+      update: null,
+      held: false,
+    });
+    if (level === 'blocking') blocking++;
+    else if (level === 'warning') warning++;
+  }
+  return { blocking, warning };
+}

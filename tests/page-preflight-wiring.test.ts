@@ -73,4 +73,18 @@ describe('+page pre-flight wiring', () => {
       );
     }
   });
+
+  it('feeds the Overview from the page pre-flight and the persisted update check', () => {
+    // Each mod's level by the rows' own statusOf (problemCounts), from the page pre-flight's
+    // blocking rows and compat's reasons — the Overview and the Installed chip cannot disagree.
+    expect(src).toContain('problemCounts(');
+    expect(src).toContain('blockingModsCount={modProblems.blocking}');
+    expect(src).toContain('incompatibleCount={modProblems.warning}');
+    expect(src).toContain('problemCount={modsProblemCount}');
+    expect(src).toContain('updateCount={stats.updateCount}');
+    expect(src).toContain('stats.refreshUpdateCount(newId)');
+    expect(functionBody('const debouncedModSetStats = debounceTrailing(')).toContain(
+      'refreshUpdateCount',
+    );
+  });
 });
