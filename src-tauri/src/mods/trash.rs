@@ -20,10 +20,11 @@
 //! `trash/` (a `-kept` entry a failed rollback set aside) is not ours to delete.
 //!
 //! Fallback discipline: a move that fails midway puts back what it moved and
-//! checks that (Q4); a jar that cannot go back is kept out of the purge's reach
-//! and named in the error. A restore never overwrites: a taken name (either
-//! spelling) or a project installed again is skipped with its reason, and its
-//! jar stays in the trash until the entry is purged.
+//! checks that (Q4); a jar that cannot go back — or whose name a concurrent
+//! install took meanwhile, in either spelling — is kept out of the purge's
+//! reach and named in the error. A restore never overwrites: a taken name
+//! (either spelling) or a project installed again is skipped with its reason,
+//! and its jar stays in the trash until the entry is purged.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -288,23 +289,63 @@ async fn write_record(dir: &Path, record: &Record) -> std::io::Result<()> {
 
 /// Put back every jar this call moved, newest first. Returns the ones that could
 /// NOT go back (their names in the entry, with the cause) — the caller must say so.
+///
+/// Never over another file: the shared maintenance claim admits a concurrent
+/// install, and `rename` replaces its target on Windows. A jar whose name was
+/// taken meanwhile — in either spelling, `restore_item`'s `NameTaken` rule — or
+/// could not be checked stays in the entry, counted with the stuck ones.
 async fn put_back(moved: &[(PathBuf, PathBuf)]) -> Vec<String> {
     let mut stuck = Vec::new();
     for (from, to) in moved.iter().rev() {
+        let name = to
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| to.display().to_string());
+        if let Some(why) = way_back_blocked(from).await {
+            crate::diag!("mods trash: kept {} in the trash: {why}", to.display());
+            stuck.push(format!("{name} ({why})"));
+            continue;
+        }
         if let Err(e) = fs::rename(to, from).await {
             crate::diag!(
                 "mods trash: could not move {} back to {}: {e}",
                 to.display(),
                 from.display()
             );
-            let name = to
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| to.display().to_string());
             stuck.push(format!("{name} ({e})"));
         }
     }
     stuck
+}
+
+/// Why a jar must not go back to `from`, if it must not: its base name (the
+/// file name without a trailing `.disabled`, as the registry reads names off
+/// disk) is taken in `from`'s folder in either spelling, or that cannot be told.
+async fn way_back_blocked(from: &Path) -> Option<String> {
+    let (Some(mods), Some(file)) = (from.parent(), from.file_name()) else {
+        return Some(format!("{} names no file in a folder", from.display()));
+    };
+    let file = file.to_string_lossy().into_owned();
+    let base = file.strip_suffix(".disabled").unwrap_or(file.as_str());
+    match taken_spelling(mods, base).await {
+        Ok(None) => None,
+        Ok(Some(spelling)) => Some(format!("name taken by {spelling}")),
+        Err(e) => Some(format!("could not check the name: {e}")),
+    }
+}
+
+/// The spelling of `base` a file in `mods` already answers to — `<base>` or
+/// `<base>.disabled` — if any. Either one taken means two jars would share one
+/// base name, and a later enable/disable would rename one over the other.
+/// `Err`: it could not be checked.
+async fn taken_spelling(mods: &Path, base: &str) -> Result<Option<String>, Error> {
+    for spelling in [base.to_string(), format!("{base}.disabled")] {
+        let p = mods.join(&spelling);
+        if fs::try_exists(&p).await.map_err(|e| io_err(&p, e))? {
+            return Ok(Some(spelling));
+        }
+    }
+    Ok(None)
 }
 
 /// Undo a half-done move and turn `cause` into the error to report.
@@ -460,13 +501,8 @@ async fn restore_item(
     if !fs::try_exists(&from).await.map_err(|e| io_err(&from, e))? {
         return Ok(Item::Skipped(RestoreSkipReason::Missing));
     }
-    // Either spelling taken = two rows sharing one base name, and a later
-    // enable/disable would rename one jar over the other.
-    for taken in [row.filename.clone(), format!("{}.disabled", row.filename)] {
-        let p = mods.join(&taken);
-        if fs::try_exists(&p).await.map_err(|e| io_err(&p, e))? {
-            return Ok(Item::Skipped(RestoreSkipReason::NameTaken));
-        }
+    if taken_spelling(mods, &row.filename).await?.is_some() {
+        return Ok(Item::Skipped(RestoreSkipReason::NameTaken));
     }
     let to = mods.join(&item.file_name_on_disk);
     fs::rename(&from, &to).await.map_err(|e| io_err(&from, e))?;
@@ -856,6 +892,56 @@ mod tests {
         );
         assert!(purge(root, u64::MAX).is_empty());
         assert!(kept.is_dir(), "and no purge deletes it");
+    }
+
+    /// The shared maintenance claim admits a concurrent install: while a bulk
+    /// uninstall was moving jars, another jar may have landed under a moved
+    /// one's name — in either spelling. `rename` replaces its target on
+    /// Windows, so the rollback must leave the moved jar in the entry, set
+    /// aside and named, rather than destroy what arrived meanwhile.
+    #[tokio::test]
+    async fn a_rollback_never_puts_a_jar_back_over_a_name_taken_meanwhile() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let mods = installed::mods_dir(root);
+        let dir = trash_dir(root).join(token_at(1000));
+        std::fs::create_dir_all(&mods).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.jar"), b"OLD-A").unwrap();
+        std::fs::write(dir.join("b.jar"), b"OLD-B").unwrap();
+        // Placed by a concurrent install after the move: the same name, and the
+        // other spelling of the second jar's name.
+        std::fs::write(mods.join("a.jar"), b"NEW-A").unwrap();
+        std::fs::write(mods.join("b.jar.disabled"), b"NEW-B").unwrap();
+        let moved = vec![
+            (mods.join("a.jar"), dir.join("a.jar")),
+            (mods.join("b.jar"), dir.join("b.jar")),
+        ];
+        let err = abort(
+            &dir,
+            &moved,
+            Error::ModsNotFound {
+                platform: "test".into(),
+            },
+        )
+        .await;
+        assert_eq!(
+            std::fs::read(mods.join("a.jar")).unwrap(),
+            b"NEW-A",
+            "the jar placed meanwhile is intact"
+        );
+        assert!(
+            !mods.join("b.jar").exists(),
+            "never a second spelling of one name"
+        );
+        let kept = trash_dir(root).join(format!("{}-kept", token_at(1000)));
+        assert_eq!(std::fs::read(kept.join("a.jar")).unwrap(), b"OLD-A");
+        assert_eq!(std::fs::read(kept.join("b.jar")).unwrap(), b"OLD-B");
+        assert!(
+            matches!(&err, Error::ModsInstancePath { details, .. }
+                if details.contains("a.jar") && details.contains("b.jar")),
+            "{err:?}"
+        );
     }
 
     #[test]
