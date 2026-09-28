@@ -10,6 +10,8 @@
  *   button runs.
  * - A check that could not run is never read as "nothing depends on it" (fallback Q1/Q2): the
  *   dialog says the check failed and asks.
+ * - The one path that does not ask is `enableModsUnguarded`, for the repair (`fix-all.ts`): its
+ *   click is the consent, and the pre-flight it re-runs is the check.
  * - Every flip keeps each step launchable. The impact answer carries ONE safe flip `order` over
  *   the targets and the mods they carry along — switching off, a mod before any of them it needs;
  *   switching on, after — because targets may need each other, and a need can run either way
@@ -274,14 +276,17 @@ const named = <T extends { sha1: string; name: string }>(scope: ModOpScope, x: T
   name: scope.nameOf?.(x.sha1) ?? x.name,
 });
 
+/** Anything a flip can act on: a registry digest, named or not. */
+type Flippable = { sha1: string };
+
 /**
  * `items` in the backend's safe flip `order` (sha1s) — any part of it is still safe for that
  * part. An item `order` does not name keeps its place after those it does: a mod asked for is
  * never dropped.
  */
-function inOrder(order: readonly string[], items: readonly ModOpTarget[]): ModOpTarget[] {
+function inOrder<T extends Flippable>(order: readonly string[], items: readonly T[]): T[] {
   const at = new Map<string, number>(order.map((sha1, i) => [sha1, i]));
-  const rank = (x: ModOpTarget) => at.get(x.sha1) ?? order.length;
+  const rank = (x: T) => at.get(x.sha1) ?? order.length;
   // `sort` is stable: items of equal rank keep the order they came in.
   return [...items].sort((a, b) => rank(a) - rank(b));
 }
@@ -299,7 +304,10 @@ function profileLine(scope: ModOpScope): string[] {
   return [tr()('mods.ops.restore.inProfile', { profile: scope.profileName })];
 }
 
-type FlipResult = { done: ModOpTarget[]; failed: { target: ModOpTarget; message: string }[] };
+type FlipResult<T extends Flippable = ModOpTarget> = {
+  done: T[];
+  failed: { target: T; message: string }[];
+};
 
 /**
  * Enable or disable `targets` one by one, in order. `stopOnFailure`: they come in a safe flip
@@ -307,14 +315,14 @@ type FlipResult = { done: ModOpTarget[]; failed: { target: ModOpTarget; message:
  * off before it), so the first failure ends the run and the steps after it count as failed for
  * the same reason — untried. Otherwise every target gets its try.
  */
-async function flipAll(
+async function flipAll<T extends Flippable>(
   instanceId: string,
-  targets: readonly ModOpTarget[],
+  targets: readonly T[],
   enabled: boolean,
   stopOnFailure = false,
-): Promise<FlipResult> {
-  const done: ModOpTarget[] = [];
-  const failed: FlipResult['failed'] = [];
+): Promise<FlipResult<T>> {
+  const done: T[] = [];
+  const failed: FlipResult<T>['failed'] = [];
   for (const [i, target] of targets.entries()) {
     const r = await settleCall(() =>
       enabled
@@ -440,6 +448,32 @@ export async function enableMods(
   // «Only this one» leaves the requirements disabled; «Enable together» takes them along.
   const flip = choice === 'secondary' ? targets : [...requirements.map(asTarget), ...targets];
   return finish(q.id, flipInOrder(flip));
+}
+
+/**
+ * Switch `sha1s` on together with the disabled mods they need, WITHOUT asking — only for the
+ * repair («Fix all», the Play gate's «Fix and launch»), whose click is the consent (plan A13).
+ * Silent: the repair re-runs the pre-flight and reports what is left. The flip follows the
+ * backend's safe enable order and stops at the first failure, like every ordered flip. When the
+ * check could not run there is neither an order nor a list of what they need: every target gets
+ * its try, and the re-run pre-flight names whatever is still off.
+ */
+export async function enableModsUnguarded(
+  instanceId: string,
+  sha1s: readonly string[],
+): Promise<{ enabled: string[]; failed: string[] }> {
+  const targets: Flippable[] = [...new Set(sha1s)].map((sha1) => ({ sha1 }));
+  if (targets.length === 0) return { enabled: [], failed: [] };
+  const impact = await settleCall(() => commands.modsEnableImpact(instanceId, shas(targets)));
+  const r = impact.ok
+    ? await flipAll(
+        instanceId,
+        inOrder(impact.data.order, [...impact.data.requirements, ...targets]),
+        true,
+        true,
+      )
+    : await flipAll(instanceId, targets, true);
+  return { enabled: shas(r.done), failed: r.failed.map((f) => f.target.sha1) };
 }
 
 // The optional "also remove unneeded libraries" question (bulk). A failed lookup offers nothing:

@@ -297,7 +297,7 @@ describe('PreflightPanel bulk migrate entry', () => {
 
   it('shows no migrate button in launch-gate shape (no onMigrate) even with violations', () => {
     // The launch gate reuses PreflightPanel without the migration props; its
-    // remediation is its own "Update & launch" batch, not the migration engine.
+    // remediation is its own "Fix and launch" repair, not the migration engine.
     const { queryByTestId } = render(PreflightPanel, {
       props: { report: reportWith(4), onUpdate: () => {}, showRowActions: false },
     });

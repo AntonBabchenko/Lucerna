@@ -53,6 +53,7 @@
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
   import { depNameOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
+  import { countFixed, fixAll } from '$lib/mods/fix-all';
   import { SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
@@ -458,6 +459,42 @@
     await deps.jumpToSha1(v.dependent_sha1);
   }
 
+  // «Fix all (N)»: the Play gate's repair (fix-all.ts), then a FRESH pre-flight
+  // — only it says which rows are gone — and one toast «Fixed N of M». The
+  // profile it ran for is captured and named when the user has moved on.
+  let fixAllBusy = $state(false);
+  async function runFixAll(): Promise<void> {
+    const id = instanceId;
+    const name = instanceName;
+    const report = preflight.report;
+    if (!id || !report || fixAllBusy) return;
+    fixAllBusy = true;
+    try {
+      const { attempted } = await fixAll(id, report);
+      const after = await preflight.check(id);
+      deps.invalidateGraph();
+      await data.refresh();
+      const where =
+        instanceId !== id && name ? [get(t)('mods.ops.restore.inProfile', { profile: name })] : [];
+      if (after.status !== 'ok') {
+        pushWarning(get(t)('mods.preflight.checkFailed'), [formatError(after.error), ...where]);
+        return;
+      }
+      const fixed = countFixed(attempted, after.data);
+      const title = get(t)('mods.preflight.gateFixed', { fixed, total: attempted.length });
+      if (fixed === attempted.length) pushSuccess(title, where);
+      else pushWarning(title, where);
+    } catch (e) {
+      // The bridge failed on the re-check (the repair's own steps never throw):
+      // what is left is unknown until the next pre-flight.
+      pushWarning(get(t)('mods.preflight.checkFailed'), [
+        e instanceof Error ? e.message : String(e),
+      ]);
+    } finally {
+      fixAllBusy = false;
+    }
+  }
+
   // The row's second line, from the row's one status (its level, its ranked
   // reasons and the fix the status chose) — never a second ranking.
   function problemOf(row: Row): RowProblem | null {
@@ -523,7 +560,7 @@
   // and bulk bar stay clickable mid-IPC (the monolith gated them via `busy`).
   let shellBusy = $state(false);
 
-  const busy = $derived(shellBusy || selection.busy || deps.busy || updates.busy);
+  const busy = $derived(shellBusy || fixAllBusy || selection.busy || deps.busy || updates.busy);
   const error = $derived(data.error ?? deps.error ?? updates.error ?? selection.error);
 
   // Detail modal can target ANY mod by (source, project_id): the row's own mod,
@@ -783,6 +820,8 @@
     onInstallMissing={onInstallMissingDep}
     onEnableProvider={enableProvider}
     onJumpToDependent={jumpToDependent}
+    onFixAll={runFixAll}
+    {fixAllBusy}
     onChooseVersion={onPreflightChooseVersion}
     onFindAlternative={onPreflightFindAlternative}
     onOpenModPage={onPreflightOpenModPage}

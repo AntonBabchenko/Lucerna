@@ -29,6 +29,7 @@
     busyKeys = new Set<string>(),
     deadEndKeys = new Set<string>(),
     showRowActions = true,
+    showHeader = true,
   }: {
     report: PreflightReport | null;
     // The dependency's display name. The host's lookup comes first (the
@@ -64,6 +65,9 @@
     // The launch gate mutes per-row actions (it repairs through its own
     // button), so it passes false to hide them.
     showRowActions?: boolean;
+    // The launch gate's dialog title already says «What stops the game»; a
+    // second heading inside would repeat it, so the gate hides this one.
+    showHeader?: boolean;
   } = $props();
 
   const nameOf = (v: DepViolation): string =>
@@ -81,7 +85,7 @@
   const showMigrate = $derived(!!onMigrate && migrateCount > 0);
 </script>
 
-{#if blocking || showMigrate}
+{#if blocking || (showHeader && showMigrate)}
   <!-- The surface with a danger border and a red icon, never the bg-danger-bg
        box: danger text on that box misses AA in both themes (DESIGN.md Known
        gaps). With only incompatibilities left nothing stops the game, so the
@@ -92,42 +96,44 @@
       : 'border-warning-text'}"
     data-testid="preflight-panel"
   >
-    <div
-      class="px-4 py-2.5 font-semibold text-primary flex flex-wrap items-center gap-2"
-      class:border-b={blocking}
-      class:border-border-subtle={blocking}
-    >
-      <Icon
-        name={blocking ? 'circleX' : 'warning'}
-        class="shrink-0 {blocking ? 'text-danger' : 'text-warning-text'}"
-      />
-      <span class="flex-1">
-        {$t(blocking ? 'mods.preflight.panelTitle' : 'mods.preflight.panelTitleWarnOnly')}
-      </span>
-      {#if showFixAll}
-        <BusyButton
-          class="btn-primary btn-xs shrink-0"
-          busy={fixAllBusy}
-          data-testid="preflight-fix-all"
-          onclick={() => onFixAll?.()}
-        >
-          {$t('mods.preflight.fixAll', { count: fixableCount })}
-        </BusyButton>
-      {/if}
-      {#if showMigrate}
-        <!-- Scoped to the incompatibility class by its copy: the panel also
-             lists missing dependencies, which migration does not touch, so a
-             whole-panel "fix" here would over-promise. -->
-        <button
-          type="button"
-          class="btn-secondary btn-xs shrink-0"
-          data-testid="preflight-migrate-btn"
-          onclick={() => onMigrate?.()}
-        >
-          {$t('mods.preflight.fixIncompatible', { count: migrateCount })}
-        </button>
-      {/if}
-    </div>
+    {#if showHeader}
+      <div
+        class="px-4 py-2.5 font-semibold text-primary flex flex-wrap items-center gap-2"
+        class:border-b={blocking}
+        class:border-border-subtle={blocking}
+      >
+        <Icon
+          name={blocking ? 'circleX' : 'warning'}
+          class="shrink-0 {blocking ? 'text-danger' : 'text-warning-text'}"
+        />
+        <span class="flex-1">
+          {$t(blocking ? 'mods.preflight.panelTitle' : 'mods.preflight.panelTitleWarnOnly')}
+        </span>
+        {#if showFixAll}
+          <BusyButton
+            class="btn-primary btn-xs shrink-0"
+            busy={fixAllBusy}
+            data-testid="preflight-fix-all"
+            onclick={() => onFixAll?.()}
+          >
+            {$t('mods.preflight.fixAll', { count: fixableCount })}
+          </BusyButton>
+        {/if}
+        {#if showMigrate}
+          <!-- Scoped to the incompatibility class by its copy: the panel also
+               lists missing dependencies, which migration does not touch, so a
+               whole-panel "fix" here would over-promise. -->
+          <button
+            type="button"
+            class="btn-secondary btn-xs shrink-0"
+            data-testid="preflight-migrate-btn"
+            onclick={() => onMigrate?.()}
+          >
+            {$t('mods.preflight.fixIncompatible', { count: migrateCount })}
+          </button>
+        {/if}
+      </div>
+    {/if}
     {#if blocking}
       <!-- Cap the row list and let it scroll: a long list must not push the
            panel — or, in the launch gate, the dialog's footer — past the window

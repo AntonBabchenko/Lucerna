@@ -39,6 +39,7 @@ import {
   __resetModOpsForTests,
   disableMods,
   enableMods,
+  enableModsUnguarded,
   UNDO_TTL_MS,
   uninstallMods,
 } from '$lib/mods/mod-ops.svelte';
@@ -246,6 +247,49 @@ describe('guarded enable', () => {
       ['inst', 's'],
       ['inst', 'i'],
     ]);
+  });
+});
+
+describe('unguarded enable — the repair, whose click is the consent (plan A13)', () => {
+  it('switches the targets on with what they need, in the given order, without asking', async () => {
+    h.modsEnableImpact.mockResolvedValue(
+      ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }], order: ['f', 's', 'i'] }),
+    );
+    host();
+    await expect(enableModsUnguarded('inst', ['i', 's'])).resolves.toEqual({
+      enabled: ['f', 's', 'i'],
+      failed: [],
+    });
+    // One impact call for every target (plan A5).
+    expect(h.modsEnableImpact.mock.calls).toEqual([['inst', ['i', 's']]]);
+    expect(flipped(h.modsEnable)).toEqual(['f', 's', 'i']);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Silent: the repair re-runs the pre-flight and reports what is left itself.
+    expect(h.pushSuccess).not.toHaveBeenCalled();
+    expect(h.pushWarning).not.toHaveBeenCalled();
+  });
+
+  it('stops at the first failure, so nothing comes on without what it needs', async () => {
+    h.modsEnableImpact.mockResolvedValue(
+      ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }], order: ['f', 'i'] }),
+    );
+    h.modsEnable.mockResolvedValueOnce(ioErr);
+    await expect(enableModsUnguarded('inst', ['i'])).resolves.toEqual({
+      enabled: [],
+      failed: ['f', 'i'],
+    });
+    expect(flipped(h.modsEnable)).toEqual(['f']);
+  });
+
+  it('with no order to follow — the check could not run — every target gets its try', async () => {
+    h.modsEnableImpact.mockResolvedValue(ioErr);
+    h.modsEnable.mockResolvedValueOnce(ioErr);
+    host();
+    await expect(enableModsUnguarded('inst', ['a', 'b'])).resolves.toEqual({
+      enabled: ['b'],
+      failed: ['a'],
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 

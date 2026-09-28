@@ -1,5 +1,5 @@
 /**
- * Tests for the remediation helpers (remediateViolation, remediateAll) and
+ * Tests for the remediation helpers (remediateViolation, remediatePickedVersion) and
  * the launch decision helper (decideLaunch) added in Task 12.
  *
  * Commands are mocked via vi.hoisted + vi.mock so the module under test
@@ -29,7 +29,6 @@ vi.mock('$lib/mods/preflight-cache', () => ({
 
 import {
   decideLaunch,
-  remediateAll,
   remediatePickedVersion,
   remediateViolation,
   violationKey,
@@ -374,67 +373,6 @@ describe('remediatePickedVersion + violationKey', () => {
     );
 
     expect(r).toEqual({ ok: false, error: refusal });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// remediateAll
-// ---------------------------------------------------------------------------
-
-describe('remediateAll', () => {
-  beforeEach(() => {
-    mocks.modsVersions.mockReset();
-    mocks.modsFilterSatisfying.mockReset();
-    mocks.modsInstallWithDeps.mockReset();
-    mocks.modsFilterSatisfying.mockResolvedValue([0]);
-  });
-
-  it('returns 0 when report has no version_out_of_range violations with a provider', async () => {
-    const report: PreflightReport = { violations: [missingViolation, noProviderViolation] };
-    const count = await remediateAll('inst-1', report, '1.20.1', 'fabric');
-    expect(count).toBe(0);
-    expect(mocks.modsVersions).not.toHaveBeenCalled();
-  });
-
-  it('returns the count of successfully updated violations', async () => {
-    mocks.modsVersions.mockResolvedValue({ status: 'ok', data: [fakeVersion] });
-    mocks.modsInstallWithDeps.mockResolvedValue({
-      status: 'ok',
-      data: { primary_name: 'Core', installed_dependencies: [] },
-    });
-
-    const report: PreflightReport = {
-      violations: [modrinthViolation, missingViolation, curseforgeViolation],
-    };
-    // curseforgeViolation also succeeds (modsVersions/Install return ok for any call)
-    const cfVersion = { ...fakeVersion, source: 'curseforge' as const, project_id: '99999' };
-    mocks.modsVersions.mockResolvedValueOnce({ status: 'ok', data: [fakeVersion] });
-    mocks.modsInstallWithDeps.mockResolvedValueOnce({
-      status: 'ok',
-      data: { primary_name: 'Core', installed_dependencies: [] },
-    });
-    mocks.modsVersions.mockResolvedValueOnce({ status: 'ok', data: [cfVersion] });
-    mocks.modsInstallWithDeps.mockResolvedValueOnce({
-      status: 'ok',
-      data: { primary_name: 'CF', installed_dependencies: [] },
-    });
-
-    const count = await remediateAll('inst-1', report, '1.20.1', 'fabric');
-    // missingViolation is skipped (no provider), modrinth+cf both succeed → 2
-    expect(count).toBe(2);
-  });
-
-  it('returns 0 when all remediateViolation calls fail (e.g. offline / no compatible version)', async () => {
-    // Both providers return an error (network offline, etc.)
-    mocks.modsVersions.mockResolvedValue({ status: 'error', error: 'network failure' });
-
-    const report: PreflightReport = {
-      violations: [modrinthViolation, curseforgeViolation],
-    };
-    const count = await remediateAll('inst-1', report, '1.20.1', 'fabric');
-    // modsVersions errors → remediateViolation returns { ok: false } for both → 0 updated
-    expect(count).toBe(0);
-    expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
   });
 });
 

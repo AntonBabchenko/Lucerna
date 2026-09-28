@@ -141,27 +141,6 @@ export async function remediateViolation(
     : { ok: false, reason: 'update-failed' };
 }
 
-/**
- * Attempt to remediate every range-remediable violation with a
- * `provider_project` in the given report (see `isRangeRemediable` — an
- * incompatibility is not one of them). Runs sequentially (install-order
- * safety). Returns the number of violations that were successfully updated.
- */
-export async function remediateAll(
-  instanceId: string,
-  report: PreflightReport,
-  mc: string,
-  loader: LoaderKind,
-): Promise<number> {
-  let updated = 0;
-  for (const v of report.violations) {
-    if (!isRangeRemediable(v) || v.provider_project === null) continue;
-    const result = await remediateViolation(instanceId, v, mc, loader);
-    if (result.ok) updated++;
-  }
-  return updated;
-}
-
 /** Stable per-row key for a violation (matches `PreflightPanel`'s row key). */
 export function violationKey(v: DepViolation): string {
   return `${v.dependent_sha1}:${v.dep_id}`;
@@ -268,35 +247,53 @@ export function decideLaunch(
  * Owns the pre-flight report for the active instance. Mirrors `createDepGraph`
  * from `dep-graph.svelte.ts`: seeds from the per-instance LRU cache on
  * instance switch, kicks off a background `instanceDependencyPreflight` call,
- * race-guards stale results, and exposes `invalidate()` + `dispose()`.
+ * race-guards stale results, and exposes `invalidate()`, `check()` + `dispose()`.
  *
  * Fail-open: if the command errors, `error` is set and the previous report (or
- * null) is retained — never throws, never blocks launch on its own.
+ * null) is retained — never blocks launch on its own.
  */
 export function createPreflight(getInstanceId: () => string | null) {
   let report = $state<PreflightReport | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  // Every load takes a ticket and only the latest may commit. Loads overlap — a
+  // mod event's reload and the Play gate's check — and can answer out of order;
+  // the one started later read the later mods folder, so an earlier answer that
+  // lands after it is stale, however late it lands.
+  let ticket = 0;
 
-  async function reloadNow() {
-    const id = getInstanceId();
-    if (!id) return;
+  async function load(id: string) {
+    const mine = ++ticket;
     loading = true;
     error = null;
     const r = await commands.instanceDependencyPreflight(id);
-    if (getInstanceId() !== id) {
-      // Instance switched while we were in flight — discard stale result.
-      loading = false;
-      return;
-    }
+    if (mine !== ticket) return r; // a newer load owns the state now
     loading = false;
+    if (r.status === 'ok') preflightCache.set(id, r.data);
+    // A verdict about one profile never lands on another (switched meanwhile).
+    if (getInstanceId() !== id) return r;
     if (r.status === 'ok') {
       report = r.data;
-      preflightCache.set(id, r.data);
     } else {
       error = formatError(r.error);
       // Fail-open: leave report as-is (null or last known good).
     }
+    return r;
+  }
+
+  async function reloadNow() {
+    const id = getInstanceId();
+    if (id) await load(id);
+  }
+
+  /**
+   * Run a FRESH pre-flight for `id` and hand back the raw result — the Play
+   * gate's check and the repair's re-check, which must never trust a cached
+   * verdict. The answer is committed like any reload (while `id` is still
+   * active), so every surface reading this report agrees with the gate.
+   */
+  function check(id: string) {
+    return load(id);
   }
 
   function invalidate() {
@@ -308,8 +305,8 @@ export function createPreflight(getInstanceId: () => string | null) {
   }
 
   // Seed from cache on instance change + kick off a background pre-flight.
-  // Wrapped in $effect.root so the factory is unit-testable without a Svelte
-  // runtime and torn down via dispose() on component unmount.
+  // Wrapped in $effect.root so the factory works outside a component (the page
+  // and the Installed tab own one each) and is torn down via dispose().
   let stopEffects: (() => void) | null = null;
   try {
     stopEffects = $effect.root(() => {
@@ -329,7 +326,9 @@ export function createPreflight(getInstanceId: () => string | null) {
       });
     });
   } catch {
-    /* no Svelte runtime (vitest) — effect inert, which is what unit tests want */
+    /* no reactive runtime to root the effect in — it stays inert; `reload` and
+       `check` still work. Under vitest the runtime IS there: the effect seeds
+       or loads on its first run (a test's `flushSync` or first await). */
   }
 
   return {
@@ -346,6 +345,7 @@ export function createPreflight(getInstanceId: () => string | null) {
       void reloadNow();
     },
     invalidate,
+    check,
     dispose() {
       stopEffects?.();
     },
