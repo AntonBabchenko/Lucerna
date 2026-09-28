@@ -1,0 +1,428 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
+
+const h = vi.hoisted(() => ({
+  modsRemovalImpact: vi.fn(),
+  modsEnableImpact: vi.fn(),
+  modsDisable: vi.fn(),
+  modsEnable: vi.fn(),
+  modsUninstall: vi.fn(),
+  modsUninstallMany: vi.fn(),
+  modsRestoreUninstalled: vi.fn(),
+  modsFindOrphans: vi.fn(),
+  pushActionToast: vi.fn(),
+  pushSuccess: vi.fn(),
+  pushWarning: vi.fn(),
+}));
+vi.mock('$lib/ipc/bindings', () => ({
+  commands: {
+    modsRemovalImpact: h.modsRemovalImpact,
+    modsEnableImpact: h.modsEnableImpact,
+    modsDisable: h.modsDisable,
+    modsEnable: h.modsEnable,
+    modsUninstall: h.modsUninstall,
+    modsUninstallMany: h.modsUninstallMany,
+    modsRestoreUninstalled: h.modsRestoreUninstalled,
+    modsFindOrphans: h.modsFindOrphans,
+  },
+}));
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushActionToast: h.pushActionToast,
+  pushSuccess: h.pushSuccess,
+  pushWarning: h.pushWarning,
+}));
+
+import {
+  __resetModOpsForTests,
+  disableMods,
+  enableMods,
+  UNDO_TTL_MS,
+  uninstallMods,
+} from '$lib/mods/mod-ops.svelte';
+import ModOpsHost from '$lib/mods/ops/ModOpsHost.svelte';
+
+const ok = <T>(data: T) => ({ status: 'ok' as const, data });
+// A mod write takes the SHARED claim: it is refused only while a long operation holds the
+// profile, never because the game runs (plan A9) — so the reason must not say the game runs.
+const BUSY =
+  'Another operation — such as a modpack update, a migration or a clone — is using this profile. Try again once it finishes.';
+const busyErr = { status: 'error' as const, error: { kind: 'instance_busy' as const } };
+const ioErr = {
+  status: 'error' as const,
+  error: { kind: 'io' as const, path: 'mods', details: 'denied' },
+};
+const scope = { instanceId: 'inst', profileName: 'Alpha Pack' };
+const sodium = { sha1: 's', name: 'Sodium' };
+const indium = { sha1: 'i', name: 'Indium', needs: ['Sodium'] };
+type ToastCall = [
+  string,
+  string,
+  { label: string; run: () => void },
+  string[],
+  { ttlMs?: number }?,
+];
+const toast = (n: number) => h.pushActionToast.mock.calls[n] as ToastCall;
+const host = (activeInstanceId = 'inst') => render(ModOpsHost, { props: { activeInstanceId } });
+
+beforeAll(() => locale.set('en'));
+beforeEach(() => {
+  vi.resetAllMocks();
+  h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [] }));
+  h.modsEnableImpact.mockResolvedValue(ok({ requirements: [] }));
+  h.modsDisable.mockResolvedValue(ok(null));
+  h.modsEnable.mockResolvedValue(ok(null));
+  h.modsUninstall.mockResolvedValue(
+    ok({ token: 'tok', items: [{ sha1: 's', name: 'sodium-jar' }] }),
+  );
+  // `restored` holds display names (plan A6).
+  h.modsRestoreUninstalled.mockResolvedValue(
+    ok({ restored: ['Sodium'], skipped: [], expired: false }),
+  );
+  h.modsFindOrphans.mockResolvedValue(ok([]));
+  __resetModOpsForTests();
+});
+
+describe('guarded disable', () => {
+  it('disables at once when nothing depends on it', async () => {
+    host();
+    await expect(disableMods(scope, [sodium])).resolves.toBe('applied');
+    expect(h.modsRemovalImpact).toHaveBeenCalledWith('inst', ['s']);
+    expect(h.modsDisable).toHaveBeenCalledWith('inst', 's');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('names the mods that need it; «Disable all N» disables them too', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    host();
+    const done = disableMods(scope, [sodium]);
+    const dialog = await screen.findByRole('dialog', { name: 'Disable Sodium?' });
+    expect(within(dialog).getByText('Indium')).toBeTruthy();
+    const all = within(dialog).getByRole('button', { name: 'Disable all 2' });
+    expect(all).toHaveBtnVariant('primary'); // disabling is reversible: never .btn-danger
+    expect(within(dialog).getByRole('button', { name: 'Only this one' })).toHaveBtnVariant(
+      'secondary',
+    );
+    await fireEvent.click(all);
+    await expect(done).resolves.toBe('applied');
+    // Dependents first: no step leaves an enabled mod without what it needs.
+    expect(h.modsDisable.mock.calls).toEqual([
+      ['inst', 'i'],
+      ['inst', 's'],
+    ]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('a dependent that could not be disabled keeps the mod it needs enabled', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsDisable.mockResolvedValueOnce(ioErr);
+    host();
+    const done = disableMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    await expect(done).resolves.toBe('failed');
+    expect(h.modsDisable.mock.calls).toEqual([['inst', 'i']]);
+    expect(h.pushWarning).toHaveBeenCalledWith(expect.stringContaining('2 failed'), [
+      expect.any(String),
+    ]);
+  });
+
+  it('«Only this one» leaves the dependents enabled', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    host();
+    const done = disableMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Only this one' }));
+    await expect(done).resolves.toBe('applied');
+    expect(h.modsDisable.mock.calls).toEqual([['inst', 's']]);
+  });
+
+  it('Cancel changes nothing', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    host();
+    const done = disableMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await expect(done).resolves.toBe('cancelled');
+    expect(h.modsDisable).not.toHaveBeenCalled();
+  });
+
+  it('a check that could not run asks instead of assuming nothing depends on it', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ioErr);
+    host();
+    const done = disableMods(scope, [sodium]);
+    const dialog = await screen.findByRole('dialog', {
+      name: "Couldn't check whether other mods depend on it",
+    });
+    expect(h.modsDisable).not.toHaveBeenCalled();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Disable anyway' }));
+    await expect(done).resolves.toBe('applied');
+    expect(h.modsDisable).toHaveBeenCalledWith('inst', 's');
+  });
+
+  it('a long operation took the profile mid-dialog: the refusal closes the dialog and says why', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    h.modsDisable.mockResolvedValue(busyErr);
+    host();
+    const done = disableMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    await expect(done).resolves.toBe('failed');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(h.pushWarning).toHaveBeenCalledWith(expect.stringContaining('2 failed'), [BUSY]);
+    expect(JSON.stringify(h.pushWarning.mock.calls)).not.toMatch(/game/i);
+  });
+});
+
+describe('guarded enable', () => {
+  it('asks to enable the disabled mods it needs together with it', async () => {
+    h.modsEnableImpact.mockResolvedValue(ok({ requirements: [{ sha1: 's', name: 'Sodium' }] }));
+    host();
+    const done = enableMods(scope, [{ sha1: 'i', name: 'Indium' }]);
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Enable Indium together with Sodium?',
+    });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Enable together' }));
+    await expect(done).resolves.toBe('applied');
+    // Requirements first: the mod never comes up without what it needs.
+    expect(h.modsEnable.mock.calls).toEqual([
+      ['inst', 's'],
+      ['inst', 'i'],
+    ]);
+  });
+
+  it('a bulk enable asks the impact ONCE for all targets (plan A5)', async () => {
+    host();
+    const targets = [
+      { sha1: 'a', name: 'Alpha' },
+      { sha1: 'b', name: 'Beta' },
+    ];
+    await expect(enableMods(scope, targets, { bulk: true })).resolves.toBe('applied');
+    expect(h.modsEnableImpact.mock.calls).toEqual([['inst', ['a', 'b']]]);
+    expect(h.pushSuccess).toHaveBeenCalledWith('Enabled 2 mods', []);
+  });
+
+  it('turns requirements on deepest first, so a chain never runs half-enabled', async () => {
+    // Found in this order: Indium needs Sodium, Sodium needs Fabric API.
+    h.modsEnableImpact.mockResolvedValue(
+      ok({
+        requirements: [
+          { sha1: 's', name: 'Sodium' },
+          { sha1: 'f', name: 'Fabric API' },
+        ],
+      }),
+    );
+    host();
+    const done = enableMods(scope, [{ sha1: 'i', name: 'Indium' }]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Enable together' }));
+    await expect(done).resolves.toBe('applied');
+    expect(h.modsEnable.mock.calls).toEqual([
+      ['inst', 'f'],
+      ['inst', 's'],
+      ['inst', 'i'],
+    ]);
+  });
+});
+
+describe('uninstall and undo', () => {
+  it('removes at once and offers a 10-second Undo that restores by token', async () => {
+    host();
+    await expect(uninstallMods(scope, [sodium])).resolves.toBe('applied');
+    expect(h.modsUninstall).toHaveBeenCalledWith('inst', 's');
+    const [kind, title, action, lines, opts] = toast(0);
+    expect([kind, title, action.label, lines, opts]).toEqual([
+      'success',
+      'Removed Sodium',
+      'Undo',
+      [],
+      { ttlMs: UNDO_TTL_MS },
+    ]);
+    expect(UNDO_TTL_MS).toBe(10_000);
+    action.run();
+    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+    expect(h.modsRestoreUninstalled).toHaveBeenCalledWith('inst', 'tok');
+  });
+
+  it('nothing moved (the mod was already gone): no Undo to offer', async () => {
+    h.modsUninstall.mockResolvedValue(ok({ token: 'tok', items: [] }));
+    host();
+    await expect(uninstallMods(scope, [sodium])).resolves.toBe('applied');
+    expect(h.pushActionToast).not.toHaveBeenCalled();
+  });
+
+  it('a mod others need: «Remove and disable 1 dependent», dependents disabled AFTER the removal', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    host();
+    const done = uninstallMods(scope, [sodium]);
+    const dialog = await screen.findByRole('dialog', { name: 'Remove Sodium?' });
+    const primary = within(dialog).getByRole('button', { name: 'Remove and disable 1 dependent' });
+    expect(primary).toHaveBtnVariant('danger');
+    await fireEvent.click(primary);
+    await expect(done).resolves.toBe('applied');
+    expect(h.modsUninstall.mock.invocationCallOrder[0]).toBeLessThan(
+      h.modsDisable.mock.invocationCallOrder[0],
+    );
+    expect(toast(0)[3]).toEqual(['Also disabled: Indium']);
+    // Undo reverses the whole operation: once everything is back, the dependent comes back on.
+    toast(0)[2].run();
+    await waitFor(() => expect(h.modsEnable).toHaveBeenCalledWith('inst', 'i'));
+  });
+
+  it('an Undo that could not bring everything back leaves the dependents disabled and says so', async () => {
+    h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [indium] }));
+    host();
+    const done = uninstallMods(scope, [sodium]);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove and disable 1 dependent' }),
+    );
+    await done;
+    h.modsRestoreUninstalled.mockResolvedValueOnce(
+      ok({
+        restored: [],
+        skipped: [{ name: 'Sodium', reason: 'already_installed' }],
+        expired: false,
+      }),
+    );
+    toast(0)[2].run();
+    await waitFor(() =>
+      expect(h.pushWarning).toHaveBeenCalledWith("Couldn't restore", [
+        'Sodium is installed again',
+        'Still disabled: Indium',
+      ]),
+    );
+    expect(h.modsEnable).not.toHaveBeenCalled();
+  });
+
+  it('a bulk removal is ONE call, ONE token, ONE toast', async () => {
+    h.modsUninstallMany.mockResolvedValue(
+      ok({
+        token: 't2',
+        items: [
+          { sha1: 's', name: 'a' },
+          { sha1: 'i', name: 'b' },
+        ],
+      }),
+    );
+    host();
+    await uninstallMods(scope, [sodium, { sha1: 'i', name: 'Indium' }]);
+    expect(h.modsUninstallMany.mock.calls).toEqual([['inst', ['s', 'i']]]);
+    expect(h.modsUninstall).not.toHaveBeenCalled();
+    expect(h.pushActionToast).toHaveBeenCalledTimes(1);
+    expect(toast(0).slice(1, 2)).toEqual(['Removed 2 mods']);
+    expect(toast(0)[3]).toEqual(['Sodium', 'Indium']);
+  });
+
+  it('a refused removal warns, removes nothing and offers no Undo', async () => {
+    h.modsUninstall.mockResolvedValue(busyErr);
+    host();
+    await expect(uninstallMods(scope, [sodium])).resolves.toBe('failed');
+    expect(h.pushWarning).toHaveBeenCalledWith("Couldn't remove Sodium", [BUSY]);
+    expect(h.pushActionToast).not.toHaveBeenCalled();
+  });
+
+  it('a restore refused while the profile is busy becomes a sticky toast that retries', async () => {
+    host();
+    await uninstallMods(scope, [sodium]);
+    h.modsRestoreUninstalled.mockResolvedValueOnce(busyErr);
+    toast(0)[2].run();
+    await waitFor(() => expect(h.pushActionToast).toHaveBeenCalledTimes(2));
+    const [kind, title, action, , opts] = toast(1);
+    expect(kind).toBe('warning');
+    expect(title).toBe("Can't restore Sodium while another operation is using the profile");
+    expect(action.label).toBe('Undo');
+    expect(opts).toBeUndefined(); // no TTL: it waits for the user
+    action.run();
+    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+  });
+
+  it('a restore names what it skipped, and says so when the batch has expired', async () => {
+    host();
+    await uninstallMods(scope, [sodium]);
+    h.modsRestoreUninstalled
+      .mockResolvedValueOnce(
+        ok({
+          restored: [],
+          skipped: [{ name: 'sodium.jar', reason: 'name_taken' }],
+          expired: false,
+        }),
+      )
+      .mockResolvedValueOnce(ok({ restored: [], skipped: [], expired: true }));
+    toast(0)[2].run();
+    await waitFor(() =>
+      expect(h.pushWarning).toHaveBeenCalledWith("Couldn't restore", [
+        "Couldn't restore sodium.jar: a file with that name already exists",
+      ]),
+    );
+    toast(0)[2].run();
+    await waitFor(() =>
+      expect(h.pushWarning).toHaveBeenCalledWith(
+        "Couldn't restore: the removed files are no longer kept",
+        [],
+      ),
+    );
+  });
+
+  it('a restore that brought nothing back is never reported as a success', async () => {
+    host();
+    await uninstallMods(scope, [sodium]);
+    h.modsRestoreUninstalled.mockResolvedValueOnce(
+      ok({ restored: [], skipped: [], expired: false }),
+    );
+    toast(0)[2].run();
+    await waitFor(() => expect(h.pushWarning).toHaveBeenCalledWith("Couldn't restore", []));
+    expect(h.pushSuccess).not.toHaveBeenCalled();
+  });
+
+  it('a restore that stopped partway never claims nothing came back', async () => {
+    host();
+    await uninstallMods(scope, [sodium]);
+    h.modsRestoreUninstalled.mockResolvedValueOnce(ioErr);
+    toast(0)[2].run();
+    await waitFor(() =>
+      expect(h.pushWarning).toHaveBeenCalledWith("Couldn't restore everything", [
+        expect.any(String),
+      ]),
+    );
+  });
+
+  it('a restore after a profile switch targets the original profile and names it', async () => {
+    const { rerender } = host('inst');
+    await uninstallMods(scope, [sodium]);
+    await rerender({ activeInstanceId: 'other' });
+    toast(0)[2].run();
+    await waitFor(() =>
+      expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', ['Profile: Alpha Pack']),
+    );
+    expect(h.modsRestoreUninstalled).toHaveBeenCalledWith('inst', 'tok');
+  });
+
+  it('bulk: offers unneeded libraries only when there are some, removing all in one call', async () => {
+    h.modsFindOrphans.mockResolvedValue(
+      ok([{ sha1: 'c', name: 'Cloth Config', project_id: 'cc' }]),
+    );
+    h.modsUninstallMany.mockResolvedValue(
+      ok({
+        token: 't3',
+        items: [
+          { sha1: 's', name: 's' },
+          { sha1: 'c', name: 'c' },
+        ],
+      }),
+    );
+    host();
+    const done = uninstallMods(scope, [sodium], { offerOrphans: true });
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Also remove libraries nothing else needs?',
+    });
+    await fireEvent.click(within(dialog).getByRole('checkbox'));
+    await fireEvent.click(within(dialog).getByRole('button', { name: /uninstall 2 mods/i }));
+    await expect(done).resolves.toBe('applied');
+    expect(h.modsUninstallMany).toHaveBeenCalledWith('inst', ['s', 'c']);
+    expect(toast(0)[3]).toEqual(['Sodium', 'Cloth Config']);
+  });
+});
+
+it('is mounted after </main> (above the pack drawer) and before the data-move host', () => {
+  const src = readFileSync(resolve('src/routes/+page.svelte'), 'utf8');
+  const at = src.indexOf('<ModOpsHost');
+  expect(at).toBeGreaterThan(src.indexOf('</main>'));
+  expect(at).toBeLessThan(src.indexOf('<DataMoveHost />'));
+});

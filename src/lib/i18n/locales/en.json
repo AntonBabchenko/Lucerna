@@ -911,8 +911,6 @@
     },
     "orphan": {
       "confirmUninstallAriaLabel": "Confirm uninstall",
-      "heading": "{count, plural, one {Uninstall # mod?} other {Uninstall # mods?}}",
-      "alsoRemoveLabel": "Installed as a dependency — also remove? (optional)",
       "confirmBtn": "{count, plural, one {Uninstall # mod} other {Uninstall # mods}}"
     },
     "depDialog": {
@@ -1024,6 +1022,70 @@
         "failedBadge": "Failed"
       },
       "doneBtn": "Done"
+    },
+    "ops": {
+      "onlyTargets": "{count, plural, =1 {Only this one} other {Only these}}",
+      "busy": "Another operation — such as a modpack update, a migration or a clone — is using this profile. Try again once it finishes.",
+      "undo": {
+        "action": "Undo",
+        "removedOne": "Removed {name}",
+        "removedMany": "{count, plural, one {Removed # mod} other {Removed # mods}}",
+        "alsoDisabled": "Also disabled: {names}",
+        "more": "and {count} more"
+      },
+      "disable": {
+        "titleOne": "Disable {name}?",
+        "titleMany": "{count, plural, one {Disable # mod?} other {Disable # mods?}}",
+        "all": "Disable all {count}"
+      },
+      "remove": {
+        "titleOne": "Remove {name}?",
+        "titleMany": "{count, plural, one {Remove # mod?} other {Remove # mods?}}",
+        "andDisable": "{count, plural, one {Remove and disable # dependent} other {Remove and disable # dependents}}"
+      },
+      "dependents": {
+        "lead": "{count, plural, =1 {These won't load without it:} other {These won't load without them:}}",
+        "needs": "needs: {names}",
+        "note": "The game won't start while they're enabled."
+      },
+      "enable": {
+        "titleOne": "Enable {name} together with {deps}?",
+        "titleMany": "{count, plural, one {Enable # mod} other {Enable # mods}} together with {deps}?",
+        "body": "{count, plural, =1 {It won't load while they are disabled.} other {They won't load while those are disabled.}}",
+        "together": "Enable together"
+      },
+      "checkFailed": {
+        "dependents": "{count, plural, =1 {Couldn't check whether other mods depend on it} other {Couldn't check whether other mods depend on them}}",
+        "requirements": "{count, plural, =1 {Couldn't check whether it needs disabled mods} other {Couldn't check whether they need disabled mods}}",
+        "disableAnyway": "Disable anyway",
+        "removeAnyway": "Remove anyway",
+        "enableAnyway": "Enable anyway"
+      },
+      "failed": {
+        "disable": "Couldn't disable {name}",
+        "enable": "Couldn't enable {name}",
+        "removeOne": "Couldn't remove {name}",
+        "removeMany": "{count, plural, one {Couldn't remove # mod} other {Couldn't remove # mods}}"
+      },
+      "restore": {
+        "done": "{count, plural, one {Restored # mod} other {Restored # mods}}",
+        "failed": "Couldn't restore",
+        "incomplete": "Couldn't restore everything",
+        "nameTaken": "Couldn't restore {name}: a file with that name already exists",
+        "missing": "Couldn't restore {name}: its file is gone",
+        "alreadyInstalled": "{name} is installed again",
+        "expired": "Couldn't restore: the removed files are no longer kept",
+        "busy": "Can't restore {what} while another operation is using the profile",
+        "modsCount": "{count, plural, one {# mod} other {# mods}}",
+        "inProfile": "Profile: {profile}",
+        "stillDisabled": "Still disabled: {names}",
+        "reenableFailed": "Couldn't re-enable {name}"
+      },
+      "orphans": {
+        "title": "Also remove libraries nothing else needs?",
+        "removing": "{count, plural, one {Removing # mod:} other {Removing # mods:}}",
+        "listLabel": "Installed only as their dependencies (optional)"
+      }
     }
   },
   "addons": {

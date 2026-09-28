@@ -33,14 +33,17 @@
   panelClass="w-[440px] max-w-[90vw] p-5"
 >
   <h2 id="orphan-dialog-title" class="text-base font-semibold text-primary mb-3">
-    {$t('mods.orphan.heading', { count: removingNames.length })}
+    {$t('mods.ops.orphans.title')}
   </h2>
+  <p class="text-sm text-secondary mb-1">
+    {$t('mods.ops.orphans.removing', { count: removingNames.length })}
+  </p>
   <ul class="text-sm text-secondary list-disc pl-5 mb-3 max-h-32 overflow-auto">
     {#each removingNames as n}<li>{n}</li>{/each}
   </ul>
   {#if orphans.length > 0}
     <div class="text-xs uppercase tracking-wide text-muted mb-1">
-      {$t('mods.orphan.alsoRemoveLabel')}
+      {$t('mods.ops.orphans.listLabel')}
     </div>
     <ul class="text-sm text-primary space-y-1 mb-3">
       {#each orphans as o, i (o.sha1)}
