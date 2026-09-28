@@ -262,6 +262,15 @@ pub struct ModSummary {
     /// `summary_cache` and re-fetch it on every resolve.
     #[serde(default)]
     pub loaders: Option<Vec<LoaderKind>>,
+    /// Whether the platform files this project as a library / API (Modrinth tag
+    /// `library`; CurseForge «API and Library»). Feeds «Неиспользуемые
+    /// библиотеки». `None` means ONLY "this source cannot report categories"
+    /// ([`supplies_project_library`]) or "this entry predates the field" — never
+    /// "not a library", and nothing treats `None` as a library. A source that can
+    /// report always yields `Some`, `Some(false)` included, for the staleness
+    /// reason `loaders` spells out.
+    #[serde(default)]
+    pub library: Option<bool>,
 }
 
 /// Whether `source` can populate [`ModSummary::loaders`].
@@ -283,6 +292,21 @@ pub const fn supplies_project_loaders(source: ModSource) -> bool {
         // never populate a summary at all. Vanilla Tweaks serves datapacks,
         // which have no loader either, and its `search`/`project` are
         // unsupported so no summary is ever built for it.
+        ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher | ModSource::VanillaTweaks => {
+            false
+        }
+    }
+}
+
+/// Whether `source` can populate [`ModSummary::library`]. Exhaustive for the
+/// reason [`supplies_project_loaders`] gives: it gates a cache-staleness rule.
+pub const fn supplies_project_library(source: ModSource) -> bool {
+    match source {
+        // Modrinth: the `library` category tag. CurseForge: the «API and
+        // Library» category, matched by slug or name (`curseforge::is_library_category`).
+        ModSource::Modrinth | ModSource::Curseforge => true,
+        // Hangar has plugin categories but no library class; FTB/ATL/VT never
+        // build a summary.
         ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher | ModSource::VanillaTweaks => {
             false
         }
@@ -959,5 +983,13 @@ mod tests {
         );
         assert!(tagged_for(&mistagged, "1.20.4", LoaderKind::Forge));
         assert!(!listed_for(&mistagged, "1.20.4", LoaderKind::Forge));
+    }
+
+    #[test]
+    fn only_modrinth_and_curseforge_report_a_library_category() {
+        for s in ModSource::ALL {
+            let expected = matches!(s, ModSource::Modrinth | ModSource::Curseforge);
+            assert_eq!(supplies_project_library(s), expected, "{s:?}");
+        }
     }
 }

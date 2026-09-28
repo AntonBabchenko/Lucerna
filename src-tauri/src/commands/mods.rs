@@ -145,6 +145,7 @@ async fn project_titles_for(
             &ids,
             ttl,
             false,
+            false,
             move |want: Vec<String>| async move {
                 let refs: Vec<&str> = want.iter().map(String::as_str).collect();
                 platform.summaries(&refs).await
@@ -183,6 +184,9 @@ pub async fn mods_projects(
         // Display metadata only — a pre-migration entry without `loaders` is
         // perfectly serviceable here, so never re-fetch on its account.
         false,
+        // The Installed tab's library chips read `library`: a pre-field entry is
+        // re-fetched once (one batch per source), never on every open.
+        true,
         move |ids: Vec<String>| async move {
             let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
             platform.summaries(&refs).await
@@ -3284,6 +3288,7 @@ async fn resolve_dep_project(
                 &ids,
                 ttl,
                 false,
+                false,
                 move |want: Vec<String>| async move {
                     let refs: Vec<&str> = want.iter().map(String::as_str).collect();
                     plat.summaries(&refs).await
@@ -3688,6 +3693,8 @@ pub async fn mods_dependency_graph(
             // read as "unknown" — otherwise the fix would not take effect on a
             // warm cache until the TTL expired (never, at ttl = 0).
             true,
+            // The graph never reads `library`.
+            false,
             move |q: Vec<String>| async move {
                 let refs: Vec<&str> = q.iter().map(String::as_str).collect();
                 platform.summaries(&refs).await
@@ -4048,6 +4055,7 @@ mod tests {
                     author: String::new(),
                     updated_at: None,
                     loaders,
+                    library: None,
                 },
             );
             self
