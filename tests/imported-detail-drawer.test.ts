@@ -76,6 +76,12 @@ vi.mock('$lib/ipc/bindings', () => ({
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // The guarded disable asks first; nothing depends on the inert jar, so the
+    // safe flip order names just the target.
+    modsRemovalImpact: vi.fn().mockImplementation(async (_i: string, sha1s: string[]) => ({
+      status: 'ok',
+      data: { dependents: [], order: sha1s },
+    })),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -1117,6 +1123,8 @@ describe('inert-jar disable action', () => {
     await waitFor(() => {
       expect(commands.modsDisable).toHaveBeenCalledWith('i1', 'ws');
     });
+    // Through the guarded path: what depends on the jar is asked before it goes off.
+    expect(commands.modsRemovalImpact).toHaveBeenCalledWith('i1', ['ws']);
   });
 
   it('shows a disabled note instead of the button when the jar is already disabled', async () => {

@@ -1472,8 +1472,6 @@ export type TranslationKey =
   | 'mods.installed.toastDisabledFailed'
   | 'mods.installed.toastEnabled'
   | 'mods.installed.toastEnabledFailed'
-  | 'mods.installed.toastUninstalled'
-  | 'mods.installed.toastUninstalledFailed'
   | 'mods.installed.toastUpdated'
   | 'mods.installed.toastUpdatedFailed'
   | 'mods.installed.updateAll'

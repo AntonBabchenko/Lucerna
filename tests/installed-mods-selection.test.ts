@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { depGraphCache } from '$lib/mods/dep-graph-cache';
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
+import ModOpsHost from '$lib/mods/ops/ModOpsHost.svelte';
 
 vi.mock('$lib/ipc/bindings', async (orig) => {
   const actual = await orig<typeof import('$lib/ipc/bindings')>();
@@ -104,52 +105,74 @@ describe('InstalledModsView selection', () => {
     expect((update as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('offers orphaned deps and uninstalls them when confirmed', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    (commands.modsFindOrphans as any) = vi.fn(async () => ({
-      status: 'ok',
-      data: [{ sha1: 'b', name: 'Beta', project_id: 'Beta' }],
-    }));
-    (commands.modsUninstall as any) = vi.fn(async () => ({ status: 'ok', data: null }));
-    const uninstall = vi.mocked(commands.modsUninstall);
-    render(InstalledModsView, { props });
-    await screen.findByText('Alpha');
-    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]); // select Alpha (sha 'a')
-    const bulkBar = screen.getByTestId('bulk-bar');
-    await fireEvent.click(within(bulkBar).getByRole('button', { name: /remove/i }));
-    // Dialog appears and offers the orphan (opt-in, default unchecked).
-    expect(await screen.findByText(/also remove/i)).toBeTruthy();
-    const dialog = screen.getByRole('dialog');
-    const { getByRole } = within(dialog);
-    const orphanBox = getByRole('checkbox') as HTMLInputElement;
-    expect(orphanBox.checked).toBe(false); // destructive secondary removal is opt-in
-    // Opt in to removing the orphan, then confirm → both the selected mod and
-    // the now-ticked orphan are uninstalled.
-    await fireEvent.click(orphanBox);
-    await fireEvent.click(getByRole('button', { name: /uninstall/i }));
-    expect(uninstall).toHaveBeenCalledWith('inst1', 'a');
-    expect(uninstall).toHaveBeenCalledWith('inst1', 'b');
+  // The removal asks through the app-level host (mod-ops): what depends on the selection, then
+  // the libraries nothing else needs — and removes the whole batch in one call, one Undo.
+  const noDependents = async (_i: string, sha1s: string[]) => ({
+    status: 'ok',
+    data: { dependents: [], order: sha1s },
   });
 
-  it('leaves orphaned deps installed when not opted in', async () => {
+  it('offers unneeded libraries and removes the whole batch in ONE call', async () => {
     const { commands } = await import('$lib/ipc/bindings');
+    (commands.modsRemovalImpact as any) = vi.fn(noDependents);
     (commands.modsFindOrphans as any) = vi.fn(async () => ({
       status: 'ok',
       data: [{ sha1: 'b', name: 'Beta', project_id: 'Beta' }],
     }));
-    (commands.modsUninstall as any) = vi.fn(async () => ({ status: 'ok', data: null }));
-    const uninstall = vi.mocked(commands.modsUninstall);
+    (commands.modsUninstallMany as any) = vi.fn(async () => ({
+      status: 'ok',
+      data: {
+        token: 't',
+        items: [
+          { sha1: 'a', name: 'Alpha' },
+          { sha1: 'b', name: 'Beta' },
+        ],
+      },
+    }));
+    (commands.modsUninstall as any) = vi.fn();
     render(InstalledModsView, { props });
+    render(ModOpsHost, { props: { activeInstanceId: 'inst1' } });
+    await screen.findByText('Alpha');
+    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]); // Alpha
+    await fireEvent.click(
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /remove/i }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: /also remove libraries/i });
+    const orphanBox = within(dialog).getByRole('checkbox') as HTMLInputElement;
+    expect(orphanBox.checked).toBe(false); // removing a dependency stays opt-in
+    await fireEvent.click(orphanBox);
+    await fireEvent.click(within(dialog).getByRole('button', { name: /uninstall/i }));
+    await waitFor(() =>
+      expect(commands.modsUninstallMany).toHaveBeenCalledWith('inst1', ['a', 'b']),
+    );
+    expect(commands.modsUninstallMany).toHaveBeenCalledTimes(1);
+    expect(commands.modsUninstall).not.toHaveBeenCalled();
+  });
+
+  it('leaves unneeded libraries installed when not opted in', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    (commands.modsRemovalImpact as any) = vi.fn(noDependents);
+    (commands.modsFindOrphans as any) = vi.fn(async () => ({
+      status: 'ok',
+      data: [{ sha1: 'b', name: 'Beta', project_id: 'Beta' }],
+    }));
+    (commands.modsUninstall as any) = vi.fn(async () => ({
+      status: 'ok',
+      data: { token: 't', items: [{ sha1: 'a', name: 'Alpha' }] },
+    }));
+    (commands.modsUninstallMany as any) = vi.fn();
+    render(InstalledModsView, { props });
+    render(ModOpsHost, { props: { activeInstanceId: 'inst1' } });
     await screen.findByText('Alpha');
     await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]);
     await fireEvent.click(
       within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /remove/i }),
     );
-    const dialog = await screen.findByRole('dialog');
-    // Confirm without ticking the orphan → only the selected mod is removed.
+    const dialog = await screen.findByRole('dialog', { name: /also remove libraries/i });
+    // Confirm without ticking the library → only the selected mod is removed.
     await fireEvent.click(within(dialog).getByRole('button', { name: /uninstall/i }));
-    expect(uninstall).toHaveBeenCalledWith('inst1', 'a');
-    expect(uninstall).not.toHaveBeenCalledWith('inst1', 'b');
+    await waitFor(() => expect(commands.modsUninstall).toHaveBeenCalledWith('inst1', 'a'));
+    expect(commands.modsUninstallMany).not.toHaveBeenCalled();
   });
 
   it('hovering a row highlights every occurrence of that mod', async () => {

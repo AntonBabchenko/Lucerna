@@ -890,8 +890,6 @@
       "toastDisabledFailed": "{count, plural, one {Отключён # мод} few {Отключено # мода} many {Отключено # модов} other {Отключено # мода}}, не удалось: {failed}",
       "toastUpdated": "{count, plural, one {Обновлён # мод} few {Обновлено # мода} many {Обновлено # модов} other {Обновлено # мода}}",
       "toastUpdatedFailed": "{count, plural, one {Обновлён # мод} few {Обновлено # мода} many {Обновлено # модов} other {Обновлено # мода}}, не удалось: {failed}",
-      "toastUninstalled": "{count, plural, one {Удалён # мод} few {Удалено # мода} many {Удалено # модов} other {Удалено # мода}}",
-      "toastUninstalledFailed": "{count, plural, one {Удалён # мод} few {Удалено # мода} many {Удалено # модов} other {Удалено # мода}}, не удалось: {failed}",
       "installDepFailed": "Нет совместимой версии {name}",
       "disabledNoMods": "Сначала установите моды.",
       "disabledBusy": "Дождитесь окончания текущей проверки."

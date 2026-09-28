@@ -744,6 +744,7 @@
         {#if kind === 'mod'}
           <InstalledModsView
             {instanceId}
+            {instanceName}
             {mcVersion}
             {loader}
             {loaderVersion}

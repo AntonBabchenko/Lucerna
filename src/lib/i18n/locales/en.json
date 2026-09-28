@@ -890,8 +890,6 @@
       "toastDisabledFailed": "{count, plural, one {Disabled # mod} other {Disabled # mods}}, {failed} failed",
       "toastUpdated": "{count, plural, one {Updated # mod} other {Updated # mods}}",
       "toastUpdatedFailed": "{count, plural, one {Updated # mod} other {Updated # mods}}, {failed} failed",
-      "toastUninstalled": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}",
-      "toastUninstalledFailed": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}, {failed} failed",
       "installDepFailed": "No compatible version of {name}",
       "disabledNoMods": "Install some mods first.",
       "disabledBusy": "Wait for the current check to finish."

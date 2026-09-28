@@ -20,7 +20,12 @@
   import ChangelogModal from '../ChangelogModal.svelte';
   import ModDetailModal from '../ModDetailModal.svelte';
   import CompatWarningDialog from '../CompatWarningDialog.svelte';
-  import OrphanUninstallDialog from '../OrphanUninstallDialog.svelte';
+  import {
+    disableMods,
+    enableMods,
+    type ModOpScope,
+    uninstallMods,
+  } from '$lib/mods/mod-ops.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import { browserPrefs } from '../browser-prefs.svelte';
@@ -60,6 +65,7 @@
 
   let {
     instanceId,
+    instanceName = null,
     mcVersion,
     loader,
     loaderVersion = null,
@@ -68,6 +74,8 @@
     onBrowseFor = (_q: string) => {},
   }: {
     instanceId: string | null;
+    // Named in a restore toast once the user has switched profiles (spec §6.1).
+    instanceName?: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
     // Needed to interpolate a platform-loader-axis mismatch hint ("needs loader
@@ -102,6 +110,15 @@
   // Enabled mods on a Vanilla instance are dead weight (spec D9) — drives
   // the instance-level banner above the list.
   const enabledModsCount = $derived(data.rows.filter((r) => r.installed.enabled).length);
+
+  // Display names by sha1 (rowDisplayName) — every guarded operation names mods this way, and
+  // captures instance + profile when it starts (spec §6.1 "Instance binding").
+  const nameBySha = $derived(
+    new Map<string, string>(data.rows.map((r) => [r.installed.sha1, rowDisplayName(r)])),
+  );
+  function opScope(id: string): ModOpScope {
+    return { instanceId: id, profileName: instanceName, nameOf: (sha1) => nameBySha.get(sha1) };
+  }
 
   const filters = createInstalledFilters(
     () => data.rows,
@@ -141,6 +158,7 @@
     data.refresh,
     () => updates.updateChecks,
     deps.invalidateGraph,
+    opScope,
   );
 
   // Per-row pre-flight remediation state, keyed by violationKey. `busy` shows a
@@ -533,29 +551,36 @@
     await data.refresh();
   }
 
-  async function toggle(m: Row['installed']) {
+  // Enable, disable and removal go through the guarded path (mod-ops): the mods that need this
+  // one, or the disabled mods it needs, are asked about first; failures are toasted there.
+  async function toggle(row: Row) {
     if (!instanceId) return;
+    const target = [{ sha1: row.installed.sha1, name: rowDisplayName(row) }];
     data.error = null;
     shellBusy = true;
-    const result = m.enabled
-      ? await commands.modsDisable(instanceId, m.sha1)
-      : await commands.modsEnable(instanceId, m.sha1);
-    if (result.status === 'error') data.error = formatError(result.error);
-    else await data.refresh();
-    shellBusy = false;
-  }
-  async function uninstall(m: Row['installed']) {
-    if (!instanceId) return;
-    data.error = null;
-    shellBusy = true;
-    const result = await commands.modsUninstall(instanceId, m.sha1);
-    if (result.status === 'error') data.error = formatError(result.error);
-    else {
-      await data.refresh();
-      deps.reloadGraph();
-      preflight.invalidate();
+    try {
+      const outcome = row.installed.enabled
+        ? await disableMods(opScope(instanceId), target)
+        : await enableMods(opScope(instanceId), target);
+      if (outcome !== 'cancelled') await data.refresh();
+    } finally {
+      shellBusy = false;
     }
-    shellBusy = false;
+  }
+  async function uninstall(row: Row) {
+    if (!instanceId) return;
+    const target = [{ sha1: row.installed.sha1, name: rowDisplayName(row) }];
+    data.error = null;
+    shellBusy = true;
+    try {
+      if ((await uninstallMods(opScope(instanceId), target)) !== 'cancelled') {
+        await data.refresh();
+        deps.reloadGraph();
+        preflight.invalidate();
+      }
+    } finally {
+      shellBusy = false;
+    }
   }
 
   // Bulk update: apply, then clear the now-stale update-check state so badges
@@ -734,8 +759,8 @@
               openDetailMod(row.installed.source as ModSource, row.installed.project_id);
           }}
           onOpenDetailMod={openDetailMod}
-          onToggle={() => toggle(row.installed)}
-          onUninstall={() => uninstall(row.installed)}
+          onToggle={() => toggle(row)}
+          onUninstall={() => uninstall(row)}
           onUpdate={() => updates.updateOne(row.installed)}
           onShowChangelog={() => openChangelog(row)}
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
@@ -838,15 +863,6 @@
         preflight.invalidate();
         void compat.runOfflineScan({ force: true });
       }}
-    />
-  {/if}
-
-  {#if selection.uninstallPrompt}
-    <OrphanUninstallDialog
-      removingNames={selection.uninstallPrompt.names}
-      orphans={selection.uninstallPrompt.orphans}
-      onCancel={selection.cancelUninstall}
-      onConfirm={selection.confirmBulkUninstall}
     />
   {/if}
 </div>

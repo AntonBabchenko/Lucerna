@@ -3,18 +3,33 @@ import { describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-  modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+  modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: { token: 't', items: [] } }),
+  modsUninstallMany: vi.fn().mockResolvedValue({ status: 'ok', data: { token: 't', items: [] } }),
   modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   modsFindOrphans: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+  // Nothing depends on anything by default: the safe flip order names just the targets.
+  modsRemovalImpact: vi.fn().mockImplementation(async (_i: string, sha1s: string[]) => ({
+    status: 'ok',
+    data: { dependents: [], order: sha1s },
+  })),
+  modsEnableImpact: vi.fn().mockImplementation(async (_i: string, sha1s: string[]) => ({
+    status: 'ok',
+    data: { requirements: [], order: sha1s },
+  })),
 }));
 vi.mock('$lib/ipc/bindings', () => ({ commands: mocks }));
 vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e) }));
-vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess: vi.fn(), pushWarning: vi.fn() }));
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushSuccess: vi.fn(),
+  pushWarning: vi.fn(),
+  pushActionToast: vi.fn(),
+}));
 vi.mock('$lib/i18n', () => ({ t: { subscribe: () => () => {} } }));
 vi.mock('svelte/store', () => ({ get: () => (k: string) => k }));
 
 import type { Row } from '$lib/mods/installed/installed-data.svelte';
 import { createInstalledSelection } from '$lib/mods/installed/installed-selection.svelte';
+import { answerDialog, opsDialog } from '$lib/mods/mod-ops.svelte';
 
 const row = (sha1: string, enabled: boolean): Row => ({
   summary: null,
@@ -29,21 +44,23 @@ const row = (sha1: string, enabled: boolean): Row => ({
     installed_at: '2026-01-01T00:00:00Z',
     enabled,
     enrich_attempted: false,
+    requires: [],
   },
 });
 
 const noop = async () => {};
+const over = (rows: Row[], refresh = noop, onMutated = () => {}) =>
+  createInstalledSelection(
+    () => rows,
+    () => 'i',
+    refresh,
+    () => new Map(),
+    onMutated,
+  );
 
 describe('createInstalledSelection', () => {
   it('toggles a row and computes allSelected', () => {
-    const rows = [row('a', true), row('b', true)];
-    const s = createInstalledSelection(
-      () => rows,
-      () => 'i',
-      noop,
-      () => new Map(),
-      () => {},
-    );
+    const s = over([row('a', true), row('b', true)]);
     s.toggleSelect('a', true);
     expect(s.selected.has('a')).toBe(true);
     expect(s.allSelected).toBe(false);
@@ -51,55 +68,47 @@ describe('createInstalledSelection', () => {
     expect(s.allSelected).toBe(true);
   });
 
-  it('bulkSetEnabled calls the right IPC for rows that need flipping', async () => {
-    const rows = [row('a', false), row('b', true)];
-    const s = createInstalledSelection(
-      () => rows,
-      () => 'i',
-      noop,
-      () => new Map(),
-      () => {},
-    );
+  it('bulkSetEnabled flips only the rows that need it, through the guarded path', async () => {
+    const s = over([row('a', false), row('b', true)]);
     s.toggleSelectAll(true);
     await s.bulkSetEnabled(true);
+    // One impact check for the rows that change (plan A5): the already-enabled row is not asked about.
+    expect(mocks.modsEnableImpact).toHaveBeenCalledWith('i', ['a']);
     expect(mocks.modsEnable).toHaveBeenCalledWith('i', 'a');
     expect(mocks.modsEnable).not.toHaveBeenCalledWith('i', 'b'); // already enabled
   });
 
-  it('requestBulkUninstall populates the orphan prompt', async () => {
-    const rows = [row('a', true)];
-    const s = createInstalledSelection(
-      () => rows,
-      () => 'i',
-      noop,
-      () => new Map(),
-      () => {},
-    );
-    s.toggleSelectAll(true);
-    await s.requestBulkUninstall();
-    expect(s.uninstallPrompt?.removing).toEqual(['a']);
-  });
-
-  it('confirmBulkUninstall uninstalls, calls onMutated, and clears the prompt', async () => {
-    const rows = [row('a', true), row('b', true)];
+  it('a bulk removal is one guarded call; onMutated and refresh follow once', async () => {
     const onMutated = vi.fn();
     const refresh = vi.fn(async () => {});
-    mocks.modsUninstall.mockClear();
-    const s = createInstalledSelection(
-      () => rows,
-      () => 'i',
-      refresh,
-      () => new Map(),
-      onMutated,
-    );
+    mocks.modsUninstallMany.mockClear();
+    const s = over([row('a', true), row('b', true)], refresh, onMutated);
     s.toggleSelectAll(true);
     await s.requestBulkUninstall();
-    await s.confirmBulkUninstall(['c']); // 'c' is an extra orphan the user opted to also remove
-    expect(mocks.modsUninstall).toHaveBeenCalledWith('i', 'a');
-    expect(mocks.modsUninstall).toHaveBeenCalledWith('i', 'b');
-    expect(mocks.modsUninstall).toHaveBeenCalledWith('i', 'c');
+    expect(mocks.modsRemovalImpact).toHaveBeenCalledWith('i', ['a', 'b']);
+    expect(mocks.modsUninstallMany.mock.calls).toEqual([['i', ['a', 'b']]]);
     expect(onMutated).toHaveBeenCalledTimes(1);
     expect(refresh).toHaveBeenCalled();
-    expect(s.uninstallPrompt).toBeNull();
+    expect(s.selected.size).toBe(0);
+  });
+
+  it('a cancelled removal keeps the selection and changes nothing', async () => {
+    mocks.modsRemovalImpact.mockResolvedValueOnce({
+      status: 'ok',
+      data: { dependents: [{ sha1: 'z', name: 'Z', needs: ['A'] }], order: ['z', 'a'] },
+    });
+    mocks.modsUninstall.mockClear();
+    const s = over([row('a', true)]);
+    // The composable's own effects make their first run — the instance-switch clear among them —
+    // before anything is selected, as they do on mount in the app; unsettled, that run would
+    // clear the selection mid-flow and hide what the cancel kept.
+    await new Promise((r) => setTimeout(r, 0));
+    s.toggleSelectAll(true);
+    const done = s.requestBulkUninstall();
+    await vi.waitFor(() => expect(opsDialog().view).not.toBeNull());
+    answerDialog('cancel');
+    await done;
+    expect(mocks.modsUninstall).not.toHaveBeenCalled();
+    expect(s.selected.has('a')).toBe(true);
   });
 });

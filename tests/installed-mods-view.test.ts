@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // Capture each listener callback at module-eval time via vi.hoisted so
@@ -47,7 +47,19 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsUninstall: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { token: 'tok', items: [{ sha1: 'abc', name: 'Just Enough Items' }] },
+    }),
+    // Nothing here depends on anything: the safe flip order names just the targets.
+    modsRemovalImpact: vi.fn(async (_i: string, sha1s: string[]) => ({
+      status: 'ok',
+      data: { dependents: [], order: sha1s },
+    })),
+    modsEnableImpact: vi.fn(async (_i: string, sha1s: string[]) => ({
+      status: 'ok',
+      data: { requirements: [], order: sha1s },
+    })),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -122,6 +134,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
+import { toastList } from '$lib/toasts/toasts.svelte';
 
 describe('InstalledModsView', () => {
   it('renders rows with Disable button when enabled and Enable when disabled', async () => {
@@ -137,17 +150,35 @@ describe('InstalledModsView', () => {
     expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy();
   });
 
-  it('calls modsUninstall when Uninstall clicked', async () => {
+  it('asks what depends on a mod before removing it, then offers Undo', async () => {
     const mod = await import('$lib/ipc/bindings');
     render(InstalledModsView, {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     await new Promise((r) => setTimeout(r, 0));
-    const buttons = screen.getAllByRole('button', { name: 'Remove' });
-    const firstButton = buttons[0];
-    if (!firstButton) throw new Error('expected at least one Uninstall button');
-    await fireEvent.click(firstButton);
-    expect(mod.commands.modsUninstall).toHaveBeenCalledWith('i', 'abc');
+    const first = screen.getAllByRole('button', { name: 'Remove' })[0];
+    if (!first) throw new Error('expected at least one Remove button');
+    await fireEvent.click(first);
+    await waitFor(() => expect(mod.commands.modsUninstall).toHaveBeenCalledWith('i', 'abc'));
+    expect(mod.commands.modsRemovalImpact).toHaveBeenCalledWith('i', ['abc']);
+    await waitFor(() =>
+      expect(
+        toastList().some(
+          (x) => x.title === 'Removed Just Enough Items' && x.action?.label === 'Undo',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('asks what depends on a mod before disabling it', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    await fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
+    await waitFor(() => expect(mod.commands.modsDisable).toHaveBeenCalledWith('i', 'abc'));
+    expect(mod.commands.modsRemovalImpact).toHaveBeenCalledWith('i', ['abc']);
   });
 
   it('shows empty state when no instance is selected', () => {
