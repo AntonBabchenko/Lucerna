@@ -60,8 +60,8 @@ pub enum Checksum {
 /// file, is hashed as it goes and verified against `checksum` after the
 /// last byte, and only then is renamed onto `dest`. Any stream/IO error,
 /// a hash mismatch, or a failed rename leaves `dest` untouched and removes
-/// the partial; a removal that itself fails is logged with the partial's
-/// path, and the caller still gets the download's own error.
+/// the temp file; a removal that itself fails is logged with the temp
+/// file's path, and the caller still gets the download's own error.
 /// This closes a TOFU-truncation hole: an interrupted download of an
 /// empty-sha artifact used to leave a truncated file at `dest` that later
 /// presence/empty-sha checks would trust forever. Because `dest` only ever
@@ -106,8 +106,8 @@ pub(crate) async fn download_inner(
 
     // Stream to a sibling temp file, then rename onto `dest`. Keeping the
     // temp in the same directory guarantees the rename is a cheap same-volume
-    // move. A `.part` suffix makes leftover partials (after a hard crash that
-    // skips the cleanup, or a cleanup that failed and was logged)
+    // move. A `.part` suffix makes a leftover temp file (after a hard crash
+    // that skips the cleanup, or a cleanup that failed and was logged)
     // recognisable and disjoint from finished files.
     let part = part_path(dest);
 
