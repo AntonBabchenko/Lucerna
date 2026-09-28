@@ -323,6 +323,28 @@ pub fn on_disk_name(m: &InstalledMod) -> String {
     }
 }
 
+/// The jar of row `sha1` as it is on disk (see [`on_disk_name`]). Reconciled
+/// first, so the spelling matches the disk; an unknown sha is `ModsNotFound`,
+/// and a jar that is gone by the time it is checked is an I/O error naming the
+/// path — never a guessed one.
+pub async fn jar_path(instance_root: &Path, sha1: &str) -> Result<PathBuf, Error> {
+    let rows = list(instance_root).await?;
+    let row = rows
+        .iter()
+        .find(|m| m.sha1.eq_ignore_ascii_case(sha1))
+        .ok_or_else(|| Error::ModsNotFound {
+            platform: "installed".into(),
+        })?;
+    let path = mods_dir(instance_root).join(on_disk_name(row));
+    // `try_exists`, not `exists`: a stat that fails is "could not tell", which
+    // is an error here, not "absent".
+    if fs::try_exists(&path).await.map_err(|e| io_err(&path, e))? {
+        Ok(path)
+    } else {
+        Err(io_err(&path, std::io::ErrorKind::NotFound.into()))
+    }
+}
+
 /// Read the registry from disk and reconcile against the actual `mods/`
 /// directory contents. Runs the one-shot schema migration before
 /// reconciling so callers see the post-migration `mods` slice — without
@@ -1080,6 +1102,29 @@ mod tests {
             None,
             "could not tell — never an invented digest"
         );
+    }
+
+    /// «Show in folder» selects the file as it is on disk — `<file>` when the
+    /// mod is enabled, `<file>.disabled` when not — and an unknown row is an
+    /// error, never a guessed path.
+    #[tokio::test]
+    async fn jar_path_is_the_spelling_the_row_has_on_disk() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let on = place_jar(&mods_dir(root), "on.jar", b"ON").await;
+        let off = place_jar(&mods_dir(root), "off.jar.disabled", b"OFF").await;
+        assert_eq!(
+            jar_path(root, &on).await.unwrap(),
+            mods_dir(root).join("on.jar")
+        );
+        assert_eq!(
+            jar_path(root, &off.to_ascii_uppercase()).await.unwrap(),
+            mods_dir(root).join("off.jar.disabled")
+        );
+        assert!(matches!(
+            jar_path(root, "0000").await,
+            Err(Error::ModsNotFound { .. })
+        ));
     }
 
     /// Eight cold callers for the same path must read and hash it ONCE.
