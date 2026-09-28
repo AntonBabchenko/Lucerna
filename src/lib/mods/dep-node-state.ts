@@ -1,4 +1,5 @@
-import type { DepProjectKey, DepTreeNode, PreflightReport } from '$lib/ipc/bindings';
+import type { TranslationKey } from '$lib/i18n/keys.generated';
+import type { DepProjectKey, DepsUnknown, DepTreeNode, PreflightReport } from '$lib/ipc/bindings';
 
 // What the dependency tree may truthfully say about a node (spec 2026-09-28 §6.3, D4). The
 // platform's dependency list is the AUTHOR speaking; only the pre-flight — the jar descriptor the
@@ -31,6 +32,14 @@ export const EMPTY_TREE_CTX: DepTreeCtx = {
   projectOf: () => null,
   enabledShaOf: () => null,
   onEnable: () => {},
+};
+
+// An installed mod whose installed version the platform could not describe has no children
+// because they are unknown, not because there are none — the tree says so, and why (a missing
+// reason is a compile error).
+export const DEPS_UNKNOWN_KEY: Record<DepsUnknown, TranslationKey> = {
+  unreachable: 'mods.deps.depsUnknownUnreachable',
+  unidentified: 'mods.deps.depsUnknownUnidentified',
 };
 
 export function classifyDepNode(i: {

@@ -14,7 +14,7 @@
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
-  import { type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
+  import { DEPS_UNKNOWN_KEY, type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
   import { changelogSupported } from '$lib/mods/changelog-supported';
   import type { RowFix, RowProblem } from './row-problem';
 
@@ -95,9 +95,13 @@
   // (DepSection), so a single chip / single toggle is the honest control. The
   // pieces are joined with " · " (e.g. "1 dep · required by 2").
   const optionalTotal = $derived(root?.optional.length ?? 0);
+  // The platform could not describe this mod's installed version: no count is not zero.
+  const depsUnknown = $derived(root?.deps_unknown ?? null);
 
   const expandLabel = $derived.by(() => {
     const parts: string[] = [];
+    // Said where the count would be — the panel it opens says why.
+    if (depsUnknown) parts.push($t('mods.deps.depsUnknownStatus'));
     // Relationship count only. The "· N missing" suffix is gone with the graph's
     // verdict: it counted absences the loader may never have asked for.
     if (depTotal > 0) parts.push($t('mods.installed.depCount', { count: depTotal }));
@@ -237,9 +241,10 @@
               delayMs={150}
             />
           </span>
-        {:else if depTotal > 0 || optionalTotal > 0 || requiredBy.length > 0}
+        {:else if depsUnknown || depTotal > 0 || optionalTotal > 0 || requiredBy.length > 0}
           <!-- Single toggle for the whole relation. Accent (actionable) when the
-               mod has its own deps; muted when it is only required-by.
+               mod has its own deps; muted when it is only required-by, or when
+               what it requires is unknown (the panel then says why).
                `optionalTotal` is in the condition because it is the sole reason
                the panel may still be worth opening once every required dep has
                been loader-scoped away. -->
@@ -250,6 +255,7 @@
             class="px-2 py-0.5 rounded inline-flex items-center gap-1.5 {depTotal > 0
               ? 'bg-accent-soft text-accent'
               : 'bg-subtle text-secondary'}"
+            use:tooltip={depsUnknown ? $t(DEPS_UNKNOWN_KEY[depsUnknown]) : null}
             onclick={onToggleExpand}
           >
             <Icon name={expanded ? 'chevronDown' : 'caret'} />

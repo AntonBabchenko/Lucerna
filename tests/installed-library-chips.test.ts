@@ -154,6 +154,12 @@ const shown = () =>
 const clean = { status: 'ok', data: { violations: [] } };
 const rowsWith = (sha1: string, enabled: boolean) =>
   h.rows.map((r) => (r.sha1 === sha1 ? { ...r, enabled } : r));
+// The graph when the platform could not describe `sha1`'s installed version (offline, say).
+const depsUnknownOf = (sha1: string) => ({
+  roots: h.graph.roots.map((r) =>
+    r.sha1 === sha1 ? { ...r, deps_unknown: 'unreachable' as const } : r,
+  ),
+});
 
 beforeEach(() => {
   h.listInstalled.mockReset();
@@ -241,6 +247,66 @@ describe('Installed — library chips and search', () => {
           ),
         { timeout: 3000 },
       );
+    } finally {
+      vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
+        status: 'ok',
+        data: h.graph,
+      } as never);
+    }
+  });
+
+  // Offline (or an unidentified version) what a mod needs is unknown, and a library it needs
+  // would read as unused. While an enabled mod's dependencies are unknown, «Unused libraries»
+  // claims nothing; «Needed by others» stays — every edge it counts is real (a lower bound).
+  it('calls no library unused while an enabled mod’s dependencies are unknown', async () => {
+    h.instanceDependencyPreflight.mockResolvedValue(clean);
+    vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
+      status: 'ok',
+      data: depsUnknownOf('n'),
+    } as never);
+    try {
+      render(InstalledModsView, { props: props('deps-unknown') });
+
+      const needed = await waitFor(() => screen.getByRole('radio', { name: /Needed by others/ }));
+      expect(needed.textContent).toContain('1');
+      expect(screen.queryByRole('radio', { name: /Unused libraries/ })).toBeNull();
+      // The mod itself says so where its dependency count would be.
+      expect(screen.getByRole('button', { name: /dependencies unknown/ })).toBeTruthy();
+
+      // The platform answers again: re-checked, the graph knows every mod and the view is a fact.
+      vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
+        status: 'ok',
+        data: h.graph,
+      } as never);
+      await fireEvent.click(screen.getByRole('button', { name: /Re-check deps/ }));
+      await waitFor(
+        () =>
+          expect(screen.getByRole('radio', { name: /Unused libraries/ }).textContent).toContain(
+            '1',
+          ),
+        { timeout: 3000 },
+      );
+    } finally {
+      vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
+        status: 'ok',
+        data: h.graph,
+      } as never);
+    }
+  });
+
+  // Like «Needed by others» above: a root switched off since the graph was built requires nothing
+  // at load time, so what it might require no longer keeps a library from reading as unused.
+  it('a mod switched off since no longer holds back «Unused libraries», however unknown its dependencies', async () => {
+    h.instanceDependencyPreflight.mockResolvedValue(clean);
+    h.listInstalled.mockResolvedValue({ status: 'ok', data: rowsWith('n', false) });
+    vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
+      status: 'ok',
+      data: depsUnknownOf('n'),
+    } as never);
+    try {
+      render(InstalledModsView, { props: props('deps-unknown-switched-off') });
+      const unused = await waitFor(() => screen.getByRole('radio', { name: /Unused libraries/ }));
+      expect(unused.textContent).toContain('1');
     } finally {
       vi.mocked(commands.modsDependencyGraph).mockResolvedValue({
         status: 'ok',

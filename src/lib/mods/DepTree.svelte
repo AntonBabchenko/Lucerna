@@ -6,7 +6,12 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import Self from './DepTree.svelte';
-  import { classifyDepNode, type DepTreeCtx, EMPTY_TREE_CTX } from './dep-node-state';
+  import {
+    classifyDepNode,
+    DEPS_UNKNOWN_KEY,
+    type DepTreeCtx,
+    EMPTY_TREE_CTX,
+  } from './dep-node-state';
 
   // A WAI-ARIA tree (spec 2026-09-28 §6.3): `tree` / `group` / `treeitem`, one roving tab stop,
   // arrows / Home / End / Enter. Every level is one instance of this component; the root level
@@ -68,6 +73,14 @@
   const keyOf = (n: DepTreeNode) => `${n.source}:${n.project_id}`;
   const pathOf = (parent: string, n: DepTreeNode) => (parent ? `${parent}/${keyOf(n)}` : keyOf(n));
   const hasKids = (n: DepTreeNode) => n.children.length > 0 && !n.cycle;
+  // An installed node without children may have them unknown (the platform could not describe
+  // its installed version): marked, so it never reads as needing nothing.
+  const depsUnknownOf = (n: DepTreeNode) => (n.installed ? (n.deps_unknown ?? null) : null);
+  // What the tree says about an item: its state, then any marks after it.
+  const describedBy = (id: string, n: DepTreeNode) =>
+    [`${id}-state`, depsUnknownOf(n) ? `${id}-unknown` : '', n.cycle ? `${id}-cycle` : '']
+      .filter(Boolean)
+      .join(' ');
 
   // The root level's state (a nested level makes one too, but uses the root's via `tree`).
   const toggled = new SvelteSet<string>();
@@ -172,6 +185,7 @@
     {@const open = hasKids(n) && isOpen(path)}
     {@const isStop = st.stop === path}
     {@const tab = isStop ? 0 : -1}
+    {@const unknownWhy = depsUnknownOf(n)}
     {@const state = classifyDepNode({
       node: n,
       dependentSha1,
@@ -188,7 +202,7 @@
       aria-expanded={hasKids(n) ? open : undefined}
       aria-selected={isStop}
       aria-labelledby="{id}-name"
-      aria-describedby={n.cycle ? `${id}-state ${id}-cycle` : `${id}-state`}
+      aria-describedby={describedBy(id, n)}
       tabindex={tab}
       data-path={path}
       data-node-state={state}
@@ -291,6 +305,13 @@
               <Icon name="download" size={12} />
             </BusyButton>
           </span>
+        {/if}
+        {#if unknownWhy}
+          <span
+            id="{id}-unknown"
+            class="text-secondary"
+            use:tooltip={$t(DEPS_UNKNOWN_KEY[unknownWhy])}>{$t('mods.deps.depsUnknownStatus')}</span
+          >
         {/if}
         {#if n.cycle}<span id="{id}-cycle" class="inline-flex items-center gap-1 text-placeholder"
             ><Icon name="refresh" size={12} />{$t('mods.deps.cycleStatus')}</span

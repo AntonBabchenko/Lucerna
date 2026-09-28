@@ -163,7 +163,11 @@
   //   are enabled NOW count (`requiredByCount`);
   // - a mod switched on since has no root yet, so what it requires is unknown:
   //   the graph views are no fact until the graph knows every enabled platform
-  //   mod (`graphCoversEnabled`) — a library it needs could read as unused.
+  //   mod (`graphCoversEnabled`) — a library it needs could read as unused;
+  // - a root whose installed version the platform could not describe (offline,
+  //   rate-limited, an unidentified version) requires something unknown: while
+  //   one is enabled no library is unused (`enabledDepsUnknown`). «Нужны другим»
+  //   stays — every edge it counts is real, so its count is a lower bound.
   const requiredByCount = (r: Row | undefined): number =>
     (deps.requiredBy.get(r?.installed.project_id ?? '') ?? []).filter(
       (e) => rowBySha.get(e.sha1)?.installed.enabled === true,
@@ -192,11 +196,16 @@
         const r = rowBySha.get(id);
         return !!r && r.installed.enabled && requiredByCount(r) > 0;
       },
-      // `library === true` only: `null` (a source that cannot tell) is never a library.
+      // `library === true` only: `null` (a source that cannot tell) is never a library. And
+      // "required by nothing" only while every enabled mod's requirements are known.
       isUnusedLibrary: (id) => {
         const r = rowBySha.get(id);
         return (
-          !!r && r.installed.enabled && r.summary?.library === true && requiredByCount(r) === 0
+          !!r &&
+          r.installed.enabled &&
+          r.summary?.library === true &&
+          !enabledDepsUnknown &&
+          requiredByCount(r) === 0
         );
       },
       // `deps` is created below; these thunks only run once counts are read.
@@ -222,6 +231,13 @@
       setPage: (n) => (filters.page = n),
       getPageSize: () => filters.pageSize,
     },
+  );
+  // An enabled mod whose dependencies the graph could not learn (see above); a root switched
+  // off since requires nothing at load time.
+  const enabledDepsUnknown = $derived(
+    (deps.graph?.roots ?? []).some(
+      (r) => !!r.deps_unknown && rowBySha.get(r.sha1)?.installed.enabled === true,
+    ),
   );
   const selection = createInstalledSelection(
     () => filters.filtered,

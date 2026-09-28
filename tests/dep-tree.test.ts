@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindings';
+import type { DepsUnknown, DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import DepTree from '$lib/mods/DepTree.svelte';
 import { type DepTreeCtx, EMPTY_TREE_CTX } from '$lib/mods/dep-node-state';
 import DepSection from '$lib/mods/installed/DepSection.svelte';
@@ -174,6 +174,52 @@ describe('DepSection — headings state the relation; nothing to dismiss', () =>
     expect(document.getElementById('dep-req-a')?.textContent).toContain('Requires');
     expect(trees[1]?.getAttribute('aria-labelledby')).toBe('dep-opt-a');
     expect(document.getElementById('dep-opt-a')?.textContent).toContain('Optional');
+  });
+});
+
+// What the platform could not describe is not "requires nothing" (fallback discipline: "could
+// not tell" ≠ "absent"). The tree says so, and why, where the requirements would be.
+describe('DepSection / DepTree — dependencies the platform could not describe', () => {
+  const sectionOf = (deps_unknown: DepsUnknown) => ({
+    root: {
+      sha1: 'a',
+      source: 'modrinth' as const,
+      project_id: 'PA',
+      name: 'Alpha',
+      required: [],
+      optional: [],
+      deps_unknown,
+    },
+    requiredBy: [{ name: 'Gamma', source: 'modrinth' as const, projectId: 'PG', sha1: 'g' }],
+    hoveredKey: null,
+    onHover: () => {},
+    onInstall: () => {},
+    onJump: () => {},
+    onOpenDetail: () => {},
+  });
+
+  it('says a mod’s dependencies are unknown, and why — never an empty «Requires»', () => {
+    render(DepSection, { props: sectionOf('unreachable') });
+    expect(screen.getByText('Dependencies unknown — the platform is unavailable')).toBeTruthy();
+    expect(screen.queryByText('Requires')).toBeNull();
+    expect(screen.getByText('Required by')).toBeTruthy();
+  });
+
+  it('names an unidentified installed version as the reason', () => {
+    render(DepSection, { props: sectionOf('unidentified') });
+    expect(
+      screen.getByText(
+        "Dependencies unknown — the installed version isn't identified on the platform",
+      ),
+    ).toBeTruthy();
+  });
+
+  it('marks a nested installed mod whose dependencies are unknown', () => {
+    render(DepTree, {
+      props: treeProps({ nodes: [leaf('x', { name: 'Xaero', deps_unknown: 'unreachable' })] }),
+    });
+    const el = screen.getByRole('treeitem', { name: 'Xaero' });
+    expect(describedText(el)).toBe('installed dependencies unknown');
   });
 });
 

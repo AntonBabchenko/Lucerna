@@ -4,7 +4,7 @@
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import DepTree from '../DepTree.svelte';
-  import { type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
+  import { DEPS_UNKNOWN_KEY, type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
   import type { RequiredByEntry } from './dep-graph.svelte';
 
   let {
@@ -33,6 +33,8 @@
   // The headings name the trees (`aria-labelledby`); a row's mod appears once in the list.
   const reqId = $derived(`dep-req-${root.sha1}`);
   const optId = $derived(`dep-opt-${root.sha1}`);
+  // Why the platform could not describe this mod's installed version, when it could not.
+  const unknownWhy = $derived(root.deps_unknown ?? null);
 </script>
 
 <!-- onAdd and onInstall both resolve to the same install handler here: in this
@@ -44,6 +46,13 @@
      not a grey tint: the muted headings and cycle marker were 4.46:1 on the old
      bg-subtle/40 in the light theme. -->
 <div class="mx-3 mb-2 rounded-md border border-border-subtle bg-surface px-3 py-2">
+  {#if unknownWhy}
+    <!-- Its lists are empty because they are unknown — never an empty «Requires». Say so,
+         and why. -->
+    <p class="text-xs text-secondary mt-1" data-testid="deps-unknown">
+      {$t(DEPS_UNKNOWN_KEY[unknownWhy])}
+    </p>
+  {/if}
   <!-- «Requires» is safe to say again: each absent node now carries its truthful state
        (loader-required / platform-only / unknown) instead of the heading hedging for all of
        them (spec 2026-09-28 D4, overriding 2026-08-03 descriptor-authority §6). -->
