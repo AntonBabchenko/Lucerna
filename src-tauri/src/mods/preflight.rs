@@ -580,6 +580,39 @@ pub struct PreflightReport {
     pub unjudged: Vec<String>,
 }
 
+/// A mod that loses something it needs when others leave the enabled set.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ImpactedMod {
+    pub sha1: String,
+    pub name: String,
+    /// Display names (registry names — the project title for platform mods) of
+    /// the leaving mods that provided what it loses.
+    pub needs: Vec<String>,
+}
+
+/// What removing or disabling a set of mods breaks (`mods_removal_impact`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct RemovalImpact {
+    /// Enabled mods, other than the leaving ones, that gain a violation. Empty
+    /// means nothing the pre-flight can read loses anything it needs.
+    pub dependents: Vec<ImpactedMod>,
+}
+
+/// A disabled mod that must be switched on together with the ones being enabled.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DisabledRequirement {
+    pub sha1: String,
+    pub name: String,
+}
+
+/// What enabling a set of mods needs switched on with them (`mods_enable_impact`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct EnableImpact {
+    /// Disabled mods the targets need, transitively, each once, never a target
+    /// itself — in the order they were found.
+    pub requirements: Vec<DisabledRequirement>,
+}
+
 /// Map a `ModSource` + `project_id` to a `DepProjectRef` for the
 /// "view on platform" link. Returns `None` for pack-managed sources (FTB,
 /// ATLauncher) that have no per-mod browser.
@@ -992,6 +1025,126 @@ impl ParsedInstance {
             .filter(|m| m.enabled)
             .map(|m| m.sha1.clone())
             .collect()
+    }
+
+    /// The parsed row with this registry digest.
+    pub(crate) fn row(&self, sha1: &str) -> Option<&ParsedRow> {
+        self.rows.iter().find(|r| r.parsed.sha1 == sha1)
+    }
+
+    /// Enabled mods, other than `targets`, that gain a violation when `targets`
+    /// leave the enabled set — removed or disabled alike (spec §5.1). Each names
+    /// the targets that provided what it loses.
+    ///
+    /// Errors when an ENABLED target's jar could not be read: what it provides
+    /// is unknown, so "nothing depends on it" would be a guess. A disabled
+    /// target satisfies nothing today, so its leaving is known to break nothing.
+    pub fn removal_impact(&self, targets: &HashSet<String>) -> crate::error::Result<RemovalImpact> {
+        if let Some(m) = self
+            .unreadable
+            .iter()
+            .find(|m| m.enabled && targets.contains(&m.sha1))
+        {
+            return Err(crate::error::Error::io(
+                m.filename.clone(),
+                "the jar could not be read, so what depends on it is unknown",
+            ));
+        }
+        let enabled = self.registry_enabled();
+        let remaining: HashSet<String> = enabled.difference(targets).cloned().collect();
+        let before = self.resolve(&enabled);
+        let mut dependents: Vec<ImpactedMod> = Vec::new();
+        for v in self.resolve(&remaining) {
+            // Only what the leaving mods cause, and never about a mod that is
+            // leaving too.
+            if before.contains(&v) || targets.contains(v.dependent_sha1()) {
+                continue;
+            }
+            let at = match dependents.iter().position(|d| d.sha1 == v.dependent_sha1()) {
+                Some(i) => i,
+                None => {
+                    dependents.push(ImpactedMod {
+                        sha1: v.dependent_sha1().to_string(),
+                        name: v.dependent_name().to_string(),
+                        needs: Vec::new(),
+                    });
+                    dependents.len() - 1
+                }
+            };
+            let lost = self
+                .rows
+                .iter()
+                .filter(|r| targets.contains(&r.parsed.sha1) && row_provides(r, v.dep_id()));
+            for r in lost {
+                if !dependents[at].needs.contains(&r.parsed.name) {
+                    dependents[at].needs.push(r.parsed.name.clone());
+                }
+            }
+        }
+        Ok(RemovalImpact { dependents })
+    }
+
+    /// The disabled mods `targets` need switched on with them, transitively:
+    /// enabling a requirement may reveal its own. Only requirements of the
+    /// targets and of what they pull in count — another mod's disabled
+    /// dependency is not theirs — and a target is never its own requirement.
+    ///
+    /// Errors when a target's jar could not be read, or the registry does not
+    /// list it: "none" would be a guess.
+    pub fn enable_impact(&self, targets: &HashSet<String>) -> crate::error::Result<EnableImpact> {
+        if let Some(m) = self.unreadable.iter().find(|m| targets.contains(&m.sha1)) {
+            return Err(crate::error::Error::io(
+                m.filename.clone(),
+                "the jar could not be read, so what it requires is unknown",
+            ));
+        }
+        if targets.iter().any(|t| self.row(t).is_none()) {
+            // Gone since the caller listed it — the answer `mods_enable` gives
+            // for the same digest.
+            return Err(crate::error::Error::ModsNotFound {
+                platform: "installed".into(),
+            });
+        }
+        let mut enabled = self.registry_enabled();
+        enabled.extend(targets.iter().cloned());
+        let mut asking: HashSet<String> = targets.clone();
+        let mut pulled: Vec<String> = Vec::new();
+        // Each round switches on at least one more row or stops: a
+        // `RequiredDisabled` only ever names a row OUTSIDE `enabled`. There are
+        // no more rows than the registry holds — the fixed point's cap.
+        for _ in 0..self.rows.len() {
+            let fresh: Vec<String> = self
+                .resolve(&enabled)
+                .into_iter()
+                .filter_map(|v| match v {
+                    Violation::RequiredDisabled {
+                        dependent_sha1,
+                        provider_sha1,
+                        ..
+                    } if asking.contains(&dependent_sha1) => Some(provider_sha1),
+                    _ => None,
+                })
+                .collect();
+            if fresh.is_empty() {
+                break;
+            }
+            for p in fresh {
+                // Two targets needing one provider name it twice: listed once.
+                if enabled.insert(p.clone()) {
+                    asking.insert(p.clone());
+                    pulled.push(p);
+                }
+            }
+        }
+        let requirements = pulled
+            .iter()
+            .filter_map(|p| self.row(p))
+            .map(|r| DisabledRequirement {
+                sha1: r.parsed.sha1.clone(),
+                name: r.parsed.name.clone(),
+            })
+            .collect();
+        Ok(EnableImpact { requirements })
     }
 
     /// [`Self::resolve`], enriched for the UI. The provider maps come from the
@@ -2645,5 +2798,225 @@ mod tests {
                 .unwrap();
         assert_eq!(report.unjudged, vec!["sha-broken".to_string()]);
         assert!(report.violations.is_empty(), "{:?}", report.violations);
+    }
+
+    // ── impact ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn removing_a_provider_names_each_dependent_and_only_what_it_loses() {
+        let a = row(modz("a", vec![prov("core", "1.0")], vec![]), true);
+        let b = row(modz("b", vec![prov("lib", "1.0")], vec![]), true);
+        let d = row(
+            modz(
+                "d",
+                vec![],
+                vec![
+                    dep("core", "", RangeFamily::Maven),
+                    dep("lib", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let e = row(
+            modz("e", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let f = row(modz("f", vec![prov("other", "1.0")], vec![]), true);
+        let inst = instance(vec![a, b, d, e, f]);
+        let hit = |sha1: &str, name: &str, needs: &[&str]| ImpactedMod {
+            sha1: sha1.into(),
+            name: name.into(),
+            needs: needs.iter().map(|n| n.to_string()).collect(),
+        };
+        let impact = |t: &[&str]| inst.removal_impact(&set(t)).unwrap().dependents;
+        assert_eq!(
+            impact(&["a"]),
+            vec![hit("d", "D", &["A"]), hit("e", "E", &["A"])]
+        );
+        assert_eq!(impact(&["a", "b"])[0], hit("d", "D", &["A", "B"]));
+        assert_eq!(
+            impact(&["a", "d"]),
+            vec![hit("e", "E", &["A"])],
+            "a dependent leaving too is not warned about"
+        );
+        assert!(impact(&["f"]).is_empty());
+    }
+
+    #[test]
+    fn a_second_provider_or_an_inert_declaration_is_no_impact() {
+        let a = row(modz("a", vec![prov("core", "1.0")], vec![]), true);
+        let b = row(modz("b", vec![prov("core", "1.0")], vec![]), true);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        // fabric.mod.json: NeoForge never opens it, so this requirement does not exist here.
+        let x = row(
+            modz(
+                "x",
+                vec![],
+                vec![dep("core", "*", RangeFamily::FabricPredicate)],
+            ),
+            true,
+        );
+        let inst = instance(vec![a, b, d, x]);
+        assert!(
+            inst.removal_impact(&set(&["a"]))
+                .unwrap()
+                .dependents
+                .is_empty(),
+            "b still provides core"
+        );
+        let both: Vec<String> = inst
+            .removal_impact(&set(&["a", "b"]))
+            .unwrap()
+            .dependents
+            .into_iter()
+            .map(|m| m.sha1)
+            .collect();
+        assert_eq!(both, ["d"], "x's declaration is inert on NeoForge");
+    }
+
+    #[test]
+    fn an_embedded_library_leaves_with_its_host() {
+        let mut host = row(modz("a", vec![prov("host", "1.0")], vec![]), true);
+        host.jij_provided = vec![prov("lib", "1.0")];
+        let u = row(
+            modz("u", vec![], vec![dep("lib", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![host, u]);
+        let got = inst.removal_impact(&set(&["a"])).unwrap().dependents;
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(
+            (got[0].sha1.as_str(), got[0].needs.as_slice()),
+            ("u", &["A".to_string()][..])
+        );
+    }
+
+    /// §9 Q1/Q2: an ENABLED jar we could not read may provide anything, so what
+    /// breaks without it is unknown — an error, never "no dependents". A
+    /// DISABLED one satisfies nothing, so its leaving is known to break nothing.
+    #[test]
+    fn removal_impact_will_not_guess_for_an_enabled_jar_it_could_not_read() {
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let mut inst = instance(vec![d]);
+        let on = installed_jar("on.jar", "on", "On");
+        let mut off = installed_jar("off.jar", "off", "Off");
+        off.enabled = false;
+        inst.unreadable = vec![on, off];
+        assert!(inst.removal_impact(&set(&["on"])).is_err());
+        assert!(inst
+            .removal_impact(&set(&["off"]))
+            .unwrap()
+            .dependents
+            .is_empty());
+    }
+
+    /// Transitive to a fixed point: t → a → b; b → t closes a cycle. `zmod` is
+    /// absent (an install, not an enable); `q` is `e`'s problem, not `t`'s.
+    #[test]
+    fn enabling_asks_for_disabled_requirements_to_a_fixed_point() {
+        let t = row(
+            modz(
+                "t",
+                vec![prov("tmod", "1.0")],
+                vec![
+                    dep("amod", "", RangeFamily::Maven),
+                    dep("zmod", "", RangeFamily::Maven),
+                ],
+            ),
+            false,
+        );
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("bmod", "", RangeFamily::Maven)],
+            ),
+            false,
+        );
+        let b = row(
+            modz(
+                "b",
+                vec![prov("bmod", "1.0")],
+                vec![dep("tmod", "", RangeFamily::Maven)],
+            ),
+            false,
+        );
+        let e = row(
+            modz("e", vec![], vec![dep("qmod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let q = row(modz("q", vec![prov("qmod", "1.0")], vec![]), false);
+        let inst = instance(vec![t, a, b, e, q]);
+        let got = inst.enable_impact(&set(&["t"])).unwrap().requirements;
+        assert_eq!(
+            got,
+            vec![
+                DisabledRequirement {
+                    sha1: "a".into(),
+                    name: "A".into()
+                },
+                DisabledRequirement {
+                    sha1: "b".into(),
+                    name: "B".into()
+                },
+            ]
+        );
+    }
+
+    /// Several targets are switched on together: a provider they share is
+    /// listed once, and a provider that is itself among the targets is not a
+    /// requirement at all.
+    #[test]
+    fn enabling_several_reports_a_shared_requirement_once_and_never_a_target() {
+        let t1 = row(
+            modz("t1", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            false,
+        );
+        let t2 = row(
+            modz("t2", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            false,
+        );
+        let p = row(modz("p", vec![prov("core", "1.0")], vec![]), false);
+        let inst = instance(vec![t1, t2, p]);
+        let req = |t: &[&str]| inst.enable_impact(&set(t)).unwrap().requirements;
+        assert_eq!(
+            req(&["t1", "t2"]),
+            vec![DisabledRequirement {
+                sha1: "p".into(),
+                name: "P".into()
+            }],
+            "one provider, needed by two targets, is listed once"
+        );
+        assert!(
+            req(&["t1", "t2", "p"]).is_empty(),
+            "a provider being enabled with them is not a requirement"
+        );
+    }
+
+    #[test]
+    fn enable_impact_will_not_guess_for_a_jar_it_could_not_read() {
+        let mut inst = instance(vec![]);
+        let mut t = installed_jar("t.jar", "t", "T");
+        t.enabled = false;
+        inst.unreadable = vec![t];
+        assert!(inst.enable_impact(&set(&["t"])).is_err());
+    }
+
+    /// A target the registry no longer lists (removed since the UI read it) is
+    /// "could not tell", not "needs nothing" — the same `ModsNotFound` the
+    /// enable itself would answer with.
+    #[test]
+    fn enable_impact_refuses_a_mod_the_registry_does_not_know() {
+        let inst = instance(vec![row(modz("a", vec![], vec![]), false)]);
+        assert!(matches!(
+            inst.enable_impact(&set(&["a", "ghost"])),
+            Err(crate::error::Error::ModsNotFound { .. })
+        ));
     }
 }

@@ -3631,6 +3631,62 @@ pub async fn instance_dependency_preflight(
     .await
 }
 
+/// Everything `instance_dependency_preflight` reads, parsed once — the shared
+/// front half of the impact checks. Offline: the name backfill is cache-only.
+async fn parsed_instance(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> crate::error::Result<crate::mods::preflight::ParsedInstance> {
+    let root = instance_root(app, instance_id)?;
+    // These answers name mods, so names are repaired first — the same
+    // best-effort step the pre-flight takes; a failure never blocks.
+    if let Err(e) = backfill_display_names(app, &root).await {
+        crate::diag!("[mods] display-name backfill failed: {e}");
+    }
+    let inst = crate::instances::read_instance(app, instance_id)?;
+    let cache = jar_scan_cache_path(app);
+    crate::mods::preflight::parse_instance(
+        &root,
+        cache.as_deref(),
+        inst.loader,
+        &inst.mc_version,
+        inst.loader_version.as_deref(),
+    )
+    .await
+}
+
+/// Which enabled mods lose something they need if `sha1s` leave the instance —
+/// removed or disabled alike (spec §5.1, D3). Offline and read-only: it feeds a
+/// dialog; the removal itself is gated. An error — never an empty list — when
+/// an enabled target's jar could not be read.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_removal_impact(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1s: Vec<String>,
+) -> crate::error::Result<crate::mods::preflight::RemovalImpact> {
+    let parsed = parsed_instance(&app, &instance_id).await?;
+    let targets: std::collections::HashSet<String> = sha1s.into_iter().collect();
+    parsed.removal_impact(&targets)
+}
+
+/// The disabled mods `sha1s` need switched on with them, transitively, when
+/// they are enabled together (spec §5.1, D3). Offline and read-only. An error —
+/// never an empty list — when a target's jar could not be read or the registry
+/// no longer lists it.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_enable_impact(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1s: Vec<String>,
+) -> crate::error::Result<crate::mods::preflight::EnableImpact> {
+    let parsed = parsed_instance(&app, &instance_id).await?;
+    let targets: std::collections::HashSet<String> = sha1s.into_iter().collect();
+    parsed.enable_impact(&targets)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

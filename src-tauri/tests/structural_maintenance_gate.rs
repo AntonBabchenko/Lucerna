@@ -553,6 +553,18 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
         "instance_dependency_preflight",
         "reads jars and the registry — reconcile and display-name backfill only",
     ),
+    (
+        "commands/mods.rs",
+        "mods_removal_impact",
+        "reads jars and the registry to predict what a removal breaks — reconcile, display-name \
+         backfill and the app-dir jar-scan cache only; the removal itself is gated",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_enable_impact",
+        "reads jars and the registry to predict what an enable needs — reconcile, display-name \
+         backfill and the app-dir jar-scan cache only; the enable itself is gated",
+    ),
     // commands/modpack_cmds.rs
     (
         "commands/modpack_cmds.rs",
