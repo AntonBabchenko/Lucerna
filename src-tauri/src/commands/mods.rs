@@ -739,9 +739,8 @@ async fn install_with_closure(
         &inst_root,
         crate::journal::JournalEvent::Content {
             action: crate::journal::ContentAction::ModInstalled,
-            subject: primary_title
-                .clone()
-                .unwrap_or_else(|| primary_v.name.clone()),
+            // The mod's name, not its version title — the same name the toast shows.
+            subject: summary_name(&primary_v, &titles),
             from_version: None,
             to_version: Some(primary_v.version_number.clone()),
             affected: Some(installed_all.len() as f64),
@@ -2371,12 +2370,13 @@ pub async fn mods_update_one(
                         }
                         .emit(&app);
                     }
-                    // Written LAST and allowed to fail the command, exactly as
-                    // the install path does: the swap is durably on disk and
-                    // already journalled and announced, so a registry write
-                    // failure is reported as itself — it must not erase the
-                    // record of a change that really happened.
-                    crate::mods::installed::set_requires(&inst_root, &new_sha1, requires).await?;
+                    // Written LAST and, as on the install path, not the update's
+                    // verdict: the swap is durably on disk and already journalled
+                    // and announced, so a failed edge write is logged (see
+                    // `log_unrecorded_edges`), never reported as a failed update.
+                    let edges =
+                        crate::mods::installed::set_requires(&inst_root, &new_sha1, requires).await;
+                    log_unrecorded_edges(&instance_id, &new_sha1, edges);
                     Ok(update_summary(&install_seq, &landed, &titles))
                 }
                 Err(e) => {
