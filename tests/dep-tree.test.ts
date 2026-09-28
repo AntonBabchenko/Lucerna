@@ -285,6 +285,47 @@ describe('DepTree — each absent dependency says what the loader does', () => {
     const el = screen.getByRole('treeitem', { name: 'Balm' });
     expect(describedText(el)).toBe("not installed — the game won't start without it");
   });
+
+  // A version mismatch had no action: its fix is the planner's (spec §6.5), asked about the
+  // conflict behind the mark — the host names it, the tree only offers it.
+  it('a version mismatch offers «Fix…», which asks the planner about its conflict', async () => {
+    const onPlan = vi.fn();
+    const conflict: DepViolation = {
+      ...miss('sodium'),
+      kind: 'version_out_of_range',
+      provider_project: { source: 'modrinth', project_id: 'ps', version_id: null },
+    };
+    const conflictOf = vi.fn(() => conflict);
+    const sodium = leaf('ps', { name: 'Sodium' });
+    render(DepTree, {
+      props: treeProps({
+        nodes: [sodium],
+        dependentSha1: 'a',
+        outOfRangeKeys: new Set(['modrinth:ps']),
+        ctx: ctx({ violations: [conflict] }, { conflictOf, onPlan }),
+      }),
+    });
+    expect(screen.getByText('version mismatch')).toBeTruthy();
+    const fix = screen.getByRole('button', { name: 'Fix the version conflict with Sodium' });
+    // Its visible text is the panel's «Fix…»; the name only adds which node it is for.
+    expect(fix.textContent?.trim()).toBe('Fix…');
+    await fireEvent.click(fix);
+    expect(conflictOf).toHaveBeenCalledWith(sodium, 'a');
+    expect(onPlan).toHaveBeenCalledWith(conflict);
+  });
+
+  it('offers no «Fix…» where the host names no conflict to plan', () => {
+    render(DepTree, {
+      props: treeProps({
+        nodes: [leaf('ps', { name: 'Sodium' })],
+        dependentSha1: 'a',
+        outOfRangeKeys: new Set(['modrinth:ps']),
+        ctx: ctx({ violations: [] }),
+      }),
+    });
+    expect(screen.getByText('version mismatch')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /fix/i })).toBeNull();
+  });
 });
 
 describe('DepTree — a WAI-ARIA tree', () => {

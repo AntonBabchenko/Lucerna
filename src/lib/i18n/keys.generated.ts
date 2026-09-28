@@ -1369,6 +1369,7 @@ export type TranslationKey =
   | 'mods.deps.disabledStatus'
   | 'mods.deps.enableAriaLabel'
   | 'mods.deps.enableBtn'
+  | 'mods.deps.fixConflictAriaLabel'
   | 'mods.deps.installAriaLabel'
   | 'mods.deps.installedStatus'
   | 'mods.deps.jumpToTitle'

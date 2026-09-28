@@ -258,9 +258,21 @@
           >
         {/if}
         {#if state === 'out_of_range'}
+          {@const conflict = ctx.conflictOf(n, dependentSha1)}
           <span id="{id}-state" class="inline-flex items-center gap-1 text-danger"
             ><Icon name="circleX" size={12} />{$t('mods.preflight.treeOutOfRange')}</span
           >
+          {#if conflict}
+            <!-- The planner's «Fix…», as on the panel row and the mod's own line: its
+                 offers show in «What stops the game». -->
+            <button
+              type="button"
+              class="btn-secondary btn-xs"
+              tabindex={tab}
+              aria-label={$t('mods.deps.fixConflictAriaLabel', { name: n.name })}
+              onclick={() => ctx.onPlan(conflict)}>{$t('mods.preflight.fixPlan')}</button
+            >
+          {/if}
         {:else if state === 'installed'}
           <span id="{id}-state" class="inline-flex items-center gap-1 text-success"
             ><Icon name="success" size={12} />{$t('mods.deps.installedStatus')}</span

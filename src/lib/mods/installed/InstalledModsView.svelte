@@ -37,6 +37,7 @@
     createPreflight,
     hasBlocking,
     installMissing,
+    overlayConflict,
     planVersionFix,
     remediatePickedVersion,
     toOverlayKeys,
@@ -302,7 +303,9 @@
   // What the dependency trees need to say what the loader does (spec §6.3). The FULL report, not
   // the blocking subset: "without it the game won't start" stays true while a pack is still
   // completing itself. A tree knows a dependency by its project only, so its «Enable» looks the
-  // disabled jar up by (source, project id) and takes the row's own guarded path.
+  // disabled jar up by (source, project id) and takes the row's own guarded path. A version
+  // mismatch's «Fix…» asks about the conflict behind it — only a BLOCKING one: the planner's
+  // offers show in the «What stops the game» row, which lists nothing else.
   const shaByKey = (enabled: boolean) =>
     new Map<string, string>(
       data.rows
@@ -327,6 +330,8 @@
       if (!sha1) return;
       void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
     },
+    conflictOf: (node, dependentSha1) => overlayConflict(blockingViolations, node, dependentSha1),
+    onPlan: (v) => fixVersion(v),
   };
 
   // Reset per-row remediation state on instance switch. The keys are dep-based
@@ -385,6 +390,13 @@
       plans.set(key, answer);
     }
     await handFocusToPanelRow(key, from);
+  }
+
+  // «Fix…» away from the panel — the mod's own line, the dependency tree: the
+  // offers show in the panel row, so ask, and bring that row into view.
+  function fixVersion(v: DepViolation): void {
+    void planFix(v);
+    void revealInPanel(v);
   }
 
   // Apply the side the user clicked, through the existing switch flows: the new
@@ -627,9 +639,7 @@
         void onInstallMissingDep(fix.violation);
         return;
       case 'plan':
-        // The planner's offers show in the panel row: ask, and bring it into view.
-        void planFix(fix.violation);
-        void revealInPanel(fix.violation);
+        fixVersion(fix.violation);
         return;
       case 'choose_version':
         // Another build of THIS mod: its own versions, in the detail modal.

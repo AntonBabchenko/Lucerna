@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import DepTree from '$lib/mods/DepTree.svelte';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
-import { hasBlocking, toOverlayKeys } from '$lib/mods/preflight.svelte';
+import { hasBlocking, overlayConflict, toOverlayKeys } from '$lib/mods/preflight.svelte';
 import { rawRangeDesc } from './test-utils/range-desc';
 
 const report: PreflightReport = {
@@ -96,6 +96,37 @@ describe('toOverlayKeys edge cases', () => {
 
   it('returns an empty set for an empty report', () => {
     expect(toOverlayKeys({ violations: [] }).size).toBe(0);
+  });
+});
+
+// The overlay marks a PROJECT; a tree node's «Fix…» needs the conflict behind the mark — the one
+// the node's own dependent declared when there is one (spec §6.5).
+describe('overlayConflict', () => {
+  const core = { source: 'modrinth' as const, project_id: 'core-id' };
+  const own = report.violations[0] as DepViolation;
+  const other: DepViolation = { ...own, dependent_sha1: 'bb', dependent_name: 'Other' };
+
+  it('is the conflict this dependent declared on the node’s project', () => {
+    expect(overlayConflict([other, own], core, 'aa')).toBe(own);
+  });
+
+  it('falls back to another dependent’s conflict on the project — the one the mark stands for', () => {
+    expect(overlayConflict([other], core, 'aa')).toBe(other);
+    expect(overlayConflict([other], core, null)).toBe(other);
+  });
+
+  it('is null for a project nothing marks — exactly the overlay’s rule', () => {
+    const cf = { source: 'curseforge' as const, project_id: '12345' };
+    const cfConflict: DepViolation = {
+      ...own,
+      provider_project: { source: 'curseforge', mod_id: 12345, file_id: null },
+    };
+    expect(overlayConflict([own], { ...core, project_id: 'else' }, 'aa')).toBeNull();
+    // A CurseForge node keys its numeric mod id as the project id.
+    expect(overlayConflict([cfConflict], cf, 'aa')).toBe(cfConflict);
+    // An incompatibility or a conflict with no linked project marks no node.
+    expect(overlayConflict([{ ...own, kind: 'incompatible_installed' }], core, 'aa')).toBeNull();
+    expect(overlayConflict([{ ...own, provider_project: null }], core, 'aa')).toBeNull();
   });
 });
 

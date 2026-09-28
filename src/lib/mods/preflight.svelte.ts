@@ -29,10 +29,34 @@ import { preflightCache } from './preflight-cache';
 export function toOverlayKeys(report: PreflightReport): Set<string> {
   const out = new Set<string>();
   for (const v of report.violations) {
-    if (!isRangeRemediable(v) || v.provider_project === null) continue;
-    out.add(depProjectRefKey(v.provider_project));
+    const key = overlayKeyOf(v);
+    if (key !== null) out.add(key);
   }
   return out;
+}
+
+/** The tree node a violation marks «version mismatch» (its overlay key), or null. */
+function overlayKeyOf(v: DepViolation): string | null {
+  return isRangeRemediable(v) && v.provider_project !== null
+    ? depProjectRefKey(v.provider_project)
+    : null;
+}
+
+/**
+ * The conflict behind an out-of-range tree node — what its «Fix…» asks the
+ * planner about. The overlay marks a PROJECT, so a node can be marked for
+ * another dependent's range: this dependent's own conflict on the project
+ * comes first, else the first one the mark stands for. Null when nothing marks
+ * the node (by `toOverlayKeys`' own rule).
+ */
+export function overlayConflict(
+  violations: readonly DepViolation[],
+  node: { source: string; project_id: string },
+  dependentSha1: string | null,
+): DepViolation | null {
+  const key = `${node.source}:${node.project_id}`;
+  const marking = violations.filter((v) => overlayKeyOf(v) === key);
+  return marking.find((v) => v.dependent_sha1 === dependentSha1) ?? marking[0] ?? null;
 }
 
 /**

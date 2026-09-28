@@ -1,5 +1,11 @@
 import type { TranslationKey } from '$lib/i18n/keys.generated';
-import type { DepProjectKey, DepsUnknown, DepTreeNode, PreflightReport } from '$lib/ipc/bindings';
+import type {
+  DepProjectKey,
+  DepsUnknown,
+  DepTreeNode,
+  DepViolation,
+  PreflightReport,
+} from '$lib/ipc/bindings';
 
 // What the dependency tree may truthfully say about a node (spec 2026-09-28 §6.3, D4). The
 // platform's dependency list is the AUTHOR speaking; only the pre-flight — the jar descriptor the
@@ -25,6 +31,13 @@ export type DepTreeCtx = {
   enabledShaOf: (projectKey: string) => string | null;
   /** Switch a disabled dependency back on (the host looks its jar up by project). */
   onEnable: (node: DepTreeNode) => void;
+  /**
+   * The version conflict an out-of-range node stands for, seen from `dependentSha1` (this level's
+   * dependent) — null when the host has none to fix, and the node offers no «Fix…».
+   */
+  conflictOf: (node: DepTreeNode, dependentSha1: string | null) => DepViolation | null;
+  /** Ask the planner about that conflict (spec §6.5); its offers show in the host's panel. */
+  onPlan: (conflict: DepViolation) => void;
 };
 
 export const EMPTY_TREE_CTX: DepTreeCtx = {
@@ -32,6 +45,8 @@ export const EMPTY_TREE_CTX: DepTreeCtx = {
   projectOf: () => null,
   enabledShaOf: () => null,
   onEnable: () => {},
+  conflictOf: () => null,
+  onPlan: () => {},
 };
 
 // An installed mod whose installed version the platform could not describe has no children

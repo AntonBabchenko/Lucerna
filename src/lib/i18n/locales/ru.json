@@ -902,6 +902,7 @@
       "disabledStatus": "отключён",
       "enableBtn": "Включить",
       "enableAriaLabel": "Включить {name}",
+      "fixConflictAriaLabel": "Исправить конфликт версий с {name}",
       "cycleStatus": "цикл",
       "depsUnknownStatus": "зависимости неизвестны",
       "depsUnknownUnreachable": "Зависимости неизвестны — платформа недоступна",

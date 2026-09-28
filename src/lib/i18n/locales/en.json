@@ -902,6 +902,7 @@
       "disabledStatus": "disabled",
       "enableBtn": "Enable",
       "enableAriaLabel": "Enable {name}",
+      "fixConflictAriaLabel": "Fix the version conflict with {name}",
       "cycleStatus": "cycle",
       "depsUnknownStatus": "dependencies unknown",
       "depsUnknownUnreachable": "Dependencies unknown — the platform is unavailable",
