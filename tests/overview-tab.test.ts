@@ -122,13 +122,15 @@ describe('OverviewTab', () => {
     expect(getByTestId('overview-attention-incompatible')).toBeTruthy();
   });
 
-  it('routes the incompatible attention action to onNavInstalled', async () => {
+  it('routes the incompatible attention action to the Installed issues view', async () => {
     const onNavInstalled = vi.fn();
     const { getByTestId } = render(OverviewTab, {
       props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 1, onNavInstalled },
     });
     await fireEvent.click(getByTestId('overview-attention-incompatible'));
     expect(onNavInstalled).toHaveBeenCalledOnce();
+    // Incompatibility is part of the one problem view (spec §6.2).
+    expect(onNavInstalled).toHaveBeenCalledWith('issues');
   });
 
   it('renders the Modpack card only for pack instances', () => {

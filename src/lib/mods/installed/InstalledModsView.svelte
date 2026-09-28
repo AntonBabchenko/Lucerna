@@ -34,6 +34,7 @@
   import { createDepGraph } from './dep-graph.svelte';
   import {
     createPreflight,
+    hasBlocking,
     installMissing,
     remediatePickedVersion,
     remediateViolation,
@@ -55,6 +56,7 @@
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { compatKindOf, createCompatCheck } from './compat-check.svelte';
+  import { isProblem, type ModStatus, statusOf } from './mod-status';
   import { displayLoader } from '$lib/instances/loader-display';
   import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
@@ -82,10 +84,10 @@
     // version X, this profile runs Y"); optional because callers that never hit
     // that hint (tests, other embeddings) should not have to supply it.
     loaderVersion?: string | null;
-    // A status view asked for by a deep-link (Overview → "N incompatible
-    // mods"). Applied once, then cleared by the parent so an in-tab click is
-    // never hijacked afterwards.
-    requestedFilter?: 'incompatible' | null;
+    // A status view asked for by a deep-link (the Overview's attention item →
+    // «Проблемы», the one problem view). Applied once, then cleared by the
+    // parent so an in-tab click is never hijacked afterwards.
+    requestedFilter?: 'issues' | null;
     onFilterApplied?: () => void;
     onBrowseFor?: (query: string) => void;
   } = $props();
@@ -99,14 +101,26 @@
     () => loader,
   );
   // Declared before `filters` because `hasIssue` reads it: the pre-flight is the
-  // ONLY source of "this mod is a problem". The graph reports what the platform
-  // was told; only the pre-flight reads the descriptor the loader enforces. A
-  // mod appears here iff it is the dependent in a violation.
+  // ONLY source of "this mod stops the game". The graph reports what the
+  // platform was told; only the pre-flight reads the descriptor the loader
+  // enforces. A mod is blocking iff it is the dependent in a violation.
   const preflight = createPreflight(() => instanceId);
   const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
-  const preflightShas = $derived(
-    new Set((preflight.report?.violations ?? []).map((v) => v.dependent_sha1)),
+  // Blocking = the gate's predicate (`hasBlocking`), one predicate for the
+  // issues chip and the row (plan A17): while a self-completing pack still has
+  // files to download, its violations are advisory and nothing here says the
+  // game won't start. Grouped by dependent, in report order.
+  const blockingViolations = $derived(
+    preflight.report && hasBlocking(preflight.report) ? preflight.report.violations : [],
   );
+  const violationsBySha = $derived.by(() => {
+    const m = new Map<string, DepViolation[]>();
+    for (const v of blockingViolations) {
+      m.set(v.dependent_sha1, [...(m.get(v.dependent_sha1) ?? []), v]);
+    }
+    return m;
+  });
+  const preflightShas = $derived(new Set(violationsBySha.keys()));
   // Enabled mods on a Vanilla instance are dead weight (spec D9) — drives
   // the instance-level banner above the list.
   const enabledModsCount = $derived(data.rows.filter((r) => r.installed.enabled).length);
@@ -120,6 +134,32 @@
     return { instanceId: id, profileName: instanceName, nameOf: (sha1) => nameBySha.get(sha1) };
   }
 
+  const rowBySha = $derived(new Map<string, Row>(data.rows.map((r) => [r.installed.sha1, r])));
+  // The compat hint behind a warning — only for a mod compat counts as
+  // incompatible, the membership the old «Несовместимые» chip counted.
+  const compatHintOf = (sha1: string) =>
+    compat.incompatibleShas.has(sha1) ? compat.hintFor(sha1) : null;
+  // One status per row (mod-status.ts); the «Проблемы» chip is blocking ∪
+  // warning. `held` stays false until holds are wired in — a hold never changes
+  // a problem level, so the chip is right either way.
+  const statusBySha = $derived(
+    new Map<string, ModStatus>(
+      data.rows.map((r) => [
+        r.installed.sha1,
+        statusOf({
+          enabled: r.installed.enabled,
+          violations: violationsBySha.get(r.installed.sha1) ?? [],
+          compat: compatHintOf(r.installed.sha1),
+          update: updates.updateChecks.get(r.installed.sha1)?.state ?? null,
+          held: false,
+        }),
+      ]),
+    ),
+  );
+  // How many installed mods require this row's project (dependency graph).
+  const requiredByCount = (r: Row | undefined): number =>
+    deps.requiredBy.get(r?.installed.project_id ?? '')?.length ?? 0;
+
   const filters = createInstalledFilters(
     () => data.rows,
     (r) => ({
@@ -128,17 +168,30 @@
       enabled: r.installed.enabled,
       sortKey: r.installed.installed_at,
       source: r.installed.source,
+      searchTerms: [r.installed.filename, r.summary?.slug ?? null],
     }),
     {
       isUpdatable: (id) => updates.updatableShas.has(id),
-      hasIssue: (id) => preflightShas.has(id),
-      isIncompatible: (id) => compat.incompatibleShas.has(id),
+      hasIssue: (id) => isProblem(statusBySha.get(id)),
+      isNeeded: (id) => requiredByCount(rowBySha.get(id)) > 0,
+      // `library === true` only: `null` (a source that cannot tell) is never a library.
+      isUnusedLibrary: (id) => {
+        const r = rowBySha.get(id);
+        return (
+          !!r && r.installed.enabled && r.summary?.library === true && requiredByCount(r) === 0
+        );
+      },
+      // `deps` is created below; these thunks only run once counts are read.
+      graphReady: () => deps.graph !== null,
     },
-    // The list renders before its rows arrive, so a status count of 0 during
-    // the initial load is "not known yet", not "none". `refresh()` sets
-    // `loading` synchronously before its first await, so this is already true
-    // when the filters' auto-reset effect first runs on mount.
-    () => !data.loading,
+    // A status count of 0 is "not known yet" until the rows AND the pre-flight
+    // have answered (a report or an error — either settles it). `refresh()`
+    // sets `loading` synchronously before its first await and the pre-flight
+    // starts without a report, so this is false when the filters' auto-reset
+    // effect first runs on mount. The compat half is not waited for: its scan is
+    // shared with the Overview, where the deep-link comes from, so it has
+    // already answered for this profile by then.
+    () => !data.loading && (preflight.report !== null || preflight.error !== null),
   );
   const deps = createDepGraph(
     () => instanceId,

@@ -207,9 +207,9 @@
   // sub-view directly. Only applies to mods (the Overview link is
   // "Installed mods"); we leave `kind` untouched so the mod path stays
   // intact. Resets the rune so subsequent in-tab clicks aren't hijacked.
-  // A status view requested by a deep-link (the Overview's incompatible-mods
-  // indicator). Handed to the Installed view, which applies it once.
-  let requestedFilter = $state<'incompatible' | null>(null);
+  // A status view requested by a deep-link (the Overview's attention item →
+  // «Проблемы»). Handed to the Installed view, which applies it once.
+  let requestedFilter = $state<'issues' | null>(null);
 
   $effect(() => {
     if (modBrowserNav.value !== null) {

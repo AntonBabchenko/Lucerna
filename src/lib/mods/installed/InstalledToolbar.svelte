@@ -29,7 +29,8 @@
       disabled: number;
       updates: number;
       issues: number;
-      incompatible: number;
+      needed: number;
+      unusedLibraries: number;
     };
     filter: string;
     sortBy: SortBy;
@@ -61,11 +62,13 @@
   ]);
 
   // One mutually-exclusive filter group. All / Enabled / Disabled are always
-  // present; Updates / Issues / Incompatible appear only when there is something
-  // to show. Each option carries its own tone so the chips read as distinct
-  // kinds (state vs status) while behaving as a single pick-one set. The count
-  // rides the chip's count badge; the label stays the plain word so the
-  // accessible name matches the simple /All/ etc. patterns the tests use.
+  // present; Updates / Issues / Needed by others / Unused libraries appear only
+  // when there is something to show (the graph views only once the dependency
+  // graph has loaded). Each option carries its own tone so the chips read as
+  // distinct kinds (state vs status vs graph) while behaving as a single
+  // pick-one set. The count rides the chip's count badge; the label stays the
+  // plain word so the accessible name matches the simple /All/ etc. patterns
+  // the tests use.
   const filterOptions = $derived([
     {
       value: 'all',
@@ -112,15 +115,25 @@
           },
         ]
       : []),
-    ...(counts.incompatible > 0
+    ...(counts.needed > 0
       ? [
           {
-            value: 'incompatible',
-            label: $t('mods.installed.filterIncompatibleLabel'),
-            tone: 'danger' as const,
-            icon: 'warning' as const,
-            count: counts.incompatible,
-            testId: 'installed-filter-incompatible',
+            value: 'needed',
+            label: $t('mods.installed.filterNeededLabel'),
+            tone: 'accent' as const,
+            count: counts.needed,
+            testId: 'installed-filter-needed',
+          },
+        ]
+      : []),
+    ...(counts.unusedLibraries > 0
+      ? [
+          {
+            value: 'unusedLibraries',
+            label: $t('mods.installed.filterUnusedLibrariesLabel'),
+            tone: 'accent' as const,
+            count: counts.unusedLibraries,
+            testId: 'installed-filter-unused-libraries',
           },
         ]
       : []),

@@ -45,9 +45,9 @@
   );
 
   // Search / enabled-disabled / sort over the installed list, hosted on the
-  // shared client composable. No status predicates — plugins have no
-  // updates / issues / incompatible views, so those chips stay at 0. Server
-  // rows carry no install timestamp, so the sort is name-only.
+  // shared client composable. Only `isUpdatable` (below) — plugins have no
+  // issues or dependency-graph views, so those chips stay at 0. Server rows
+  // carry no install timestamp, so the sort is name-only.
   // Per-plugin update-check results, keyed by sha1 (identity that survives an
   // enable/disable rename).
   let updateChecks = $state(new Map<string, ModUpdateState>());

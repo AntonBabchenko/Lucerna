@@ -83,7 +83,8 @@
   // shared client composable. Server rows carry no install timestamp, so the
   // sort is name-only (sortKey='' → 'recent' would collapse to input order).
   // The `isUpdatable` predicate lights the Updates chip after a check-updates
-  // scan; issues / incompatible views have no server equivalent (no predicate).
+  // scan; the issues and dependency-graph views have no server equivalent (no
+  // predicate).
   const filters = createInstalledFilters(
     () => data.rows,
     (r) => ({

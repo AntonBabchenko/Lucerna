@@ -96,8 +96,8 @@ describe('createDepGraph', () => {
 
   // `missingShas` is gone on purpose: it made the graph the source of the issue
   // count, and the graph only repeats the platform's claim. The replacement is
-  // `preflightShas` in InstalledModsView, pinned by
-  // tests/installed-issues-from-preflight.test.ts.
+  // the per-row status in InstalledModsView (mod-status.ts, fed by the
+  // pre-flight), pinned by tests/installed-issues-from-preflight.test.ts.
   it('exposes no verdict of its own', () => {
     const d = createDepGraph(
       () => 'i',

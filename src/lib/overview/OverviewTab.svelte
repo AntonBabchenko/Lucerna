@@ -76,7 +76,7 @@
     onExport: () => void;
     onOpenPackDrawer: () => void;
     onPackUpdated?: () => void;
-    onNavInstalled: (filter?: 'incompatible') => void;
+    onNavInstalled: (filter?: 'issues') => void;
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
     onRetryError?: (key: ErrorKey) => void;
@@ -151,7 +151,8 @@
   function onAttention(kind: AttentionKind) {
     if (kind === 'log_issue' || kind === 'log_fix') onOpenLogs();
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
-    else if (kind === 'incompatible') onNavInstalled('incompatible');
+    // Incompatibility is part of the one problem view (spec §6.2).
+    else if (kind === 'incompatible') onNavInstalled('issues');
     // The dependency panel and «Перепроверить зависимости» both live on the
     // Installed tab, and opening it re-attempts the pre-flight.
     else if (kind === 'preflight_unknown') onNavInstalled();

@@ -3,7 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 import InstalledToolbar from '$lib/mods/installed/InstalledToolbar.svelte';
 
 const base = () => ({
-  counts: { total: 3, enabled: 2, disabled: 1, updates: 1, issues: 2, incompatible: 0 },
+  counts: {
+    total: 3,
+    enabled: 2,
+    disabled: 1,
+    updates: 1,
+    issues: 2,
+    needed: 0,
+    unusedLibraries: 0,
+  },
   filter: '',
   sortBy: 'name-asc' as const,
   viewFilter: 'all' as const,
@@ -54,12 +62,35 @@ describe('InstalledToolbar view filter (single mutually-exclusive group)', () =>
     render(InstalledToolbar, {
       props: {
         ...base(),
-        counts: { total: 3, enabled: 3, disabled: 0, updates: 0, issues: 0, incompatible: 0 },
+        counts: {
+          total: 3,
+          enabled: 3,
+          disabled: 0,
+          updates: 0,
+          issues: 0,
+          needed: 0,
+          unusedLibraries: 0,
+        },
       },
     });
     expect(screen.queryByRole('radio', { name: /Updates/ })).toBeNull();
     expect(screen.queryByRole('radio', { name: /Issues/ })).toBeNull();
     // The state filters remain.
     expect(screen.getByRole('radio', { name: /All/ })).toBeTruthy();
+  });
+
+  it('shows «Needed by others» and «Unused libraries» only when they have a count', () => {
+    render(InstalledToolbar, {
+      props: { ...base(), counts: { ...base().counts, needed: 2, unusedLibraries: 1 } },
+    });
+    expect(screen.getByRole('radio', { name: /Needed by others/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Unused libraries/ })).toBeTruthy();
+  });
+
+  it('has no separate Incompatible chip — incompatibility is part of Issues', () => {
+    render(InstalledToolbar, { props: base() });
+    expect(screen.queryByRole('radio', { name: /Incompatible/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Needed by others/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Unused libraries/ })).toBeNull();
   });
 });

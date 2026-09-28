@@ -2,9 +2,18 @@ import { untrack } from 'svelte';
 
 // A single mutually-exclusive view filter — exactly one is active at a time, so
 // picking any chip simply shows that subset (no AND-combination to reason about).
-// 'updates' / 'issues' / 'incompatible' are status views; 'enabled' / 'disabled'
-// are state views.
-export type ViewFilter = 'all' | 'enabled' | 'disabled' | 'updates' | 'issues' | 'incompatible';
+// 'updates' / 'issues' are status views ('issues' = the one problem model:
+// blocking ∪ warning; «Несовместимые» was folded into it, spec 2026-09-28 §6.2);
+// 'needed' / 'unusedLibraries' are dependency-graph views; 'enabled' /
+// 'disabled' are state views.
+export type ViewFilter =
+  | 'all'
+  | 'enabled'
+  | 'disabled'
+  | 'updates'
+  | 'issues'
+  | 'needed'
+  | 'unusedLibraries';
 export type SortBy = 'name-asc' | 'name-desc' | 'recent' | 'source';
 
 // The abstract projection every caller's row is reduced to. Keeping the filter /
@@ -19,22 +28,30 @@ export type FilterRow = {
   // timestamp pass '' so 'recent' collapses to the stable input order.
   sortKey: string;
   source: string | null;
+  // Extra strings the search box matches besides `name` (the client: file name
+  // and slug). A null entry is skipped.
+  searchTerms?: readonly (string | null)[];
 };
 
-// Optional status predicates keyed by the row's `id`. The client injects its
-// updates / issues / incompatible predicates; server panes pass none (or only
-// `isUpdatable`), so the corresponding chips stay at 0 and can't activate.
+// Optional status predicates keyed by the row's `id`. The client injects all of
+// them; server panes pass none (or only `isUpdatable`), so the corresponding
+// chips stay at 0 and can't activate.
 export type StatusPredicates = {
   isUpdatable?: (id: string) => boolean;
   hasIssue?: (id: string) => boolean;
-  isIncompatible?: (id: string) => boolean;
+  /** Required by at least one other installed mod (dependency graph). */
+  isNeeded?: (id: string) => boolean;
+  /** A platform "library", enabled, required by nothing (dependency graph). */
+  isUnusedLibrary?: (id: string) => boolean;
+  /** The graph behind the two views above has loaded; before that their counts are not facts. */
+  graphReady?: () => boolean;
 };
 
 // Owns the filter / sort / pagination math for an installed list. `filtered` is
 // the whole matching set (selection + dep graph span this); `paged` is just the
 // rendered slice. `toFilterRow` projects each caller row `R` to the abstract
-// FilterRow; `status` feeds the updates / issues / incompatible quick-filters
-// and the toolbar counts.
+// FilterRow; `status` feeds the status / graph quick-filters and the toolbar
+// counts.
 //
 // `isReady` tells the auto-reset below whether a count of 0 is a fact or merely
 // "not loaded yet". Callers that can render before their rows arrive MUST pass
@@ -53,7 +70,9 @@ export function createInstalledFilters<R>(
 
   const isUpdatable = (id: string) => status.isUpdatable?.(id) ?? false;
   const hasIssue = (id: string) => status.hasIssue?.(id) ?? false;
-  const isIncompatible = (id: string) => status.isIncompatible?.(id) ?? false;
+  const isNeeded = (id: string) => status.isNeeded?.(id) ?? false;
+  const isUnusedLibrary = (id: string) => status.isUnusedLibrary?.(id) ?? false;
+  const graphReady = () => status.graphReady?.() ?? true;
 
   const projected = $derived.by(() => getRows().map((row) => ({ row, fr: toFilterRow(row) })));
 
@@ -89,16 +108,22 @@ export function createInstalledFilters<R>(
             return isUpdatable(fr.id);
           case 'issues':
             return hasIssue(fr.id);
-          case 'incompatible':
-            return isIncompatible(fr.id);
+          case 'needed':
+            return isNeeded(fr.id);
+          case 'unusedLibraries':
+            return isUnusedLibrary(fr.id);
           default:
             return true; // 'all'
         }
       })
-      // Text search is orthogonal and always applies on top of the view filter.
-      .filter(
-        ({ fr }) => filter.trim() === '' || fr.name.toLowerCase().includes(filter.toLowerCase()),
-      ),
+      // Text search is orthogonal and always applies on top of the view filter:
+      // the name, plus any extra terms the caller projects (file name, slug),
+      // case-insensitively.
+      .filter(({ fr }) => {
+        if (filter.trim() === '') return true;
+        const q = filter.toLowerCase();
+        return [fr.name, ...(fr.searchTerms ?? [])].some((s) => s?.toLowerCase().includes(q));
+      }),
   );
 
   const filtered = $derived(filteredPairs.map((p) => p.row));
@@ -116,7 +141,12 @@ export function createInstalledFilters<R>(
       // predicate means the caller has no such view, so the chip stays at 0.
       updates: status.isUpdatable ? frs.filter((fr) => isUpdatable(fr.id)).length : 0,
       issues: status.hasIssue ? frs.filter((fr) => hasIssue(fr.id)).length : 0,
-      incompatible: status.isIncompatible ? frs.filter((fr) => isIncompatible(fr.id)).length : 0,
+      // Graph views count only once the graph has loaded: a 0 before that is not a fact.
+      needed: status.isNeeded && graphReady() ? frs.filter((fr) => isNeeded(fr.id)).length : 0,
+      unusedLibraries:
+        status.isUnusedLibrary && graphReady()
+          ? frs.filter((fr) => isUnusedLibrary(fr.id)).length
+          : 0,
     };
   });
 
@@ -136,30 +166,37 @@ export function createInstalledFilters<R>(
       $effect(() => {
         if (page > pageCount - 1) page = Math.max(0, pageCount - 1);
       });
-      // When the active updates/issues/incompatible view empties out (user fixed
-      // the last dependency problem or applied the last update), its chip
-      // disappears — so auto-reset to 'all' instead of stranding an empty list
-      // with the now-gone filter still active.
+      // When the active status or graph view empties out (user fixed the last
+      // problem, applied the last update, removed the last unused library), its
+      // chip disappears — so auto-reset to 'all' instead of stranding an empty
+      // list with the now-gone filter still active.
       $effect(() => {
         // A count of 0 over a list that has not loaded is not a fact. Without
-        // this guard the Overview's deep-link to «Несовместимые» was defeated on
+        // this guard the Overview's deep-link to «Проблемы» was defeated on
         // arrival: MainTabs mounts AddonsTab fresh on every switch, `counts`
         // iterates rows that are still `[]` for the whole mount flush, and
         // writing `viewFilter` re-runs this effect, which then reverts it to
-        // 'all' before a single row exists.
+        // 'all' before a single row exists. The graph views wait for the graph
+        // the same way.
         if (!isReady()) return;
         const c = counts;
-        const resetUpdates = viewFilter === 'updates' && c.updates === 0;
-        const resetIssues = viewFilter === 'issues' && c.issues === 0;
-        const resetIncompat = viewFilter === 'incompatible' && c.incompatible === 0;
+        const statusViewEmpty =
+          (viewFilter === 'updates' && c.updates === 0) ||
+          (viewFilter === 'issues' && c.issues === 0);
+        const graphViewEmpty =
+          graphReady() &&
+          ((viewFilter === 'needed' && c.needed === 0) ||
+            (viewFilter === 'unusedLibraries' && c.unusedLibraries === 0));
         // Wrap the self-referential write so the effect doesn't register
         // `viewFilter` as a dependency of its own assignment (it already depends
         // on it via the reads above; this keeps the update strictly one-shot).
-        if (resetUpdates || resetIssues || resetIncompat) untrack(() => (viewFilter = 'all'));
+        if (statusViewEmpty || graphViewEmpty) untrack(() => (viewFilter = 'all'));
       });
     });
   } catch {
-    /* no Svelte runtime (vitest) — effects inert, which is what unit tests want */
+    /* no reactive runtime to root the effects in — they stay inert. Under vitest the runtime IS
+       there: the effects run at a test's first await (or `flushSync`), so a synchronous test
+       reads `filtered` / `counts` before the page reset or the auto-reset has run. */
   }
 
   return {

@@ -86,11 +86,12 @@ export const cfKeyVersion = $state<{ value: number }>({ value: 0 });
 // ModBrowserTab honours the requested sub-view, then resets the rune
 // to null so subsequent in-tab clicks don't get hijacked.
 // `filter` deep-links a status view of the Installed list. The Overview's
-// "N incompatible mods" indicator sets it: navigating to 140 unfiltered rows
-// left the user with no way to tell WHICH mods the warning meant.
+// attention item sets it to «Проблемы» (`issues`, the one problem view —
+// «Несовместимые» was folded into it): navigating to 140 unfiltered rows left
+// the user with no way to tell WHICH mods the warning meant.
 export type ModBrowserNav = {
   view: 'browse' | 'installed';
-  filter?: 'incompatible';
+  filter?: 'issues';
 };
 export const modBrowserNav = $state<{ value: ModBrowserNav | null }>({ value: null });
 

@@ -11,7 +11,15 @@ import { describe, expect, it, vi } from 'vitest';
 import InstalledToolbar from '$lib/mods/installed/InstalledToolbar.svelte';
 
 const base = () => ({
-  counts: { total: 3, enabled: 2, disabled: 1, updates: 1, issues: 2, incompatible: 0 },
+  counts: {
+    total: 3,
+    enabled: 2,
+    disabled: 1,
+    updates: 1,
+    issues: 2,
+    needed: 0,
+    unusedLibraries: 0,
+  },
   filter: '',
   sortBy: 'name-asc' as const,
   viewFilter: 'all' as const,
