@@ -766,12 +766,35 @@ async fn record_dependent_edges(
     }
 }
 
+/// Refuse to install `(source, project_id)` when the registry already has a row
+/// for that project, enabled or switched off: a second jar of one mod stops the
+/// game on the duplicate mod id. A stale view or a double click asks for it, and
+/// the refusal names the row the user already has. Pure: the dependency installs
+/// read the registry and call this before anything is downloaded or written.
+fn refuse_if_installed(
+    installed: &[InstalledMod],
+    source: ModSource,
+    project_id: &str,
+) -> crate::error::Result<()> {
+    match installed
+        .iter()
+        .find(|m| m.source == Some(source) && m.project_id.as_deref() == Some(project_id))
+    {
+        Some(row) => Err(crate::error::Error::ModsAlreadyInstalled {
+            name: row.name.clone(),
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Install a dependency a known dependent needs (tree node, panel row, gate):
 /// the newest build the platform lists for this instance, with its own required
 /// closure, committed like a Browse install; then the dependent records what it
-/// pulled in. No build listed for this instance is `ModsDependencyUnresolvable`;
-/// a platform that cannot be asked (network, a missing CurseForge key) is its
-/// own typed error — never a guessed build.
+/// pulled in. A project the registry already lists (enabled or not) is refused
+/// with `ModsAlreadyInstalled` before the platform is asked. No build listed for
+/// this instance is `ModsDependencyUnresolvable`; a platform that cannot be
+/// asked (network, a missing CurseForge key) is its own typed error — never a
+/// guessed build.
 ///
 /// Runs under the instance's SHARED maintenance claim, like every per-item mod
 /// writer.
@@ -792,6 +815,11 @@ pub async fn mods_install_dependency(
             let inst_root = instance_root(&app, &instance_id)?;
             let dd = data_dir(&app)?;
             let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+            refuse_if_installed(
+                &crate::mods::installed::list(&inst_root).await?,
+                source,
+                &project_id,
+            )?;
             let newest = platform_for(source)
                 .versions(&project_id, Some(&mc_version), Some(loader))
                 .await?
@@ -3550,7 +3578,9 @@ pub async fn mods_resolve_dep_names(
 /// Browse install — and the pulled-in projects are added to the requiring mod's
 /// `requires`. No manifest range context on this bare-id path → `range = None`.
 /// On any resolution/verification miss returns `OpenSearch` so the UI can offer
-/// a pre-filled search instead of guessing.
+/// a pre-filled search instead of guessing. A resolved project the registry
+/// already lists (enabled or not) is refused with `ModsAlreadyInstalled` before
+/// its jar is downloaded.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_install_missing_required(
@@ -3647,6 +3677,13 @@ pub async fn mods_install_missing_required(
         "dep_resolve: {dep_id} -> {} ({selection_reason:?})",
         candidate.version_id
     );
+    // The project is known only now; the registry is read again because the
+    // resolution above took network time. Refused before the download.
+    refuse_if_installed(
+        &crate::mods::installed::list(&inst_root).await?,
+        candidate.source,
+        &candidate.project_id,
+    )?;
 
     let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
     let sha = match candidate.primary_file.sha1.as_deref() {
@@ -5127,6 +5164,32 @@ mod tests {
             enrich_attempted: false,
             requires: vec![],
         }
+    }
+
+    /// A dependency install never puts a second jar of an installed project
+    /// beside it: enabled or switched off, the game stops on the duplicate mod
+    /// id. The refusal names the row the user already has.
+    #[test]
+    fn a_dependency_already_installed_is_refused_by_its_installed_name() {
+        let installed = vec![
+            named_dependent("d1"),
+            crate::mods::platform::InstalledMod {
+                enabled: false,
+                ..named_dependent("d2")
+            },
+        ];
+        for (project_id, name) in [("P-d1", "D1"), ("P-d2", "D2")] {
+            assert_eq!(
+                refuse_if_installed(&installed, ModSource::Modrinth, project_id),
+                Err(crate::error::Error::ModsAlreadyInstalled { name: name.into() }),
+                "{project_id}"
+            );
+        }
+        assert_eq!(
+            refuse_if_installed(&installed, ModSource::Modrinth, "P-other"),
+            Ok(()),
+            "a project the registry does not list installs"
+        );
     }
 
     /// Audit A-F3: two dependents sharing a bare id each get THEIR project.

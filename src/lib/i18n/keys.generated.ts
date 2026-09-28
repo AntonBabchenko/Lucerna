@@ -301,6 +301,7 @@ export type TranslationKey =
   | 'errors.modpackSha1Unavailable'
   | 'errors.modpackUnsupportedLoader'
   | 'errors.modpackUnsupportedManifestVersion'
+  | 'errors.modsAlreadyInstalled'
   | 'errors.modsCacheIo'
   | 'errors.modsDecode'
   | 'errors.modsDependencyUnresolvable'
