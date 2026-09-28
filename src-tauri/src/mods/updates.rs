@@ -3,7 +3,7 @@
 //! Minecraft version + loader. Pure logic — no I/O — so the command
 //! layer in `commands.rs` stays a thin orchestrator.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::mods::installed::PackOrigin;
@@ -11,7 +11,8 @@ use crate::mods::platform::{AssetUpdateState, InstalledMod, LoaderKind, ModSourc
 
 /// One installed user-mod's update-check result. One per *eligible*
 /// mod — see [`eligible_identity`]; ineligible mods are absent.
-#[derive(Debug, Clone, Serialize, Type)]
+/// `Deserialize` for the persisted check (`update_check_store`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModUpdateCheck {
     /// SHA-1 of the currently installed jar — identifies the row and is
     /// the handle `mods_update_one` uses to remove the old file.
@@ -26,7 +27,7 @@ pub struct ModUpdateCheck {
 }
 
 /// The per-mod classification.
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModUpdateState {
     /// The installed version is the newest for this MC + loader.

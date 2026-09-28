@@ -516,12 +516,18 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
     (
         "commands/mods.rs",
         "mods_check_updates",
-        "network query over the installed list (reconcile only); updates nothing",
+        "network query over the installed list (reconcile only); persists its answer to \
+         lucerna/update-check.json, launcher metadata no claimer reads",
     ),
     (
         "commands/mods.rs",
         "mods_list_holds",
         "reads the holds sidecar",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_last_update_check",
+        "reads the stored check, the installed list (reconcile only) and the holds sidecar",
     ),
     (
         "commands/mods.rs",

@@ -1709,7 +1709,7 @@ pub async fn mods_restore_uninstalled(
 /// fails wholesale only on a catastrophic error (instance missing,
 /// registry or hold list unreadable). Modpack-origin and hand-dropped mods
 /// are absent from the result, and so are projects on hold
-/// (`mods_set_hold`).
+/// (`mods_set_hold`). The result is persisted for `mods_last_update_check`.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_check_updates(
@@ -1828,7 +1828,40 @@ pub async fn mods_check_updates(
 
     // Restore installed-list order: the poll yields completions out of order.
     results.sort_by_key(|(i, _)| *i);
-    Ok(results.into_iter().map(|(_, c)| c).collect())
+    let results: Vec<ModUpdateCheck> = results.into_iter().map(|(_, c)| c).collect();
+    // Persisted so «проверено …» and the badges survive a restart (D9). A failed
+    // write costs only that: the fresh answer is still returned.
+    let stored = crate::mods::update_check_store::StoredUpdateCheck {
+        checked_at_secs: crate::mods::update_check_store::now_secs(),
+        results: results.clone(),
+    };
+    if let Err(e) = crate::mods::update_check_store::save(&inst_root, &stored).await {
+        crate::diag!(
+            "mods: update check save failed ({}): {e}",
+            crate::mods::update_check_store::store_path(&inst_root).display()
+        );
+    }
+    Ok(results)
+}
+
+/// The last `mods_check_updates` result, with rows only for jars still installed
+/// and projects not on hold. `None` = never checked, or the stored check is
+/// unreadable (logged). Read-only.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_last_update_check(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Option<crate::mods::update_check_store::StoredUpdateCheck>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let Some(stored) = crate::mods::update_check_store::load(&inst_root).await else {
+        return Ok(None);
+    };
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let holds = crate::mods::holds::load(&inst_root).await?;
+    Ok(Some(crate::mods::update_check_store::current_rows(
+        stored, &installed, &holds,
+    )))
 }
 
 /// The instance's held projects (`mods_set_hold`). Read-only.

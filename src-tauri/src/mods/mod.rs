@@ -46,6 +46,7 @@ pub mod store;
 pub mod summary_cache;
 pub mod trash;
 pub mod unsupported;
+pub mod update_check_store;
 pub mod updates;
 pub mod version_cache;
 pub mod version_fix;

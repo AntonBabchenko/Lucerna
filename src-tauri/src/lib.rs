@@ -200,6 +200,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_check_updates,
             commands::mods_list_holds,
             commands::mods_set_hold,
+            commands::mods_last_update_check,
             commands::asset_install,
             commands::assets_list,
             commands::asset_uninstall,

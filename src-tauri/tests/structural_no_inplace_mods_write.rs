@@ -107,6 +107,9 @@ const ALLOWLIST: &[&str] = &[
     // Same class, same `lucerna/` directory, same temp-then-rename shape as
     // `mods/hash_cache.rs`; never a path inside `.minecraft/`.
     "mods/holds.rs",
+    // `{instance}/lucerna/update-check.json` — the last mod-update check.
+    // Same class and temp-then-rename shape as `mods/hash_cache.rs`.
+    "mods/update_check_store.rs",
     "mods/summary_cache.rs", // mod summary JSON cache
     "mods/assets.rs",        // installed-assets registry JSON (temp + rename)
     // `<app_data>/mods-cache/jar-scans.json` and its `tmp.<pid>` sibling —
