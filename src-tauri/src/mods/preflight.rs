@@ -586,8 +586,8 @@ pub struct ImpactedMod {
     pub sha1: String,
     pub name: String,
     /// Display names (registry names — the project title for platform mods) of
-    /// the leaving mods — targets, or dependents listed before it — that
-    /// provided what it loses.
+    /// the leaving mods — targets, or other dependents — that provided what it
+    /// loses.
     pub needs: Vec<String>,
 }
 
@@ -595,12 +595,18 @@ pub struct ImpactedMod {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct RemovalImpact {
     /// Enabled mods, other than the leaving ones, that gain a violation: those
-    /// the targets' leaving breaks, then — wave by wave — those that break once
-    /// the earlier ones are off too; each wave in registry order. With all of
-    /// them off as well, no enabled mod has gained a violation. Switch them off
-    /// last-first, before the targets: a mod goes off before the earlier-wave
-    /// one it needs. Empty means nothing the pre-flight can read loses anything
-    /// it needs.
+    /// the targets' leaving breaks and, to a fixed point, those that break once
+    /// the earlier ones are off too. With all of them off as well, no enabled mod
+    /// has gained a violation. Empty means nothing the pre-flight can read loses
+    /// anything it needs.
+    ///
+    /// In a SAFE DISABLE ORDER: switch them off one by one as listed, then the
+    /// targets. A mod comes before any listed mod it needs — one whose jar
+    /// answers a requirement the loader enforces on it — so a run that stops
+    /// early leaves no listed mod on without a listed mod it needs, save inside
+    /// a cycle, which no order keeps whole: it is broken at its earliest mod.
+    /// Of the mods free to go next, the earliest in wave order (what breaks
+    /// directly first), each wave in registry order, goes first.
     pub dependents: Vec<ImpactedMod>,
 }
 
@@ -615,7 +621,14 @@ pub struct DisabledRequirement {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct EnableImpact {
     /// Disabled mods the targets need, transitively, each once, never a target
-    /// itself — in the order they were found.
+    /// itself.
+    ///
+    /// In a SAFE ENABLE ORDER: switch them on one by one as listed, then the
+    /// targets. A mod comes after any listed mod it needs — one whose jar answers
+    /// a requirement the loader enforces on it — so a run that stops early leaves
+    /// no listed mod on without a listed mod it needs, save inside a cycle, which
+    /// no order keeps whole: it is broken at its earliest mod. Of the mods free to
+    /// go next, the one found first goes first.
     pub requirements: Vec<DisabledRequirement>,
 }
 
@@ -1110,13 +1123,14 @@ impl ParsedInstance {
     /// does not have. Each names the leaving mods — targets, or dependents of an
     /// earlier wave — that provided what it lost.
     ///
-    /// Order: wave by wave — what breaks directly, then what breaks once that is
-    /// off too, and so on — each wave in registry order, each mod once, in the
-    /// wave it breaks in. Switched off in REVERSE, before the targets, a
-    /// later-wave mod goes off before the earlier-wave mod it needs. Waves do
-    /// not order two mods of one wave, nor a mod that also needs one of a later
-    /// wave, and no order keeps a cycle whole: a step that fails between two
-    /// such mods can leave one on without the other.
+    /// Order: safe to switch off one by one as listed, before the targets. A mod
+    /// comes before any listed mod it needs ([`Self::flip_order`]), so a run that
+    /// stops early leaves no listed mod on without a listed mod it needs — save
+    /// inside a cycle, which no order keeps whole and which is broken at its
+    /// earliest mod. Of the mods free to go next, the earliest in today's order
+    /// goes first: wave by wave — what breaks directly, then what breaks once
+    /// that is off too — each wave in registry order, each mod once, in the wave
+    /// it breaks in.
     ///
     /// Monotone: once broken, a mod stays counted, even where a later wave takes
     /// away the provider whose version broke it (an optional or incompatible
@@ -1154,7 +1168,49 @@ impl ParsedInstance {
             gone.extend(wave.iter().map(|d| d.sha1.clone()));
             dependents.extend(wave);
         }
-        Ok(RemovalImpact { dependents })
+        let sha1s: Vec<&str> = dependents.iter().map(|d| d.sha1.as_str()).collect();
+        let order = self.flip_order(&sha1s, Flip::Off);
+        Ok(RemovalImpact {
+            dependents: reordered(dependents, &order),
+        })
+    }
+
+    /// The order to switch `sha1s` — registry digests, in today's order — one by
+    /// one, as indices into them ([`safe_flip_order`]): switching off, a mod goes
+    /// before any of them it needs; switching on, after.
+    ///
+    /// A mod NEEDS another when the other's jar answers one of its REQUIRED
+    /// declarations the loader enforces: the admission test of [`resolve`]
+    /// ([`active_deps_for`]) against the provider test of `explain_absence`
+    /// ([`row_provides`] — own ids, embedded libraries, aliases). Static: it reads
+    /// the two jars and nothing else, so a third provider that could cover for
+    /// the other does not undo the need. Optional and incompatible declarations
+    /// are satisfied by absence and never order a flip — counted, a library's
+    /// optional integration with a mod that requires it would read as a cycle.
+    fn flip_order(&self, sha1s: &[&str], flip: Flip) -> Vec<usize> {
+        let rows: Vec<Option<&ParsedRow>> = sha1s.iter().map(|s| self.row(s)).collect();
+        // Once per mod, not once per pair.
+        let provides: Vec<HashSet<String>> = rows
+            .iter()
+            .map(|&r| r.map(provided_ids).unwrap_or_default())
+            .collect();
+        let requires: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|&r| {
+                r.map(|r| {
+                    active_deps_for(&r.parsed.manifest, self.loader, self.era)
+                        .filter(|d| d.kind.is_required())
+                        .map(|d| d.dep_id.as_str())
+                        .collect::<Vec<&str>>()
+                })
+                .unwrap_or_default()
+            })
+            .collect();
+        let needs = |x: usize, y: usize| requires[x].iter().any(|d| ids_provide(&provides[y], d));
+        safe_flip_order(sha1s.len(), |a, b| match flip {
+            Flip::Off => needs(a, b),
+            Flip::On => needs(b, a),
+        })
     }
 
     /// One wave of [`Self::removal_impact`]: the rows of `enabled` outside
@@ -1270,6 +1326,12 @@ impl ParsedInstance {
     /// targets and of what they pull in count — another mod's disabled
     /// dependency is not theirs — and a target is never its own requirement.
     ///
+    /// Order: safe to switch on one by one as listed, before the targets. A mod
+    /// comes after any listed mod it needs ([`Self::flip_order`]), so a run that
+    /// stops early leaves no listed mod on without a listed mod it needs — save
+    /// inside a cycle, which no order keeps whole and which is broken at its
+    /// earliest mod. Of the mods free to go next, the one found first goes first.
+    ///
     /// Errors when a target's jar could not be read, or the registry does not
     /// list it: "none" would be a guess.
     pub fn enable_impact(&self, targets: &HashSet<String>) -> crate::error::Result<EnableImpact> {
@@ -1311,7 +1373,7 @@ impl ParsedInstance {
                 }
             }
         }
-        let requirements = pulled
+        let requirements: Vec<DisabledRequirement> = pulled
             .iter()
             .filter_map(|p| self.row(p))
             .map(|r| DisabledRequirement {
@@ -1319,7 +1381,11 @@ impl ParsedInstance {
                 name: r.parsed.name.clone(),
             })
             .collect();
-        Ok(EnableImpact { requirements })
+        let sha1s: Vec<&str> = requirements.iter().map(|r| r.sha1.as_str()).collect();
+        let order = self.flip_order(&sha1s, Flip::On);
+        Ok(EnableImpact {
+            requirements: reordered(requirements, &order),
+        })
     }
 
     /// [`Self::resolve`], enriched for the UI. The provider maps come from the
@@ -1391,20 +1457,121 @@ impl ParsedInstance {
 /// [`ProviderIndex::is_provided`] accepts: an own id, an embedded (JIJ) id, or an
 /// umbrella alias of either.
 fn row_provides(row: &ParsedRow, dep_id: &str) -> bool {
-    let ids: HashSet<String> = row
-        .parsed
+    ids_provide(&provided_ids(row), dep_id)
+}
+
+/// The canonical ids `row`, switched on, answers for: its own and its embedded
+/// (JIJ) ones — the first half of [`row_provides`], kept apart so a caller asking
+/// about many requirements reads each row once.
+fn provided_ids(row: &ParsedRow) -> HashSet<String> {
+    row.parsed
         .manifest
         .provided
         .iter()
         .chain(&row.jij_provided)
         .map(|p| canon_id(&p.mod_id))
-        .collect();
+        .collect()
+}
+
+/// Do `ids` — a row's [`provided_ids`] — answer for `dep_id`, directly or
+/// through an umbrella alias? The second half of [`row_provides`].
+fn ids_provide(ids: &HashSet<String>, dep_id: &str) -> bool {
     let key = canon_id(dep_id);
     ids.contains(&key)
         || PROVIDES_ALIASES
             .iter()
             .find(|(name, _)| *name == key)
             .is_some_and(|(_, aliases)| aliases.iter().any(|a| ids.contains(*a)))
+}
+
+/// Which way a list of mods is switched, one mod at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Flip {
+    /// Switched off: a mod goes before any listed mod it needs.
+    Off,
+    /// Switched on: a mod goes after any listed mod it needs.
+    On,
+}
+
+/// A stable order to switch `n` mods one at a time: a permutation of `0..n`,
+/// where index order is today's order and `goes_first(a, b)` says `a` must be
+/// switched before `b`.
+///
+/// Each step takes the EARLIEST remaining index that waits on nothing outside
+/// its own cycle — no remaining index must go before it, or every one that must
+/// is itself waiting on it, transitively. So an order that already respects
+/// every pair comes back unchanged (ties keep today's order), and a cycle, which
+/// no order respects whole, is broken at its earliest member that nothing
+/// outside the cycle must precede: only that cycle's own pairs are broken.
+/// Deterministic — plain indices, no hashing.
+fn safe_flip_order(n: usize, goes_first: impl Fn(usize, usize) -> bool) -> Vec<usize> {
+    // `after[a]`: what `a` must go before; `before[b]`: what must go before `b`.
+    let mut after: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut before: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for a in 0..n {
+        for b in (0..n).filter(|&b| b != a && goes_first(a, b)) {
+            after[a].push(b);
+            before[b].push(a);
+        }
+    }
+    let mut placed = vec![false; n];
+    let mut order = Vec::with_capacity(n);
+    // Each round places one index not placed before, so the loop ends after `n`.
+    while let Some(i) = next_to_flip(&before, &after, &placed) {
+        placed[i] = true;
+        order.push(i);
+    }
+    order
+}
+
+/// The step [`safe_flip_order`] takes next; `None` once every index is placed.
+fn next_to_flip(before: &[Vec<usize>], after: &[Vec<usize>], placed: &[bool]) -> Option<usize> {
+    let remaining = || (0..placed.len()).filter(|&i| !placed[i]);
+    remaining()
+        .find(|&i| waits_only_on_its_cycle(i, before, after, placed))
+        // Never taken: walking back along "must go before" through the remaining
+        // indices ends in a cycle nothing outside precedes, and its members
+        // qualify. Kept so every index is still placed exactly once.
+        .or_else(|| remaining().next())
+}
+
+/// Is every remaining index that must go before `i` one that `i` must go
+/// before too, through remaining indices — do they share a cycle? True when
+/// none remains.
+fn waits_only_on_its_cycle(
+    i: usize,
+    before: &[Vec<usize>],
+    after: &[Vec<usize>],
+    placed: &[bool],
+) -> bool {
+    let waits_on: Vec<usize> = before[i].iter().copied().filter(|&p| !placed[p]).collect();
+    if waits_on.is_empty() {
+        return true;
+    }
+    // Everything `i` must go before, transitively, through remaining indices.
+    let mut reached = vec![false; placed.len()];
+    let mut stack = vec![i];
+    while let Some(v) = stack.pop() {
+        for &w in &after[v] {
+            if !placed[w] && !reached[w] {
+                reached[w] = true;
+                stack.push(w);
+            }
+        }
+    }
+    waits_on.iter().all(|&p| reached[p])
+}
+
+/// `items` in `order` — indices into `items`, as [`safe_flip_order`] returns.
+/// An index `order` does not name keeps its place after them: nothing is dropped.
+fn reordered<T>(items: Vec<T>, order: &[usize]) -> Vec<T> {
+    let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
+    let mut out: Vec<T> = order
+        .iter()
+        .filter_map(|&i| slots.get_mut(i).and_then(Option::take))
+        .collect();
+    out.extend(slots.into_iter().flatten());
+    out
 }
 
 /// One row's jar: through the cache when its record answers this era, else read
@@ -3164,7 +3331,8 @@ mod tests {
 
     /// S ← A ← B: switching A off with S is not enough, because B needs A. The
     /// dialog's «Disable all» exists so that what remains still launches, so B is
-    /// named too — and it names A, the mod it loses, not S.
+    /// named too — and it names A, the mod it loses, not S. B is listed first: it
+    /// needs A, so it goes off before A does.
     #[test]
     fn removing_a_mod_also_names_what_breaks_once_its_dependents_are_off() {
         let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
@@ -3183,12 +3351,12 @@ mod tests {
         let inst = instance(vec![s, a, b]);
         assert_eq!(
             inst.removal_impact(&set(&["s"])).unwrap().dependents,
-            vec![impacted("a", &["S"]), impacted("b", &["A"])]
+            vec![impacted("b", &["A"]), impacted("a", &["S"])]
         );
     }
 
     /// S ← L, S ← R, and D needs both: D breaks once, when L and R leave
-    /// together, and names both.
+    /// together, and names both — listed before them, since it needs both.
     #[test]
     fn a_mod_two_dependents_feed_is_named_once_with_both() {
         let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
@@ -3223,15 +3391,17 @@ mod tests {
         assert_eq!(
             inst.removal_impact(&set(&["s"])).unwrap().dependents,
             vec![
+                impacted("d", &["L", "R"]),
                 impacted("l", &["S"]),
                 impacted("r", &["S"]),
-                impacted("d", &["L", "R"]),
             ]
         );
     }
 
     /// A needs S and C, B needs A, C needs B — a cycle among the dependents: the
-    /// fixed point ends, and each mod is named once, in the wave it breaks in.
+    /// fixed point ends, and each mod is named once, with what it lost in the
+    /// wave it broke in. No order keeps a cycle whole: it is broken at A, the
+    /// earliest, and C, which needs B, still goes off before B.
     #[test]
     fn a_cycle_among_dependents_ends_with_each_named_once() {
         let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
@@ -3267,15 +3437,15 @@ mod tests {
             inst.removal_impact(&set(&["s"])).unwrap().dependents,
             vec![
                 impacted("a", &["S"]),
-                impacted("b", &["A"]),
                 impacted("c", &["B"]),
+                impacted("b", &["A"]),
             ]
         );
     }
 
     /// Only what really breaks is carried along: B needs `amod`, which P still
     /// provides after A is switched off, so B stays on — while C, which needs
-    /// what only Q provided, is carried along.
+    /// what only Q provided, is carried along, and goes off before Q.
     #[test]
     fn a_mod_another_enabled_provider_still_covers_is_not_carried_along() {
         let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
@@ -3309,18 +3479,20 @@ mod tests {
             inst.removal_impact(&set(&["s"])).unwrap().dependents,
             vec![
                 impacted("a", &["S"]),
-                impacted("q", &["S"]),
                 impacted("c", &["Q"]),
+                impacted("q", &["S"]),
             ]
         );
     }
 
-    /// Wave by wave — what breaks directly, then what breaks once those are off
-    /// too, and so on — each wave in registry order, even where the registry
-    /// lists a later wave's mod first. The answer never depends on a hash set's
-    /// iteration order, which is seeded anew for every set.
+    /// Three waves — Y and A break directly, Z and X once those are off, W last
+    /// — with the registry listing later waves first. A mod goes off before any
+    /// listed mod it needs (Z before A, W before X before Y), and otherwise the
+    /// earliest by wave, then registry order, goes first: the interleaving of the
+    /// two chains is today's order, not the registry's. The answer never depends
+    /// on a hash set's iteration order, which is seeded anew for every set.
     #[test]
-    fn dependents_come_wave_by_wave_each_wave_in_registry_order() {
+    fn dependents_come_in_one_safe_order_whatever_the_hash_seed() {
         let w = row(
             modz("w", vec![], vec![dep("xmod", "", RangeFamily::Maven)]),
             true,
@@ -3356,11 +3528,11 @@ mod tests {
         );
         let inst = instance(vec![w, z, s, y, a, x]);
         let expected = vec![
-            impacted("y", &["S"]),
-            impacted("a", &["S"]),
             impacted("z", &["A"]),
-            impacted("x", &["Y"]),
+            impacted("a", &["S"]),
             impacted("w", &["X"]),
+            impacted("x", &["Y"]),
+            impacted("y", &["S"]),
         ];
         for _ in 0..16 {
             assert_eq!(
@@ -3472,7 +3644,8 @@ mod tests {
     }
 
     /// Transitive to a fixed point: t → a → b; b → t closes a cycle. `zmod` is
-    /// absent (an install, not an enable); `q` is `e`'s problem, not `t`'s.
+    /// absent (an install, not an enable); `q` is `e`'s problem, not `t`'s. B is
+    /// listed first: A needs it, so it comes on before A.
     #[test]
     fn enabling_asks_for_disabled_requirements_to_a_fixed_point() {
         let t = row(
@@ -3513,12 +3686,12 @@ mod tests {
             got,
             vec![
                 DisabledRequirement {
-                    sha1: "a".into(),
-                    name: "A".into()
-                },
-                DisabledRequirement {
                     sha1: "b".into(),
                     name: "B".into()
+                },
+                DisabledRequirement {
+                    sha1: "a".into(),
+                    name: "A".into()
                 },
             ]
         );
@@ -3573,5 +3746,133 @@ mod tests {
             inst.enable_impact(&set(&["a", "ghost"])),
             Err(crate::error::Error::ModsNotFound { .. })
         ));
+    }
+
+    // ── flip order: the lists are switched one by one, as given ──────────
+
+    /// A row that provides `<sha1>mod` and requires `<n>mod` for each `n` of
+    /// `needs` — `mods.toml` declarations, which the NeoForge fixture enforces.
+    fn mod_row(sha1: &str, needs: &[&str], enabled: bool) -> ParsedRow {
+        let deps = needs
+            .iter()
+            .map(|n| dep(&format!("{n}mod"), "", RangeFamily::Maven))
+            .collect();
+        row(
+            modz(sha1, vec![prov(&format!("{sha1}mod"), "1.0")], deps),
+            enabled,
+        )
+    }
+
+    /// The dependents `targets` leaving takes along, in the order they are listed.
+    fn off_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.removal_impact(&set(targets)).unwrap();
+        impact.dependents.into_iter().map(|d| d.sha1).collect()
+    }
+
+    /// The requirements enabling `targets` switches on, in the order they are listed.
+    fn on_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.enable_impact(&set(targets)).unwrap();
+        impact.requirements.into_iter().map(|r| r.sha1).collect()
+    }
+
+    /// S is a library, L needs S, M needs S and L: both break in one wave, and
+    /// whichever the registry lists first, M goes off before L — L off while M
+    /// is still on would leave M without L.
+    #[test]
+    fn a_mod_goes_off_before_a_same_wave_mod_it_needs() {
+        let s = || mod_row("s", &[], true);
+        let l = || mod_row("l", &["s"], true);
+        let m = || mod_row("m", &["s", "l"], true);
+        for inst in [instance(vec![s(), l(), m()]), instance(vec![s(), m(), l()])] {
+            assert_eq!(off_order(&inst, &["s"]), shas(&["m", "l"]));
+        }
+    }
+
+    /// A needs S and B, B needs C, C needs S: A and C break at once, B once C is
+    /// off. Wave order (A, C, B) would switch C off while B needs it; reversed,
+    /// B off while A needs it. A, B, C keeps every step whole.
+    #[test]
+    fn a_mod_goes_off_before_a_later_wave_mod_it_needs() {
+        let inst = instance(vec![
+            mod_row("s", &[], true),
+            mod_row("a", &["s", "b"], true),
+            mod_row("b", &["c"], true),
+            mod_row("c", &["s"], true),
+        ]);
+        assert_eq!(off_order(&inst, &["s"]), shas(&["a", "b", "c"]));
+    }
+
+    /// The same-wave mirror: T needs L and S, L needs S — both found in one
+    /// round, in T's declaration order. Whichever T declares first, S comes on
+    /// before L: L on without S would not load.
+    #[test]
+    fn a_requirement_comes_on_before_a_same_round_requirement_that_needs_it() {
+        for t_needs in [["l", "s"], ["s", "l"]] {
+            let inst = instance(vec![
+                mod_row("t", &t_needs, false),
+                mod_row("l", &["s"], false),
+                mod_row("s", &[], false),
+            ]);
+            assert_eq!(on_order(&inst, &["t"]), shas(&["s", "l"]), "{t_needs:?}");
+        }
+    }
+
+    /// The later-wave mirror: T needs S and B, B needs C, C needs S — found as S,
+    /// B, then C. Found order switches B on before C; reversed, C before S.
+    /// S, C, B keeps every step whole.
+    #[test]
+    fn a_requirement_comes_on_before_an_earlier_found_requirement_that_needs_it() {
+        let inst = instance(vec![
+            mod_row("t", &["s", "b"], false),
+            mod_row("b", &["c"], false),
+            mod_row("c", &["s"], false),
+            mod_row("s", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t"]), shas(&["s", "c", "b"]));
+    }
+
+    /// P and Q need each other. No order keeps a cycle whole, so it keeps
+    /// today's order — broken at its earliest mod, whichever the registry lists
+    /// first. X needs Q too, and still goes off before Q.
+    #[test]
+    fn a_cycle_keeps_todays_order_broken_at_its_earliest_mod() {
+        let s = || mod_row("s", &[], true);
+        let p = || mod_row("p", &["s", "q"], true);
+        let q = || mod_row("q", &["s", "p"], true);
+        let x = || mod_row("x", &["s", "q"], true);
+        assert_eq!(
+            off_order(&instance(vec![s(), p(), q()]), &["s"]),
+            shas(&["p", "q"])
+        );
+        assert_eq!(
+            off_order(&instance(vec![s(), q(), p()]), &["s"]),
+            shas(&["q", "p"])
+        );
+        assert_eq!(
+            off_order(&instance(vec![s(), p(), q(), x()]), &["s"]),
+            shas(&["p", "x", "q"])
+        );
+    }
+
+    /// Requirements that need nothing of each other keep the order they were
+    /// found in. Where Y needs X, found after it, Y waits for X while the
+    /// earliest mod free to go goes first: P, Q, X, Y — P and Q keep their order.
+    #[test]
+    fn mods_that_need_nothing_of_each_other_keep_todays_order() {
+        let inst = instance(vec![
+            mod_row("t", &["r", "p", "q"], false),
+            mod_row("p", &[], false),
+            mod_row("q", &[], false),
+            mod_row("r", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t"]), shas(&["r", "p", "q"]));
+        let inst = instance(vec![
+            mod_row("t", &["p", "y", "q"], false),
+            mod_row("p", &[], false),
+            mod_row("y", &["x"], false),
+            mod_row("q", &[], false),
+            mod_row("x", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t"]), shas(&["p", "q", "x", "y"]));
     }
 }
