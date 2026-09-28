@@ -183,6 +183,17 @@ pub enum Violation {
         installed: String,
         family: crate::mods::version_range::RangeFamily,
     },
+    /// A requirement nothing ENABLED provides but a DISABLED row does (own id,
+    /// Jar-in-Jar id or umbrella alias). Disabled jars still satisfy nothing;
+    /// this names the absence truthfully so the fix is "enable", not an install
+    /// that would put a duplicate next to the switched-off jar.
+    RequiredDisabled {
+        dependent_sha1: String,
+        dependent_name: String,
+        dep_id: String,
+        /// Registry digest of the first such disabled row, in registry order.
+        provider_sha1: String,
+    },
 }
 
 impl Violation {
@@ -212,6 +223,12 @@ impl Violation {
                 ..
             }
             | Self::PlatformMismatch {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::RequiredDisabled {
                 dependent_sha1,
                 dependent_name,
                 dep_id,
@@ -497,6 +514,9 @@ pub enum ViolationKind {
     /// The jar was built for a Minecraft or loader version this instance does
     /// not provide.
     PlatformMismatch,
+    /// A required dependency no enabled mod provides, that a disabled mod does.
+    /// `provider_sha1` names that disabled jar.
+    RequiredDisabled,
 }
 
 /// One resolved dependency violation, enriched with enough context for the
@@ -509,15 +529,16 @@ pub struct DepViolation {
     pub dependent_name: String,
     /// Mod-id of the missing / out-of-range dependency.
     pub dep_id: String,
-    /// `MissingRequired` or `VersionOutOfRange`.
+    /// What the loader would object to — see [`ViolationKind`].
     pub kind: ViolationKind,
-    /// The version that is actually installed (`None` for `MissingRequired`).
+    /// The version that is actually installed (`None` for `MissingRequired`
+    /// and `RequiredDisabled`: nothing enabled provides it).
     pub installed_version: Option<String>,
     /// The version range the dependent declared (empty string for
-    /// `MissingRequired`), verbatim from the jar. Kept for remediation
-    /// (`mods_filter_satisfying` evaluates it) and for the log line — the UI
-    /// renders `needed_desc` instead, because raw Maven bracket notation is
-    /// unreadable.
+    /// `MissingRequired` and `RequiredDisabled`), verbatim from the jar. Kept
+    /// for remediation (`mods_filter_satisfying` evaluates it) and for the log
+    /// line — the UI renders `needed_desc` instead, because raw Maven bracket
+    /// notation is unreadable.
     pub needed: String,
     /// `needed`, decomposed into displayable clauses. The UI formats these
     /// through i18n and only falls back to the raw string when
@@ -526,15 +547,16 @@ pub struct DepViolation {
     /// Platform project reference for the provider, if we could link it.
     /// Powers a "View on Modrinth / CurseForge" link in the UI.
     pub provider_project: Option<crate::mods::platform::DepProjectRef>,
-    /// SHA-1 of the installed jar that currently provides `dep_id`.
-    /// Present only for `VersionOutOfRange` violations where the provider
-    /// is a tracked installed mod. Used by the UI to route "Обновить"
-    /// through `mods_update_one` (remove-old + install-new) instead of a
-    /// bare `mods_install_with_deps` that would leave duplicate jars.
+    /// SHA-1 of the jar that provides `dep_id`. For the range kinds: the
+    /// ENABLED provider, so the UI routes "Обновить" through `mods_update_one`
+    /// (remove-old + install-new) instead of a bare `mods_install_with_deps`
+    /// that would leave duplicate jars. For `RequiredDisabled`: the DISABLED jar
+    /// to switch back on. `None` otherwise.
     pub provider_sha1: Option<String>,
     /// Range grammar for `needed` (Maven / Fabric / Quilt). `None` for
-    /// `MissingRequired` (no range to interpret). Lets the UI pick a version
-    /// that actually satisfies `needed` via `mods_filter_satisfying`.
+    /// `MissingRequired` and `RequiredDisabled` (no range to interpret). Lets
+    /// the UI pick a version that actually satisfies `needed` via
+    /// `mods_filter_satisfying`.
     pub family: Option<crate::mods::version_range::RangeFamily>,
 }
 
@@ -551,6 +573,11 @@ pub struct PreflightReport {
     /// existing `PreflightReport` literal in the frontend stops type-checking.
     #[serde(default)]
     pub pack_completion: Option<crate::mods::pack_completion::PackCompletion>,
+    /// Registry digests of ENABLED mods whose jar was missing from disk or would
+    /// not parse: their dependencies were not judged, so their silence is not "no
+    /// problem". `#[serde(default)]` for the same reason as `pack_completion`.
+    #[serde(default)]
+    pub unjudged: Vec<String>,
 }
 
 /// Map a `ModSource` + `project_id` to a `DepProjectRef` for the
@@ -667,6 +694,29 @@ fn enrich(
             provider_owner,
             provider_sha1_map,
         ),
+        Violation::RequiredDisabled {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            provider_sha1,
+        } => DepViolation {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            kind: ViolationKind::RequiredDisabled,
+            installed_version: None,
+            needed: String::new(),
+            // As for `MissingRequired`: nothing enabled provides it, so there is
+            // no range to read against.
+            needed_desc: crate::mods::range_describe::describe(
+                "",
+                crate::mods::version_range::RangeFamily::Maven,
+            ),
+            // No platform link: the fix is switching this jar back on, by digest.
+            provider_project: None,
+            provider_sha1: Some(provider_sha1),
+            family: None,
+        },
         Violation::PlatformMismatch {
             dependent_sha1,
             dependent_name,
@@ -897,6 +947,51 @@ impl ParsedInstance {
             &self.mc,
             self.loader_version.as_deref(),
         )
+        .into_iter()
+        .map(|v| self.explain_absence(v, enabled))
+        .collect()
+    }
+
+    /// A `MissingRequired` whose id a readable row OUTSIDE `enabled` provides
+    /// becomes `RequiredDisabled`, naming the first such row in registry order.
+    /// An unreadable jar is not in `rows`, so it can never be claimed as the
+    /// provider (§9): that absence stays `MissingRequired`, today's answer.
+    fn explain_absence(&self, v: Violation, enabled: &HashSet<String>) -> Violation {
+        match v {
+            Violation::MissingRequired {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+            } => match self
+                .rows
+                .iter()
+                .find(|r| !enabled.contains(&r.parsed.sha1) && row_provides(r, &dep_id))
+            {
+                Some(p) => Violation::RequiredDisabled {
+                    dependent_sha1,
+                    dependent_name,
+                    dep_id,
+                    provider_sha1: p.parsed.sha1.clone(),
+                },
+                None => Violation::MissingRequired {
+                    dependent_sha1,
+                    dependent_name,
+                    dep_id,
+                },
+            },
+            other => other,
+        }
+    }
+
+    /// Enabled rows the scan could not read — exactly the two skip sites (jar
+    /// missing from disk, zip that would not parse). A disabled row is never
+    /// judged, so it is never "unjudged" either.
+    pub fn unjudged(&self) -> Vec<String> {
+        self.unreadable
+            .iter()
+            .filter(|m| m.enabled)
+            .map(|m| m.sha1.clone())
+            .collect()
     }
 
     /// [`Self::resolve`], enriched for the UI. The provider maps come from the
@@ -950,6 +1045,26 @@ impl ParsedInstance {
         }
         (owner, by_id)
     }
+}
+
+/// Would `row`, switched on, answer for `dep_id`? The same three routes
+/// [`ProviderIndex::is_provided`] accepts: an own id, an embedded (JIJ) id, or an
+/// umbrella alias of either.
+fn row_provides(row: &ParsedRow, dep_id: &str) -> bool {
+    let ids: HashSet<String> = row
+        .parsed
+        .manifest
+        .provided
+        .iter()
+        .chain(&row.jij_provided)
+        .map(|p| canon_id(&p.mod_id))
+        .collect();
+    let key = canon_id(dep_id);
+    ids.contains(&key)
+        || PROVIDES_ALIASES
+            .iter()
+            .find(|(name, _)| *name == key)
+            .is_some_and(|(_, aliases)| aliases.iter().any(|a| ids.contains(*a)))
 }
 
 /// One row's jar: through the cache when its record answers this era, else read
@@ -1095,6 +1210,7 @@ pub async fn dependency_preflight_for_root(
     Ok(PreflightReport {
         violations: parsed.report(&parsed.registry_enabled()),
         pack_completion: crate::mods::pack_completion::read(root),
+        unjudged: parsed.unjudged(),
     })
 }
 
@@ -1770,6 +1886,7 @@ mod tests {
                 family: Some(crate::mods::version_range::RangeFamily::Maven),
             }],
             pack_completion: None,
+            unjudged: vec![],
         };
         let json = serde_json::to_string(&report).unwrap();
         let back: PreflightReport = serde_json::from_str(&json).unwrap();
@@ -2319,5 +2436,214 @@ mod tests {
                 .map(|d| d.dep_id.as_str())
                 .collect();
         assert_eq!(ids, ["real", "opt"]);
+    }
+
+    // ── a disabled provider, and what could not be judged ────────────────
+
+    #[test]
+    fn a_requirement_only_a_disabled_mod_provides_is_required_disabled() {
+        let p = row(modz("p", vec![prov("core", "1.0")], vec![]), false);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![p, d]);
+        let got = inst.report(&inst.registry_enabled());
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].kind, ViolationKind::RequiredDisabled);
+        assert_eq!(got[0].provider_sha1.as_deref(), Some("p"));
+        assert_eq!(
+            (got[0].installed_version.as_deref(), got[0].family),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn a_disabled_mods_embedded_library_and_aliases_count_as_what_it_provides() {
+        let mut host = row(modz("h", vec![prov("host", "1.0")], vec![]), false);
+        host.jij_provided = vec![prov("lib", "2.0")];
+        let d = row(
+            modz("d", vec![], vec![dep("lib", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![host, d]);
+        assert!(matches!(
+            inst.resolve(&inst.registry_enabled()).as_slice(),
+            [Violation::RequiredDisabled { provider_sha1, .. }] if provider_sha1 == "h"
+        ));
+
+        let ff = row(
+            modz("ff", vec![prov("forgified_fabric_api", "2.2")], vec![]),
+            false,
+        );
+        let c = row(
+            modz(
+                "c",
+                vec![],
+                vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+            ),
+            true,
+        );
+        let mut fabric = instance(vec![ff, c]);
+        fabric.loader = LoaderKind::Fabric;
+        assert!(matches!(
+            fabric.resolve(&fabric.registry_enabled()).as_slice(),
+            [Violation::RequiredDisabled { provider_sha1, .. }] if provider_sha1 == "ff"
+        ));
+    }
+
+    #[test]
+    fn an_enabled_provider_is_never_upstaged_by_a_disabled_one() {
+        let off = row(modz("off", vec![prov("core", "9.0")], vec![]), false);
+        let on = row(modz("on", vec![prov("core", "1.0")], vec![]), true);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "[2.0,)", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![off, on, d]);
+        let got = inst.report(&inst.registry_enabled());
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].kind, ViolationKind::VersionOutOfRange);
+        assert_eq!(got[0].provider_sha1.as_deref(), Some("on"));
+    }
+
+    #[test]
+    fn required_disabled_and_unjudged_on_the_wire() {
+        assert_eq!(
+            serde_json::to_string(&ViolationKind::RequiredDisabled).unwrap(),
+            "\"required_disabled\""
+        );
+        let old: PreflightReport = serde_json::from_str(r#"{"violations":[]}"#).unwrap();
+        assert!(
+            old.unjudged.is_empty(),
+            "a report written before the field reads as all-judged"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_disabled_fabric_api_is_named_as_the_provider_of_its_submodule() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let inner = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"fabric-renderer-api-v1","version":"3.2.0"}"#,
+        )]);
+        let fabric_api = zip_bytes(&[
+            (
+                "fabric.mod.json",
+                br#"{"id":"fabric-api","version":"0.100.0"}"#,
+            ),
+            ("META-INF/jars/fabric-renderer-api-v1.jar", &inner),
+        ]);
+        let indium = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"indium","version":"1.0.35","depends":{"fabric-renderer-api-v1":"*"}}"#,
+        )]);
+        // Switched off: `.disabled` on disk, `enabled: false` in the registry.
+        tokio::fs::write(dir.join("fabric-api.jar.disabled"), &fabric_api)
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("indium.jar"), &indium)
+            .await
+            .unwrap();
+        let mut off = installed_jar("fabric-api.jar", "sha-fabricapi", "Fabric API");
+        off.enabled = false;
+        add(td.path(), off).await.unwrap();
+        add(
+            td.path(),
+            installed_jar("indium.jar", "sha-indium", "Indium"),
+        )
+        .await
+        .unwrap();
+
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
+        assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+        assert_eq!(report.violations[0].kind, ViolationKind::RequiredDisabled);
+        assert_eq!(
+            report.violations[0].provider_sha1.as_deref(),
+            Some("sha-fabricapi")
+        );
+        assert!(report.unjudged.is_empty());
+    }
+
+    /// §9: an unreadable disabled jar is "could not tell", never "it is there,
+    /// switched off" — the row keeps today's `MissingRequired`.
+    #[tokio::test]
+    async fn an_unreadable_disabled_jar_is_not_claimed_as_a_provider() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let indium = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"indium","version":"1.0.35","depends":{"fabric-renderer-api-v1":"*"}}"#,
+        )]);
+        tokio::fs::write(dir.join("indium.jar"), &indium)
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("fabric-api.jar.disabled"), b"not a zip")
+            .await
+            .unwrap();
+        let mut off = installed_jar("fabric-api.jar", "sha-fabricapi", "Fabric API");
+        off.enabled = false;
+        add(td.path(), off).await.unwrap();
+        add(
+            td.path(),
+            installed_jar("indium.jar", "sha-indium", "Indium"),
+        )
+        .await
+        .unwrap();
+
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
+        assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+        assert_eq!(report.violations[0].kind, ViolationKind::MissingRequired);
+        assert!(report.unjudged.is_empty(), "a disabled jar is never judged");
+    }
+
+    /// Unjudged = exactly the two skip sites, enabled rows only. A jar that
+    /// parses and declares nothing IS judged.
+    #[tokio::test]
+    async fn unjudged_names_exactly_the_enabled_jars_that_could_not_be_read() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let quiet = zip_bytes(&[("fabric.mod.json", br#"{"id":"quiet","version":"1.0"}"#)]);
+        tokio::fs::write(dir.join("quiet.jar"), &quiet)
+            .await
+            .unwrap();
+        add(td.path(), installed_jar("quiet.jar", "sha-quiet", "Quiet"))
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("broken.jar"), b"not a zip")
+            .await
+            .unwrap();
+        add(
+            td.path(),
+            installed_jar("broken.jar", "sha-broken", "Broken"),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(dir.join("off.jar.disabled"), b"not a zip either")
+            .await
+            .unwrap();
+        let mut off = installed_jar("off.jar", "sha-off", "Off");
+        off.enabled = false;
+        add(td.path(), off).await.unwrap();
+
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
+        assert_eq!(report.unjudged, vec!["sha-broken".to_string()]);
+        assert!(report.violations.is_empty(), "{:?}", report.violations);
     }
 }
