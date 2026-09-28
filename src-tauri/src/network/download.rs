@@ -59,7 +59,9 @@ pub enum Checksum {
 /// Downloads are **atomic**: the body streams to a sibling `<dest>.part`
 /// file, is hashed as it goes and verified against `checksum` after the
 /// last byte, and only then is renamed onto `dest`. Any stream/IO error,
-/// or a hash mismatch, removes the partial and leaves `dest` untouched.
+/// a hash mismatch, or a failed rename leaves `dest` untouched and removes
+/// the partial; a removal that itself fails is logged with the partial's
+/// path, and the caller still gets the download's own error.
 /// This closes a TOFU-truncation hole: an interrupted download of an
 /// empty-sha artifact used to leave a truncated file at `dest` that later
 /// presence/empty-sha checks would trust forever. Because `dest` only ever
@@ -104,11 +106,12 @@ pub(crate) async fn download_inner(
 
     // Stream to a sibling temp file, then rename onto `dest`. Keeping the
     // temp in the same directory guarantees the rename is a cheap same-volume
-    // move. A `.part` suffix makes leftover partials (e.g. after a hard crash
-    // that skips the cleanup) recognisable and disjoint from finished files.
+    // move. A `.part` suffix makes leftover partials (after a hard crash that
+    // skips the cleanup, or a cleanup that failed and was logged)
+    // recognisable and disjoint from finished files.
     let part = part_path(dest);
 
-    let result = stream_to_part(
+    let streamed = stream_to_part(
         resp,
         &part,
         dest,
@@ -120,21 +123,10 @@ pub(crate) async fn download_inner(
     )
     .await;
 
-    match result {
-        Ok(got_sha1) => {
-            // Promote the verified temp file to its final name.
-            tokio::fs::rename(&part, dest).await.map_err(|e| {
-                let _ = std::fs::remove_file(&part);
-                Error::io(dest.display().to_string(), e)
-            })?;
-            Ok(got_sha1)
-        }
-        Err(e) => {
-            // Never leave a partial/unverified file behind.
-            let _ = tokio::fs::remove_file(&part).await;
-            Err(e)
-        }
-    }
+    promote_or_discard(streamed, &part, dest, |line| {
+        crate::diag!("network: {initiator} download {url} — {line}");
+    })
+    .await
 }
 
 /// Compute the sibling temp path used while a download is in flight.
@@ -142,6 +134,42 @@ fn part_path(dest: &Path) -> std::path::PathBuf {
     let mut name = dest.file_name().unwrap_or_default().to_os_string();
     name.push(".part");
     dest.with_file_name(name)
+}
+
+/// Settle a finished stream: on success rename the verified `part` onto
+/// `dest`; on any failure — the stream's own, or the rename's — remove
+/// `part`, so no unverified or unpromoted bytes stay behind.
+///
+/// The error returned is always the one describing why the download
+/// failed. A removal that fails must not replace it, or the user would
+/// read about a temp file instead of the cause, so it goes to
+/// `report_leftover` (the launcher log, in production) with the file's
+/// path. Callers match on the error's variant, so it is not folded in
+/// either.
+async fn promote_or_discard(
+    streamed: Result<String>,
+    part: &Path,
+    dest: &Path,
+    report_leftover: impl FnOnce(String),
+) -> Result<String> {
+    let failure = match streamed {
+        Ok(got_sha1) => match tokio::fs::rename(part, dest).await {
+            Ok(()) => return Ok(got_sha1),
+            Err(e) => Error::io(dest.display().to_string(), e),
+        },
+        Err(e) => e,
+    };
+    match tokio::fs::remove_file(part).await {
+        Ok(()) => {}
+        // Never created (`File::create` failed) or already gone: nothing
+        // was left behind, so there is nothing to report.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => report_leftover(format!(
+            "could not remove the temporary file {}: {e}",
+            part.display()
+        )),
+    }
+    Err(failure)
 }
 
 /// Stream the response body into `part`, hashing and emitting progress,
@@ -486,5 +514,126 @@ mod tests {
             !dest.exists(),
             "no file should be created for a rejected host"
         );
+    }
+
+    /// A non-empty directory where a file is expected. `remove_file` on it
+    /// fails with an error that is not `NotFound` on every platform (EISDIR on
+    /// Linux, EPERM on macOS, access denied on Windows), and nothing can be
+    /// renamed onto it. It stands in for a temp file that cannot be removed or
+    /// a destination that cannot be replaced.
+    fn occupied_dir(at: &Path) {
+        std::fs::create_dir_all(at).unwrap();
+        std::fs::write(at.join("keep"), b"x").unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_temp_file_that_cannot_be_removed_is_reported_and_the_download_error_kept() {
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("x.jar");
+        let part = part_path(&dest);
+        occupied_dir(&part);
+        let mut leftovers = Vec::new();
+
+        let r = promote_or_discard(
+            Err(Error::network(
+                "https://host/x.jar",
+                "interrupted mid-stream",
+            )),
+            &part,
+            &dest,
+            |line| leftovers.push(line),
+        )
+        .await;
+
+        assert!(
+            matches!(r, Err(Error::Network { ref details, .. }) if details == "interrupted mid-stream"),
+            "the download's own error must reach the caller, got {r:?}"
+        );
+        assert_eq!(
+            leftovers.len(),
+            1,
+            "one report for the one leftover: {leftovers:?}"
+        );
+        assert!(
+            leftovers[0].contains(&part.display().to_string()),
+            "the report must name the leftover: {}",
+            leftovers[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_promotion_whose_temp_file_cannot_be_removed_is_reported() {
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("x.jar");
+        occupied_dir(&dest);
+        let part = part_path(&dest);
+        occupied_dir(&part);
+        let mut leftovers = Vec::new();
+
+        let r =
+            promote_or_discard(Ok("sha".into()), &part, &dest, |line| leftovers.push(line)).await;
+
+        assert!(
+            matches!(r, Err(Error::Io { ref path, .. }) if *path == dest.display().to_string()),
+            "the rename's error (naming dest) must reach the caller, got {r:?}"
+        );
+        assert_eq!(
+            leftovers.len(),
+            1,
+            "one report for the one leftover: {leftovers:?}"
+        );
+        assert!(
+            leftovers[0].contains(&part.display().to_string()),
+            "the report must name the leftover: {}",
+            leftovers[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_temp_file_that_is_already_gone_is_not_reported() {
+        // `File::create` failing leaves no temp file at all; reporting one
+        // would claim a leftover that does not exist.
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("x.jar");
+        let part = part_path(&dest);
+        let mut leftovers = Vec::new();
+
+        let r = promote_or_discard(
+            Err(Error::io(part.display().to_string(), "create failed")),
+            &part,
+            &dest,
+            |line| leftovers.push(line),
+        )
+        .await;
+
+        assert!(matches!(r, Err(Error::Io { .. })), "got {r:?}");
+        assert!(
+            leftovers.is_empty(),
+            "nothing was left behind: {leftovers:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_promotion_removes_the_temp_file_and_names_the_destination() {
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("x.jar");
+        occupied_dir(&dest);
+        let part = part_path(&dest);
+        std::fs::write(&part, b"verified-bytes").unwrap();
+        let mut leftovers = Vec::new();
+
+        let r =
+            promote_or_discard(Ok("sha".into()), &part, &dest, |line| leftovers.push(line)).await;
+
+        assert!(
+            matches!(r, Err(Error::Io { ref path, .. }) if *path == dest.display().to_string()),
+            "got {r:?}"
+        );
+        assert!(
+            !part.exists(),
+            "the unpromoted temp file must not stay behind"
+        );
+        assert!(leftovers.is_empty(), "the removal succeeded: {leftovers:?}");
+        assert!(dest.join("keep").exists(), "dest must be untouched");
     }
 }
