@@ -21,6 +21,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Fixed
+
+- **Updating a mod no longer installs a second copy of a library you already
+  have.** An update used to install every library the new version needs, even
+  one already there: a different version landed next to yours and the game
+  refused to start with two copies of one mod, a library shipped under the
+  same file name made the update fail halfway, and a library you had switched
+  off came back on. A library you already have is now left as it is, the same
+  way installing a mod treats it, so a switched-off one stays off.
+
 ## [0.25.0] — 2026-09-27
 
 ### Added
