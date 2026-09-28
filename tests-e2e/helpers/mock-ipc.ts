@@ -197,7 +197,7 @@ export type MockState = {
    * `scan_instance_mod_compat` result — the shared offline compat scan
    * (ModLocalCompat[]). An entry with `platform_mismatch: true` makes the
    * Installed tab count that mod incompatible, which is what surfaces the
-   * "Fix incompatible mods" migration button. Defaults to empty.
+   * panel's "Fix incompatible (N)" migration button. Defaults to empty.
    */
   compat_scan?: unknown[];
   /**
@@ -385,8 +385,8 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         modpack_status: () => null,
 
         // Mod-compatibility scan + MC-version migration. The scan feeds the
-        // Installed tab's incompatible count (and thus the "Fix incompatible
-        // mods" button); the plan/apply drive the migration dialog. Apply's
+        // Installed tab's incompatible count (and thus the panel's "Fix
+        // incompatible (N)" button); the plan/apply drive the migration dialog. Apply's
         // args land in __mockIpcCalls so a spec can assert the settled payload.
         scan_instance_mod_compat: () => m.compat_scan,
         mods_plan_mc_migration: () => m.migration_plan,

@@ -1,144 +1,139 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
-  import { formatRange, isSoftRange } from './range-format';
-  import { isRangeRemediable } from './preflight.svelte';
+  import { depNameOf } from '$lib/mods/dep-names.svelte';
+  import { hasBlocking, isRangeRemediable, violationKey } from './preflight.svelte';
+  import { isFixable, violationAction, violationMessage } from './violation-view';
 
+  // «What stops the game» (spec §6.2): the pre-flight's blocking reasons, each
+  // with ↗ to its row and its fix. The same panel is the Play gate's list.
   let {
     report,
-    onUpdate,
+    instanceId = null,
+    depName = undefined,
+    onUpdate = () => {},
     onInstallMissing = () => {},
+    onEnableProvider = () => {},
     onChooseVersion = () => {},
     onFindAlternative = () => {},
     onOpenModPage = () => {},
-    onMigrate,
+    onJumpToDependent = undefined,
+    onFixAll = undefined,
+    fixAllBusy = false,
+    onMigrate = undefined,
     migrateCount = 0,
-    depName = () => null,
     busyKeys = new Set<string>(),
     deadEndKeys = new Set<string>(),
     showRowActions = true,
   }: {
     report: PreflightReport | null;
-    onUpdate: (v: DepViolation) => void;
+    // The dependency's display name. The host's lookup comes first (the
+    // Installed tab also knows its own rows' names); where it has none — or
+    // there is no host lookup, the launch gate's case — the dependent-scoped
+    // name store is read (spec §5.3): names already resolved, never a network
+    // call between the user and Play. Unresolved → the raw loader id, per row.
+    instanceId?: string | null;
+    depName?: (v: DepViolation) => string | null;
+    onUpdate?: (v: DepViolation) => void;
     onInstallMissing?: (v: DepViolation) => void;
+    // `required_disabled`: switch the disabled provider back on (mod-ops asks
+    // first when it has disabled requirements of its own).
+    onEnableProvider?: (v: DepViolation) => void;
     onChooseVersion?: (v: DepViolation) => void;
     onFindAlternative?: (v: DepViolation) => void;
     onOpenModPage?: (v: DepViolation) => void;
-    // Bulk migration entry. When supplied AND `migrateCount > 0`, a header
-    // button opens the instance-wide migration plan (the same dialog the
-    // per-row "Fix" opens). Only the Installed tab passes these — the launch
-    // gate leaves them unset, so its header stays a plain title.
+    // ↗ to the dependent's own row — only the Installed tab has a list.
+    onJumpToDependent?: (v: DepViolation) => void;
+    // «Fix all (N)» over the fixable rows. The gate repairs through its own
+    // primary instead and leaves it unset.
+    onFixAll?: () => void;
+    fixAllBusy?: boolean;
+    // Bulk migration entry, on compat's own count — NOT the violation count: a
+    // jar can be incompatible with no dependency violation, so this can show
+    // with no rows at all. Only the Installed tab passes it.
     onMigrate?: () => void;
-    // Authoritative count of incompatible mods, from `compat.incompatibleCount`
-    // — NOT the violation count. The two overlap but a jar can be
-    // platform-incompatible with no dependency-graph violation, and the button
-    // must follow the compat count so it appears exactly when there is
-    // something to migrate.
     migrateCount?: number;
-    // The dependency's human name for a violation, or null → the raw loader id
-    // is shown. A lookup into the dependent-scoped name store
-    // (dep-names.svelte.ts), keyed by (dependent, dep id): two mods may declare
-    // the same bare id for different projects.
-    //
-    // Only the Installed tab supplies this: resolving a name costs a network
-    // round, and nothing may sit between the user and the Play button, so the
-    // launch gate passes nothing and renders the raw loader id. The asymmetry
-    // is deliberate — a missing name is a fallback, never a bug.
-    depName?: (v: DepViolation) => string | null;
-    // Row keys (violationKey) currently mid-remediation / with no satisfying
-    // version. Pass a SvelteSet for live updates — a plain Set is read once and
-    // won't reactively re-render the row on mutation.
+    // Row keys (violationKey) mid-remediation / with no satisfying version.
+    // Pass a SvelteSet for live updates — a plain Set is read once.
     busyKeys?: Set<string>;
     deadEndKeys?: Set<string>;
-    // The launch gate mutes per-row actions (it remediates via its own
-    // "Update & launch" batch button), so it passes false to hide them.
+    // The launch gate mutes per-row actions (it repairs through its own
+    // button), so it passes false to hide them.
     showRowActions?: boolean;
   } = $props();
 
-  const violations = $derived(report?.violations ?? []);
-  // The migration entry is offered on its own signal, independent of the
-  // dependency-graph violations that fill the row list. This is why the panel
-  // can show a header with no rows: incompatible mods without a dep violation.
-  const showMigrate = $derived(!!onMigrate && migrateCount > 0);
-  const rowKey = (v: DepViolation): string => `${v.dependent_sha1}:${v.dep_id}`;
+  const nameOf = (v: DepViolation): string =>
+    depName?.(v) ??
+    (instanceId ? depNameOf(instanceId, v.dependent_sha1, v.dep_id) : null) ??
+    v.dep_id;
 
-  /**
-   * One sentence per violation kind. The range is rendered in plain language —
-   * raw Maven bracket notation (`(,6.0.9]`) is not something a player can read,
-   * and for an incompatibility it would read backwards.
-   */
-  function rowMessage(v: DepViolation): string {
-    const dep = depName(v) ?? v.dep_id;
-    if (v.kind === 'missing_required') {
-      return $t('mods.preflight.missing', { dependent: v.dependent_name, dep });
-    }
-    // An incompatibility fires when the installed version is INSIDE the
-    // declared range, so a range that constrains nothing fires for every
-    // version. Naming versions there would contradict itself — "incompatible
-    // with X 1.2 recommended (any version works)" — so drop the range instead.
-    // Only this kind can reach a soft range: the other two need a Violated
-    // verdict, which a soft range never produces.
-    if (v.kind === 'incompatible_installed' && isSoftRange(v.needed_desc)) {
-      return $t('mods.preflight.incompatibleWithAny', {
-        dependent: v.dependent_name,
-        dep,
-        installed: v.installed_version ?? '',
-      });
-    }
-    const key =
-      v.kind === 'incompatible_installed'
-        ? 'mods.preflight.incompatibleWith'
-        : v.kind === 'optional_out_of_range'
-          ? 'mods.preflight.optionalOutOfRange'
-          : 'mods.preflight.outOfRange';
-    return $t(key, {
-      dependent: v.dependent_name,
-      dep,
-      needed: formatRange($t, v.needed_desc),
-      installed: v.installed_version ?? '',
-    });
-  }
+  // Blocking rows only, by the gate's own predicate: while a self-completing
+  // pack is still fetching files its complaints are advisory, and a panel
+  // titled «What stops the game» must not list them.
+  const violations = $derived(report && hasBlocking(report) ? report.violations : []);
+  const blocking = $derived(violations.length > 0);
+  const fixableCount = $derived(violations.filter(isFixable).length);
+  const showFixAll = $derived(!!onFixAll && fixableCount > 0);
+  const showMigrate = $derived(!!onMigrate && migrateCount > 0);
 </script>
 
-{#if violations.length > 0 || showMigrate}
+{#if blocking || showMigrate}
+  <!-- The surface with a danger border and a red icon, never the bg-danger-bg
+       box: danger text on that box misses AA in both themes (DESIGN.md Known
+       gaps). With only incompatibilities left nothing stops the game, so the
+       panel says what is true instead — amber, «Some mods may not work». -->
   <div
-    class="rounded-xl border border-warning-text bg-warning-bg overflow-hidden mb-3"
+    class="rounded-xl border bg-surface overflow-hidden mb-3 {blocking
+      ? 'border-danger'
+      : 'border-warning-text'}"
     data-testid="preflight-panel"
   >
     <div
-      class="px-4 py-2.5 font-semibold text-warning-text border-b border-warning-text
-        flex items-center gap-2"
-      class:border-b-0={violations.length === 0}
+      class="px-4 py-2.5 font-semibold text-primary flex flex-wrap items-center gap-2"
+      class:border-b={blocking}
+      class:border-border-subtle={blocking}
     >
-      <Icon name="warning" class="text-warning-text" />
-      <span class="flex-1">{$t('mods.preflight.panelTitle')}</span>
+      <Icon
+        name={blocking ? 'circleX' : 'warning'}
+        class="shrink-0 {blocking ? 'text-danger' : 'text-warning-text'}"
+      />
+      <span class="flex-1">
+        {$t(blocking ? 'mods.preflight.panelTitle' : 'mods.preflight.panelTitleWarnOnly')}
+      </span>
+      {#if showFixAll}
+        <BusyButton
+          class="btn-primary btn-xs shrink-0"
+          busy={fixAllBusy}
+          data-testid="preflight-fix-all"
+          onclick={() => onFixAll?.()}
+        >
+          {$t('mods.preflight.fixAll', { count: fixableCount })}
+        </BusyButton>
+      {/if}
       {#if showMigrate}
-        <!-- Scoped to the incompatibility class by its copy ("Fix incompatible
-             mods"): the panel also lists missing dependencies, which migration
-             does not touch, so a whole-panel "fix" would over-promise. Opens
-             the same instance-wide plan as each row's Fix button. -->
+        <!-- Scoped to the incompatibility class by its copy: the panel also
+             lists missing dependencies, which migration does not touch, so a
+             whole-panel "fix" here would over-promise. -->
         <button
           type="button"
-          class="shrink-0 text-xs font-medium px-2.5 py-1 rounded
-          border border-warning-text text-warning-text hover:bg-warning-text/10
-          focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+          class="btn-secondary btn-xs shrink-0"
           data-testid="preflight-migrate-btn"
           onclick={() => onMigrate?.()}
         >
-          {$t('mods.migration.openBtn')}
+          {$t('mods.preflight.fixIncompatible', { count: migrateCount })}
         </button>
       {/if}
     </div>
-    {#if violations.length > 0}
-      <!-- Cap the row list and let it scroll: a long violation list (many mods)
-           must not push the panel — or, in the launch gate, the dialog's footer
-           buttons — past the window edge. Viewport-relative so it adapts to a
-           compact window. -->
-      <!-- A scrollable region must be focusable so keyboard users can scroll it
-           (WCAG 2.1.1); the noninteractive-tabindex rule is a false positive here. -->
+    {#if blocking}
+      <!-- Cap the row list and let it scroll: a long list must not push the
+           panel — or, in the launch gate, the dialog's footer — past the window
+           edge. A scrollable region must be focusable so keyboard users can
+           scroll it (WCAG 2.1.1); the noninteractive-tabindex rule is a false
+           positive here. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
         class="max-h-[min(22rem,45vh)] overflow-y-auto"
@@ -147,71 +142,87 @@
         aria-label={$t('mods.preflight.panelTitle')}
         data-testid="preflight-scroll"
       >
-        {#each violations as v (v.dependent_sha1 + ':' + v.dep_id)}
+        {#each violations as v (violationKey(v))}
+          {@const key = violationKey(v)}
+          {@const action = violationAction(v)}
           <div
-            class="px-4 py-2.5 flex items-center gap-3 border-b border-warning-text/30 last:border-b-0"
+            class="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-subtle last:border-b-0"
             data-testid="preflight-row"
+            data-violation-key={key}
           >
-            <Icon name="warning" class="text-warning-text shrink-0" />
-            <span class="flex-1 text-sm text-warning-text">
-              {rowMessage(v)}
-            </span>
-            {#if showRowActions && v.kind === 'missing_required'}
-              <button
-                type="button"
-                class="shrink-0 text-xs font-medium px-2 py-1 rounded
-              border border-warning-text text-warning-text hover:bg-warning-text/10
-              focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
-                use:tooltip={{ text: $t('mods.preflight.installTip'), describe: false }}
-                onclick={() => onInstallMissing(v)}
-              >
-                {$t('mods.preflight.install', { dep: depName(v) ?? v.dep_id })}
-              </button>
-            {:else if showRowActions && isRangeRemediable(v) && v.provider_project !== null}
-              {@const key = rowKey(v)}
-              {#if busyKeys.has(key)}
-                <Spinner size="sm" class="shrink-0 text-warning-text" />
-              {:else if deadEndKeys.has(key)}
-                <span class="shrink-0 text-xs text-warning-text">
-                  {$t('mods.preflight.noCompatible')}
-                </span>
+            <Icon name="circleX" class="text-danger shrink-0" />
+            <span class="flex-1 min-w-0 text-sm text-primary"
+              >{violationMessage($t, v, nameOf(v))}</span
+            >
+            {#if showRowActions}
+              {#if action === 'enable'}
                 <button
                   type="button"
-                  class="shrink-0 text-xs underline text-warning-text hover:opacity-80
-                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
-                  onclick={() => onOpenModPage(v)}
+                  class="btn-secondary btn-xs shrink-0"
+                  use:tooltip={{ text: $t('mods.preflight.enableTip'), describe: false }}
+                  onclick={() => onEnableProvider(v)}
                 >
-                  {$t('mods.preflight.openModPage')}
+                  {$t('mods.preflight.enable')}
                 </button>
+              {:else if action === 'install'}
                 <button
                   type="button"
-                  class="shrink-0 text-xs underline text-warning-text hover:opacity-80
-                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
-                  use:tooltip={{ text: $t('mods.preflight.findAlternativeTip'), describe: false }}
-                  onclick={() => onFindAlternative(v)}
+                  class="btn-secondary btn-xs shrink-0"
+                  use:tooltip={{ text: $t('mods.preflight.installTip'), describe: false }}
+                  onclick={() => onInstallMissing(v)}
                 >
-                  {$t('mods.preflight.findAlternative')}
+                  {$t('mods.preflight.install', { dep: nameOf(v) })}
                 </button>
-              {:else}
+              {:else if isRangeRemediable(v) && v.provider_project !== null}
+                {#if busyKeys.has(key)}
+                  <Spinner size="sm" class="shrink-0 text-secondary" />
+                {:else if deadEndKeys.has(key)}
+                  <span class="shrink-0 text-xs text-secondary">
+                    {$t('mods.preflight.noCompatible')}
+                  </span>
+                  <button
+                    type="button"
+                    class="btn-link text-xs shrink-0"
+                    onclick={() => onOpenModPage(v)}
+                  >
+                    {$t('mods.preflight.openModPage')}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-link text-xs shrink-0"
+                    use:tooltip={{ text: $t('mods.preflight.findAlternativeTip'), describe: false }}
+                    onclick={() => onFindAlternative(v)}
+                  >
+                    {$t('mods.preflight.findAlternative')}
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs shrink-0"
+                    use:tooltip={{ text: $t('mods.preflight.updateTip'), describe: false }}
+                    onclick={() => onUpdate(v)}
+                  >
+                    {$t('mods.preflight.update')}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-link text-xs shrink-0"
+                    use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
+                    onclick={() => onChooseVersion(v)}
+                  >
+                    {$t('mods.preflight.chooseVersion')}
+                  </button>
+                {/if}
+              {/if}
+              {#if onJumpToDependent}
                 <button
                   type="button"
-                  class="shrink-0 text-xs font-medium px-2 py-1 rounded
-                border border-warning-text text-warning-text hover:bg-warning-text/10
-                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
-                  use:tooltip={{ text: $t('mods.preflight.updateTip'), describe: false }}
-                  onclick={() => onUpdate(v)}
+                  class="btn-icon btn-icon-sm shrink-0"
+                  aria-label={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
+                  use:tooltip={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
+                  onclick={() => onJumpToDependent?.(v)}
+                  ><Icon name="arrowUpRight" size={14} /></button
                 >
-                  {$t('mods.preflight.update')}
-                </button>
-                <button
-                  type="button"
-                  class="shrink-0 text-xs underline text-warning-text hover:opacity-80
-                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
-                  use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
-                  onclick={() => onChooseVersion(v)}
-                >
-                  {$t('mods.preflight.chooseVersion')}
-                </button>
               {/if}
             {/if}
           </div>

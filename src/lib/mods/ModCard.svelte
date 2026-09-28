@@ -31,6 +31,7 @@
     attention = null,
     layout = 'grid',
     highlighted = false,
+    depHighlighted = false,
     selectable = false,
     selected = false,
     onSelectChange = (_checked: boolean) => {},
@@ -55,6 +56,10 @@
     attention?: 'incompatible' | 'missing-deps' | null;
     layout?: 'grid' | 'list';
     highlighted?: boolean;
+    // The dependency cross-highlight (InstalledModRow ↔ DepTree / «Required
+    // by»). On the card row itself: a wash on a wrapper is hidden under the
+    // row's opaque bg-surface (tests/installed-cross-highlight.test.ts).
+    depHighlighted?: boolean;
     selectable?: boolean;
     selected?: boolean;
     onSelectChange?: (checked: boolean) => void;
@@ -280,6 +285,7 @@
       accent={style.accent}
       dim={style.dim}
       {highlighted}
+      {depHighlighted}
       testid="manual-mod-row"
     >
       {#if selectable && installed}
@@ -365,6 +371,7 @@
       accent={style.accent}
       dim={style.dim}
       {highlighted}
+      {depHighlighted}
       testid="card-list-row"
     >
       {#if selectable}

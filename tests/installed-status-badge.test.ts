@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import InstalledModRow from '$lib/mods/installed/InstalledModRow.svelte';
+import type { RowProblem } from '$lib/mods/installed/row-problem';
 
 const summary = {
   source: 'modrinth' as const,
@@ -32,15 +33,13 @@ const base = () => ({
   root: undefined,
   requiredBy: [],
   depTotal: 0,
-  hasPreflightIssue: false,
+  problem: null,
   expanded: false,
   graphLoading: false,
   hoveredKey: null,
   updateState: null,
   checking: false,
   packChip: null,
-  incompatibleTitle: null,
-  incompatKind: null,
   selected: false,
   onToggleExpand() {},
   onHover() {},
@@ -53,6 +52,17 @@ const base = () => ({
   onSelectChange() {},
   onInstallDep() {},
   onJump() {},
+  onProblemFix() {},
+  onRevealProblems() {},
+});
+
+const blocking = (over: Partial<RowProblem> = {}): RowProblem => ({
+  level: 'blocking',
+  text: 'Alpha needs Balm, which is not installed',
+  tooltip: null,
+  more: 0,
+  fix: null,
+  ...over,
 });
 
 describe('status badge priority', () => {
@@ -62,7 +72,7 @@ describe('status badge priority', () => {
   // danger accent plus PreflightPanel above the list, not by a left-side badge.
   it('shows NO left-side badge even when the pre-flight flags the row', () => {
     render(InstalledModRow, {
-      props: { ...base(), installed: installed(false), hasPreflightIssue: true },
+      props: { ...base(), installed: installed(false), problem: blocking() },
     });
     expect(screen.queryByTestId('status-badge')).toBeNull();
   });
@@ -165,32 +175,70 @@ describe('dependency relation chip', () => {
   });
 });
 
-describe('compat badge wording', () => {
+// The compat badge is folded into the reason line (spec §6.2): one short reason, one fix, and the
+// colour of its level — red for what stops the game, amber for what may not work.
+describe('problem line', () => {
   beforeAll(() => locale.set('en'));
 
-  it('says «Incompatible» for what the loader will reject', () => {
-    render(InstalledModRow, {
-      props: {
-        ...base(),
-        installed: installed(true),
-        incompatibleTitle: 'This mod needs Minecraft [1.20,1.21); this profile runs 1.21.1',
-        incompatKind: 'proven',
-      },
-    });
-    expect(screen.getByTestId('incompat-badge').textContent).toContain('Incompatible');
+  // Guard (green before and after); the four below are the RED ones.
+  it('renders no second line for a row without a problem', () => {
+    render(InstalledModRow, { props: { ...base(), installed: installed(true) } });
+    expect(screen.queryByTestId('row-problem')).toBeNull();
+    expect(screen.queryByTestId('incompat-badge')).toBeNull();
   });
 
-  it('says «No release» when only the mod page is the evidence', () => {
+  it('a blocking reason is red, with a red accent strip', () => {
+    const { container } = render(InstalledModRow, {
+      props: { ...base(), installed: installed(true), problem: blocking() },
+    });
+    const line = screen.getByTestId('row-problem');
+    expect(line.textContent).toContain('Alpha needs Balm, which is not installed');
+    expect(line.querySelector('.text-danger')).not.toBeNull();
+    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
+  });
+
+  it('a warning is amber, with an amber accent strip', () => {
+    const { container } = render(InstalledModRow, {
+      props: {
+        ...base(),
+        installed: installed(true),
+        problem: blocking({
+          level: 'warning',
+          text: 'May not work: no release for NeoForge 1.21.1',
+        }),
+      },
+    });
+    const line = screen.getByTestId('row-problem');
+    expect(line.querySelector('.text-warning-text')).not.toBeNull();
+    expect(line.querySelector('.text-danger')).toBeNull();
+    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-warning-text');
+  });
+
+  it('offers exactly one fix and reports which', async () => {
+    const onProblemFix = vi.fn();
+    const fix = { kind: 'choose_version' as const, label: 'Choose version' };
+    render(InstalledModRow, {
+      props: { ...base(), installed: installed(true), problem: blocking({ fix }), onProblemFix },
+    });
+    const buttons = within(screen.getByTestId('row-problem')).getAllByRole('button');
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual(['Choose version']);
+    await fireEvent.click(within(screen.getByTestId('row-problem')).getByRole('button'));
+    expect(onProblemFix).toHaveBeenCalledWith(fix);
+  });
+
+  it('folds further reasons into «and N more», which reveals the panel', async () => {
+    const onRevealProblems = vi.fn();
     render(InstalledModRow, {
       props: {
         ...base(),
         installed: installed(true),
-        incompatibleTitle: "The mod's page lists no release for NeoForge 1.21.1.",
-        incompatKind: 'noRelease',
+        problem: blocking({ more: 2 }),
+        onRevealProblems,
       },
     });
-    const badge = screen.getByTestId('incompat-badge').textContent ?? '';
-    expect(badge).toContain('No release');
-    expect(badge).not.toContain('Incompatible');
+    const more = screen.getByTestId('row-problem-more');
+    expect(more.textContent).toContain('and 2 more');
+    await fireEvent.click(more);
+    expect(onRevealProblems).toHaveBeenCalledOnce();
   });
 });

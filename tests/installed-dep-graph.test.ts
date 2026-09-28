@@ -225,4 +225,24 @@ describe('createDepGraph', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(mocks.modsDependencyGraph).toHaveBeenCalled();
   });
+
+  // The pre-flight panel knows a dependent by its jar, not its project (a manual jar has none).
+  it('jumpToSha1 pages to a row by its jar and says whether it was in the list', async () => {
+    const rows = [row('a', 'A'), row('b', 'B'), row('c', 'C')];
+    let page = -1;
+    const d = createDepGraph(
+      () => 'i',
+      () => rows,
+      { ...ctx, getFiltered: () => rows, setPage: (n) => (page = n), getPageSize: () => 2 },
+    );
+    // Mount first: the seed effect's first run resets hoveredKey, and a jump
+    // only ever happens on a mounted list.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await d.jumpToSha1('c')).toBe(true);
+    expect(page).toBe(1);
+    expect(d.hoveredKey).toBe('modrinth:Pc');
+    page = -1;
+    expect(await d.jumpToSha1('nope')).toBe(false);
+    expect(page).toBe(-1);
+  });
 });

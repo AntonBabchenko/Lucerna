@@ -94,3 +94,19 @@ describe('InstalledToolbar view filter (single mutually-exclusive group)', () =>
     expect(screen.queryByRole('radio', { name: /Unused libraries/ })).toBeNull();
   });
 });
+
+describe('InstalledToolbar issues tone', () => {
+  it('is danger while something blocks, amber when only warnings remain', () => {
+    const { unmount } = render(InstalledToolbar, {
+      props: { ...base(), viewFilter: 'issues' as const },
+    });
+    expect(screen.getByTestId('installed-filter-issues').className).toContain('text-danger');
+    unmount();
+    render(InstalledToolbar, {
+      props: { ...base(), viewFilter: 'issues' as const, issuesTone: 'warning' as const },
+    });
+    const chip = screen.getByTestId('installed-filter-issues');
+    expect(chip.className).toContain('text-warning-text');
+    expect(chip.className).not.toContain('text-danger');
+  });
+});

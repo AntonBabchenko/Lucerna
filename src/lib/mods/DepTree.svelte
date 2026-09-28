@@ -49,7 +49,7 @@
       <div
         data-mod-key={k}
         class="flex items-center gap-2 py-0.5 px-1 rounded"
-        class:bg-highlight={hoveredKey === k}
+        class:bg-dep-highlight={hoveredKey === k}
         role="treeitem"
         aria-selected={hoveredKey === k}
         tabindex="0"

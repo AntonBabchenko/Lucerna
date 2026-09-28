@@ -12,7 +12,7 @@
  * violation (1) on the SAME row, so neither source can be swapped for the other
  * without one of the two failing.
  */
-import { render, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 const mod = vi.hoisted(() => ({
@@ -71,6 +71,11 @@ vi.mock('$lib/ipc/bindings', () => ({
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // The guarded enable path (mod-ops) asks for the impact first — WITH its safe flip `order`.
+    modsEnableImpact: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { requirements: [], order: ['balm-sha'] } }),
+    modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -181,5 +186,96 @@ describe('the issue count comes from the pre-flight', () => {
         expect.stringContaining('Lib for Beta'),
       ]);
     });
+  });
+
+  it('the violation is also the row’s own reason line, marked blocking', async () => {
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: {
+        violations: [
+          {
+            dependent_sha1: 'a',
+            dependent_name: 'Alpha',
+            dep_id: 'stylisheffects',
+            kind: 'missing_required',
+            installed_version: null,
+            needed: '',
+            needed_desc: {
+              raw: '',
+              family: 'maven',
+              alternatives: [],
+              unparseable: false,
+              soft: false,
+            },
+            provider_project: null,
+            provider_sha1: null,
+            family: null,
+          },
+        ],
+      },
+    });
+    render(InstalledModsView, { props: props('reason-line') });
+    const line = await waitFor(() => {
+      const el = document.querySelector('[data-testid="row-problem"]');
+      if (!el) throw new Error('reason line not rendered yet');
+      return el;
+    });
+    expect(line.getAttribute('data-level')).toBe('blocking');
+    expect(line.textContent).toContain('Alpha needs stylisheffects, which is not installed');
+    expect(line.textContent).toContain('Install stylisheffects');
+  });
+
+  // The disabled provider IS a row: it is named as that row, and «Enable» switches that jar on
+  // through the guarded path — never an install of a second copy.
+  it('a disabled dependency is named by its own row and switched on through mod-ops', async () => {
+    const balm = { ...mod, filename: 'balm.jar', sha1: 'balm-sha', project_id: 'PBALM' };
+    vi.mocked(commands.modsListInstalled).mockResolvedValue({
+      status: 'ok',
+      data: [mod, { ...balm, name: 'Balm', enabled: false }],
+    } as never);
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: {
+        violations: [
+          {
+            dependent_sha1: 'a',
+            dependent_name: 'Alpha',
+            dep_id: 'balm',
+            kind: 'required_disabled',
+            installed_version: null,
+            needed: '',
+            needed_desc: {
+              raw: '',
+              family: 'maven',
+              alternatives: [],
+              unparseable: false,
+              soft: false,
+            },
+            provider_project: null,
+            provider_sha1: 'balm-sha',
+            family: null,
+          },
+        ],
+      },
+    });
+    try {
+      render(InstalledModsView, { props: props('enable-provider') });
+      const line = await waitFor(() => {
+        const el = document.querySelector<HTMLElement>('[data-testid="row-problem"]');
+        if (!el) throw new Error('reason line not rendered yet');
+        return el;
+      });
+      expect(line.textContent).toContain('Alpha: Balm is disabled');
+      await fireEvent.click(within(line).getByRole('button', { name: 'Enable' }));
+      await waitFor(() =>
+        expect(commands.modsEnable).toHaveBeenCalledWith('enable-provider', 'balm-sha'),
+      );
+      expect(commands.modsEnableImpact).toHaveBeenCalledWith('enable-provider', ['balm-sha']);
+    } finally {
+      vi.mocked(commands.modsListInstalled).mockResolvedValue({
+        status: 'ok',
+        data: [mod],
+      } as never);
+    }
   });
 });

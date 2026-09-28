@@ -747,7 +747,6 @@
             {instanceName}
             {mcVersion}
             {loader}
-            {loaderVersion}
             {requestedFilter}
             onFilterApplied={() => (requestedFilter = null)}
             onBrowseFor={browseForDependency}

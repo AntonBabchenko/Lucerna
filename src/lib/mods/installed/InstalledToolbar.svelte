@@ -22,6 +22,7 @@
     onUpdateAll,
     checkingCompat,
     onCheckCompat,
+    issuesTone = 'danger',
   }: {
     counts: {
       total: number;
@@ -44,6 +45,9 @@
     onUpdateAll: () => void;
     checkingCompat: boolean;
     onCheckCompat: () => void;
+    // Danger while any mod blocks the launch, amber when only warnings remain
+    // (spec D6: red means "the game won't start" and nothing else).
+    issuesTone?: 'danger' | 'warning';
   } = $props();
 
   const checkDisabledReason = $derived(
@@ -108,7 +112,7 @@
           {
             value: 'issues',
             label: $t('mods.installed.filterIssuesLabel'),
-            tone: 'danger' as const,
+            tone: issuesTone,
             icon: 'warning' as const,
             count: counts.issues,
             testId: 'installed-filter-issues',

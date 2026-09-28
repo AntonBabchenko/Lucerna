@@ -9,7 +9,6 @@
   } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
-  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
   import ModCard from '../ModCard.svelte';
@@ -17,7 +16,7 @@
   import type { RequiredByEntry } from './dep-graph.svelte';
   import { isClaimDismissed } from '$lib/mods/dep-claim-dismiss';
   import { changelogSupported } from '$lib/mods/changelog-supported';
-  import type { CompatKind } from './compat-check.svelte';
+  import type { RowFix, RowProblem } from './row-problem';
 
   let {
     summary,
@@ -26,15 +25,13 @@
     root,
     requiredBy,
     depTotal,
-    hasPreflightIssue,
+    problem = null,
     expanded,
     graphLoading,
     hoveredKey,
     updateState,
     checking,
     packChip,
-    incompatibleTitle,
-    incompatKind = null,
     selected,
     outOfRangeKeys = new Set(),
     onToggleExpand,
@@ -48,6 +45,8 @@
     onSelectChange,
     onInstallDep,
     onJump,
+    onProblemFix = () => {},
+    onRevealProblems = () => {},
   }: {
     summary: ModSummary | null;
     installed: InstalledMod;
@@ -55,18 +54,17 @@
     root: DepRoot | undefined;
     requiredBy: RequiredByEntry[];
     depTotal: number;
-    // This mod is the dependent in a pre-flight violation — i.e. the LOADER
-    // will not get what it needs. The dependency graph cannot answer this; it
-    // only knows what the platform was told.
-    hasPreflightIssue: boolean;
+    // The second line (spec §6.2): the first reason this mod blocks the game
+    // (a pre-flight violation where it is the dependent — the LOADER will not
+    // get what it needs; the dependency graph cannot tell) or may not work (its
+    // compat warning), with at most one fix. Null = nothing wrong with it.
+    problem?: RowProblem | null;
     expanded: boolean;
     graphLoading: boolean;
     hoveredKey: string | null;
     updateState: ModUpdateState | null;
     checking: boolean;
     packChip: string | null;
-    incompatibleTitle: string | null;
-    incompatKind?: CompatKind | null;
     selected: boolean;
     outOfRangeKeys?: Set<string>;
     onToggleExpand: () => void;
@@ -84,6 +82,9 @@
     onSelectChange: (checked: boolean) => void;
     onInstallDep: (node: DepTreeNode) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
+    onProblemFix?: (fix: RowFix) => void;
+    // «and N more»: reveal this mod's rows in the «What stops the game» panel.
+    onRevealProblems?: () => void;
   } = $props();
 
   // One expand control summarises both directions of the dependency relation:
@@ -112,10 +113,21 @@
   // There is deliberately no left-side danger badge any more. The one that used
   // to live here counted the graph's absent required children — i.e. the
   // platform's claim — and a measured mod's claim was contradicted by its own
-  // jar. A real problem is a pre-flight violation: the ModCard's danger accent
-  // marks the row and PreflightPanel above the list carries the detail and the
-  // fix. "Update available" and "disabled" were already unbadged here because
-  // the ModCard on the right shows both.
+  // jar. A real problem is a pre-flight violation (or, amber, a compat
+  // warning): the ModCard's accent strip marks the row, the problem line under
+  // it names the first reason with its one fix, and PreflightPanel above the
+  // list carries every blocking reason. "Update available" and "disabled" were
+  // already unbadged here because the ModCard on the right shows both.
+
+  // The accent strip follows the problem's level: red stops the game, amber
+  // may not work (spec D6).
+  const attention = $derived(
+    problem?.level === 'blocking'
+      ? ('missing-deps' as const)
+      : problem?.level === 'warning'
+        ? ('incompatible' as const)
+        : null,
+  );
 
   // Dependencies the AUTHOR marked required on the platform that are not
   // installed and the user has not settled. Reported, not asserted: the loader
@@ -153,20 +165,20 @@
 </script>
 
 <div role="group" aria-label={installed.name}>
-  <!-- Hover region = the mod row + its chip line ONLY. The expanded DepSection
-       is a sibling below, so its per-node hover doesn't fight the row's hover
-       over the shared hoveredKey. -->
+  <!-- Hover region = the mod row + its problem and chip lines ONLY. The
+       expanded DepSection is a sibling below, so its per-node hover doesn't
+       fight the row's hover over the shared hoveredKey. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     data-mod-key={rowKey}
     data-mod-row={rowKey}
-    class:bg-highlight={hoveredKey === rowKey}
+    class:bg-dep-highlight={hoveredKey === rowKey}
     onmouseenter={() => onHover(rowKey)}
     onmouseleave={() => onHover(null)}
   >
     <ModCard
       layout="list"
-      highlighted={hoveredKey === rowKey}
+      depHighlighted={hoveredKey === rowKey}
       {summary}
       {installed}
       onInstall={() => {}}
@@ -177,32 +189,51 @@
       {onUpdate}
       {checking}
       {packChip}
-      attention={hasPreflightIssue ? 'missing-deps' : incompatibleTitle ? 'incompatible' : null}
+      {attention}
       selectable={true}
       {selected}
       {onSelectChange}
     />
-    {#if summary || incompatibleTitle || showChangelog || authorClaims.length > 0}
-      <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
-        {#if incompatibleTitle}
-          <!-- Badge only: the remediation entry is the single instance-wide
-               "Fix incompatible mods" button in the compat panel header. A
-               per-row button here opened that same unscoped dialog, so N of
-               them were N identical controls posing as a per-mod action.
-               The WORD follows the evidence: `noRelease` is what the mod's
-               page shows, not something the loader will do. Tone and the
-               accent strip are unchanged (spec D6; DESIGN.md:238's `danger`
-               for incompatible is a separate backlog item). -->
-          <span data-testid="incompat-badge" use:tooltip={incompatibleTitle}>
-            <StatusBadge variant="warning" icon="warning">
-              {$t(
-                incompatKind === 'noRelease'
-                  ? 'mods.installed.badgeNoRelease'
-                  : 'mods.installed.badgeIncompatible',
-              )}
-            </StatusBadge>
-          </span>
+    {#if problem}
+      {@const tone = problem.level === 'blocking' ? 'text-danger' : 'text-warning-text'}
+      <!-- One reason, in full (it wraps rather than truncates: it is the
+           reason, not a label), and the one fix its status chose. A warning
+           keeps the longer compat sentence as its tooltip. -->
+      <div
+        class="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 pb-1 text-xs"
+        data-testid="row-problem"
+        data-level={problem.level}
+      >
+        <Icon
+          name={problem.level === 'blocking' ? 'circleX' : 'warning'}
+          size={14}
+          class="shrink-0 {tone}"
+        />
+        <span class="min-w-0 {tone}" use:tooltip={problem.tooltip}>{problem.text}</span>
+        {#if problem.more > 0}
+          <button
+            type="button"
+            class="btn-link text-xs shrink-0"
+            data-testid="row-problem-more"
+            onclick={() => onRevealProblems()}
+          >
+            {$t('mods.installed.reasonMore', { count: problem.more })}
+          </button>
         {/if}
+        {#if problem.fix}
+          {@const fix = problem.fix}
+          <button
+            type="button"
+            class="btn-secondary btn-xs shrink-0"
+            onclick={() => onProblemFix(fix)}
+          >
+            {fix.label}
+          </button>
+        {/if}
+      </div>
+    {/if}
+    {#if summary || showChangelog || authorClaims.length > 0}
+      <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
         {#if authorClaims.length > 0}
           <!-- Neutral register on purpose: not `danger`, not `warning`. Nothing
                is being demanded of the user — the launcher is reporting what the

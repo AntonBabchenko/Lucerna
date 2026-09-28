@@ -12,7 +12,7 @@
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { debounceTrailing } from '$lib/ui/debounce';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
@@ -23,6 +23,7 @@
     disableMods,
     enableMods,
     type ModOpScope,
+    type ModOpTarget,
     uninstallMods,
   } from '$lib/mods/mod-ops.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
@@ -55,9 +56,9 @@
   import { SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
-  import { compatKindOf, createCompatCheck } from './compat-check.svelte';
+  import { createCompatCheck } from './compat-check.svelte';
   import { isProblem, type ModStatus, statusOf } from './mod-status';
-  import { displayLoader } from '$lib/instances/loader-display';
+  import { type RowFix, type RowProblem, rowProblemOf } from './row-problem';
   import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
@@ -70,7 +71,6 @@
     instanceName = null,
     mcVersion,
     loader,
-    loaderVersion = null,
     requestedFilter = null,
     onFilterApplied = () => {},
     onBrowseFor = (_q: string) => {},
@@ -80,10 +80,6 @@
     instanceName?: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
-    // Needed to interpolate a platform-loader-axis mismatch hint ("needs loader
-    // version X, this profile runs Y"); optional because callers that never hit
-    // that hint (tests, other embeddings) should not have to supply it.
-    loaderVersion?: string | null;
     // A status view asked for by a deep-link (the Overview's attention item →
     // «Проблемы», the one problem view). Applied once, then cleared by the
     // parent so an in-tab click is never hijacked afterwards.
@@ -107,9 +103,10 @@
   const preflight = createPreflight(() => instanceId);
   const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
   // Blocking = the gate's predicate (`hasBlocking`), one predicate for the
-  // issues chip and the row (plan A17): while a self-completing pack still has
-  // files to download, its violations are advisory and nothing here says the
-  // game won't start. Grouped by dependent, in report order.
+  // issues chip, the row line and the «What stops the game» panel (plan A17):
+  // while a self-completing pack still has files to download, its violations
+  // are advisory and nothing here says the game won't start. Grouped by
+  // dependent, in report order.
   const blockingViolations = $derived(
     preflight.report && hasBlocking(preflight.report) ? preflight.report.violations : [],
   );
@@ -120,7 +117,6 @@
     }
     return m;
   });
-  const preflightShas = $derived(new Set(violationsBySha.keys()));
   // Enabled mods on a Vanilla instance are dead weight (spec D9) — drives
   // the instance-level banner above the list.
   const enabledModsCount = $derived(data.rows.filter((r) => r.installed.enabled).length);
@@ -156,6 +152,8 @@
       ]),
     ),
   );
+  // The chip turns red only while a row IS red — the same statuses it counts.
+  const anyBlocking = $derived([...statusBySha.values()].some((s) => s.level === 'blocking'));
   // The dependency graph is rebuilt on install and removal, not on a toggle,
   // and the backend roots it at the ENABLED mods only — so after a toggle it is
   // stale. What the rows can tell is taken from the rows:
@@ -271,8 +269,14 @@
     if (!report || !id) return;
     void resolveDepNames(id, report);
   });
-  const depName = (v: DepViolation): string | null =>
-    depNameOf(instanceId, v.dependent_sha1, v.dep_id);
+  // A dependency's display name. When the report names the provider's jar — the
+  // disabled one to switch back on, or the enabled one a range points at — that
+  // jar is a row here, and its own name is the thing the player can act on;
+  // otherwise the dependent-scoped store (spec §5.3), else the raw loader id.
+  function depName(v: DepViolation): string {
+    const own = v.provider_sha1 ? nameBySha.get(v.provider_sha1) : undefined;
+    return own ?? depNameOf(instanceId, v.dependent_sha1, v.dep_id) ?? v.dep_id;
+  }
 
   // Reset per-row remediation state on instance switch. The keys are dep-based
   // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
@@ -307,7 +311,7 @@
         preflightDeadEnd.delete(key);
         pushSuccess(
           get(t)('mods.preflight.installedVersion', {
-            dep: depName(v) ?? v.dep_id,
+            dep: depName(v),
             version: result.installedVersion ?? '',
           }),
         );
@@ -374,7 +378,7 @@
       pickerViolation = null;
       pushSuccess(
         get(t)('mods.preflight.installedVersion', {
-          dep: depName(v) ?? v.dep_id,
+          dep: depName(v),
           version: r.installedVersion ?? '',
         }),
       );
@@ -408,7 +412,7 @@
       deps.invalidateGraph();
       await data.refresh();
     } else {
-      pushWarning(get(t)('mods.preflight.installSearchFallback', { dep: depName(v) ?? v.dep_id }));
+      pushWarning(get(t)('mods.preflight.installSearchFallback', { dep: depName(v) }));
       onBrowseFor(outcome.query);
     }
   };
@@ -422,30 +426,69 @@
     await refreshAfterRemediate();
   };
 
-  // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
-  // for interpolation, which the composable does not own).
-  function compatTitle(sha1: string): string | null {
-    const h = compat.hintFor(sha1);
-    if (!h) return null;
-    if (h.key === 'loader')
-      return get(t)('mods.installed.incompatHintLoader', {
-        detected: h.detected,
-        loader: loader ? displayLoader(loader) : '',
-      });
-    if (h.key === 'platformMc')
-      return get(t)('mods.installed.incompatHintPlatformMc', {
-        declared: h.declared,
-        mc: mcVersion ?? '',
-      });
-    if (h.key === 'platformLoader')
-      return get(t)('mods.installed.incompatHintPlatformLoader', {
-        declared: h.declared,
-        loaderVersion: loaderVersion ?? '',
-      });
-    return get(t)('mods.installed.incompatHintNoRelease', {
-      loader: loader ? displayLoader(loader) : '',
-      mc: mcVersion ?? '',
+  // `required_disabled` → switch the provider back on through mod-ops (guarded:
+  // it asks when the provider has disabled requirements of its own). The
+  // modToggle event re-runs the pre-flight. `depName` is the provider row's name.
+  function enableProvider(v: DepViolation): Promise<void> {
+    const sha1 = v.provider_sha1;
+    if (!sha1) return Promise.resolve();
+    return setEnabled([{ sha1, name: depName(v) }], true);
+  }
+
+  // Bring a violation's panel row into view: the row line's «and N more», and
+  // its «Fix…» until the version-fix planner has a flow of its own.
+  async function revealInPanel(v: DepViolation): Promise<void> {
+    await tick();
+    if (typeof document === 'undefined') return;
+    const key = violationKey(v);
+    // Matched by value, not by a selector: a key is data (a sha1 and a mod id).
+    const row = [...document.querySelectorAll<HTMLElement>('[data-violation-key]')].find(
+      (el) => el.dataset.violationKey === key,
+    );
+    row?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }
+
+  // ↗ from a panel row. A dependent is always in the problem view, so a search
+  // or chip that hides it is cleared rather than the jump silently doing nothing.
+  async function jumpToDependent(v: DepViolation): Promise<void> {
+    if (await deps.jumpToSha1(v.dependent_sha1)) return;
+    filters.filter = '';
+    filters.viewFilter = 'issues';
+    await tick();
+    await deps.jumpToSha1(v.dependent_sha1);
+  }
+
+  // The row's second line, from the row's one status (its level, its ranked
+  // reasons and the fix the status chose) — never a second ranking.
+  function problemOf(row: Row): RowProblem | null {
+    const status = statusBySha.get(row.installed.sha1);
+    if (!status) return null;
+    return rowProblemOf(status, {
+      t: $t,
+      depName,
+      loader,
+      mc: mcVersion,
+      canChooseVersion: !!(row.installed.source && row.installed.project_id),
     });
+  }
+
+  function onRowFix(row: Row, fix: RowFix): void {
+    switch (fix.kind) {
+      case 'enable':
+        void enableProvider(fix.violation);
+        return;
+      case 'install':
+        void onInstallMissingDep(fix.violation);
+        return;
+      case 'plan':
+        void revealInPanel(fix.violation);
+        return;
+      case 'choose_version':
+        // Another build of THIS mod: its own versions, in the detail modal.
+        if (row.installed.source && row.installed.project_id)
+          openDetailMod(row.installed.source as ModSource, row.installed.project_id);
+        return;
+    }
   }
 
   // Independent per-instance page size, persisted under its own key.
@@ -595,19 +638,23 @@
 
   // Enable, disable and removal go through the guarded path (mod-ops): the mods that need this
   // one, or the disabled mods it needs, are asked about first; failures are toasted there.
-  async function toggle(row: Row) {
+  async function setEnabled(targets: ModOpTarget[], enable: boolean): Promise<void> {
     if (!instanceId) return;
-    const target = [{ sha1: row.installed.sha1, name: rowDisplayName(row) }];
     data.error = null;
     shellBusy = true;
     try {
-      const outcome = row.installed.enabled
-        ? await disableMods(opScope(instanceId), target)
-        : await enableMods(opScope(instanceId), target);
+      const scope = opScope(instanceId);
+      const outcome = enable ? await enableMods(scope, targets) : await disableMods(scope, targets);
       if (outcome !== 'cancelled') await data.refresh();
     } finally {
       shellBusy = false;
     }
+  }
+  function toggle(row: Row): Promise<void> {
+    return setEnabled(
+      [{ sha1: row.installed.sha1, name: rowDisplayName(row) }],
+      !row.installed.enabled,
+    );
   }
   async function uninstall(row: Row) {
     if (!instanceId) return;
@@ -704,6 +751,7 @@
     onUpdateAll={updates.updateAll}
     checkingCompat={compat.checking}
     onCheckCompat={compat.runLiveCheck}
+    issuesTone={anyBlocking ? 'danger' : 'warning'}
   />
 
   {#if error}
@@ -729,14 +777,17 @@
 
   <PreflightPanel
     report={preflight.report}
+    {instanceId}
+    {depName}
     onUpdate={onPreflightUpdate}
     onInstallMissing={onInstallMissingDep}
+    onEnableProvider={enableProvider}
+    onJumpToDependent={jumpToDependent}
     onChooseVersion={onPreflightChooseVersion}
     onFindAlternative={onPreflightFindAlternative}
     onOpenModPage={onPreflightOpenModPage}
     onMigrate={() => (migrationDialogOpen = true)}
     migrateCount={compat.incompatibleCount}
-    {depName}
     busyKeys={preflightBusy}
     deadEndKeys={preflightDeadEnd}
   />
@@ -777,7 +828,7 @@
           {root}
           requiredBy={reqBy}
           depTotal={counts.total}
-          hasPreflightIssue={preflightShas.has(row.installed.sha1)}
+          problem={problemOf(row)}
           expanded={deps.expanded.has(row.installed.sha1)}
           graphLoading={deps.graphLoading}
           hoveredKey={deps.hoveredKey}
@@ -785,12 +836,6 @@
           checking={updates.checking}
           packChip={data.packSummary && data.packSummary.mod_shas.includes(row.installed.sha1)
             ? data.packSummary.project_name
-            : null}
-          incompatibleTitle={compat.incompatibleShas.has(row.installed.sha1)
-            ? compatTitle(row.installed.sha1)
-            : null}
-          incompatKind={compat.incompatibleShas.has(row.installed.sha1)
-            ? compatKindOf(compat.hintFor(row.installed.sha1))
             : null}
           selected={selection.selected.has(row.installed.sha1)}
           {outOfRangeKeys}
@@ -808,6 +853,11 @@
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
+          onProblemFix={(fix) => onRowFix(row, fix)}
+          onRevealProblems={() => {
+            const first = violationsBySha.get(row.installed.sha1)?.[0];
+            if (first) void revealInPanel(first);
+          }}
         />
       {/each}
     </div>
@@ -869,7 +919,7 @@
 
   {#if findAltViolation && instanceId && mcVersion && loader}
     <FindAlternativeDialog
-      modName={depName(findAltViolation) ?? findAltViolation.dep_id}
+      modName={depName(findAltViolation)}
       {mcVersion}
       {loader}
       {instanceId}

@@ -36,7 +36,9 @@ const STYLE: Record<CardStatusKind, CardStatusStyle> = {
   update: { accent: 'warning', badge: 'warning', dim: false },
   'from-pack': { accent: 'info', badge: 'info', dim: false },
   'cross-platform': { accent: 'none', badge: 'neutral', dim: false },
-  incompatible: { accent: 'danger', badge: 'danger', dim: false },
+  // Compat-only: the game starts (spec §6.2 "warning"); what stops it is 'missing-deps'.
+  incompatible: { accent: 'warning', badge: 'warning', dim: false },
+  // Any pre-flight violation this mod is the dependent of — red means "the game won't start".
   'missing-deps': { accent: 'danger', badge: 'danger', dim: false },
   'distribution-disabled': { accent: 'warning', badge: 'warning', dim: false },
   modified: { accent: 'warning', badge: 'warning', dim: false },

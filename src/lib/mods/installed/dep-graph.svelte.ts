@@ -172,6 +172,16 @@ export function createDepGraph(
     expanded = next;
   }
 
+  // Turn to the page holding filtered row `idx` (keyed `key`) and scroll it into view.
+  async function showRow(idx: number, key: string): Promise<void> {
+    ctx.setPage(Math.floor(idx / ctx.getPageSize()));
+    await tick();
+    if (typeof document !== 'undefined') {
+      const el = document.querySelector(`[data-mod-row="${key}"]`);
+      (el as HTMLElement | null)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
   // Accepts any mod identity (a DepTreeNode or a required-by entry), so the
   // ↗ jump works from both the dependency tree and the "Required by" list.
   async function jumpToMod(target: { source: ModSource; project_id: string }) {
@@ -182,12 +192,21 @@ export function createDepGraph(
       (r) => modKey(r.installed.source, r.installed.project_id, r.installed.sha1) === key,
     );
     if (idx < 0) return;
-    ctx.setPage(Math.floor(idx / ctx.getPageSize()));
-    await tick();
-    if (typeof document !== 'undefined') {
-      const el = document.querySelector(`[data-mod-row="${key}"]`);
-      (el as HTMLElement | null)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-    }
+    await showRow(idx, key);
+  }
+
+  // The pre-flight panel knows a dependent by its jar, not its project (a manual
+  // jar has none). False = the row is not in the filtered list: the caller
+  // decides whether to widen the view and try again.
+  async function jumpToSha1(sha1: string): Promise<boolean> {
+    const filtered = ctx.getFiltered();
+    const idx = filtered.findIndex((r) => r.installed.sha1 === sha1);
+    const r = filtered[idx];
+    if (!r) return false;
+    const key = modKey(r.installed.source, r.installed.project_id, sha1);
+    hoveredKey = key;
+    await showRow(idx, key);
+    return true;
   }
 
   async function installDepNode(node: DepTreeNode) {
@@ -294,6 +313,7 @@ export function createDepGraph(
     depCounts,
     toggleExpand,
     jumpToMod,
+    jumpToSha1,
     installDepNode,
     reloadGraph,
     reloadGraphNow,

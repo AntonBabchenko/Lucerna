@@ -110,7 +110,7 @@
         <span
           data-mod-key={k}
           class="inline-flex items-center gap-1 rounded px-1 -mx-1"
-          class:bg-highlight={hoveredKey === k}
+          class:bg-dep-highlight={hoveredKey === k}
           onmouseenter={() => onHover(k)}
           onmouseleave={() => onHover(null)}
         >

@@ -7,25 +7,14 @@ import {
   offlineMismatchCount,
 } from '$lib/mods/compat-scan.svelte';
 
-// Tooltip hint descriptor. The component maps these to i18n strings (it owns the
-// instance loader/mc for interpolation).
+// Why compat flags a mod. The row's reason line words it (row-problem.ts, which
+// owns what a flag is WORTH: read off the jar vs. only the mod's page); the
+// platform keys are the pre-flight's to report (mod-status.ts).
 export type CompatHint =
   | { key: 'loader'; detected: string }
   | { key: 'noRelease' }
   | { key: 'platformMc'; declared: string }
   | { key: 'platformLoader'; declared: string };
-
-// What a flag is WORTH, for the row's wording. `proven` = read off the jar that
-// will be launched: the loader will reject or skip it. `noRelease` = only the
-// mod's page is the evidence, and only that it lists nothing for this
-// platform; the file itself makes no bounded statement. Probable, not proven —
-// so the row says what is known («No release»), not what is inferred.
-export type CompatKind = 'proven' | 'noRelease';
-
-export function compatKindOf(hint: CompatHint | null): CompatKind | null {
-  if (!hint) return null;
-  return hint.key === 'noRelease' ? 'noRelease' : 'proven';
-}
 
 type LiveVerdict = 'compatible' | 'incompatible' | 'unknown';
 

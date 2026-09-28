@@ -133,6 +133,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { commands } from '$lib/ipc/bindings';
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 // A DISTINCT instance id per case: the pre-flight and graph caches are per-instance LRUs.
@@ -213,7 +214,7 @@ describe('Installed — library chips and search', () => {
     await waitFor(() => expect(shown()).toEqual(['modrinth:PU']));
   });
 
-  it('keeps the Issues chip quiet while a self-completing pack still has files to download', async () => {
+  it('keeps the Issues chip, the panel and the row line quiet while a self-completing pack still has files to download', async () => {
     h.instanceDependencyPreflight.mockResolvedValue({
       status: 'ok',
       data: {
@@ -246,14 +247,19 @@ describe('Installed — library chips and search', () => {
       },
     });
     render(InstalledModsView, { props: props('self-completing') });
-    // The rows are in (so the chip group renders) and the pre-flight has answered (the panel
-    // lists its row) …
+    // The rows are in (so the chip group renders) and the pre-flight has answered: the view asks
+    // for the names its report needs. (The panel is no signal — it stays quiet too, below.) …
     await waitFor(() => {
       expect(shown()).toHaveLength(5);
-      expect(document.querySelector('[data-testid="preflight-row"]')).not.toBeNull();
+      expect(commands.modsResolveDepNames).toHaveBeenCalledWith('self-completing', [
+        { dependent_sha1: 'a', dep_id: 'lib2' },
+      ]);
     });
     expect(screen.getByRole('radio', { name: /All/ })).toBeTruthy();
-    // … yet nothing blocks: the pack fills itself in on first launch.
+    // … yet nothing blocks: the pack fills itself in on first launch. Nothing here says the game
+    // won't start — not the chip, not «What stops the game», not the row (the gate's predicate).
     expect(screen.queryByRole('radio', { name: /Issues/ })).toBeNull();
+    expect(document.querySelector('[data-testid="preflight-panel"]')).toBeNull();
+    expect(document.querySelector('[data-testid="row-problem"]')).toBeNull();
   });
 });

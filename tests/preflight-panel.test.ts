@@ -11,6 +11,15 @@ import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
 import { rangeDesc, rawRangeDesc } from './test-utils/range-desc';
 
+// With no `depName` from its host the panel reads the app-wide name store, keyed by instance +
+// (dependent, dep id) — the Play gate's case. Keyed here by `dependent:dep` alone.
+const storeNames = vi.hoisted(() => new Map<string, string>());
+vi.mock('$lib/mods/dep-names.svelte', () => ({
+  depNameOf: (_instance: string, dependentSha1: string, depId: string) =>
+    storeNames.get(`${dependentSha1}:${depId}`) ?? null,
+  depProjectOf: () => null,
+}));
+
 function missing(i: number): DepViolation {
   return {
     kind: 'missing_required',
@@ -251,13 +260,15 @@ describe('PreflightPanel', () => {
 });
 
 describe('PreflightPanel bulk migrate entry', () => {
-  it('renders a header migrate button and calls onMigrate when count > 0', async () => {
+  // Its own counted key: `mods.migration.openBtn` ("Fix incompatible mods") is shared with the
+  // standalone migration flow and keeps its wording (spec §6.9).
+  it('renders its own counted migrate button and calls onMigrate when count > 0', async () => {
     const onMigrate = vi.fn();
     render(PreflightPanel, {
       props: { report: reportWith(3), onUpdate: () => {}, onMigrate, migrateCount: 3 },
     });
     const btn = screen.getByTestId('preflight-migrate-btn');
-    expect(btn.textContent).toContain('Fix incompatible mods');
+    expect(btn.textContent).toContain('Fix incompatible (3)');
     await fireEvent.click(btn);
     expect(onMigrate).toHaveBeenCalledTimes(1);
   });
@@ -339,5 +350,114 @@ describe('PreflightPanel bulk migrate entry', () => {
     const rows = getAllByTestId('preflight-row');
     expect(rows[0]!.textContent).toContain('Forge Config API Port');
     expect(rows[1]!.textContent).toContain('dep-1');
+  });
+});
+
+describe('PreflightPanel — what stops the game', () => {
+  const disabledDep = (): DepViolation => ({
+    ...missing(0),
+    kind: 'required_disabled',
+    dependent_name: 'Waystones',
+    dependent_sha1: 'w',
+    dep_id: 'balm',
+    provider_sha1: 'balm-sha',
+  });
+
+  it('titles the panel with what it lists, danger border on the surface — no danger box', () => {
+    const { getByTestId } = render(PreflightPanel, { props: { report: reportWith(1) } });
+    const panel = getByTestId('preflight-panel');
+    expect(panel.textContent).toContain('What stops the game');
+    expect(panel.className).toContain('border-danger');
+    expect(panel.className).toContain('bg-surface');
+    expect(panel.className).not.toContain('bg-danger-bg');
+    expect(panel.className).not.toContain('bg-warning-bg');
+  });
+
+  it('says a disabled dependency is disabled and offers Enable — never Install', async () => {
+    const onEnableProvider = vi.fn();
+    const v = disabledDep();
+    render(PreflightPanel, {
+      props: { report: { violations: [v] }, onEnableProvider, depName: () => 'Balm' },
+    });
+    expect(screen.getByTestId('preflight-row').textContent).toContain(
+      'Waystones: Balm is disabled',
+    );
+    expect(screen.queryByRole('button', { name: /install/i })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
+    expect(onEnableProvider).toHaveBeenCalledWith(v);
+  });
+
+  it('counts only fixable rows in «Fix all», and only when a handler is given', async () => {
+    const onFixAll = vi.fn();
+    const platform: DepViolation = {
+      ...missing(9),
+      kind: 'platform_mismatch',
+      dep_id: 'minecraft',
+    };
+    const report = { violations: [missing(0), disabledDep(), platform] };
+    const { unmount } = render(PreflightPanel, { props: { report } });
+    expect(screen.queryByTestId('preflight-fix-all')).toBeNull();
+    unmount();
+    render(PreflightPanel, { props: { report, onFixAll } });
+    const btn = screen.getByTestId('preflight-fix-all');
+    expect(btn.textContent).toContain('Fix all (2)');
+    await fireEvent.click(btn);
+    expect(onFixAll).toHaveBeenCalledOnce();
+  });
+
+  it('jumps to the dependent row from ↗', async () => {
+    const onJumpToDependent = vi.fn();
+    render(PreflightPanel, { props: { report: reportWith(1), onJumpToDependent } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Show Mod 0 in the list' }));
+    expect(onJumpToDependent).toHaveBeenCalledWith(
+      expect.objectContaining({ dependent_sha1: 'sha0' }),
+    );
+  });
+
+  it('stays quiet while a self-completing pack is still fetching files (the gate’s predicate)', () => {
+    const { queryByTestId } = render(PreflightPanel, {
+      props: {
+        report: {
+          violations: [missing(0)],
+          pack_completion: { total: 2, outstanding: [{} as never] },
+        },
+      },
+    });
+    expect(queryByTestId('preflight-panel')).toBeNull();
+  });
+
+  it('an incompatibility-only panel does not claim anything stops the game', () => {
+    const { getByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [] }, onMigrate: () => {}, migrateCount: 2 },
+    });
+    const panel = getByTestId('preflight-panel');
+    expect(panel.textContent).toContain('Some mods may not work');
+    expect(panel.textContent).not.toContain('What stops the game');
+    expect(panel.className).toContain('border-warning-text');
+  });
+
+  it('names a dependency per dependent from the store — two mods sharing a mod-id (A-F3)', () => {
+    storeNames.set('a:balm', 'Balm');
+    storeNames.set('b:balm', 'Balm Port');
+    try {
+      render(PreflightPanel, {
+        props: {
+          instanceId: 'i1',
+          report: {
+            violations: [
+              { ...missing(0), dependent_sha1: 'a', dep_id: 'balm' },
+              { ...missing(1), dependent_sha1: 'b', dep_id: 'balm' },
+            ],
+          },
+        },
+      });
+      const rows = screen.getAllByTestId('preflight-row').map((r) => r.textContent ?? '');
+      expect(rows).toEqual([
+        expect.stringContaining('needs Balm, which'),
+        expect.stringContaining('needs Balm Port, which'),
+      ]);
+    } finally {
+      storeNames.clear();
+    }
   });
 });
