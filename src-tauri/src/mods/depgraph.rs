@@ -93,8 +93,15 @@ pub struct DepTreeNode {
     pub source: ModSource,
     pub project_id: String,
     pub name: String,
-    /// A jar for this project is present in the instance.
+    /// An ENABLED jar for this project is present in the instance.
     pub installed: bool,
+    /// A registry row for this project exists but is switched off. Never set
+    /// together with `installed` — an enabled jar of the project wins — and a
+    /// disabled jar still satisfies nothing; the tree offers «Включить» where it
+    /// would otherwise offer an install that duplicates the jar.
+    /// `#[serde(default)]` so specta emits it optional.
+    #[serde(default)]
+    pub disabled: bool,
     pub declared: DepDeclaration,
     /// True when this project was already expanded higher on the path; its
     /// children are omitted to break cycles.
@@ -126,8 +133,12 @@ pub struct DependencyGraph {
 /// different `ProjectKey` yet the same jar filename. Mirrors
 /// `deps::resolve_closure`'s cross-source pruning so a cross-source dependency
 /// is not wrongly flagged `MissingRequired`.
+///
+/// `disabled` — projects whose registry rows are switched off. They only MARK a
+/// node ([`DepTreeNode::disabled`]); they never satisfy it, and never root it.
 pub async fn build_graph<F, Fut>(
     installed: &[InstalledNode],
+    disabled: &[(ModSource, String)],
     installed_filenames: &HashSet<String>,
     mut fetch: F,
 ) -> Result<DependencyGraph, crate::error::Error>
@@ -139,6 +150,7 @@ where
         .iter()
         .map(|n| key(n.source, &n.project_id))
         .collect();
+    let disabled_keys: HashSet<String> = disabled.iter().map(|(s, pid)| key(*s, pid)).collect();
     let mut cache: HashMap<String, NodeDeps> = HashMap::new();
     let mut budget: usize = MAX_NODES;
     let mut roots = Vec::with_capacity(installed.len());
@@ -151,6 +163,7 @@ where
             &deps.required,
             true,
             &installed_keys,
+            &disabled_keys,
             installed_filenames,
             &mut cache,
             &mut fetch,
@@ -163,6 +176,7 @@ where
             &deps.optional,
             false,
             &installed_keys,
+            &disabled_keys,
             installed_filenames,
             &mut cache,
             &mut fetch,
@@ -189,6 +203,7 @@ fn build_children<'a, F, Fut>(
     children: &'a [DepChild],
     required: bool,
     installed_keys: &'a HashSet<String>,
+    disabled_keys: &'a HashSet<String>,
     installed_filenames: &'a HashSet<String>,
     cache: &'a mut HashMap<String, NodeDeps>,
     fetch: &'a mut F,
@@ -216,6 +231,9 @@ where
                 || c.filename
                     .as_deref()
                     .is_some_and(|f| installed_filenames.contains(f));
+            // Present but switched off. `installed` wins: an enabled jar of the
+            // same project is the one the loader reads.
+            let disabled = !installed && disabled_keys.contains(&k);
             // Two facts, carried side by side. Collapsing them into one enum is
             // what let the graph speak as if it knew a problem when it only
             // knew what the platform was told.
@@ -231,6 +249,7 @@ where
                     project_id: c.project_id.clone(),
                     name: c.name.clone(),
                     installed,
+                    disabled,
                     declared,
                     cycle: true,
                     children: vec![],
@@ -244,6 +263,7 @@ where
                     project_id: c.project_id.clone(),
                     name: c.name.clone(),
                     installed,
+                    disabled,
                     declared,
                     cycle: false,
                     children: vec![],
@@ -256,6 +276,7 @@ where
                 &deps.required,
                 true,
                 installed_keys,
+                disabled_keys,
                 installed_filenames,
                 &mut *cache,
                 &mut *fetch,
@@ -268,6 +289,7 @@ where
                 &deps.optional,
                 false,
                 installed_keys,
+                disabled_keys,
                 installed_filenames,
                 &mut *cache,
                 &mut *fetch,
@@ -289,6 +311,7 @@ where
                 project_id: c.project_id.clone(),
                 name: c.name.clone(),
                 installed,
+                disabled,
                 declared,
                 cycle: false,
                 children: kids,
@@ -360,7 +383,7 @@ mod tests {
             },
         )]);
         let installed = vec![node("r", "rei"), node("n", "night")];
-        let g = build_graph(&installed, &HashSet::new(), fetcher(map))
+        let g = build_graph(&installed, &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let rei = g.roots.iter().find(|r| r.project_id == "rei").unwrap();
@@ -413,7 +436,7 @@ mod tests {
         let installed = vec![node("w", "waystones")];
         let mut filenames = HashSet::new();
         filenames.insert("balm.jar".to_string());
-        let g = build_graph(&installed, &filenames, fetcher(map))
+        let g = build_graph(&installed, &[], &filenames, fetcher(map))
             .await
             .unwrap();
         let ws = g
@@ -451,7 +474,7 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("r", "rei")], &HashSet::new(), fetcher(map))
+        let g = build_graph(&[node("r", "rei")], &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let rei = &g.roots[0];
@@ -486,7 +509,7 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], &HashSet::new(), fetcher(map))
+        let g = build_graph(&[node("ax", "a")], &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let a = &g.roots[0];
@@ -536,7 +559,7 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], &HashSet::new(), fetcher(map))
+        let g = build_graph(&[node("ax", "a")], &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let a = &g.roots[0];
@@ -573,7 +596,7 @@ mod tests {
                 .unwrap_or_default();
             std::future::ready(Ok(deps))
         };
-        let g = build_graph(&[node("r", "a0")], &HashSet::new(), fetch)
+        let g = build_graph(&[node("r", "a0")], &[], &HashSet::new(), fetch)
             .await
             .unwrap();
 
@@ -589,5 +612,102 @@ mod tests {
             d, MAX_DEPTH,
             "a chain longer than the cap must be capped at MAX_DEPTH"
         );
+    }
+
+    /// r → x (disabled) → y → x: the normal literal and the cycle literal.
+    #[tokio::test]
+    async fn a_disabled_project_is_marked_disabled_and_never_installed() {
+        let map = HashMap::from([
+            (
+                "r",
+                NodeDeps {
+                    required: vec![child("x", "X")],
+                    optional: vec![],
+                },
+            ),
+            (
+                "x",
+                NodeDeps {
+                    required: vec![child("y", "Y")],
+                    optional: vec![],
+                },
+            ),
+            (
+                "y",
+                NodeDeps {
+                    required: vec![child("x", "X")],
+                    optional: vec![],
+                },
+            ),
+        ]);
+        let disabled = [(ModSource::Modrinth, "x".to_string())];
+        let g = build_graph(&[node("rs", "r")], &disabled, &HashSet::new(), fetcher(map))
+            .await
+            .unwrap();
+        let x = &g.roots[0].required[0];
+        assert!(x.disabled && !x.installed, "switched off is not installed");
+        let y = &x.children[0];
+        assert!(!y.disabled && !y.installed);
+        let back = &y.children[0];
+        assert!(
+            back.cycle && back.disabled,
+            "the cycle marker carries the flag too"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_disabled_node_at_the_depth_cap_is_still_marked() {
+        let fetch = |_src: ModSource, pid: String| {
+            let deps = pid
+                .strip_prefix('a')
+                .and_then(|n| n.parse::<u32>().ok())
+                .filter(|n| *n < 13)
+                .map(|n| NodeDeps {
+                    required: vec![child(&format!("a{}", n + 1), "A")],
+                    optional: vec![],
+                })
+                .unwrap_or_default();
+            std::future::ready(Ok(deps))
+        };
+        let disabled: Vec<(ModSource, String)> = (1..=13)
+            .map(|n| (ModSource::Modrinth, format!("a{n}")))
+            .collect();
+        let g = build_graph(&[node("r", "a0")], &disabled, &HashSet::new(), fetch)
+            .await
+            .unwrap();
+        let mut n = &g.roots[0].required[0];
+        while let Some(next) = n.children.first() {
+            n = next;
+        }
+        assert_eq!(n.project_id, "a10", "the walk stops at the depth cap");
+        assert!(n.disabled, "the depth-capped leaf is disabled");
+    }
+
+    #[tokio::test]
+    async fn an_enabled_jar_of_the_same_project_wins_over_a_disabled_one() {
+        let map = HashMap::from([(
+            "rei",
+            NodeDeps {
+                required: vec![child("night", "Night")],
+                optional: vec![],
+            },
+        )]);
+        let disabled = [(ModSource::Modrinth, "night".to_string())];
+        let installed = vec![node("r", "rei"), node("n", "night")];
+        let g = build_graph(&installed, &disabled, &HashSet::new(), fetcher(map))
+            .await
+            .unwrap();
+        let rei = g.roots.iter().find(|r| r.project_id == "rei").unwrap();
+        assert!(rei.required[0].installed && !rei.required[0].disabled);
+    }
+
+    #[test]
+    fn a_node_serialized_before_the_field_reads_as_not_disabled() {
+        let n: DepTreeNode = serde_json::from_value(serde_json::json!({
+            "source": "modrinth", "project_id": "a", "name": "A", "installed": false,
+            "declared": "required", "cycle": false, "children": []
+        }))
+        .unwrap();
+        assert!(!n.disabled);
     }
 }

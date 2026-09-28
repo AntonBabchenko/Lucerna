@@ -3312,10 +3312,10 @@ pub async fn mods_install_missing_required(
 }
 
 /// Build a full nested dependency graph for all platform-identified mods in
-/// `instance_id`. Each installed mod is a root; its required and optional
-/// subtrees are walked recursively (cycle-guarded, memoized) and classified as
-/// `satisfied / missing_required / optional_present / optional_absent` against
-/// the installed set.
+/// `instance_id`. Each enabled mod is a root; its required and optional
+/// subtrees are walked recursively (cycle-guarded, memoized), and every node
+/// says whether an enabled jar of it is `installed`, a switched-off one
+/// `disabled`, and what the author `declared` — facts, never a verdict.
 ///
 /// Network-frugal by construction. The old approach queried each mod's newest
 /// version and resolved every dependency one project at a time — ~1000+
@@ -3343,17 +3343,19 @@ pub async fn mods_dependency_graph(
     // this instance cannot load is inert here, so its declared deps must not be
     // shown as required (the depgraph analogue of preflight's #154 scoping).
     let loader = crate::instances::read_instance(&app, &instance_id)?.loader;
-    // Disabled mods are excluded outright, matching preflight (`preflight.rs`,
-    // which skips them before parsing). The loader never reads a `.disabled`
-    // jar, so a disabled mod neither declares dependencies nor satisfies anyone
-    // else's. Without this the two panels contradict each other about the same
-    // mod: the graph would show a disabled mod's deps as missing-and-installable
-    // and would count a disabled jar as satisfying someone else's requirement,
-    // while preflight says neither.
-    let installed_mods: Vec<_> = crate::mods::installed::list(&root)
+    // One read of the registry, unfiltered (spec §5.1). The ENABLED rows are the
+    // roots and the "installed" set, matching the pre-flight: the loader never
+    // reads a `.disabled` jar, so a disabled mod neither declares dependencies nor
+    // satisfies anyone else's — otherwise the two panels would contradict each
+    // other. The DISABLED rows only mark a node `disabled`, so the tree can offer
+    // to switch the jar back on instead of installing a duplicate beside it.
+    let (installed_mods, disabled_mods): (Vec<_>, Vec<_>) = crate::mods::installed::list(&root)
         .await?
         .into_iter()
-        .filter(|m| m.enabled)
+        .partition(|m| m.enabled);
+    let disabled_projects: Vec<(ModSource, String)> = disabled_mods
+        .iter()
+        .filter_map(|m| Some((m.source?, m.project_id.clone()?)))
         .collect();
 
     // Roots: platform-identified installed mods only (anonymous local jars have
@@ -3481,7 +3483,7 @@ pub async fn mods_dependency_graph(
         }
     };
 
-    build_graph(&roots, &installed_filenames, fetch).await
+    build_graph(&roots, &disabled_projects, &installed_filenames, fetch).await
 }
 
 /// Map a dependency reference to the `(source, project_id)` key used by the
