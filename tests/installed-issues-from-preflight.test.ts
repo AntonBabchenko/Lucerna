@@ -65,8 +65,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: graphWithAbsentRequired }),
     instanceDependencyPreflight: mocks.instanceDependencyPreflight,
-    // The panel enriches missing-dependency ids with project names; without
-    // this the effect calls undefined and the rejection escapes the test run.
+    // The dependency-name store names missing and disabled dependencies
+    // through this command (dep-names.svelte.ts); the last case drives it.
     modsResolveDepNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -81,6 +81,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { commands } from '$lib/ipc/bindings';
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 // A DISTINCT instance id per case: `preflightCache` is a per-instance LRU, so
@@ -144,5 +145,41 @@ describe('the issue count comes from the pre-flight', () => {
     });
     render(InstalledModsView, { props: props('preflight-hit') });
     await waitFor(() => expect(issuesChip()).not.toBeUndefined());
+  });
+
+  // Two dependents that share a bare mod-id must keep their own names (audit A-F3): a map keyed
+  // by the dep id alone showed the last answer on both rows.
+  it('names each missing dependency per dependent, through the shared store', async () => {
+    const missing = (sha1: string, name: string) => ({
+      dependent_sha1: sha1,
+      dependent_name: name,
+      dep_id: 'lib',
+      kind: 'missing_required',
+      installed_version: null,
+      needed: '',
+      needed_desc: { raw: '', family: 'maven', alternatives: [], unparseable: false, soft: false },
+      provider_project: null,
+      provider_sha1: null,
+      family: null,
+    });
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: { violations: [missing('a', 'Alpha'), missing('b', 'Beta')] },
+    });
+    vi.mocked(commands.modsResolveDepNames).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        { dependent_sha1: 'a', dep_id: 'lib', name: 'Lib for Alpha', project: null },
+        { dependent_sha1: 'b', dep_id: 'lib', name: 'Lib for Beta', project: null },
+      ],
+    });
+    render(InstalledModsView, { props: props('named-deps') });
+    await waitFor(() => {
+      const rows = [...document.querySelectorAll('[data-testid="preflight-row"]')];
+      expect(rows.map((r) => r.textContent ?? '')).toEqual([
+        expect.stringContaining('Lib for Alpha'),
+        expect.stringContaining('Lib for Beta'),
+      ]);
+    });
   });
 });

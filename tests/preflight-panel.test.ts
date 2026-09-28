@@ -294,13 +294,13 @@ describe('PreflightPanel bulk migrate entry', () => {
   });
 
   // A player cannot act on `forgeconfigapiport`. The Installed tab resolves the
-  // project name and hands it down as an overlay keyed by dep_id.
+  // project name per (dependent, dep id) and hands down a lookup.
   it('renders the resolved dependency name when the overlay supplies one', () => {
     const { getByTestId } = render(PreflightPanel, {
       props: {
         report: reportWith(1),
         onUpdate: () => {},
-        depNames: new Map([['dep-0', 'Forge Config API Port']]),
+        depName: (v: { dep_id: string }) => (v.dep_id === 'dep-0' ? 'Forge Config API Port' : null),
       },
     });
     const row = getByTestId('preflight-row');
@@ -313,7 +313,7 @@ describe('PreflightPanel bulk migrate entry', () => {
       props: {
         report: reportWith(1),
         onUpdate: () => {},
-        depNames: new Map([['dep-0', 'Forge Config API Port']]),
+        depName: (v: { dep_id: string }) => (v.dep_id === 'dep-0' ? 'Forge Config API Port' : null),
       },
     });
     expect(getByRole('button', { name: /Forge Config API Port/ })).toBeTruthy();
@@ -333,7 +333,7 @@ describe('PreflightPanel bulk migrate entry', () => {
       props: {
         report: reportWith(2),
         onUpdate: () => {},
-        depNames: new Map([['dep-0', 'Forge Config API Port']]),
+        depName: (v: { dep_id: string }) => (v.dep_id === 'dep-0' ? 'Forge Config API Port' : null),
       },
     });
     const rows = getAllByTestId('preflight-row');

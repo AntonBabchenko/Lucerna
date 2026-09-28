@@ -146,14 +146,15 @@ describe('PreflightPanel', () => {
 
   // The dep's human name used to ride on the violation itself
   // (`dep_display_name`), a field the backend never populated. It now arrives
-  // as an overlay the Installed tab resolves and passes down; the row's job —
+  // as a lookup the Installed tab resolves and passes down; the row's job —
   // naming both sides in words — is unchanged, which is what this asserts.
   it('renders one row for a version_out_of_range violation with the dependent name and dep name', () => {
     const { getByTestId, getAllByTestId } = render(PreflightPanel, {
       props: {
         report: { violations: [outOfRangeViolation] },
         onUpdate: () => {},
-        depNames: new Map([['sophisticatedcore', 'Sophisticated Core']]),
+        depName: (v: { dep_id: string }) =>
+          v.dep_id === 'sophisticatedcore' ? 'Sophisticated Core' : null,
       },
     });
     expect(getByTestId('preflight-panel')).toBeTruthy();

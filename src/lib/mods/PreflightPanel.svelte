@@ -16,7 +16,7 @@
     onOpenModPage = () => {},
     onMigrate,
     migrateCount = 0,
-    depNames = new Map<string, string>(),
+    depName = () => null,
     busyKeys = new Set<string>(),
     deadEndKeys = new Set<string>(),
     showRowActions = true,
@@ -38,13 +38,16 @@
     // must follow the compat count so it appears exactly when there is
     // something to migrate.
     migrateCount?: number;
-    // Human names for missing dependency ids, keyed by dep_id.
+    // The dependency's human name for a violation, or null → the raw loader id
+    // is shown. A lookup into the dependent-scoped name store
+    // (dep-names.svelte.ts), keyed by (dependent, dep id): two mods may declare
+    // the same bare id for different projects.
     //
     // Only the Installed tab supplies this: resolving a name costs a network
     // round, and nothing may sit between the user and the Play button, so the
     // launch gate passes nothing and renders the raw loader id. The asymmetry
-    // is deliberate — a missing entry is a fallback, never a bug.
-    depNames?: Map<string, string>;
+    // is deliberate — a missing name is a fallback, never a bug.
+    depName?: (v: DepViolation) => string | null;
     // Row keys (violationKey) currently mid-remediation / with no satisfying
     // version. Pass a SvelteSet for live updates — a plain Set is read once and
     // won't reactively re-render the row on mutation.
@@ -68,7 +71,7 @@
    * and for an incompatibility it would read backwards.
    */
   function rowMessage(v: DepViolation): string {
-    const dep = depNames.get(v.dep_id) ?? v.dep_id;
+    const dep = depName(v) ?? v.dep_id;
     if (v.kind === 'missing_required') {
       return $t('mods.preflight.missing', { dependent: v.dependent_name, dep });
     }
@@ -162,7 +165,7 @@
                 use:tooltip={{ text: $t('mods.preflight.installTip'), describe: false }}
                 onclick={() => onInstallMissing(v)}
               >
-                {$t('mods.preflight.install', { dep: depNames.get(v.dep_id) ?? v.dep_id })}
+                {$t('mods.preflight.install', { dep: depName(v) ?? v.dep_id })}
               </button>
             {:else if showRowActions && isRangeRemediable(v) && v.provider_project !== null}
               {@const key = rowKey(v)}
