@@ -1415,7 +1415,6 @@ export type TranslationKey =
   | 'mods.detail.offPlatformMc'
   | 'mods.detail.selectInstanceHint'
   | 'mods.detail.showAllVersions'
-  | 'mods.detail.switchVersionTitle'
   | 'mods.detail.tabOverview'
   | 'mods.detail.tabVersions'
   | 'mods.detail.versionInstalled'

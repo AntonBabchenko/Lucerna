@@ -15,6 +15,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
+  import { displayVersion } from '$lib/format/version';
   import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
   import { disableMods } from '$lib/mods/mod-ops.svelte';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
@@ -431,7 +432,9 @@
         {inst.mrpack_name}
       </h3>
       <div class="text-xs text-muted truncate flex items-center gap-2">
-        <span class="truncate">v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}</span>
+        <span class="truncate"
+          >{displayVersion(inst.mrpack_version ?? '')} · {formatBadge(inst.mrpack_source)}</span
+        >
         {#if inst.mrpack_project_id}
           <!-- Not gated on an available update: reaching an OLDER version while
                already up to date is the whole point of this affordance. -->

@@ -147,4 +147,18 @@ describe('i18n locale parity (en vs ru)', () => {
       .map(([key]) => key);
     expect(offenders).toEqual([]);
   });
+
+  // A version reaches a string already formatted (`displayVersion`: «v» only before a leading
+  // digit). A «v» written into the string itself doubled a version that has its own — «vv2.1.0»
+  // (plan §5b V2) — so no string glues a «v» to an argument.
+  it('never glues a «v» to an argument', () => {
+    const glued = /(^|[^\p{L}])v\{/u;
+    const offenders = [
+      ...Object.entries(flatEn).map(([k, v]) => [`en:${k}`, v] as const),
+      ...Object.entries(flatRu).map(([k, v]) => [`ru:${k}`, v] as const),
+    ]
+      .filter(([, value]) => typeof value === 'string' && glued.test(value))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
 });

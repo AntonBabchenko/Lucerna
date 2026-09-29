@@ -140,6 +140,20 @@ describe('ImportedDetailDrawer', () => {
     expect(container.textContent).toContain('Modrinth .mrpack');
   });
 
+  // Plan §5b V2: a version with its own «v» is not given a second one (displayVersion).
+  it('never doubles the «v» of a version that has its own', () => {
+    const { container } = render(ImportedDetailDrawer, {
+      props: {
+        inst: instance({ mrpack_version: 'v1.0' }),
+        onClose: () => {},
+        onOpenInstance: () => {},
+        onDeleted: () => {},
+      },
+    });
+    expect(container.textContent).toContain('v1.0');
+    expect(container.textContent).not.toContain('vv');
+  });
+
   it('renders description when mrpack_summary is non-null', () => {
     const { getByTestId } = render(ImportedDetailDrawer, {
       props: {

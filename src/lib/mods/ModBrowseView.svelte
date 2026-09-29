@@ -77,6 +77,7 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
+  import { displayVersion } from '$lib/format/version';
   import { stickyEdge } from '$lib/ui/sticky-edge';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
   import { activeCount } from '$lib/browse/filter-model';
@@ -1390,7 +1391,9 @@
             const inst = installedFor(hit);
             if (!inst) return null;
             return inst.version_number
-              ? $t('mods.card.inLibraryVersion', { version: inst.version_number })
+              ? $t('mods.card.inLibraryVersion', {
+                  version: displayVersion(inst.version_number),
+                })
               : $t('mods.card.inLibrary');
           }}
         />
