@@ -120,7 +120,7 @@ const sodium0511 = build('PSOD', '0.5.11');
 const ok = <T>(data: T) => ({ status: 'ok' as const, data });
 const bothSides = () =>
   ok({
-    update_dependent: { version: indium2 },
+    update_dependent: { version: indium2, breaks: [] },
     change_provider: { version: sodium0511, direction: 'downgrade', breaks: [] },
   });
 

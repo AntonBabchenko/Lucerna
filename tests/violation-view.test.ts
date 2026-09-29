@@ -103,7 +103,7 @@ describe('planOffers', () => {
 
   it('puts «update the dependent» first and makes it the primary action', () => {
     const plan = {
-      update_dependent: { version: ver('1.2') },
+      update_dependent: { version: ver('1.2'), breaks: [] },
       change_provider: provider('downgrade').change_provider,
     };
     expect(planOffers(get(t), v, plan, 'Sodium').map((o) => [o.side, o.label, o.primary])).toEqual([
@@ -132,6 +132,32 @@ describe('planOffers', () => {
   it('never makes a breaking change the primary action, and carries whom it breaks (D8)', () => {
     const [o] = planOffers(get(t), v, provider('downgrade', ['Iris', 'Reese']), 'Sodium');
     expect(o).toMatchObject({ side: 'provider', primary: false, breaks: ['Iris', 'Reese'] });
+  });
+
+  // Updating the dependent can push it out of another mod's range on it (D8): that update is
+  // no default either — a provider change that breaks nothing is.
+  it('a dependent update that breaks another mod carries whom and yields the default', () => {
+    const plan = {
+      update_dependent: { version: ver('1.2'), breaks: ['Pin'] },
+      change_provider: provider('downgrade').change_provider,
+    };
+    const offers = planOffers(get(t), v, plan, 'Sodium');
+    expect(offers.map((o) => [o.side, o.primary, o.breaks])).toEqual([
+      ['dependent', false, ['Pin']],
+      ['provider', true, []],
+    ]);
+  });
+
+  it('when both sides break another mod, neither is the primary action', () => {
+    const plan = {
+      update_dependent: { version: ver('1.2'), breaks: ['Pin'] },
+      change_provider: provider('downgrade', ['Iris']).change_provider,
+    };
+    const offers = planOffers(get(t), v, plan, 'Sodium');
+    expect(offers.map((o) => [o.side, o.primary, o.breaks])).toEqual([
+      ['dependent', false, ['Pin']],
+      ['provider', false, ['Iris']],
+    ]);
   });
 
   it('offers nothing for a plan with neither side', () => {

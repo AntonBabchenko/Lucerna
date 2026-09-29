@@ -120,7 +120,7 @@ export type PlanOffer = {
   label: string;
   /** The row's default action — never a change that breaks another mod (spec D8). */
   primary: boolean;
-  /** Enabled mods a change of the dependency would break: said beside it, applied only on its own click. */
+  /** Enabled mods this change would break: said beside it, applied only on its own click. */
   breaks: string[];
 };
 
@@ -135,8 +135,11 @@ const PROVIDER_CHANGE_KEY: Record<ChangeDirection, TranslationKey> = {
 
 /**
  * The planner's fixes as buttons (spec D8, §6.5). A newer build of the dependent that accepts what
- * is installed comes first: it changes no other mod. Then the change of the dependency, named by
- * its real direction. Only a change that breaks nothing may be the primary action.
+ * is installed comes first: it leaves the dependency alone. Then the change of the dependency,
+ * named by its real direction. Either side can break another mod — the dependent's update can fall
+ * outside a range some mod declares on it — and only a change that breaks nothing may be the
+ * primary action: the dependent's update, else the dependency's change; when both break something,
+ * neither is. `fixAll` takes the same one (`preferredSwitch`).
  */
 export function planOffers(
   t: Translate,
@@ -145,14 +148,16 @@ export function planOffers(
   dep: string,
 ): PlanOffer[] {
   const out: PlanOffer[] = [];
-  if (plan.update_dependent) {
+  const d = plan.update_dependent;
+  const dependentIsDefault = d !== null && d.breaks.length === 0;
+  if (d) {
     out.push({
       side: 'dependent',
-      primary: true,
-      breaks: [],
+      primary: dependentIsDefault,
+      breaks: [...d.breaks],
       label: t('mods.preflight.planUpdateDependent', {
         dependent: v.dependent_name,
-        version: plan.update_dependent.version.version_number,
+        version: d.version.version_number,
       }),
     });
   }
@@ -160,7 +165,7 @@ export function planOffers(
   if (p) {
     out.push({
       side: 'provider',
-      primary: out.length === 0 && p.breaks.length === 0,
+      primary: !dependentIsDefault && p.breaks.length === 0,
       breaks: [...p.breaks],
       label: t(PROVIDER_CHANGE_KEY[p.direction], { dep, version: p.version.version_number }),
     });

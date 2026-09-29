@@ -110,7 +110,7 @@ export type PlanAnswer =
 /**
  * Ask the planner how to fix the conflict `v` reports — update the dependent to
  * a build that accepts what is installed, or change the dependency to a build
- * the dependent accepts, naming whom that breaks. The network is used only
+ * the dependent accepts, each naming whom it would break. The network is used only
  * here, on the user's click. Never throws: a call that failed, or a bridge that
  * threw, is `failed` with its reason — a look that could not be made is not a
  * dead end (spec §9).

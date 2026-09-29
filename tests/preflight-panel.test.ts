@@ -482,7 +482,7 @@ describe('PreflightPanel — the planner', () => {
     const onApplyPlan = vi.fn();
     const v = outOfRange();
     const plan = {
-      update_dependent: { version: ver('3.1') },
+      update_dependent: { version: ver('3.1'), breaks: [] },
       change_provider: { version: ver('0.5.11'), direction: 'downgrade' as const, breaks: [] },
     };
     render(PreflightPanel, {
@@ -524,6 +524,27 @@ describe('PreflightPanel — the planner', () => {
     expect(button.className).not.toContain('btn-primary');
     // Heard with the button, not only seen beside it.
     expect(describedText(button)).toBe('Breaks: Iris, Reese');
+  });
+
+  it('says whom a dependent update would break too — each offer its own; neither is the default (D8)', () => {
+    const v = outOfRange();
+    const plan = {
+      update_dependent: { version: ver('3.1'), breaks: ['Pin'] },
+      change_provider: {
+        version: ver('0.5.11'),
+        direction: 'downgrade' as const,
+        breaks: ['Iris', 'Reese'],
+      },
+    };
+    render(PreflightPanel, {
+      props: { report: { violations: [v] }, plans: plansOf(v, { status: 'ready', plan }) },
+    });
+    const dependent = screen.getByTestId('preflight-plan-dependent');
+    const provider = screen.getByTestId('preflight-plan-provider');
+    expect(describedText(dependent)).toBe('Breaks: Pin');
+    expect(describedText(provider)).toBe('Breaks: Iris, Reese');
+    expect(dependent.className).not.toContain('btn-primary');
+    expect(provider.className).not.toContain('btn-primary');
   });
 
   it('gives an incompatibility the same flow (it had no action before)', async () => {

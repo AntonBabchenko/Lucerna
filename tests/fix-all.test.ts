@@ -148,7 +148,7 @@ describe('fixAll', () => {
     });
     m.modsPlanVersionFix.mockImplementation(async (_i: string, sha: string) =>
       sha === 'a'
-        ? ok({ update_dependent: { version: ver('2.0') }, change_provider: null })
+        ? ok({ update_dependent: { version: ver('2.0'), breaks: [] }, change_provider: null })
         : sha === 'b'
           ? ok({
               update_dependent: null,
@@ -167,11 +167,38 @@ describe('fixAll', () => {
     expect(out.applied).toEqual([dep, clean]);
   });
 
+  // D8 on the dependent's side too: updating it can push it out of another mod's range on it.
+  it('never applies a dependent update that breaks another mod — a harmless provider change instead', async () => {
+    const row = v({ kind: 'version_out_of_range', dep_id: 'sodium', provider_sha1: 's' });
+    m.modsPlanVersionFix.mockResolvedValue(
+      ok({
+        update_dependent: { version: ver('2.0'), breaks: ['Pin'] },
+        change_provider: { version: ver('0.5'), direction: 'downgrade', breaks: [] },
+      }),
+    );
+    const out = await fixAll('i', report(row));
+    expect(m.updateMod.mock.calls).toEqual([['i', 'Build 0.5', 's', ver('0.5')]]);
+    expect(out.applied).toEqual([row]);
+  });
+
+  it('switches nothing when both sides break another mod — and that is no failure', async () => {
+    const row = v({ kind: 'version_out_of_range', dep_id: 'sodium', provider_sha1: 's' });
+    m.modsPlanVersionFix.mockResolvedValue(
+      ok({
+        update_dependent: { version: ver('2.0'), breaks: ['Pin'] },
+        change_provider: { version: ver('0.5'), direction: 'downgrade', breaks: ['Iris'] },
+      }),
+    );
+    const out = await fixAll('i', report(row));
+    expect(m.updateMod).not.toHaveBeenCalled();
+    expect(out).toEqual({ attempted: [row], applied: [], reasons: [] });
+  });
+
   it('never plans against a jar this run already switched — the re-check judges the new one', async () => {
     const first = v({ kind: 'version_out_of_range', dep_id: 'sodium', provider_sha1: 's' });
     const second = v({ kind: 'version_out_of_range', dep_id: 'iris', provider_sha1: 'ir' });
     m.modsPlanVersionFix.mockResolvedValue(
-      ok({ update_dependent: { version: ver('2.0') }, change_provider: null }),
+      ok({ update_dependent: { version: ver('2.0'), breaks: [] }, change_provider: null }),
     );
     const out = await fixAll('i', report(first, second));
     expect(m.modsPlanVersionFix).toHaveBeenCalledTimes(1);
@@ -181,7 +208,7 @@ describe('fixAll', () => {
   it('a step whose bridge call throws is not applied, and the rest still run', async () => {
     m.modsInstallMissingRequired.mockRejectedValue(new Error('bridge gone'));
     m.modsPlanVersionFix.mockResolvedValue(
-      ok({ update_dependent: { version: ver('2.0') }, change_provider: null }),
+      ok({ update_dependent: { version: ver('2.0'), breaks: [] }, change_provider: null }),
     );
     const plan = v({ kind: 'version_out_of_range', dep_id: 'sodium', dependent_sha1: 'b' });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -230,7 +257,7 @@ describe('fixAll — why a step failed', () => {
     m.modsPlanVersionFix.mockImplementation(async (_i: string, sha: string) =>
       sha === 'd'
         ? err('mods_network')
-        : ok({ update_dependent: { version: ver('2.0') }, change_provider: null }),
+        : ok({ update_dependent: { version: ver('2.0'), breaks: [] }, change_provider: null }),
     );
     m.updateMod.mockResolvedValue(err('io'));
     const out = await fixAll(

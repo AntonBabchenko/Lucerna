@@ -164,21 +164,26 @@ async function applyPlans(instanceId: string, rows: DepViolation[], out: FixAllR
 
 type PreferredSwitch =
   | { kind: 'switch'; oldSha1: string; version: ModVersion }
-  /** Nothing this repair may take: no build either side, or only one that breaks another mod. */
+  /** Nothing this repair may take: no build either side, or only ones that break another mod. */
   | { kind: 'none' }
   /** The planner could not ask the platform — never "no version". */
   | { kind: 'failed'; reason: string };
 
-/** The planner's preferred switch for `v`, if it offers one this repair may take. */
+/**
+ * The planner's preferred switch for `v`, if it offers one this repair may take — the offer the
+ * panel makes its default (`planOffers`). Never a change that breaks another mod without an
+ * explicit click (D8), on either side: updating the dependent can push it out of a range another
+ * mod declares on it. So the dependent's update when it breaks nothing — it leaves the dependency
+ * alone — else the dependency's change when that breaks nothing, else nothing.
+ */
 async function preferredSwitch(instanceId: string, v: DepViolation): Promise<PreferredSwitch> {
   const plan = await commands.modsPlanVersionFix(instanceId, v.dependent_sha1, v.dep_id);
   if (plan.status !== 'ok') return { kind: 'failed', reason: modWriteReason(plan.error) };
   const { update_dependent: dependent, change_provider: provider } = plan.data;
-  // A newer build of the dependent first (spec D8): it changes no other mod.
-  if (dependent) return { kind: 'switch', oldSha1: v.dependent_sha1, version: dependent.version };
-  // Never a change that breaks another mod without an explicit click (D8), and
-  // never beside a provider the registry does not track — that would install a
-  // second jar.
+  if (dependent && dependent.breaks.length === 0) {
+    return { kind: 'switch', oldSha1: v.dependent_sha1, version: dependent.version };
+  }
+  // Never beside a provider the registry does not track — that would install a second jar.
   if (provider && provider.breaks.length === 0 && v.provider_sha1) {
     return { kind: 'switch', oldSha1: v.provider_sha1, version: provider.version };
   }

@@ -6828,11 +6828,23 @@ export type PlannedVersion = PlannedVersion_Serialize | PlannedVersion_Deseriali
 /**  A newer build of the dependent that accepts the installed provider. */
 export type PlannedVersion_Deserialize = {
 	version: ModVersion_Deserialize,
+	/**
+	 *  Registry names of the other enabled mods this build would newly fail —
+	 *  a range or incompatibility on what the dependent provides, or a
+	 *  requirement on what it would stop providing (D8).
+	 */
+	breaks: string[],
 };
 
 /**  A newer build of the dependent that accepts the installed provider. */
 export type PlannedVersion_Serialize = {
 	version: ModVersion_Serialize,
+	/**
+	 *  Registry names of the other enabled mods this build would newly fail —
+	 *  a range or incompatibility on what the dependent provides, or a
+	 *  requirement on what it would stop providing (D8).
+	 */
+	breaks: string[],
 };
 
 /**
@@ -6974,7 +6986,7 @@ export type ProviderChange = ProviderChange_Serialize | ProviderChange_Deseriali
 export type ProviderChange_Deserialize = {
 	version: ModVersion_Deserialize,
 	direction: ChangeDirection,
-	/**  Registry names of enabled mods this build would newly fail. */
+	/**  Registry names of the other enabled mods this build would newly fail. */
 	breaks: string[],
 };
 
@@ -6982,7 +6994,7 @@ export type ProviderChange_Deserialize = {
 export type ProviderChange_Serialize = {
 	version: ModVersion_Serialize,
 	direction: ChangeDirection,
-	/**  Registry names of enabled mods this build would newly fail. */
+	/**  Registry names of the other enabled mods this build would newly fail. */
 	breaks: string[],
 };
 
