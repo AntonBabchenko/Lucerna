@@ -953,7 +953,9 @@
       "above": "newer than {version}",
       "atMost": "{version} or older",
       "below": "older than {version}",
-      "joinAnd": "{a} and {b}",
+      "from": "from {version}",
+      "upTo": "up to {version}",
+      "joinAnd": "{a}, {b}",
       "joinOr": "{a}, or {b}"
     },
     "preflight": {

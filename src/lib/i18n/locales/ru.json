@@ -953,7 +953,9 @@
       "above": "выше {version}",
       "atMost": "{version} и старее",
       "below": "ниже {version}",
-      "joinAnd": "{a} и {b}",
+      "from": "от {version}",
+      "upTo": "до {version} включительно",
+      "joinAnd": "{a}, {b}",
       "joinOr": "{a} либо {b}"
     },
     "preflight": {
