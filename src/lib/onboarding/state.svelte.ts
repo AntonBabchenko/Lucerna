@@ -31,7 +31,10 @@ export const TOUR_VERSION = '0.6.0';
 // and the "(?)" explanations instead of "tips", because "tips" meant two
 // different things across the Help page. Same call as above — the STEPS are
 // untouched, only their wording, so TOUR_VERSION does not bump.
-export const MAIN_STEPS_FINGERPRINT = 'd445466e';
+// Moved again 2026-09-29: the chooser body says "(i) explanations" instead of
+// "(?)" — the trigger is the info glyph, and the copy should name what the
+// user sees. Wording only; same call, no bump.
+export const MAIN_STEPS_FINGERPRINT = '990207f4';
 // Derived from STEPS so adding/removing a step can never desync the
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;

@@ -1,6 +1,7 @@
 // AddonsTab behaviour: the content-kind switch (Mods · Resource packs ·
-// Shaders) and how the mod-only chrome (the .jar dropzone) and the shader
-// hint banner appear/disappear by kind.
+// Shaders · Data packs) with the active kind's (i) explainer at its end, and
+// how the mod-only chrome (the .jar dropzone) and the shader hint banner
+// appear/disappear by kind.
 //
 // The tab pulls in ModBrowseView (fires IPC on mount), InstalledModsView,
 // and InstalledAssetsView. We mock the whole bindings layer so the tab
@@ -71,7 +72,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     datapacksCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     datapacksInstallFromFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     listWorldNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    // The Installed-datapacks view gates its writes on the running game.
+    // InstalledDatapacksView (Data packs → Installed) reads the running state: it gates its
+    // writes on the running game.
     runningInstances: vi.fn().mockResolvedValue([]),
   },
   events: {
@@ -142,11 +144,13 @@ describe('AddonsTab', () => {
     rainbowFx.set(true); // restore default-on for other suites
   });
 
-  it('renders the content-kind switch with the three labels and the mod dropzone by default', () => {
+  it('renders the content-kind switch with the four labels and the mod dropzone by default', () => {
     render(AddonsTab, { props });
     expect(screen.getByRole('tab', { name: 'Mods' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Resource packs' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Shaders' })).toBeTruthy();
+    // The 1.13+ gate starts optimistic, so the fourth tab is there on first render.
+    expect(screen.getByRole('tab', { name: 'Data packs (Beta)' })).toBeTruthy();
     // Default kind is 'mod' → the .jar dropzone affordance is present.
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
     // Mods radio is selected by default.
@@ -462,5 +466,28 @@ describe('AddonsTab', () => {
       // not reset mock implementations).
       vi.mocked(commands.modsListInstalled).mockResolvedValue({ status: 'ok', data: [] });
     }
+  });
+
+  it("puts the active kind's explainer at the end of the kind row, and it follows the tab", async () => {
+    render(AddonsTab, { props });
+    const row = document.querySelector('[data-tour-ctx="addons-kind-switch"]') as HTMLElement;
+    // Inside the tour anchor, so the kindSwitch spotlight covers it too.
+    const mods = await screen.findByRole('button', { name: /what are mods\?/i });
+    expect(row.contains(mods)).toBe(true);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
+    const rp = await screen.findByRole('button', { name: /what are resource packs\?/i });
+    expect(row.contains(rp)).toBe(true);
+    expect(screen.queryByRole('button', { name: /what are mods\?/i })).toBeNull();
+  });
+
+  it('shows exactly one data pack explainer on the Data packs tab, in Browse and in Installed', async () => {
+    render(AddonsTab, { props });
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Data packs (Beta)' }));
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /what are data packs\?/i })).toHaveLength(1);
+    });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    await screen.findByTestId('installed-datapacks');
+    expect(screen.getAllByRole('button', { name: /what are data packs\?/i })).toHaveLength(1);
   });
 });

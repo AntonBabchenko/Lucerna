@@ -31,7 +31,6 @@
   import { ignoredLabelKey } from '$lib/worlds/datapack-state';
   import { compatLine } from '$lib/worlds/datapack-compat';
   import { t } from '$lib/i18n';
-  import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import { get } from 'svelte/store';
   import { SvelteSet } from 'svelte/reactivity';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -467,12 +466,11 @@
 <div class="p-3" data-testid="installed-datapacks">
   <div class="flex items-center justify-end gap-2 mb-2">
     <!-- The row is `justify-end`, so exactly ONE child may carry `mr-auto` —
-         it is what pins the left slot. The explainer and the gate note share
-         this always-rendered wrapper rather than claiming it in turn: the note
-         alone used to own it, and moving `mr-auto` onto the (?) instead would
-         have shunted the note across the row to sit against the buttons. -->
+         it is what pins the left slot. This always-rendered wrapper owns it
+         for the gate note. (The data pack explainer used to share it; it now
+         sits in the Add-ons kind row above, which covers Browse and Installed
+         alike, so this toolbar no longer repeats it.) -->
     <div class="mr-auto flex items-center gap-2 min-w-0">
-      <DatapackConceptHelp />
       {#if disabledKey !== null && !busy}
         <!-- Why every mutation below is disabled: the game owns level.dat while
              it runs, and the backend refuses datapack writes for the duration.

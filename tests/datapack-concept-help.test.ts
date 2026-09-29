@@ -1,25 +1,25 @@
-// The "What are data packs?" concept explainer, exercised on the instance
-// library surface (InstalledDatapacksView).
+// The "What are data packs?" concept explainer.
 //
 // tests/help-popover-paragraphs.test.ts already covers HelpPopover's own
 // multi-paragraph rendering with synthetic strings. This file covers the
-// WIRING instead: that DatapackConceptHelp passes the four
-// `onboarding.datapackConcept.pN` keys, in order, through explainKey — so a
-// wrong key, a dropped paragraph, or a missing explanation-level swap fails
-// here rather than only in front of a user. The expected fragments below are
-// verbatim substrings of the real EN values in src/lib/i18n/locales/en.json.
+// WIRING: that DatapackConceptHelp passes its five `onboarding.datapackConcept`
+// leaves (p1, p2, choose, p3, p4), in order, through explainKey — so a wrong
+// key, a dropped paragraph, or a missing explanation-level swap fails here
+// rather than only in front of a user. The expected fragments are verbatim
+// substrings of the real EN values in src/lib/i18n/locales/en.json.
 //
-// WorldDatapacks and ServerDatapacksInstalled render the very same
-// DatapackConceptHelp component, so the copy assertions are not repeated per
-// surface. The left-slot test at the bottom is the exception: that layout is
-// specific to this toolbar.
+// Copy is asserted once, on the component. Surfaces pin PRESENCE only: the
+// Add-ons kind row (tests/addons-tab.test.ts), a world's Datapacks tab
+// (tests/world-datapacks.test.ts) and the server pane (below). The instance
+// library toolbar is the one surface that must NOT carry it any more — the
+// kind row above it already does, and two (?) on one screen was the defect.
 
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Backend seam: the library view fetches its rows and the running-instance
-// state on mount, and subscribes to the process events. An empty library is
-// enough — the toolbar (and therefore the explainer) renders regardless.
+// Backend seam for the two panes rendered below: the library view fetches its
+// rows and the running-instance state on mount, and subscribes to the process
+// events. An empty library is enough — the toolbar renders regardless.
 const { datapacksListLibrary, runningInstances, serverListDatapacks, spawnListen, exitListen } =
   vi.hoisted(() => ({
     datapacksListLibrary: vi.fn(),
@@ -38,6 +38,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import InstalledDatapacksView from '$lib/mods/InstalledDatapacksView.svelte';
+import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
 import { explanationState } from '$lib/onboarding/explanation-level.svelte';
 import ServerDatapacksInstalled from '$lib/servers/datapacks/ServerDatapacksInstalled.svelte';
 
@@ -75,53 +76,51 @@ function popoverEl(): HTMLElement {
 }
 
 async function openExplainer(): Promise<HTMLParagraphElement[]> {
-  render(InstalledDatapacksView, { props: { instanceId: 'inst-1' } });
+  render(DatapackConceptHelp);
   const trigger = await screen.findByRole('button', { name: TRIGGER });
   await fireEvent.click(trigger);
   return [...popoverEl().querySelectorAll('p')];
 }
 
-describe('datapack concept help — instance library surface', () => {
+describe('datapack concept help — copy', () => {
   it('is closed until the trigger is clicked', async () => {
-    render(InstalledDatapacksView, { props: { instanceId: 'inst-1' } });
+    render(DatapackConceptHelp);
     const trigger = await screen.findByRole('button', { name: TRIGGER });
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
-    // No concept copy on screen before the click — the explainer must not
-    // occupy the toolbar row it sits in.
     expect(screen.queryByText(/data packs change/i)).toBeNull();
   });
 
-  it('surfaces all four concept paragraphs, in order, at the Advanced level', async () => {
+  it('surfaces all five concept paragraphs, in order, at the Advanced level', async () => {
     explanationState.level = 'advanced';
     const paragraphs = await openExplainer();
-    expect(paragraphs).toHaveLength(4);
+    expect(paragraphs).toHaveLength(5);
     // p1 — the definition. "loot tables" is the Advanced-only wording.
     expect(paragraphs[0].textContent).toContain('recipes, loot tables, advancements');
     // p2 — not a mod, lives in a world.
     expect(paragraphs[1].textContent).toContain('a data pack is not code');
+    // choose — when a data pack is the right pick over a mod.
+    expect(paragraphs[2].textContent).toContain('Pick a data pack when');
     // p3 — the library/worlds workflow.
-    expect(paragraphs[2].textContent).toContain("instance's library");
+    expect(paragraphs[3].textContent).toContain("instance's library");
     // p4 — the Beta caveat.
-    expect(paragraphs[3].textContent).toContain('Beta');
+    expect(paragraphs[4].textContent).toContain('Beta');
   });
 
   it('swaps in the Basic wording at the Basic explanation level', async () => {
     explanationState.level = 'basic';
     const paragraphs = await openExplainer();
-    expect(paragraphs).toHaveLength(4);
+    expect(paragraphs).toHaveLength(5);
     expect(paragraphs[0].textContent).toContain('parts of the game itself');
     // The Advanced phrasing must be gone, not merely accompanied — otherwise a
     // broken explainKey mapping would still pass the assertion above.
     expect(paragraphs[0].textContent).not.toContain('loot tables');
+    expect(paragraphs[2].textContent).toContain("the way to change the game's rules");
   });
 });
 
-// PRESENCE on the server surface — a different claim from the copy assertions
-// above, and one nothing else makes: ServerAddonsTab is the only thing that
+// PRESENCE on the server surface — ServerAddonsTab is the only thing that
 // renders ServerDatapacksInstalled, and tests/server-addons-tab.test.ts stubs
 // it out with a no-op component. So the pane is mounted directly here.
-// (The per-world surface is pinned in tests/world-datapacks.test.ts, which
-// already renders WorldDatapacks.)
 describe('datapack concept help — server surface', () => {
   it('renders the help trigger in the server datapack toolbar', async () => {
     render(ServerDatapacksInstalled, { props: { serverId: 'srv-1', mcVersion: '1.20.4' } });
@@ -129,23 +128,26 @@ describe('datapack concept help — server surface', () => {
   });
 });
 
-// The toolbar row is `justify-end`, so exactly one child may carry `mr-auto` —
-// it is what pins the left slot. The explainer and the gate note share one
-// always-rendered wrapper that owns it: were `mr-auto` moved onto the (?)
-// alone, the note would lose the left slot and slide across to the buttons.
-describe('datapack concept help — toolbar left slot', () => {
-  it('pins the explainer and the gate note together in the single left slot', async () => {
+// ABSENCE on the instance library: the Add-ons kind row carries the explainer
+// for both Browse and Installed, so the toolbar no longer repeats it. The row
+// is `justify-end`; exactly one child carries `mr-auto` and pins the left
+// slot, which now holds only the gate note.
+describe('instance library toolbar', () => {
+  it('carries no data pack explainer', async () => {
+    render(InstalledDatapacksView, { props: { instanceId: 'inst-1' } });
+    await screen.findByTestId('installed-datapacks');
+    await waitFor(() => expect(datapacksListLibrary).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: TRIGGER })).toBeNull();
+  });
+
+  it('keeps the gate note alone in the single left slot', async () => {
     runningInstances.mockResolvedValue([{ instance_id: 'inst-1' }]);
     render(InstalledDatapacksView, { props: { instanceId: 'inst-1' } });
-    const trigger = await screen.findByRole('button', { name: TRIGGER });
-    const row = screen.getByTestId('installed-datapacks').firstElementChild as HTMLElement;
-    const leftSlot = trigger.closest('div.mr-auto');
-    expect(leftSlot).not.toBeNull();
-    expect(leftSlot?.parentElement).toBe(row);
-    // The running instance gates every mutation, so the note is on screen —
-    // inside that same wrapper, not stranded next to the buttons.
     const note = await screen.findByTestId('datapacks-gate-note');
-    expect(note.parentElement).toBe(leftSlot);
+    const row = screen.getByTestId('installed-datapacks').firstElementChild as HTMLElement;
+    const leftSlot = note.parentElement as HTMLElement;
+    expect(leftSlot.classList.contains('mr-auto')).toBe(true);
+    expect(leftSlot.parentElement).toBe(row);
     expect(note.className).not.toContain('mr-auto');
     expect(row.querySelectorAll('.mr-auto')).toHaveLength(1);
   });
