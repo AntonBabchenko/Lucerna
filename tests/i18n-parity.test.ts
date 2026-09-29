@@ -135,4 +135,16 @@ describe('i18n locale parity (en vs ru)', () => {
       .map(([key]) => key);
     expect(offenders).toEqual([]);
   });
+
+  // The same collision for the profile: «Эта сборка не запустится» said a MODPACK would not
+  // launch where the English says the instance won't (plan §5b V2, carried from V1). An instance
+  // is «профиль» (D14). Found the same way: an instance that is not a pack. Search keywords exempt.
+  it('never says «сборка» for an instance', () => {
+    const offenders = Object.entries(flatRu)
+      .filter(([key]) => !key.startsWith('settings.search.keywords.'))
+      .filter(([key]) => /\binstance/i.test(flatEn[key] ?? '') && !/pack/i.test(flatEn[key] ?? ''))
+      .filter(([, value]) => typeof value === 'string' && /сборк/i.test(value))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
 });
