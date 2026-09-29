@@ -18,6 +18,22 @@ import { modKey, rowDisplayName } from './row-utils';
 
 export type RequiredByEntry = { name: string; source: ModSource; projectId: string; sha1: string };
 
+const reachedAll = (nodes: readonly DepTreeNode[]): boolean =>
+  nodes.every((n) => n.deps_unknown !== 'unreachable' && reachedAll(n.children));
+
+/**
+ * Whether `graph` may be kept for the session. A mod whose dependencies are unknown because the
+ * platform could not be reached (`unreachable`: offline, rate-limited, no usable key) is unknown
+ * only for now — a graph holding one, at a root or any installed node below, is shown but not
+ * kept, so the next open asks again (cheap: the backend keeps the versions it did get). An
+ * `unidentified` version is the platform's own answer and stays until the mods change.
+ */
+export function isSettledGraph(graph: DependencyGraph): boolean {
+  return graph.roots.every(
+    (r) => r.deps_unknown !== 'unreachable' && reachedAll(r.required) && reachedAll(r.optional),
+  );
+}
+
 export type DepGraphCtx = {
   getMcVersion: () => string | null;
   getLoader: () => LoaderKind | null;
@@ -134,7 +150,10 @@ export function createDepGraph(
     if (getInstanceId() !== id) return;
     if (r.status === 'ok') {
       graph = r.data;
-      depGraphCache.set(id, r.data);
+      // Only a settled answer is the session's; one the platform could not be reached for is
+      // asked for again on the next open — and never leaves an older graph behind it.
+      if (isSettledGraph(r.data)) depGraphCache.set(id, r.data);
+      else depGraphCache.delete(id);
     } else {
       // Surface the failure so "Re-check deps" doesn't silently do nothing —
       // the graph load failed (offline / rate-limited). InstalledModsView folds
@@ -279,7 +298,9 @@ export function createDepGraph(
           // change — every install, removal, toggle or external change, by the
           // always-mounted page for any profile and by this view's own reloads
           // (installDepNode -> invalidateGraph) — and by the explicit "Re-check
-          // deps" button, so a stale graph can't persist past a real change.
+          // deps" button, so a stale graph can't persist past a real change. A
+          // graph the platform could not be reached for is never cached
+          // (`isSettledGraph`), so it is asked for again here.
           graph = cached;
         } else {
           graph = null;

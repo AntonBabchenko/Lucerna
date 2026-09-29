@@ -306,6 +306,67 @@ describe('createDepGraph', () => {
     expect(d.graph?.roots?.[0]?.sha1).toBe('z');
   });
 
+  // «Could not reach the platform» passes (offline, rate-limited); «the platform does not know
+  // this version» does not. A graph holding the first is shown — honestly marked — but is not the
+  // session's answer: the next open asks again, cheap now that the backend keeps the versions it
+  // did get. The second stays until the mods change.
+  describe('what the session keeps', () => {
+    const root = (
+      deps_unknown: 'unreachable' | 'unidentified' | null,
+      required: DepTreeNode[] = [],
+    ) => ({
+      sha1: 'r',
+      source: 'modrinth' as const,
+      project_id: 'PR',
+      name: 'R',
+      required,
+      optional: [],
+      deps_unknown,
+    });
+    const mountAgain = async (id: string) => {
+      const before = mocks.modsDependencyGraph.mock.calls.length;
+      createDepGraph(
+        () => id,
+        () => [],
+        ctx,
+      );
+      await new Promise((r) => setTimeout(r, 0)); // the seed effect reads the cache
+      return mocks.modsDependencyGraph.mock.calls.length - before;
+    };
+    const load = async (id: string, data: unknown) => {
+      mocks.modsDependencyGraph.mockResolvedValue({ status: 'ok', data });
+      const d = createDepGraph(
+        () => id,
+        () => [],
+        ctx,
+      );
+      await d.reloadGraphNow();
+      return d;
+    };
+
+    it('keeps no graph the platform could not be reached for — the next open asks again', async () => {
+      const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+      const d = await load('offline', { roots: [root('unreachable')] });
+      expect(d.graph?.roots[0]?.deps_unknown).toBe('unreachable'); // shown, and says so
+      expect((depGraphCache as Map<string, unknown>).has('offline')).toBe(false);
+      expect(await mountAgain('offline')).toBe(1);
+    });
+
+    it('nor one where only a mod deeper down could not be described', async () => {
+      const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+      const nested = { ...n('lib'), deps_unknown: 'unreachable' as const };
+      await load('offline-nested', { roots: [root(null, [n('mid', [nested])])] });
+      expect((depGraphCache as Map<string, unknown>).has('offline-nested')).toBe(false);
+    });
+
+    it('keeps one whose unknowns are the platform’s own answer', async () => {
+      const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+      await load('unidentified', { roots: [root('unidentified')] });
+      expect((depGraphCache as Map<string, unknown>).has('unidentified')).toBe(true);
+      expect(await mountAgain('unidentified')).toBe(0);
+    });
+  });
+
   it('resolves the graph when the cache has no entry for the instance', async () => {
     mocks.modsDependencyGraph.mockResolvedValue({ status: 'ok', data: { roots: [] } });
     createDepGraph(
