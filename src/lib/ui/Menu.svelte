@@ -4,10 +4,20 @@
   // (right-click / Shift+F10) rendered byte-identically. The trigger wrappers own
   // opening, positioning (top/left/width), and focus-return via onClose; this
   // owns everything once the menu is positioned and mounted.
+  //
+  // `width` is a MINIMUM: the menu is as wide as its longest label (plan §5b V2 —
+  // a fixed 230 px wrapped «Перепроверить совместимость и зависимости» over three
+  // lines and squeezed its icon). A disabled item's reason wraps at the width the
+  // labels set rather than setting it. A menu that grew keeps the edge it was
+  // anchored by (`align`: the ⋯ menu hangs from its button's right edge, a
+  // context menu from the pointer's left) and is clamped back on screen.
   import { onMount } from 'svelte';
   import { Icon } from '$lib/ui/icons';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
   import type { ContextMenuItem } from '$lib/ui/menu-item';
+
+  /** Distance kept from the window edge — the triggers' own clamp margin. */
+  const MARGIN = 8;
 
   let {
     items,
@@ -15,6 +25,7 @@
     top,
     left,
     width,
+    align = 'start',
     onClose,
     openedByKeyboard = false,
   }: {
@@ -22,7 +33,10 @@
     ariaLabel: string;
     top: number;
     left: number;
+    /** The minimum width; the menu grows to its longest label. */
     width: number;
+    /** 'end': `left + width` is the edge the menu hangs from (it grows leftwards). */
+    align?: 'start' | 'end';
     onClose: () => void;
     openedByKeyboard?: boolean;
   } = $props();
@@ -31,6 +45,23 @@
   // item for keyboard opens, -1 for pointer opens or when every item is disabled).
   let activeIndex = $state(-1);
   let menuEl: HTMLDivElement | undefined = $state();
+  // Where a menu wider than `width` goes; null = where the trigger put it.
+  let placedLeft = $state<number | null>(null);
+  const surfaceStyle = $derived(
+    `top: ${top}px; left: ${placedLeft ?? left}px; min-width: ${width}px; ` +
+      `max-width: calc(100vw - ${2 * MARGIN}px);`,
+  );
+
+  // The measured width decides: an 'end' menu keeps its right edge, a 'start' one its left, and
+  // either is clamped into the window. 0 = not laid out (no layout engine): leave it be.
+  function place(actual: number): void {
+    if (actual <= width) return;
+    const wanted = align === 'end' ? left + width - actual : left;
+    placedLeft = Math.min(
+      Math.max(wanted, MARGIN),
+      Math.max(MARGIN, window.innerWidth - actual - MARGIN),
+    );
+  }
 
   const enabledIndexes = $derived(
     items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0),
@@ -80,6 +111,7 @@
   // listeners lacked. The returned cleanup detaches the listeners on close/unmount.
   onMount(() => {
     activeIndex = openedByKeyboard ? items.findIndex((it) => !it.disabled) : -1;
+    if (menuEl) place(menuEl.offsetWidth);
     menuEl?.focus();
     return attachPopoverDismiss({ onDismiss: onClose, ignoreScrollWithin: () => menuEl });
   });
@@ -101,8 +133,8 @@
   role="menu"
   tabindex="-1"
   aria-label={ariaLabel}
-  class="fixed z-[var(--z-popover)] max-h-[80vh] overflow-y-auto bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
-  style="top: {top}px; left: {left}px; width: {width}px;"
+  class="fixed z-[var(--z-popover)] w-max max-h-[80vh] overflow-y-auto bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
+  style={surfaceStyle}
   onkeydown={onMenuKeydown}
 >
   {#each items as it, i (it.label)}
@@ -123,14 +155,16 @@
       {#if it.icon}<Icon
           name={it.icon}
           size={15}
-          class={reason ? 'mt-0.5 shrink-0 opacity-50' : ''}
+          class={reason ? 'mt-0.5 shrink-0 opacity-50' : 'shrink-0'}
         />{/if}
       {#if reason}
         <!-- The label dims like any disabled item; the reason stays at full
-             contrast — halving the whole button would make it unreadable. -->
+             contrast — halving the whole button would make it unreadable. The
+             reason adds nothing to the menu's width (`w-0`) and fills the width
+             the labels set (`min-w-full`), wrapping there. -->
         <span class="min-w-0 flex-1">
           <span class="block opacity-50">{it.label}</span>
-          <span class="block text-xs text-muted">{reason}</span>
+          <span class="block w-0 min-w-full text-xs text-muted">{reason}</span>
         </span>
       {:else}
         {it.label}
