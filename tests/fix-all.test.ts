@@ -61,6 +61,8 @@ const report = (...violations: DepViolation[]): PreflightReport => ({ violations
 const ver = (n: string) => ({ name: `Build ${n}`, version_number: n }) as never;
 const ok = <T>(data: T) => ({ status: 'ok' as const, data });
 const err = (kind: string) => ({ status: 'error' as const, error: { kind, name: 'Balm' } });
+// A reason with the mods it stopped — shown with the names on a line above it (`reasonLines`).
+const stopped = (names: string, reason: string) => ({ names, reason });
 
 beforeEach(() => {
   for (const f of Object.values(m)) f.mockReset();
@@ -90,7 +92,11 @@ describe('fixAll', () => {
         ],
       ],
     ]);
-    expect(out).toEqual({ attempted: [a, b, c], applied: [a, b], reasons: ['cloth: denied'] });
+    expect(out).toEqual({
+      attempted: [a, b, c],
+      applied: [a, b],
+      reasons: [stopped('cloth', 'denied')],
+    });
   });
 
   it('installs by project when the name store knows it, else by mod-id', async () => {
@@ -252,7 +258,7 @@ describe('fixAll', () => {
 // «Fixed 0 of N» alone cannot tell a held profile from unrelated failures: the repair says why
 // each step that failed failed, each reason once, worded for the user.
 describe('fixAll — why a step failed', () => {
-  it('says why the steps that failed failed — each reason once, after the mods it stopped; a busy profile as busy', async () => {
+  it('says why the steps that failed failed — each reason once, with the mods it stopped; a busy profile as busy', async () => {
     m.enableModsUnguarded.mockResolvedValue({
       enabled: [],
       failed: [{ sha1: 'p', name: 'lib', reason: 'BUSY' }],
@@ -283,10 +289,10 @@ describe('fixAll — why a step failed', () => {
     );
     expect(out.applied).toEqual([]);
     expect(out.reasons).toEqual([
-      'lib, balm: BUSY',
-      "Cloth Config: Couldn't find the mod to install automatically",
-      'Alpha: mods_network',
-      'Alpha: io',
+      stopped('lib, balm', 'BUSY'),
+      stopped('Cloth Config', "Couldn't find the mod to install automatically"),
+      stopped('Alpha', 'mods_network'),
+      stopped('Alpha', 'io'),
     ]);
   });
 
@@ -308,7 +314,7 @@ describe('fixAll — why a step failed', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const out = await fixAll('i', report(v({})));
-      expect(out.reasons).toEqual(['balm: bridge gone']);
+      expect(out.reasons).toEqual([stopped('balm', 'bridge gone')]);
     } finally {
       warn.mockRestore();
     }
@@ -317,7 +323,7 @@ describe('fixAll — why a step failed', () => {
 
 // Plan §5c V3 (screenshot 07b): «Исправлено 3 из 5 · Не удалось связаться с сервером…» did not say
 // WHICH fixes failed. Each reason names the mods whose fix it stopped, grouped by reason the way
-// the update report does («Sodium, Indium: …»).
+// the update report does — the names on a line above the reason (plan §5d L4).
 describe('fixAll — whose fix failed', () => {
   it('names the mods each reason stopped, one line per reason', async () => {
     m.depNameOf.mockImplementation((_i: string, _s: string, dep: string) =>
@@ -338,7 +344,7 @@ describe('fixAll — whose fix failed', () => {
         }),
       ),
     );
-    expect(out.reasons).toEqual(['Moonlight Lib, ImmediatelyFast: network']);
+    expect(out.reasons).toEqual([stopped('Moonlight Lib, ImmediatelyFast', 'network')]);
   });
 });
 
@@ -366,7 +372,7 @@ describe('repairForLaunch', () => {
       report: report(b),
       fixed: 1,
       total: 2,
-      reasons: ['x: denied'],
+      reasons: [stopped('x', 'denied')],
     });
   });
 

@@ -30,12 +30,16 @@ describe('updatesReport', () => {
     const t = updatesReport(tr, [ok('A', []), failed('B', 'Network error')]);
     expect(t?.kind).toBe('warning');
     expect(t?.title).toBe('mods.installed.toastUpdatedFailed {"count":1,"failed":1}');
-    expect(t?.lines).toEqual(['B: Network error']);
+    // The names on a line above the reason (`reasonLines`, plan §5d L4).
+    expect(t?.lines).toEqual([{ names: 'B', reason: 'Network error' }]);
   });
 
   it('failures with the same reason share one line (a busy profile refuses every one alike)', () => {
     const t = updatesReport(tr, [failed('A', 'Busy'), failed('B', 'Busy'), failed('C', 'Gone')]);
-    expect(t?.lines).toEqual(['A, B: Busy', 'C: Gone']);
+    expect(t?.lines).toEqual([
+      { names: 'A, B', reason: 'Busy' },
+      { names: 'C', reason: 'Gone' },
+    ]);
   });
 
   it('a row update that failed is named, with its reason', () => {

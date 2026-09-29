@@ -5,6 +5,7 @@
   import DialogTitle from '$lib/ui/DialogTitle.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
+  import type { ReasonLine } from '$lib/format/reason-lines';
   import type { PreflightReport } from '$lib/ipc/bindings';
   import { resolveDepNames } from '$lib/mods/dep-names.svelte';
   import { hasBlocking } from '$lib/mods/preflight.svelte';
@@ -28,8 +29,8 @@
     instanceId?: string | null;
     busy?: boolean;
     // «Fixed N of M» after a repair that left rows behind, with why the steps
-    // that failed failed (each once); null before one.
-    fixed?: { fixed: number; total: number; reasons: readonly string[] } | null;
+    // that failed failed (each once, under the mods it stopped); null before one.
+    fixed?: { fixed: number; total: number; reasons: readonly ReasonLine[] } | null;
     onFixAndLaunch: () => void;
     onLaunchAnyway: () => void;
     onCancel: () => void;

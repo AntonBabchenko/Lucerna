@@ -140,7 +140,11 @@ describe('ServerAddonsTab — data packs on a world with only level.dat_old', ()
     droppedServerContent.value = { kind: 'datapack', paths: ['C:/packs/p.zip'] };
     await waitFor(() =>
       expect(toastList().filter((x) => x.kind === 'warning')).toEqual([
-        expect.objectContaining({ title: "1 file wasn't added", lines: [`p.zip: ${ONLY_OLD}`] }),
+        // The file on a line above the reason (`reasonLines`, plan §5d L4).
+        expect.objectContaining({
+          title: "1 file wasn't added",
+          lines: [{ names: 'p.zip', reason: ONLY_OLD }],
+        }),
       ]),
     );
     expect(cmd.serverInstallDatapack).not.toHaveBeenCalled();

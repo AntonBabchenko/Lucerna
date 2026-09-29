@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ReportLine } from '$lib/format/reason-lines';
   import { Icon } from '$lib/ui/icons';
 
   let {
@@ -20,9 +21,10 @@
     /**
      * Lines that explain the message (why a repair left something behind),
      * listed under it inside the same region — one announcement. Shown only
-     * with a message.
+     * with a message. A reason with the names it stopped (`reasonLines`) puts
+     * them on a line of their own, above it.
      */
-    details?: readonly string[];
+    details?: readonly ReportLine[];
     /** danger → role=alert; warning / info / success → role=status. success is the "set" / ok tone (DESIGN §10). */
     tone?: 'danger' | 'warning' | 'info' | 'success';
     /** Defaults to assertive for danger, polite for advisory tones. */
@@ -80,7 +82,15 @@
     {#if details.length > 0}
       <ul class="mt-1 list-disc pl-5 text-xs {toneClass}">
         {#each details as line}
-          <li>{line}</li>
+          <!-- The names a reason stopped, then the reason under them: never after a colon. -->
+          <li>
+            {#if typeof line === 'string'}
+              {line}
+            {:else}
+              <span class="block">{line.names}</span>
+              <span class="block">{line.reason}</span>
+            {/if}
+          </li>
         {/each}
       </ul>
     {/if}

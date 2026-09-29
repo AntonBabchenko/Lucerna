@@ -135,9 +135,10 @@ describe('createInstalledSelection', () => {
     );
     s.toggleSelectAll(true);
     expect(await s.bulkUpdate()).toEqual(['a']);
+    // The mod on a line above its reason (`reasonLines`, plan §5d L4).
     expect(toasts.pushWarning).toHaveBeenCalledWith('mods.installed.toastUpdatedFailed', [
       'mods.updates.installedDeps',
-      'B: boom',
+      { names: 'B', reason: 'boom' },
     ]);
   });
 });

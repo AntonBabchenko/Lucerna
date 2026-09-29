@@ -41,8 +41,8 @@ function fileName(path: string): string {
 
 /**
  * One warning toast for the files a drop did not add: how many, then each reason with the files it
- * left behind («a.png, b.txt: …») — the grouping the update reports use. A drop is never discarded
- * in silence.
+ * left behind on a line above it — the grouping the update reports use (`reasonLines`). A drop is
+ * never discarded in silence.
  */
 export function reportNotAdded(skipped: readonly { path: string; reason: string }[]): void {
   if (skipped.length === 0) return;

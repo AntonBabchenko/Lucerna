@@ -137,7 +137,8 @@ describe('when the files are dropped', () => {
     expect(droppedMods.value).toBeNull();
     expect(warnings()).toHaveLength(1);
     expect(warnings()[0].title).toBe("1 file wasn't added");
-    expect(warnings()[0].lines).toEqual([`shot.png: ${ONLY_MODS}`]);
+    // The files a reason left behind, on a line above it (`reasonLines`, plan §5d L4).
+    expect(warnings()[0].lines).toEqual([{ names: 'shot.png', reason: ONLY_MODS }]);
   });
 
   it('a mixed drop adds the files that fit and names the ones it skipped', async () => {
@@ -149,7 +150,7 @@ describe('when the files are dropped', () => {
     expect(droppedMods.value).toEqual(['C:/mods/a.jar']);
     expect(warnings()).toHaveLength(1);
     expect(warnings()[0].title).toBe("2 files weren't added");
-    expect(warnings()[0].lines).toEqual([`shot.png, readme.txt: ${ONLY_MODS}`]);
+    expect(warnings()[0].lines).toEqual([{ names: 'shot.png, readme.txt', reason: ONLY_MODS }]);
   });
 
   it('a drop of files that all fit adds them and says nothing more', async () => {
@@ -164,7 +165,9 @@ describe('when the files are dropped', () => {
     drag.emit({ type: 'drop', paths: ['C:/mods/a.jar'] });
     await tick();
     expect(droppedMods.value).toBeNull();
-    expect(warnings()[0].lines).toEqual(['a.jar: Select a non-vanilla instance to install mods']);
+    expect(warnings()[0].lines).toEqual([
+      { names: 'a.jar', reason: 'Select a non-vanilla instance to install mods' },
+    ]);
   });
 
   it('a drop where nothing on screen takes files says so', async () => {
@@ -172,7 +175,7 @@ describe('when the files are dropped', () => {
     drag.emit({ type: 'drop', paths: ['C:/mods/a.jar'] });
     await tick();
     expect(droppedMods.value).toBeNull();
-    expect(warnings()[0].lines).toEqual(["a.jar: Files can't be added here"]);
+    expect(warnings()[0].lines).toEqual([{ names: 'a.jar', reason: "Files can't be added here" }]);
   });
 
   it('the Modpacks modal imports one pack per drop and names the rest', async () => {
@@ -182,8 +185,8 @@ describe('when the files are dropped', () => {
     expect(droppedModpack.value).toBe('C:/a.mrpack');
     expect(warnings()[0].title).toBe("2 files weren't added");
     expect(warnings()[0].lines).toEqual([
-      'shot.png: Only modpacks (.mrpack or .zip) can be imported here',
-      'b.zip: Modpacks are imported one at a time',
+      { names: 'shot.png', reason: 'Only modpacks (.mrpack or .zip) can be imported here' },
+      { names: 'b.zip', reason: 'Modpacks are imported one at a time' },
     ]);
   });
 
@@ -193,7 +196,11 @@ describe('when the files are dropped', () => {
     await tick();
     expect(droppedWorld.value).toBeNull();
     expect(warnings()[0].lines).toEqual([
-      'World.zip: Creating and moving instance data is disabled while the data folder is unavailable.',
+      {
+        names: 'World.zip',
+        reason:
+          'Creating and moving instance data is disabled while the data folder is unavailable.',
+      },
     ]);
   });
 

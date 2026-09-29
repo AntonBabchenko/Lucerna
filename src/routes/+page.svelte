@@ -71,6 +71,7 @@
   import { createPreflight, decideLaunch, hasBlocking } from '$lib/mods/preflight.svelte';
   import { problemCounts } from '$lib/mods/installed/mod-status';
   import { repairForLaunch } from '$lib/mods/fix-all';
+  import type { ReasonLine } from '$lib/format/reason-lines';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import type { AppFile, PreflightReport, QuickPlay } from '$lib/ipc/bindings';
@@ -511,7 +512,9 @@
   let gateBusy = $state(false);
   // «Fixed N of M» after a repair that left rows behind, with why the steps
   // that failed failed; null until one did.
-  let gateFixed = $state<{ fixed: number; total: number; reasons: readonly string[] } | null>(null);
+  let gateFixed = $state<{ fixed: number; total: number; reasons: readonly ReasonLine[] } | null>(
+    null,
+  );
   // The launch the gate interrupted, so its three buttons resume the RIGHT one.
   // Play, Quick Play and Quick Join all reach the gate, so this can no longer be
   // the single `doLaunch` constant it used to be. Plain state, not `$state`: it

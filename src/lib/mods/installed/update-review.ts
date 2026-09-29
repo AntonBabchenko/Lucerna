@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { reasonLines } from '$lib/format/reason-lines';
+import { type ReportLine, reasonLines } from '$lib/format/reason-lines';
 import { type Translate, t } from '$lib/i18n';
 import type { InstallSummary, ModSource, ModUpdateCheck, ModVersion } from '$lib/ipc/bindings';
 import { changelogSupported } from '$lib/mods/changelog-supported';
@@ -126,7 +126,7 @@ export function updatesReport(
   tr: Translate,
   attempts: readonly UpdateAttempt[],
   { single = false, profile = null }: UpdatesReportOpts = {},
-): { kind: 'success' | 'warning'; title: string; lines: string[] } | null {
+): { kind: 'success' | 'warning'; title: string; lines: ReportLine[] } | null {
   if (attempts.length === 0) return null;
   const done = attempts.flatMap((a) => (a.ok ? [a] : []));
   const failed = attempts.flatMap((a) => (a.ok ? [] : [a]));

@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { reasonLines } from '$lib/format/reason-lines';
+import { type ReasonLine, reasonLines } from '$lib/format/reason-lines';
 import { t } from '$lib/i18n';
 import {
   commands,
@@ -32,15 +32,15 @@ export type FixAllResult = {
   applied: DepViolation[];
   /**
    * Why the steps that failed failed, worded for the user — a busy profile as
-   * busy (`modWriteReason`) — each reason once, after the mods whose fix it
-   * stopped: «Moonlight Lib, ImmediatelyFast: …» (`reasonLines`, the grouping
-   * the update report uses). «Fixed 0 of 3» alone cannot tell a held profile
-   * from three unrelated failures, and a reason alone does not say which fix it
-   * stopped (plan §5c V3). A row the repair had no fix for (no build breaks
-   * nothing, an unidentified jar) is no failed step and gives none: the row that
-   * stays says what is wrong.
+   * busy (`modWriteReason`) — each reason once, with the mods whose fix it
+   * stopped, shown on a line above it (`reasonLines`, the grouping the update
+   * report uses). «Fixed 0 of 3» alone cannot tell a held profile from three
+   * unrelated failures, and a reason alone does not say which fix it stopped
+   * (plan §5c V3). A row the repair had no fix for (no build breaks nothing, an
+   * unidentified jar) is no failed step and gives none: the row that stays says
+   * what is wrong.
    */
-  reasons: string[];
+  reasons: ReasonLine[];
 };
 
 /** A step that failed: the mod it would have fixed — installed, switched on or switched to
@@ -267,7 +267,7 @@ const nameKey = (v: DepViolation): string => `${v.dependent_name}\u0000${v.dep_i
 
 export type RepairOutcome =
   | { kind: 'launch'; checked: boolean }
-  | { kind: 'stay'; report: PreflightReport; fixed: number; total: number; reasons: string[] };
+  | { kind: 'stay'; report: PreflightReport; fixed: number; total: number; reasons: ReasonLine[] };
 
 /**
  * The Play gate's loop (spec D5): repair, re-run the pre-flight, decide. Clean →

@@ -284,7 +284,7 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
     await expect(enableModsUnguarded('inst', [{ sha1: 'i', name: 'Indium' }])).resolves.toEqual({
       enabled: [],
       // The untried step fails for the same reason; each failure carries its mod's name, for the
-      // repair to report by reason («Fabric API, Indium: …»).
+      // repair to report by reason («Fabric API, Indium» above the reason).
       failed: [
         { sha1: 'f', name: 'Fabric API', reason: formatError(ioErr.error) },
         { sha1: 'i', name: 'Indium', reason: formatError(ioErr.error) },
