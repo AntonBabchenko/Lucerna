@@ -67,7 +67,7 @@ beforeEach(() => {
   m.depProjectOf.mockReturnValue(null);
   m.depNameOf.mockReturnValue(null);
   m.updateMod.mockResolvedValue(ok({}));
-  m.enableModsUnguarded.mockResolvedValue({ enabled: [], failed: [], reasons: [] });
+  m.enableModsUnguarded.mockResolvedValue({ enabled: [], failed: [] });
 });
 
 describe('fixAll', () => {
@@ -77,12 +77,20 @@ describe('fixAll', () => {
     const c = v({ kind: 'required_disabled', provider_sha1: 'p2', dep_id: 'cloth' });
     m.enableModsUnguarded.mockResolvedValue({
       enabled: ['p1', 'lib'],
-      failed: ['p2'],
-      reasons: ['denied'],
+      failed: [{ sha1: 'p2', name: 'cloth', reason: 'denied' }],
     });
     const out = await fixAll('i', report(a, b, c));
-    expect(m.enableModsUnguarded.mock.calls).toEqual([['i', ['p1', 'p2']]]);
-    expect(out).toEqual({ attempted: [a, b, c], applied: [a, b], reasons: ['denied'] });
+    // Each jar named as its first row names it: a failed flip is reported by name.
+    expect(m.enableModsUnguarded.mock.calls).toEqual([
+      [
+        'i',
+        [
+          { sha1: 'p1', name: 'balm' },
+          { sha1: 'p2', name: 'cloth' },
+        ],
+      ],
+    ]);
+    expect(out).toEqual({ attempted: [a, b, c], applied: [a, b], reasons: ['cloth: denied'] });
   });
 
   it('installs by project when the name store knows it, else by mod-id', async () => {
@@ -244,8 +252,11 @@ describe('fixAll', () => {
 // «Fixed 0 of N» alone cannot tell a held profile from unrelated failures: the repair says why
 // each step that failed failed, each reason once, worded for the user.
 describe('fixAll — why a step failed', () => {
-  it('says why the steps that failed failed — each reason once, a busy profile as busy', async () => {
-    m.enableModsUnguarded.mockResolvedValue({ enabled: [], failed: ['p'], reasons: ['BUSY'] });
+  it('says why the steps that failed failed — each reason once, after the mods it stopped; a busy profile as busy', async () => {
+    m.enableModsUnguarded.mockResolvedValue({
+      enabled: [],
+      failed: [{ sha1: 'p', name: 'lib', reason: 'BUSY' }],
+    });
     m.depProjectOf.mockImplementation((_i: string, _s: string, dep: string) =>
       dep === 'balm' ? { source: 'modrinth', project_id: 'PB' } : null,
     );
@@ -272,10 +283,10 @@ describe('fixAll — why a step failed', () => {
     );
     expect(out.applied).toEqual([]);
     expect(out.reasons).toEqual([
-      'BUSY',
-      "Couldn't find Cloth Config automatically",
-      'mods_network',
-      'io',
+      'lib, balm: BUSY',
+      "Cloth Config: Couldn't find the mod to install automatically",
+      'Alpha: mods_network',
+      'Alpha: io',
     ]);
   });
 
@@ -297,10 +308,37 @@ describe('fixAll — why a step failed', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const out = await fixAll('i', report(v({})));
-      expect(out.reasons).toEqual(['bridge gone']);
+      expect(out.reasons).toEqual(['balm: bridge gone']);
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+// Plan §5c V3 (screenshot 07b): «Исправлено 3 из 5 · Не удалось связаться с сервером…» did not say
+// WHICH fixes failed. Each reason names the mods whose fix it stopped, grouped by reason the way
+// the update report does («Sodium, Indium: …»).
+describe('fixAll — whose fix failed', () => {
+  it('names the mods each reason stopped, one line per reason', async () => {
+    m.depNameOf.mockImplementation((_i: string, _s: string, dep: string) =>
+      dep === 'moonlight' ? 'Moonlight Lib' : null,
+    );
+    m.depProjectOf.mockReturnValue({ source: 'modrinth', project_id: 'ML' });
+    m.modsInstallDependency.mockResolvedValue(err('network'));
+    m.modsPlanVersionFix.mockResolvedValue(err('network'));
+    const out = await fixAll(
+      'i',
+      report(
+        v({ dependent_name: 'Supplementaries', dep_id: 'moonlight' }),
+        v({
+          kind: 'version_out_of_range',
+          dependent_name: 'ImmediatelyFast',
+          dependent_sha1: 'if',
+          dep_id: 'sodium',
+        }),
+      ),
+    );
+    expect(out.reasons).toEqual(['Moonlight Lib, ImmediatelyFast: network']);
   });
 });
 
@@ -309,7 +347,10 @@ describe('repairForLaunch', () => {
   const b = v({ kind: 'required_disabled', dep_id: 'x', provider_sha1: 'x' });
   beforeEach(() => {
     m.modsInstallMissingRequired.mockResolvedValue(ok({ kind: 'installed', name: 'Balm' }));
-    m.enableModsUnguarded.mockResolvedValue({ enabled: [], failed: ['x'], reasons: ['denied'] });
+    m.enableModsUnguarded.mockResolvedValue({
+      enabled: [],
+      failed: [{ sha1: 'x', name: 'x', reason: 'denied' }],
+    });
   });
 
   it('launches when the re-check comes back clean', async () => {
@@ -325,7 +366,7 @@ describe('repairForLaunch', () => {
       report: report(b),
       fixed: 1,
       total: 2,
-      reasons: ['denied'],
+      reasons: ['x: denied'],
     });
   });
 

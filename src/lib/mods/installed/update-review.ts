@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { reasonLines } from '$lib/format/reason-lines';
 import { type Translate, t } from '$lib/i18n';
 import type { InstallSummary, ModSource, ModUpdateCheck, ModVersion } from '$lib/ipc/bindings';
 import { changelogSupported } from '$lib/mods/changelog-supported';
@@ -149,9 +150,7 @@ export function updatesReport(
       lines: [...deps, ...where],
     };
   }
-  const byReason = new Map<string, string[]>();
-  for (const f of failed) byReason.set(f.reason, [...(byReason.get(f.reason) ?? []), f.name]);
-  const reasons = [...byReason].map(([reason, names]) => `${names.join(', ')}: ${reason}`);
+  const reasons = reasonLines(failed);
   return {
     kind: 'warning',
     title: tr('mods.installed.toastUpdatedFailed', { count: done.length, failed: failed.length }),

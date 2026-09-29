@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { reasonLines } from '$lib/format/reason-lines';
 import { type Translate, t } from '$lib/i18n';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import type { DropSkip } from '$lib/layout/drop-router';
@@ -45,11 +46,8 @@ function fileName(path: string): string {
  */
 export function reportNotAdded(skipped: readonly { path: string; reason: string }[]): void {
   if (skipped.length === 0) return;
-  const byReason = new Map<string, string[]>();
-  for (const s of skipped)
-    byReason.set(s.reason, [...(byReason.get(s.reason) ?? []), fileName(s.path)]);
   pushWarning(
     get(t)('common.dropNotAdded', { count: skipped.length }),
-    [...byReason].map(([reason, names]) => `${names.join(', ')}: ${reason}`),
+    reasonLines(skipped.map((s) => ({ name: fileName(s.path), reason: s.reason }))),
   );
 }

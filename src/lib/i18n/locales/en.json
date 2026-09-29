@@ -981,7 +981,7 @@
       "install": "Install {dep}",
       "enable": "Enable",
       "installSearchFallback": "Couldn't find {dep} automatically — opening search",
-      "notFound": "Couldn't find {dep} automatically",
+      "notFound": "Couldn't find the mod to install automatically",
       "dependentGone": "{name} is no longer installed",
       "chooseVersion": "Choose version",
       "fixPlan": "Fix…",

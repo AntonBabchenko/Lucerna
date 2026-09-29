@@ -261,11 +261,12 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
       ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }], order: ['f', 's', 'i'] }),
     );
     host();
-    await expect(enableModsUnguarded('inst', ['i', 's'])).resolves.toEqual({
-      enabled: ['f', 's', 'i'],
-      failed: [],
-      reasons: [],
-    });
+    await expect(
+      enableModsUnguarded('inst', [
+        { sha1: 'i', name: 'Indium' },
+        { sha1: 's', name: 'Sodium' },
+      ]),
+    ).resolves.toEqual({ enabled: ['f', 's', 'i'], failed: [] });
     // One impact call for every target (plan A5).
     expect(h.modsEnableImpact.mock.calls).toEqual([['inst', ['i', 's']]]);
     expect(flipped(h.modsEnable)).toEqual(['f', 's', 'i']);
@@ -280,11 +281,14 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
       ok({ requirements: [{ sha1: 'f', name: 'Fabric API' }], order: ['f', 'i'] }),
     );
     h.modsEnable.mockResolvedValueOnce(ioErr);
-    await expect(enableModsUnguarded('inst', ['i'])).resolves.toEqual({
+    await expect(enableModsUnguarded('inst', [{ sha1: 'i', name: 'Indium' }])).resolves.toEqual({
       enabled: [],
-      failed: ['f', 'i'],
-      // The untried step failed for the same reason: said once.
-      reasons: [formatError(ioErr.error)],
+      // The untried step fails for the same reason; each failure carries its mod's name, for the
+      // repair to report by reason («Fabric API, Indium: …»).
+      failed: [
+        { sha1: 'f', name: 'Fabric API', reason: formatError(ioErr.error) },
+        { sha1: 'i', name: 'Indium', reason: formatError(ioErr.error) },
+      ],
     });
     expect(flipped(h.modsEnable)).toEqual(['f']);
   });
@@ -294,10 +298,9 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
   it('says why a flip failed — a busy profile as busy', async () => {
     h.modsEnableImpact.mockResolvedValue(ok({ requirements: [], order: ['i'] }));
     h.modsEnable.mockResolvedValueOnce(busyErr);
-    await expect(enableModsUnguarded('inst', ['i'])).resolves.toEqual({
+    await expect(enableModsUnguarded('inst', [{ sha1: 'i', name: 'Indium' }])).resolves.toEqual({
       enabled: [],
-      failed: ['i'],
-      reasons: [BUSY],
+      failed: [{ sha1: 'i', name: 'Indium', reason: BUSY }],
     });
   });
 
@@ -305,10 +308,14 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
     h.modsEnableImpact.mockResolvedValue(ioErr);
     h.modsEnable.mockResolvedValueOnce(ioErr);
     host();
-    await expect(enableModsUnguarded('inst', ['a', 'b'])).resolves.toEqual({
+    await expect(
+      enableModsUnguarded('inst', [
+        { sha1: 'a', name: 'Alpha' },
+        { sha1: 'b', name: 'Beta' },
+      ]),
+    ).resolves.toEqual({
       enabled: ['b'],
-      failed: ['a'],
-      reasons: [formatError(ioErr.error)],
+      failed: [{ sha1: 'a', name: 'Alpha', reason: formatError(ioErr.error) }],
     });
     expect(screen.queryByRole('dialog')).toBeNull();
   });

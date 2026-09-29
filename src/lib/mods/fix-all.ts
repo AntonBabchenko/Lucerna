@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { reasonLines } from '$lib/format/reason-lines';
 import { t } from '$lib/i18n';
 import {
   commands,
@@ -30,14 +31,22 @@ export type FixAllResult = {
    */
   applied: DepViolation[];
   /**
-   * Why the steps that failed failed, each reason once, worded for the user — a
-   * busy profile as busy (`modWriteReason`). «Fixed 0 of 3» alone cannot tell a
-   * held profile from three unrelated failures. A row the repair had no fix for
-   * (no build breaks nothing, an unidentified jar) is no failed step and gives
-   * none: the row that stays says what is wrong.
+   * Why the steps that failed failed, worded for the user — a busy profile as
+   * busy (`modWriteReason`) — each reason once, after the mods whose fix it
+   * stopped: «Moonlight Lib, ImmediatelyFast: …» (`reasonLines`, the grouping
+   * the update report uses). «Fixed 0 of 3» alone cannot tell a held profile
+   * from three unrelated failures, and a reason alone does not say which fix it
+   * stopped (plan §5c V3). A row the repair had no fix for (no build breaks
+   * nothing, an unidentified jar) is no failed step and gives none: the row that
+   * stays says what is wrong.
    */
   reasons: string[];
 };
+
+/** A step that failed: the mod it would have fixed — installed, switched on or switched to
+ *  another build — and why it could not. */
+type Failure = { name: string; reason: string };
+type Run = { attempted: DepViolation[]; applied: DepViolation[]; failures: Failure[] };
 
 type PreflightResult = Parameters<typeof decideLaunch>[0];
 
@@ -46,56 +55,83 @@ type PreflightResult = Parameters<typeof decideLaunch>[0];
  * the disabled mods they need), install missing dependencies (each with its
  * own required closure), then the planner's preferred version switch when it
  * breaks nothing. Never throws for a failed step: a step whose call fails, or
- * whose bridge call throws, is not applied — its reason is kept — and the rest
- * still run.
+ * whose bridge call throws, is not applied — its reason is kept, with the mod
+ * it was for — and the rest still run.
  */
 export async function fixAll(instanceId: string, report: PreflightReport): Promise<FixAllResult> {
-  const out: FixAllResult = { attempted: [], applied: [], reasons: [] };
+  const run: Run = { attempted: [], applied: [], failures: [] };
   // A self-completing pack still fetching its own files: its rows are advisory
   // (plan A17) and the pack brings those files itself — installing them here
   // would put a second jar beside the one it fetches.
-  if (!hasBlocking(report)) return out;
+  if (!hasBlocking(report)) return { attempted: [], applied: [], reasons: [] };
   const rows = (action: ViolationAction) =>
     report.violations.filter((v) => violationAction(v) === action);
-  await enableDisabled(instanceId, rows('enable'), out);
-  await installMissing(instanceId, rows('install'), out);
-  await applyPlans(instanceId, rows('plan'), out);
-  return { ...out, reasons: [...new Set(out.reasons)] };
+  await enableDisabled(instanceId, rows('enable'), run);
+  await installMissing(instanceId, rows('install'), run);
+  await applyPlans(instanceId, rows('plan'), run);
+  // Two rows of one mod can fail for one reason: it is named once.
+  const once = new Map(run.failures.map((f) => [`${f.name}\u0000${f.reason}`, f]));
+  return {
+    attempted: run.attempted,
+    applied: run.applied,
+    reasons: reasonLines([...once.values()]),
+  };
 }
 
-async function enableDisabled(instanceId: string, rows: DepViolation[], out: FixAllResult) {
+/** A row's dependency by the one naming rule the panel and the gate use (`depDisplayName`). */
+const depName = (instanceId: string, v: DepViolation): string =>
+  depDisplayName(v, depNameOf(instanceId, v.dependent_sha1, v.dep_id));
+
+/** Record a failed step under `name`. */
+function failWith(run: Run, name: string): (reason: string) => void {
+  return (reason) => {
+    run.failures.push({ name, reason });
+  };
+}
+
+async function enableDisabled(instanceId: string, rows: DepViolation[], run: Run) {
   if (rows.length === 0) return;
   // One call for every jar the rows name (plan A5): the impact adds the disabled
-  // mods they need and orders the flip; a jar several rows name goes on once.
-  const providers = [...new Set(rows.flatMap((v) => (v.provider_sha1 ? [v.provider_sha1] : [])))];
-  const { enabled, reasons } = await enableModsUnguarded(instanceId, providers);
-  out.reasons.push(...reasons);
+  // mods they need and orders the flip; a jar several rows name goes on once,
+  // named as the first row names it.
+  const providers = new Map<string, string>();
+  for (const v of rows) {
+    if (v.provider_sha1 && !providers.has(v.provider_sha1))
+      providers.set(v.provider_sha1, depName(instanceId, v));
+  }
+  const { enabled, failed } = await enableModsUnguarded(
+    instanceId,
+    [...providers].map(([sha1, name]) => ({ sha1, name })),
+  );
+  run.failures.push(...failed.map((f) => ({ name: f.name, reason: f.reason })));
   const on = new Set(enabled);
   for (const v of rows) {
-    out.attempted.push(v);
-    if (v.provider_sha1 && on.has(v.provider_sha1)) out.applied.push(v);
+    run.attempted.push(v);
+    if (v.provider_sha1 && on.has(v.provider_sha1)) run.applied.push(v);
   }
 }
 
-async function installMissing(instanceId: string, rows: DepViolation[], out: FixAllResult) {
+async function installMissing(instanceId: string, rows: DepViolation[], run: Run) {
   // One install per mod-id: several dependents missing `balm` need ONE Balm — a
   // second jar providing the same id stops the game.
   const byDepId = new Map<string, boolean>();
   for (const v of rows) {
-    out.attempted.push(v);
+    run.attempted.push(v);
     let installed = byDepId.get(v.dep_id);
     if (installed === undefined) {
-      installed = await attempt(() => installDependency(instanceId, v, out.reasons), false, out);
+      // A failed install is named by the dependency it was to bring in.
+      const fail = failWith(run, depName(instanceId, v));
+      installed = await attempt(() => installDependency(instanceId, v, fail), false, fail);
       byDepId.set(v.dep_id, installed);
     }
-    if (installed) out.applied.push(v);
+    if (installed) run.applied.push(v);
   }
 }
 
 async function installDependency(
   instanceId: string,
   v: DepViolation,
-  reasons: string[],
+  fail: (reason: string) => void,
 ): Promise<boolean> {
   // The project, when this pair's name was resolved earlier — by the Installed
   // tab, or by the Play gate as it opened; nothing here waits on the network
@@ -109,15 +145,14 @@ async function installDependency(
       project.source,
       project.project_id,
     );
-    return r.status === 'ok' || settled(r.error, reasons);
+    return r.status === 'ok' || settled(r.error, fail);
   }
   const r = await commands.modsInstallMissingRequired(instanceId, v.dependent_sha1, v.dep_id);
-  if (r.status === 'error') return settled(r.error, reasons);
+  if (r.status === 'error') return settled(r.error, fail);
   if (r.data.kind === 'installed') return true;
   // `open_search`: the backend could not tell which project provides the id, so
   // it installed nothing.
-  const dep = depDisplayName(v, depNameOf(instanceId, v.dependent_sha1, v.dep_id));
-  reasons.push(get(t)('mods.preflight.notFound', { dep }));
+  fail(get(t)('mods.preflight.notFound'));
   return false;
 }
 
@@ -128,38 +163,43 @@ async function installDependency(
  * be the real fault; whether it satisfies the row is the re-run pre-flight's
  * call, like every step's. Anything else failed, and says why.
  */
-function settled(e: IpcError, reasons: string[]): boolean {
+function settled(e: IpcError, fail: (reason: string) => void): boolean {
   if (e.kind === 'mods_already_installed') return true;
-  reasons.push(modWriteReason(e));
+  fail(modWriteReason(e));
   return false;
 }
 
-async function applyPlans(instanceId: string, rows: DepViolation[], out: FixAllResult) {
+async function applyPlans(instanceId: string, rows: DepViolation[], run: Run) {
   // Jars this repair has tried to switch. A later row naming one was read
   // before the switch — the planner would judge a jar that may be gone (a failed
   // switch can still have removed it) — so it is left to the re-run pre-flight,
   // which judges what is there now.
   const touched = new Set<string>();
   for (const v of rows) {
-    out.attempted.push(v);
+    run.attempted.push(v);
     if (touched.has(v.dependent_sha1) || (v.provider_sha1 && touched.has(v.provider_sha1)))
       continue;
+    // Until a switch is chosen the fix is the dependent's — the mod the panel's row names; a
+    // chosen switch that fails is named by the mod it was to switch.
+    const failRow = failWith(run, v.dependent_name);
     const switched = await attempt(
       async () => {
         const plan = await preferredSwitch(instanceId, v);
-        if (plan.kind === 'failed') out.reasons.push(plan.reason);
+        if (plan.kind === 'failed') failRow(plan.reason);
         if (plan.kind !== 'switch') return false;
         touched.add(plan.oldSha1);
         // Named like every other update: after the build it becomes.
         const r = await updateMod(instanceId, plan.version.name, plan.oldSha1, plan.version);
         if (r.status === 'ok') return true;
-        out.reasons.push(modWriteReason(r.error));
+        const switching =
+          plan.oldSha1 === v.dependent_sha1 ? v.dependent_name : depName(instanceId, v);
+        failWith(run, switching)(modWriteReason(r.error));
         return false;
       },
       false,
-      out,
+      failRow,
     );
-    if (switched) out.applied.push(v);
+    if (switched) run.applied.push(v);
   }
 }
 
@@ -194,15 +234,19 @@ async function preferredSwitch(instanceId: string, v: DepViolation): Promise<Pre
 /**
  * One repair step. A throw is a bridge failure with no Result to read: the step
  * is not applied — never read as success — its message is a reason like any
- * failure's, and the repair goes on; the re-run pre-flight reports what is left
- * either way.
+ * failure's, recorded by `fail` under the mod the step was for, and the repair
+ * goes on; the re-run pre-flight reports what is left either way.
  */
-async function attempt<T>(step: () => Promise<T>, failed: T, out: FixAllResult): Promise<T> {
+async function attempt<T>(
+  step: () => Promise<T>,
+  failed: T,
+  fail: (reason: string) => void,
+): Promise<T> {
   try {
     return await step();
   } catch (e) {
     console.warn('[fix-all] a repair step failed:', e);
-    out.reasons.push(e instanceof Error ? e.message : String(e));
+    fail(e instanceof Error ? e.message : String(e));
     return failed;
   }
 }

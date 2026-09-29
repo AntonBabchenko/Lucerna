@@ -495,34 +495,37 @@ async function enableFlow(
   return finish(q.id, flipInOrder(flip));
 }
 
+/** A mod a flip could not switch, and why — in the busy-profile wording for a busy profile. */
+export type FlipFailure = { sha1: string; name: string; reason: string };
+
 /**
- * Switch `sha1s` on together with the disabled mods they need, WITHOUT asking — only for the
+ * Switch `targets` on together with the disabled mods they need, WITHOUT asking — only for the
  * repair («Fix all», the Play gate's «Fix and launch»), whose click is the consent (plan A13).
- * Silent: the repair re-runs the pre-flight and reports what is left — and, from `reasons`, why a
- * flip failed (each reason once; a busy profile as busy). The flip follows the backend's safe
- * enable order and stops at the first failure, like every ordered flip. When the check could not
- * run there is neither an order nor a list of what they need: every target gets its try, and the
- * re-run pre-flight names whatever is still off.
+ * Silent: the repair re-runs the pre-flight and reports what is left — and, from `failed`, which
+ * mod a flip could not switch and why, so it can name them by reason. The flip follows the
+ * backend's safe enable order and stops at the first failure, like every ordered flip; the untried
+ * steps after it fail for the same reason. When the check could not run there is neither an order
+ * nor a list of what they need: every target gets its try, and the re-run pre-flight names
+ * whatever is still off.
  */
 export async function enableModsUnguarded(
   instanceId: string,
-  sha1s: readonly string[],
-): Promise<{ enabled: string[]; failed: string[]; reasons: string[] }> {
-  const targets: Flippable[] = [...new Set(sha1s)].map((sha1) => ({ sha1 }));
-  if (targets.length === 0) return { enabled: [], failed: [], reasons: [] };
-  const impact = await settleCall(() => commands.modsEnableImpact(instanceId, shas(targets)));
+  targets: readonly ModOpTarget[],
+): Promise<{ enabled: string[]; failed: FlipFailure[] }> {
+  const unique = [...new Map(targets.map((x) => [x.sha1, x])).values()];
+  if (unique.length === 0) return { enabled: [], failed: [] };
+  const impact = await settleCall(() => commands.modsEnableImpact(instanceId, shas(unique)));
   const r = impact.ok
     ? await flipAll(
         instanceId,
-        inOrder(impact.data.order, [...impact.data.requirements, ...targets]),
+        inOrder(impact.data.order, [...impact.data.requirements, ...unique]),
         true,
         true,
       )
-    : await flipAll(instanceId, targets, true);
+    : await flipAll(instanceId, unique, true);
   return {
     enabled: shas(r.done),
-    failed: r.failed.map((f) => f.target.sha1),
-    reasons: [...new Set(r.failed.map((f) => f.message))],
+    failed: r.failed.map((f) => ({ sha1: f.target.sha1, name: f.target.name, reason: f.message })),
   };
 }
 
