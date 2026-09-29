@@ -168,6 +168,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **The drop area's dashed outline is easier to see in the light theme.**
 - **In Russian, a profile that won't launch is no longer called a modpack**,
   and neither is a profile's folder in the messages about it.
+- **A problem stays readable in a narrow window.** In the list of what stops
+  the game, a problem's fixes move under its text when they do not fit beside
+  it, instead of squeezing the text to a word per line.
+- **A mod's version no longer runs under its update badge in a narrow
+  window.** It ends in "…", and so does a long name once the version has no
+  room left; pointing at either shows it in full.
 
 ## [0.25.0] — 2026-09-27
 
