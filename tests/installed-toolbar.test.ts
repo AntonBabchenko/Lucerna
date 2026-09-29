@@ -94,6 +94,29 @@ describe('InstalledToolbar view filter (single mutually-exclusive group)', () =>
   });
 });
 
+// Plan §5b V2 (screenshot 01f): Tab could land on a row under the sticky toolbar. The toolbar
+// reserves its own height in the Add-ons scroll container (the rule: tests/sticky-edge.test.ts).
+describe('InstalledToolbar keeps focus clear of itself', () => {
+  it('reserves its height as its scroll container’s scroll-padding-top', () => {
+    const scroller = document.createElement('div');
+    scroller.style.overflowY = 'auto';
+    document.body.append(scroller);
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
+    ) {
+      const h = (this as HTMLElement).dataset?.testid === 'installed-toolbar' ? 84 : 0;
+      return { height: h, top: 0, bottom: h } as DOMRect;
+    });
+    try {
+      render(InstalledToolbar, { props: base(), target: scroller });
+      expect(scroller.style.scrollPaddingTop).toBe('92px');
+    } finally {
+      rect.mockRestore();
+      scroller.remove();
+    }
+  });
+});
+
 describe('InstalledToolbar issues tone', () => {
   it('is danger while something blocks, amber when only warnings remain', () => {
     const { unmount } = render(InstalledToolbar, {

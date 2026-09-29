@@ -71,6 +71,7 @@
   import InstalledModRow from './InstalledModRow.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
+  import { stickyEdge } from '$lib/ui/sticky-edge';
 
   let {
     instanceId,
@@ -1169,7 +1170,10 @@
          (spec §6.7). The size picker stays while a smaller page would still split the list, or
          picking 100 would strand the user without it (plan A20 / P5-3). -->
     {#if filters.pageCount > 1}
-      <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
+      <div
+        class="sticky bottom-0 z-10 bg-base border-t border-border-subtle"
+        use:stickyEdge={'bottom'}
+      >
         <Pagination
           page={filters.page}
           pageCount={filters.pageCount}

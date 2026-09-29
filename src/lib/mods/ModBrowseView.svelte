@@ -77,6 +77,7 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
+  import { stickyEdge } from '$lib/ui/sticky-edge';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
   import { activeCount } from '$lib/browse/filter-model';
 
@@ -1329,7 +1330,7 @@
 {:else if needsCfKey}
   <CurseForgeKeyBanner />
 {:else}
-  <div class="sticky top-0 z-10 bg-base border-b border-border-subtle">
+  <div class="sticky top-0 z-10 bg-base border-b border-border-subtle" use:stickyEdge>
     <BrowseFilterBar
       searchAriaLabel={$t('mods.browse.searchAriaLabel')}
       searchPlaceholder={$t('mods.browse.searchPlaceholder')}
@@ -1402,7 +1403,10 @@
         </div>
       {/if}
       <!-- Steam-style footer: shared pagination control, per-page selector right. -->
-      <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
+      <div
+        class="sticky bottom-0 z-10 bg-base border-t border-border-subtle"
+        use:stickyEdge={'bottom'}
+      >
         <Pagination {page} {pageCount} disabled={loading} onPage={(n) => void goToPage(n)}>
           {#snippet end()}
             <PageSizePicker />

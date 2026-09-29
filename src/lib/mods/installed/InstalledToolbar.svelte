@@ -9,6 +9,7 @@
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import { stickyEdge } from '$lib/ui/sticky-edge';
   import type { SortBy, ViewFilter } from './installed-filters.svelte';
 
   let {
@@ -183,10 +184,12 @@
 <!-- Stays on screen with its chips while the list scrolls (spec §6.7): on the page background,
      edge to edge over the view's padding, above the rows — they are positioned (accent strip,
      dependency ring) and would otherwise paint over it. The counts line is gone: the chips
-     carry every count. -->
+     carry every count. It reserves its height in the scroll container, so a focused row never
+     hides under it (`stickyEdge`, WCAG 2.4.11). -->
 <div
   class="sticky top-0 z-10 -mx-3 mb-2 space-y-2 bg-base px-3 pt-1 pb-2"
   data-testid="installed-toolbar"
+  use:stickyEdge
 >
   <div class="flex flex-wrap gap-2 items-center">
     <input
