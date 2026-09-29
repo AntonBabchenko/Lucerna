@@ -297,25 +297,34 @@
         {#each planOffers($t, v, plan.plan, nameOf(v)) as o (o.side)}
           {@const breaksId = `${uid}-${i}-${o.side}-breaks`}
           <!-- What a change would break is said beside it and heard with it;
-               it is never the default, and it takes its own click (D8). -->
-          <button
-            type="button"
-            class="{o.primary ? 'btn-primary' : 'btn-secondary'} btn-xs shrink-0"
-            data-testid="preflight-plan-{o.side}"
-            aria-describedby={o.breaks.length > 0 ? breaksId : undefined}
-            onclick={() => onApplyPlan(v, o.side)}
+               it is never the default, and it takes its own click (D8). The
+               offer and its note are one item of the fixes' line, which wraps
+               as a whole: a note on a line of its own read as the next offer's
+               (plan §5d M2). A unit wider than the whole line puts the note
+               under its own button. -->
+          <span
+            class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
+            data-testid="preflight-plan-offer"
           >
-            {o.label}
-          </button>
-          {#if o.breaks.length > 0}
-            <span
-              id={breaksId}
-              class="shrink-0 text-xs text-warning-text"
-              data-testid="preflight-plan-breaks"
+            <button
+              type="button"
+              class="{o.primary ? 'btn-primary' : 'btn-secondary'} btn-xs shrink-0"
+              data-testid="preflight-plan-{o.side}"
+              aria-describedby={o.breaks.length > 0 ? breaksId : undefined}
+              onclick={() => onApplyPlan(v, o.side)}
             >
-              {$t('mods.preflight.planBreaks', { names: o.breaks.join(', ') })}
-            </span>
-          {/if}
+              {o.label}
+            </button>
+            {#if o.breaks.length > 0}
+              <span
+                id={breaksId}
+                class="min-w-0 text-xs text-warning-text"
+                data-testid="preflight-plan-breaks"
+              >
+                {$t('mods.preflight.planBreaks', { names: o.breaks.join(', ') })}
+              </span>
+            {/if}
+          </span>
         {/each}
       {:else}
         {#if plan?.status === 'failed'}

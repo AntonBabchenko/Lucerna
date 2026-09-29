@@ -731,6 +731,30 @@ describe('PreflightPanel — a narrow row', () => {
     expect(actions.contains(screen.getByText('Choose version'))).toBe(true);
   });
 
+  // Plan §5d M2 (screenshot w0820-panel-offers): at 820 px «Сломает: Iris Shaders» wrapped onto a
+  // line of its own, under the OTHER offer, away from the button whose change it describes. An offer
+  // and its note are one item of the fixes' line, which wraps as a whole.
+  it('keeps each offer beside what it would break — one unit that wraps as a whole', () => {
+    const row = offersRow();
+    const actions = within(row).getByTestId('preflight-row-actions');
+    const provider = screen.getByTestId('preflight-plan-provider');
+    const breaks = screen.getByTestId('preflight-plan-breaks');
+    const unit = provider.parentElement as HTMLElement;
+    expect(unit.parentElement).toBe(actions);
+    expect([...unit.children]).toEqual([provider, breaks]);
+    // The button keeps its label on one line. A unit wider than the whole line — a long list of
+    // mods it would break — puts the note under its own button, never after another offer.
+    expect(provider.classList).toContain('shrink-0');
+    expect(unit.classList).toContain('min-w-0');
+    expect(unit.classList).toContain('flex-wrap');
+    expect(breaks.classList).toContain('min-w-0');
+    // An offer that breaks nothing is a unit of its own too.
+    const dependent = screen.getByTestId('preflight-plan-dependent');
+    expect(dependent.parentElement?.parentElement).toBe(actions);
+    expect([...(dependent.parentElement?.children ?? [])]).toEqual([dependent]);
+    expect(within(row).getAllByTestId('preflight-plan-offer')).toHaveLength(2);
+  });
+
   it("keeps the icon on the reason's first line and ↗ at the row's end", () => {
     const row = offersRow();
     // By baseline: the icon's line sits on the reason's first line, whether the fixes share that
