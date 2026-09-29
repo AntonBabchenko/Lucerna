@@ -135,6 +135,18 @@ behaviour is worth knowing, it is stated as a property of the feature under
   unannounced.
 - **A mod change refused because a modpack update, a migration or a clone is
   using the profile says so**, instead of suggesting that the game is running.
+- **A version conflict shows only under the mod that has it.** The dependency
+  tree marked a dependency as the wrong version under every mod that uses it,
+  including mods that are fine with the installed one.
+- **The launch check names the mods involved**, not their internal ids — on
+  the first launch after starting the launcher too. A missing dependency's
+  name fills in as soon as it is found, without holding up the dialog.
+- **The Overview no longer calls a profile ready to play while its mods stop
+  the game**, and claims nothing either way until the check has run.
+- **Problems read more clearly.** A version range reads as one range instead of
+  two phrases strung together, an optional dependency at the wrong version is
+  reported as a problem instead of as something the mod supports, and a
+  version that starts with a letter no longer gets a stray "v".
 
 ## [0.25.0] — 2026-09-27
 
