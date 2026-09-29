@@ -344,6 +344,7 @@ export type TranslationKey =
   | 'errors.serverInstallerFailed'
   | 'errors.serverInvalidProperty'
   | 'errors.serverJarUnavailable'
+  | 'errors.serverLoaderAmbiguous'
   | 'errors.serverMaintenanceInProgress'
   | 'errors.serverModRequiredByOther'
   | 'errors.serverNameInvalid'

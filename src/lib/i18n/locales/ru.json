@@ -2527,6 +2527,7 @@
     "serverJarUnavailable": "Не удалось найти серверный дистрибутив для {loader} {mcVersion}",
     "serverInstallerFailed": "Установщик сервера {loader} завершился с ошибкой",
     "serverSpawnFailed": "Не удалось запустить процесс сервера",
+    "serverLoaderAmbiguous": "В папке сервера несколько установок {loader}, и ничто не указывает, какую из них он использует: {candidates}. Удалите лишние и запустите сервер снова.",
     "serverAlreadyRunning": "Этот сервер уже запущен",
     "serverNotRunning": "Этот сервер не запущен",
     "serverModRequiredByOther": "Нельзя удалить {filename} — он нужен моду {requiredBy}. Удалите и тот мод, либо оставьте этот.",

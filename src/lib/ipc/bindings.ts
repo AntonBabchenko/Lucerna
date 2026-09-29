@@ -3576,6 +3576,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_installer_failed"; loader: string; details: string } | 
 /**  The server process failed to spawn. */
 { kind: "server_spawn_failed"; details: string } | 
+/**
+ *  Several installs of the server's loader, and nothing (a run script,
+ *  a single launchable candidate) names the one the server runs.
+ *  `candidates` are paths relative to the server folder.
+ */
+{ kind: "server_loader_ambiguous"; loader: string; candidates: string[] } | 
 /**  The server is already running. */
 { kind: "server_already_running"; id: string } | 
 /**  The operation requires that no hosting upload is in flight, but one is. */

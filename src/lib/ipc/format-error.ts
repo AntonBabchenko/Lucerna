@@ -123,6 +123,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   cosmetic_image_invalid: 'opaque',
   skin_library: 'opaque',
   // Clean — everything else (self-contained from structured fields).
+  server_loader_ambiguous: 'clean',
   host_not_allowed: 'clean',
   consented_channel_disabled: 'clean',
   hash_mismatch: 'clean',
@@ -803,6 +804,11 @@ export function formatError(e: IpcError): string {
       );
     case 'server_spawn_failed':
       return withDetailTail(translate('errors.serverSpawnFailed'), e.details);
+    case 'server_loader_ambiguous':
+      return translate('errors.serverLoaderAmbiguous', {
+        loader: e.loader,
+        candidates: listOrDash(e.candidates),
+      });
     case 'server_already_running':
       return translate('errors.serverAlreadyRunning');
     case 'server_upload_in_progress':
