@@ -103,6 +103,25 @@ beforeEach(() => {
 });
 
 describe('«Install» on a missing dependency', () => {
+  // Its own required dependencies come along: said, never installed silently (D9) — like every
+  // other install toast.
+  it('names the dependencies that came along with it', async () => {
+    h.modsInstallMissingRequired.mockResolvedValue({
+      status: 'ok',
+      data: {
+        kind: 'installed',
+        name: 'Balm',
+        summary: { primary_name: 'Balm', installed_dependencies: ['Cloth Config'], details: [] },
+      },
+    });
+    view('missing-with-deps');
+    await installFromPanel();
+
+    await waitFor(() =>
+      expect(h.pushSuccess).toHaveBeenCalledWith('Installed Balm', ['+ installed: Cloth Config']),
+    );
+  });
+
   it('a dependency the profile already lists says so and re-checks — never a search', async () => {
     const error = { kind: 'mods_already_installed', name: 'Balm' };
     h.modsInstallMissingRequired.mockResolvedValue({ status: 'error', error });

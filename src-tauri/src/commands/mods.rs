@@ -3776,7 +3776,8 @@ pub async fn mods_install_missing_required(
     let summary = finish_dependency_install(&instance_id, &inst_root, &dependent_sha1, run).await;
     drop(write);
     Ok(InstallMissingOutcome::Installed {
-        name: summary.primary_name,
+        name: summary.primary_name.clone(),
+        summary,
     })
 }
 

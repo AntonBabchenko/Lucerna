@@ -473,8 +473,9 @@ pub struct OrphanRef {
 }
 
 /// Returned by the mod install commands (`mods_install_with_deps`,
-/// `mods_install_dependency`) and by `mods_update_one`, so the UI can show a
-/// per-mod toast.
+/// `mods_install_dependency`, `mods_install_missing_required` inside its
+/// `Installed` outcome) and by `mods_update_one`, so the UI can show a per-mod
+/// toast.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstallSummary {
     pub primary_name: String,
@@ -496,8 +497,14 @@ pub struct InstallSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum InstallMissingOutcome {
-    /// The dependency was resolved, verified, and installed. `name` is its display name.
-    Installed { name: String },
+    /// The dependency was resolved, verified, and installed. `name` is its
+    /// display name (`summary.primary_name`); `summary` is what every install
+    /// command answers — here, which of its own required dependencies came
+    /// along with it, so the UI can say so.
+    Installed {
+        name: String,
+        summary: InstallSummary,
+    },
     /// Could not resolve/verify with confidence — the UI opens a pre-filled
     /// search for `query` (the loader mod-id) so the user can pick it manually.
     OpenSearch { query: String },

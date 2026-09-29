@@ -513,7 +513,12 @@
     if (!instanceId) return;
     const outcome = await installMissing(instanceId, v.dependent_sha1, v.dep_id);
     if (outcome.kind === 'installed') {
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: outcome.name }));
+      // Its own required dependencies come along: said, never installed silently (D9).
+      const tt = get(t);
+      pushSuccess(
+        tt('mods.browse.toastInstalledMod', { name: outcome.name }),
+        depsLines(tt, [outcome.summary]),
+      );
       await refreshAfterRemediate();
       return;
     }
