@@ -343,6 +343,31 @@ describe('problem line', () => {
     expect(onProblemFix).toHaveBeenCalledWith(fix);
   });
 
+  // Plan §5c V3 (screenshot n01b): at 820 px the line wrapped as a row of flex items — its ✕ alone
+  // on the first line, the reason on the second, «and 1 more · Fix…» on a third. The icon keeps to
+  // the reason's first line, the reason wraps under itself, and «and N more · Fix…» follows it
+  // inline — one unit that never breaks — or takes one line of its own.
+  it("keeps the icon on the reason's first line and the fix after the reason, as one unit", () => {
+    const fix = { kind: 'choose_version' as const, label: 'Choose version' };
+    render(InstalledModRow, {
+      props: { ...base(), installed: installed(true), problem: blocking({ more: 1, fix }) },
+    });
+    const line = screen.getByTestId('row-problem');
+    // Two columns, lined up by baseline: the icon's line sits on the reason's first line.
+    expect(line.className).toMatch(/\bitems-baseline\b/);
+    const [icon, reason] = [...line.children];
+    expect(icon?.querySelector('svg')).not.toBeNull();
+    expect(reason?.textContent).toContain('Alpha needs Balm, which is not installed');
+    // The reason is text that wraps under itself — not a flex row that breaks between its parts.
+    expect(reason?.className.split(/\s+/)).not.toContain('flex');
+    // «and 1 more · Choose version» rides after it as one inline unit.
+    const tail = within(reason as HTMLElement).getByTestId('row-problem-actions');
+    expect(tail.className).toMatch(/\binline-flex\b/);
+    expect(tail.className).toMatch(/\bwhitespace-nowrap\b/);
+    expect(tail.contains(screen.getByTestId('row-problem-more'))).toBe(true);
+    expect(tail.contains(screen.getByRole('button', { name: 'Choose version' }))).toBe(true);
+  });
+
   it('folds further reasons into «and N more», which reveals the panel', async () => {
     const onRevealProblems = vi.fn();
     render(InstalledModRow, {

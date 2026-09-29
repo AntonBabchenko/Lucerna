@@ -217,41 +217,52 @@
      chip and the dependency chip — is the update badge and the relation pill in the row now. It is
      the card's own second line (plan §5b V2), inside its surface and its accent strip. One reason,
      in full (it wraps rather than truncates: it is the reason, not a label), and the one fix its
-     status chose. A warning keeps the longer compat sentence as its tooltip. -->
+     status chose. A warning keeps the longer compat sentence as its tooltip.
+     Two columns lined up by baseline, so the icon stays on the reason's first line; the reason is
+     text that wraps under itself, and «and N more · Fix…» follows it inline — one unit that never
+     breaks — or takes one line of its own. As a row of flex items it broke between its parts: at
+     820 px the icon stood alone on a line and the fix fell to a third (plan §5c, screenshot n01b). -->
 {#snippet problemLine()}
   {#if problem}
     {@const tone = problem.level === 'blocking' ? 'text-danger' : 'text-warning-text'}
     <div
-      class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs"
+      class="flex items-baseline gap-2 text-xs"
       data-testid="row-problem"
       data-level={problem.level}
     >
-      <Icon
-        name={problem.level === 'blocking' ? 'circleX' : 'warning'}
-        size={14}
-        class="shrink-0 {tone}"
-      />
-      <span class="min-w-0 {tone}" use:tooltip={problem.tooltip}>{problem.text}</span>
-      {#if problem.more > 0}
-        <button
-          type="button"
-          class="btn-link text-xs shrink-0"
-          data-testid="row-problem-more"
-          onclick={() => onRevealProblems()}
-        >
-          {$t('mods.installed.reasonMore', { count: problem.more })}
-        </button>
-      {/if}
-      {#if problem.fix}
-        {@const fix = problem.fix}
-        <button
-          type="button"
-          class="btn-secondary btn-xs shrink-0"
-          onclick={() => onProblemFix(fix)}
-        >
-          {fix.label}
-        </button>
-      {/if}
+      <span class="shrink-0"
+        ><Icon
+          name={problem.level === 'blocking' ? 'circleX' : 'warning'}
+          size={14}
+          class="inline-block align-middle {tone}"
+        /></span
+      >
+      <p class="min-w-0 flex-1">
+        <span class={tone} use:tooltip={problem.tooltip}>{problem.text}</span>
+        {#if problem.more > 0 || problem.fix}
+          <span
+            class="ms-1 inline-flex items-center gap-x-2 whitespace-nowrap align-middle"
+            data-testid="row-problem-actions"
+          >
+            {#if problem.more > 0}
+              <button
+                type="button"
+                class="btn-link text-xs"
+                data-testid="row-problem-more"
+                onclick={() => onRevealProblems()}
+              >
+                {$t('mods.installed.reasonMore', { count: problem.more })}
+              </button>
+            {/if}
+            {#if problem.fix}
+              {@const fix = problem.fix}
+              <button type="button" class="btn-secondary btn-xs" onclick={() => onProblemFix(fix)}>
+                {fix.label}
+              </button>
+            {/if}
+          </span>
+        {/if}
+      </p>
     </div>
   {/if}
 {/snippet}
