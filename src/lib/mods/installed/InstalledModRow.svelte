@@ -213,11 +213,54 @@
   {/if}
 {/snippet}
 
+<!-- The second line is there only for a problem (spec D12): what used to sit here — the changelog
+     chip and the dependency chip — is the update badge and the relation pill in the row now. It is
+     the card's own second line (plan §5b V2), inside its surface and its accent strip. One reason,
+     in full (it wraps rather than truncates: it is the reason, not a label), and the one fix its
+     status chose. A warning keeps the longer compat sentence as its tooltip. -->
+{#snippet problemLine()}
+  {#if problem}
+    {@const tone = problem.level === 'blocking' ? 'text-danger' : 'text-warning-text'}
+    <div
+      class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs"
+      data-testid="row-problem"
+      data-level={problem.level}
+    >
+      <Icon
+        name={problem.level === 'blocking' ? 'circleX' : 'warning'}
+        size={14}
+        class="shrink-0 {tone}"
+      />
+      <span class="min-w-0 {tone}" use:tooltip={problem.tooltip}>{problem.text}</span>
+      {#if problem.more > 0}
+        <button
+          type="button"
+          class="btn-link text-xs shrink-0"
+          data-testid="row-problem-more"
+          onclick={() => onRevealProblems()}
+        >
+          {$t('mods.installed.reasonMore', { count: problem.more })}
+        </button>
+      {/if}
+      {#if problem.fix}
+        {@const fix = problem.fix}
+        <button
+          type="button"
+          class="btn-secondary btn-xs shrink-0"
+          onclick={() => onProblemFix(fix)}
+        >
+          {fix.label}
+        </button>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 <div role="group" aria-label={installed.name}>
-  <!-- Hover region = the mod row + its problem line ONLY. The expanded
+  <!-- Hover region = the mod row with its problem line ONLY. The expanded
        DepSection is a sibling below, so its per-node hover doesn't fight the
        row's hover over the shared hoveredKey. It draws the cross-highlight
-       once, as a ring above the card and its problem line (`relative`: the
+       once, as a ring above the card — both its lines (`relative`: the
        ring's containing block). -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
@@ -247,51 +290,11 @@
       {selected}
       {onSelectChange}
       relation={relationLoading || hasRelation ? relationPill : undefined}
+      below={problem ? problemLine : undefined}
       {onRevealFile}
       {onOpenProjectPage}
       {hold}
     />
-    <!-- The second line is there only for a problem (spec D12): what used to sit here — the
-         changelog chip and the dependency chip — is the update badge and the relation pill in
-         the row now. -->
-    {#if problem}
-      {@const tone = problem.level === 'blocking' ? 'text-danger' : 'text-warning-text'}
-      <!-- One reason, in full (it wraps rather than truncates: it is the
-           reason, not a label), and the one fix its status chose. A warning
-           keeps the longer compat sentence as its tooltip. -->
-      <div
-        class="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 pb-1 text-xs"
-        data-testid="row-problem"
-        data-level={problem.level}
-      >
-        <Icon
-          name={problem.level === 'blocking' ? 'circleX' : 'warning'}
-          size={14}
-          class="shrink-0 {tone}"
-        />
-        <span class="min-w-0 {tone}" use:tooltip={problem.tooltip}>{problem.text}</span>
-        {#if problem.more > 0}
-          <button
-            type="button"
-            class="btn-link text-xs shrink-0"
-            data-testid="row-problem-more"
-            onclick={() => onRevealProblems()}
-          >
-            {$t('mods.installed.reasonMore', { count: problem.more })}
-          </button>
-        {/if}
-        {#if problem.fix}
-          {@const fix = problem.fix}
-          <button
-            type="button"
-            class="btn-secondary btn-xs shrink-0"
-            onclick={() => onProblemFix(fix)}
-          >
-            {fix.label}
-          </button>
-        {/if}
-      </div>
-    {/if}
   </div>
   <!-- A row whose platform details did not load still has its dependencies: the panel needs the
        graph's root, not the summary. -->

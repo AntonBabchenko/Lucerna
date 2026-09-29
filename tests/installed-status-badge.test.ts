@@ -308,6 +308,29 @@ describe('problem line', () => {
     expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-warning-text');
   });
 
+  // Plan §5b V2 (screenshots 01, 06d): the line sat under the card, on the page background —
+  // outside the card's surface and its accent strip. It is the card's own second line now, so the
+  // strip, the hover fill and the dependency ring (drawn by `[data-mod-row]`) cover both lines.
+  it('sits inside the card, under the row, with the strip and the ring host around both', () => {
+    render(InstalledModRow, {
+      props: { ...base(), installed: installed(true), problem: blocking() },
+    });
+    const line = screen.getByTestId('row-problem');
+    const card = line.closest('[data-card-shell]');
+    expect(card).toBe(screen.getByTestId('card-list-row'));
+    expect(card?.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
+    expect(card?.closest('[data-mod-row]')).not.toBeNull();
+  });
+
+  it('a manual jar’s line sits inside its card too', () => {
+    const manual = { ...installed(true), source: null, project_id: null, version_id: null };
+    render(InstalledModRow, {
+      props: { ...base(), summary: null, installed: manual as never, problem: blocking() },
+    });
+    const line = screen.getByTestId('row-problem');
+    expect(line.closest('[data-card-shell]')).toBe(screen.getByTestId('manual-mod-row'));
+  });
+
   it('offers exactly one fix and reports which', async () => {
     const onProblemFix = vi.fn();
     const fix = { kind: 'choose_version' as const, label: 'Choose version' };

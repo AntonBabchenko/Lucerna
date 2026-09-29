@@ -44,6 +44,7 @@
     installedLabel = null,
     actionsBlockedReason = null,
     relation,
+    below,
     onRevealFile = null,
     onOpenProjectPage = null,
     hold = null,
@@ -89,6 +90,9 @@
     /** Installed list rows: the relation pill, rendered between the badges and the actions (spec
      *  §6.7). Pass it only when there is something to render — an empty slot still takes a gap. */
     relation?: Snippet;
+    /** List rows: a second line inside the card, under the row (the installed mod's problem
+     *  line) — CardShell's `below`. */
+    below?: Snippet;
     /** Installed rows: show the jar in the OS file manager (row menu) — the keyboard path to the
      *  file name the version's tooltip shows on hover. */
     onRevealFile?: (() => void) | null;
@@ -358,6 +362,7 @@
       dim={style.dim}
       {highlighted}
       testid="manual-mod-row"
+      {below}
     >
       {#if selectable && installed}
         <input
@@ -447,6 +452,7 @@
       dim={style.dim}
       {highlighted}
       testid="card-list-row"
+      {below}
     >
       {#if selectable}
         <input
