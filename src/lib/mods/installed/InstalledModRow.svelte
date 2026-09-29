@@ -17,6 +17,7 @@
   import { DEPS_UNKNOWN_KEY, type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
   import { changelogSupported } from '$lib/mods/changelog-supported';
   import type { RowFix, RowProblem } from './row-problem';
+  import { depSectionId, hasFigures, relationFigures, relationInput } from './relation-cell';
 
   let {
     summary,
@@ -98,10 +99,11 @@
     hold?: { held: boolean; onToggle: () => void } | null;
   } = $props();
 
-  // One pill summarises both directions of the dependency relation (spec D12): ⛓ what this mod
+  // One control summarises both directions of the dependency relation (spec D12): ⛓ what this mod
   // requires (distinct projects) and ↑ what requires it. Both share a single panel (DepSection),
-  // so a single toggle is the honest control. Its figures are in its name and tooltip, joined
-  // with " · " (e.g. "1 dep · required by 2").
+  // so a single toggle is the honest control. It is the row's relation cell, a column of its own
+  // before the icon (spec 2026-09-30); its figures are in its name and tooltip too, joined with
+  // " · " (e.g. "1 dep · required by 2").
   const optionalTotal = $derived(root?.optional.length ?? 0);
   // The platform could not describe this mod's installed version: no count is not zero.
   const depsUnknown = $derived(root?.deps_unknown ?? null);
@@ -131,9 +133,12 @@
   // Only an enabled platform mod becomes a root of the graph: no other row waits for it.
   const mayHaveRoot = $derived(installed.enabled && !!installed.source && !!installed.project_id);
   const relationLoading = $derived(graphLoading && !root && mayHaveRoot);
-  const hasRelation = $derived(
-    !!depsUnknown || depTotal > 0 || optionalTotal > 0 || requiredBy.length > 0,
-  );
+  // What the cell's two slots show — one rule with the width of the list's column
+  // (relation-cell.ts), so no figure is ever wider than the column made room for.
+  const figures = $derived(relationFigures(relationInput(root, depTotal, requiredBy.length)));
+  const hasRelation = $derived(hasFigures(figures));
+  // The section the cell opens, named in its `aria-controls` while rendered.
+  const sectionId = $derived(depSectionId(installed.sha1));
 
   // There is deliberately no left-side danger badge any more. The one that used
   // to live here counted the graph's absent required children — i.e. the
@@ -167,7 +172,7 @@
   );
 </script>
 
-{#snippet relationPill()}
+{#snippet relationCell()}
   {#if relationLoading}
     <Spinner
       size="sm"
@@ -175,36 +180,31 @@
       label={$t('mods.installed.resolvingShort')}
       delayMs={150}
     />
-  {:else}
-    <!-- One neutral pill for both directions (spec D12): ⛓ own dependencies (by project; «?»
-         while the platform could not describe them — unknown is not zero) and ↑ dependents.
-         The words live in its name and tooltip; accent only while its panel is open. The ⛓
-         figure falls back to the optional count when that is all there is to open. -->
+  {:else if hasRelation}
+    <!-- The row's disclosure, one neutral control for both directions (spec D12): ⛓ own
+         dependencies (by project; «?» while the platform could not describe them — unknown is not
+         zero), ↑ dependents. Each figure keeps to its slot, so the list's figures line up (spec
+         2026-09-30); the words live in its name and tooltip. Quiet at rest; `bg-muted` under the
+         pointer, as a hovered row is `bg-subtle` already; accent only while its section is open.
+         The transparent border is what forced-colors mode paints as its edge. -->
     <button
       type="button"
       data-testid="relation-pill"
       aria-expanded={expanded}
+      aria-controls={expanded && root ? sectionId : undefined}
       aria-label={expandLabel}
       use:tooltip={{ text: relationTooltip, describe: !!depsUnknown }}
-      class="px-1.5 py-0.5 rounded inline-flex items-center gap-2 text-xs tabular-nums {expanded
+      class="w-full h-6 px-1 rounded border border-transparent inline-flex items-center gap-1.5 {expanded
         ? 'bg-accent-soft text-accent'
-        : 'bg-subtle text-secondary'}"
+        : 'text-secondary hover:bg-muted'}"
       onclick={onToggleExpand}
     >
-      {#if depsUnknown || depTotal > 0 || requiredBy.length === 0}
-        <span class="inline-flex items-center gap-0.5"
-          ><Icon name="link" size={12} />{depsUnknown
-            ? '?'
-            : depTotal > 0
-              ? depTotal
-              : optionalTotal}</span
-        >
-      {/if}
-      {#if requiredBy.length > 0}
-        <span class="inline-flex items-center gap-0.5"
-          ><Icon name="arrowUp" size={12} />{requiredBy.length}</span
-        >
-      {/if}
+      <span class="relation-slot-dep inline-flex items-center gap-0.5" data-testid="relation-dep"
+        >{#if figures.dep !== null}<Icon name="link" size={12} />{figures.dep}{/if}</span
+      >
+      <span class="relation-slot-by inline-flex items-center gap-0.5" data-testid="relation-by"
+        >{#if figures.by !== null}<Icon name="arrowUp" size={12} />{figures.by}{/if}</span
+      >
     </button>
   {/if}
 {/snippet}
@@ -286,7 +286,7 @@
       selectable={true}
       {selected}
       {onSelectChange}
-      relation={relationLoading || hasRelation ? relationPill : undefined}
+      relation={relationCell}
       below={problem ? problemLine : undefined}
       {onRevealFile}
       {onOpenProjectPage}
@@ -297,6 +297,7 @@
        graph's root, not the summary. -->
   {#if expanded && root}
     <DepSection
+      id={sectionId}
       {root}
       {requiredBy}
       onInstall={onInstallDep}

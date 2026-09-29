@@ -97,8 +97,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   you scroll; the compatibility and dependency re-checks moved into a menu
   beside them, next to opening the mods folder; the counts line, the source
   picker and a pager with a single page are gone; a row counts its
-  dependencies and dependents in one small pill, shows the file name when you
-  point at the version, and its update badge opens what's new.
+  dependencies and dependents in a narrow column before its icon, lined up
+  from row to row, shows the file name when you point at the version, and its
+  update badge opens what's new.
 - **Add-ons remembers Browse or Installed for each content type** until the
   launcher closes, and the first visit to mods opens the installed list when
   the profile has any.

@@ -8,6 +8,7 @@
   import type { RequiredByEntry } from './dep-graph.svelte';
 
   let {
+    id = undefined,
     root,
     requiredBy,
     onInstall,
@@ -15,6 +16,8 @@
     onOpenDetail,
     treeCtx = EMPTY_TREE_CTX,
   }: {
+    /** Its element id: the row's relation cell names it in `aria-controls`. */
+    id?: string;
     root: DepRoot;
     requiredBy: RequiredByEntry[];
     // The node and the mod that declared it (null under an absent parent) — see DepTree.
@@ -40,7 +43,7 @@
      (a full-width grey block blended into the following row). On the surface,
      not a grey tint: the muted headings and cycle marker were 4.46:1 on the old
      bg-subtle/40 in the light theme. -->
-<div class="mx-3 mb-2 rounded-md border border-border-subtle bg-surface px-3 py-2">
+<div {id} class="mx-3 mb-2 rounded-md border border-border-subtle bg-surface px-3 py-2">
   {#if unknownWhy}
     <!-- Its lists are empty because they are unknown — never an empty «Requires». Say so,
          and why. -->
