@@ -771,6 +771,28 @@ mod tests {
     }
 
     #[test]
+    fn year_based_mc_prefix_on_the_same_line_compares_the_mod_version() {
+        // The misaligned-token bug: `26.1.2-5.1.3` against `26.1-5.0` was read
+        // token by token as 26,1,2,… vs 26,1,5,… and gave a confident Less.
+        assert_eq!(
+            satisfies("26.1.2-5.1.3", "[26.1-5.0,]", Maven),
+            Satisfaction::Satisfied
+        );
+        // Author intent (D1): the range names the 26.1 line, so the mod part
+        // decides. FML itself would load this build (it orders 26.1.2 above 26.1).
+        assert_eq!(
+            satisfies("26.1.2-4.0", "[26.1-5.0,]", Maven),
+            Satisfaction::Violated
+        );
+        // The same misalignment used to wave a too-new build through; FML agrees
+        // it is out of range.
+        assert_eq!(
+            satisfies("26.1.2-5.1.3", "(,26.1-5.0]", Maven),
+            Satisfaction::Violated
+        );
+    }
+
+    #[test]
     fn upper_bounded_maven_ranges() {
         for r in [
             "[1.21,1.22)",
