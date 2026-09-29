@@ -13,11 +13,11 @@ vi.mock('$lib/ipc/bindings', () => ({
       Promise.resolve({
         status: 'ok',
         data: {
-          effective: 'C:Data',
+          effective: 'C:\Data',
           configured: null,
           fell_back: false,
           fallback: null,
-          default_dir: 'C:Data',
+          default_dir: 'C:\Data',
           relocation: { kind: 'idle' },
         },
       }),
