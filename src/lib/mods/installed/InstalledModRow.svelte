@@ -34,7 +34,6 @@
     checking,
     packChip,
     selected,
-    outOfRangeKeys = new Set(),
     treeCtx = EMPTY_TREE_CTX,
     onToggleExpand,
     onHover,
@@ -73,7 +72,6 @@
     checking: boolean;
     packChip: string | null;
     selected: boolean;
-    outOfRangeKeys?: Set<string>;
     // What the expanded tree needs to say what the loader does about each dependency.
     treeCtx?: DepTreeCtx;
     onToggleExpand: () => void;
@@ -306,7 +304,6 @@
       onInstall={onInstallDep}
       {onJump}
       onOpenDetail={onOpenDetailMod}
-      {outOfRangeKeys}
       {treeCtx}
     />
   {/if}

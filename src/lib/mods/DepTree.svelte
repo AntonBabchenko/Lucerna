@@ -34,7 +34,6 @@
     dependentSha1 = null,
     ctx = EMPTY_TREE_CTX,
     tree = null,
-    outOfRangeKeys = new Set(),
     installingKeys = new Set(),
     hoveredKey,
     onHover,
@@ -53,9 +52,10 @@
     // The enabled jar that declared THIS level's edges: the row's own mod at the top level, an
     // installed parent below it, null under an absent parent (it declared nothing we can judge).
     dependentSha1?: string | null;
+    // What the tree says about each node — a version mismatch included — is read from the
+    // report per edge (`classifyDepNode`): under this level's dependent only.
     ctx?: DepTreeCtx;
     tree?: TreeState | null;
-    outOfRangeKeys?: Set<string>;
     // Keys (`source:project_id`) whose install is in flight — drives the per-node BusyButton
     // spinner. Empty in the common read-only render.
     installingKeys?: Set<string>;
@@ -193,7 +193,6 @@
       dependentSha1,
       report: ctx.report,
       projectOf: ctx.projectOf,
-      outOfRange: outOfRangeKeys.has(k),
     })}
     <!-- Named by the mod, described by what the tree says about it: a name from content would
          also read every nested item. aria-selected follows the roving tab stop (single select,
@@ -341,7 +340,6 @@
           tree={st}
           dependentSha1={n.installed ? ctx.enabledShaOf(k) : null}
           {ctx}
-          {outOfRangeKeys}
           {installingKeys}
           {hoveredKey}
           {onHover}

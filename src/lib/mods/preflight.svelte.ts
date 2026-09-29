@@ -1,6 +1,5 @@
 import {
   commands,
-  type DepProjectRef,
   type DepViolation,
   type InstallMissingOutcome,
   type Error as IpcError,
@@ -16,70 +15,6 @@ import { preflightCache } from './preflight-cache';
 // ---------------------------------------------------------------------------
 // Pure helpers (no Svelte runtime — safe in Vitest)
 // ---------------------------------------------------------------------------
-
-/**
- * Build the set of overlay keys (`${source}:${project_id}`) for every
- * `version_out_of_range` violation that has a `provider_project`.
- *
- * Key format mirrors `DepTree.svelte`'s `keyOf`: `${n.source}:${n.project_id}`.
- * For modrinth refs the key is `modrinth:${project_id}`.
- * For curseforge refs the key is `curseforge:${mod_id}` (the DepTreeNode
- * stores the numeric mod_id as its `project_id` string).
- */
-export function toOverlayKeys(report: PreflightReport): Set<string> {
-  const out = new Set<string>();
-  for (const v of report.violations) {
-    const key = overlayKeyOf(v);
-    if (key !== null) out.add(key);
-  }
-  return out;
-}
-
-/** The tree node a violation marks «version mismatch» (its overlay key), or null. */
-function overlayKeyOf(v: DepViolation): string | null {
-  return isRangeRemediable(v) && v.provider_project !== null
-    ? depProjectRefKey(v.provider_project)
-    : null;
-}
-
-/**
- * The conflict behind an out-of-range tree node — what its «Fix…» asks the
- * planner about. The overlay marks a PROJECT, so a node can be marked for
- * another dependent's range: this dependent's own conflict on the project
- * comes first, else the first one the mark stands for. Null when nothing marks
- * the node (by `toOverlayKeys`' own rule).
- */
-export function overlayConflict(
-  violations: readonly DepViolation[],
-  node: { source: string; project_id: string },
-  dependentSha1: string | null,
-): DepViolation | null {
-  const key = `${node.source}:${node.project_id}`;
-  const marking = violations.filter((v) => overlayKeyOf(v) === key);
-  return marking.find((v) => v.dependent_sha1 === dependentSha1) ?? marking[0] ?? null;
-}
-
-/**
- * True when "install a version that satisfies the declared range" is a sound
- * manual repair for this violation — the panel's «Choose version» picker, whose
- * "fits range" marks come from `modsFilterSatisfying`.
- *
- * Deliberately EXCLUDES `incompatible_installed`: there the range names the
- * versions that clash, so the satisfying set is exactly what must be avoided.
- * That row's repair is the planner (`planVersionFix`), which judges the
- * negation.
- */
-export function isRangeRemediable(v: DepViolation): boolean {
-  return v.kind === 'version_out_of_range' || v.kind === 'optional_out_of_range';
-}
-
-function depProjectRefKey(ref: DepProjectRef): string {
-  if (ref.source === 'modrinth') {
-    return `modrinth:${ref.project_id}`;
-  }
-  // curseforge: DepTreeNode.project_id holds the stringified mod_id
-  return `curseforge:${ref.mod_id}`;
-}
 
 /**
  * True when the report contains at least one violation AND the instance is not a

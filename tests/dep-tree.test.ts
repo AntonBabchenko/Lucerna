@@ -332,22 +332,23 @@ describe('DepTree — each absent dependency says what the loader does', () => {
     expect(describedText(el)).toBe("not installed — the game won't start without it");
   });
 
+  // Alpha's own range rejects the installed Sodium: the mark is this edge's (plan §5b V1).
+  const conflict: DepViolation = {
+    ...miss('sodium'),
+    kind: 'version_out_of_range',
+    provider_project: { source: 'modrinth', project_id: 'ps', version_id: null },
+  };
+
   // A version mismatch had no action: its fix is the planner's (spec §6.5), asked about the
   // conflict behind the mark — the host names it, the tree only offers it.
   it('a version mismatch offers «Fix…», which asks the planner about its conflict', async () => {
     const onPlan = vi.fn();
-    const conflict: DepViolation = {
-      ...miss('sodium'),
-      kind: 'version_out_of_range',
-      provider_project: { source: 'modrinth', project_id: 'ps', version_id: null },
-    };
     const conflictOf = vi.fn(() => conflict);
     const sodium = leaf('ps', { name: 'Sodium' });
     render(DepTree, {
       props: treeProps({
         nodes: [sodium],
         dependentSha1: 'a',
-        outOfRangeKeys: new Set(['modrinth:ps']),
         ctx: ctx({ violations: [conflict] }, { conflictOf, onPlan }),
       }),
     });
@@ -365,11 +366,26 @@ describe('DepTree — each absent dependency says what the loader does', () => {
       props: treeProps({
         nodes: [leaf('ps', { name: 'Sodium' })],
         dependentSha1: 'a',
-        outOfRangeKeys: new Set(['modrinth:ps']),
-        ctx: ctx({ violations: [] }),
+        // The host's default: nothing to fix (an advisory report, say).
+        ctx: ctx({ violations: [conflict] }),
       }),
     });
     expect(screen.getByText('version mismatch')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /fix/i })).toBeNull();
+  });
+
+  // 06d: Indium's range on Sodium is Indium's conflict; under a mod whose own ranges accept the
+  // installed build the node is simply installed, whatever another mod's range says.
+  it('another mod’s range on the same dependency marks nothing here', () => {
+    render(DepTree, {
+      props: treeProps({
+        nodes: [leaf('ps', { name: 'Sodium' })],
+        dependentSha1: 'iris',
+        ctx: ctx({ violations: [conflict] }, { conflictOf: () => conflict }),
+      }),
+    });
+    expect(item('Sodium').getAttribute('data-node-state')).toBe('installed');
+    expect(screen.queryByText('version mismatch')).toBeNull();
     expect(screen.queryByRole('button', { name: /fix/i })).toBeNull();
   });
 });

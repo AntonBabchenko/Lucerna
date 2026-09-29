@@ -37,18 +37,39 @@ const classify = (
     dependentSha1,
     report,
     projectOf: () => null,
-    outOfRange: false,
     ...over,
   });
+// `dependent`'s own range rejects the installed Balm (project PB).
+const outOfRange = (dependent: string): DepViolation => ({
+  ...miss(dependent, 'balm'),
+  kind: 'version_out_of_range',
+  installed_version: '1.0',
+  provider_project: { source: 'modrinth', project_id: 'PB', version_id: null },
+  provider_sha1: 'balm-sha',
+});
 
 describe('classifyDepNode', () => {
   it('reads presence first: out of range, installed, disabled, optional', () => {
-    expect(classify(null, 'a', { node: node({ installed: true }), outOfRange: true })).toBe(
-      'out_of_range',
-    );
+    const report = { violations: [outOfRange('a')] };
+    expect(classify(report, 'a', { node: node({ installed: true }) })).toBe('out_of_range');
     expect(classify(null, 'a', { node: node({ installed: true }) })).toBe('installed');
     expect(classify(null, 'a', { node: node({ disabled: true }) })).toBe('disabled');
     expect(classify(null, 'a', { node: node({ declared: 'optional' }) })).toBe('optional_absent');
+  });
+
+  // Plan §5b V1 (06d): the mark is per edge. Another mod's range on the same project is that mod's
+  // conflict; under this dependent the node is just installed.
+  it('is out of range only under the dependent whose own range rejects it', () => {
+    const report = { violations: [outOfRange('indium')] };
+    const installed = node({ installed: true });
+    expect(classify(report, 'indium', { node: installed })).toBe('out_of_range');
+    expect(classify(report, 'iris', { node: installed })).toBe('installed');
+    // Under an absent parent nothing installed declared the edge.
+    expect(classify(report, null, { node: installed })).toBe('installed');
+    // Another project under the same dependent is not the one its range names.
+    expect(classify(report, 'indium', { node: node({ installed: true, project_id: 'PX' }) })).toBe(
+      'installed',
+    );
   });
 
   it('is loader-required only when THIS dependent’s missing id resolves here (A-F3)', () => {

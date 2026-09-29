@@ -2,8 +2,9 @@ import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import DepTree from '$lib/mods/DepTree.svelte';
+import { EMPTY_TREE_CTX, edgeConflict } from '$lib/mods/dep-node-state';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
-import { hasBlocking, overlayConflict, toOverlayKeys } from '$lib/mods/preflight.svelte';
+import { hasBlocking } from '$lib/mods/preflight.svelte';
 import { rawRangeDesc } from './test-utils/range-desc';
 
 const report: PreflightReport = {
@@ -23,9 +24,14 @@ const report: PreflightReport = {
   ],
 };
 
+// A tree node is out of range per EDGE (plan §5b V1): under the dependent whose own range rejects
+// the installed provider, keyed by the provider's platform project — never under every mod that
+// shows the project.
+const core = { source: 'modrinth' as const, project_id: 'core-id' };
+
 describe('preflight overlay mapping', () => {
-  it('exposes modrinth:core-id as an out-of-range overlay key', () => {
-    expect(toOverlayKeys(report)).toContain('modrinth:core-id');
+  it("marks the provider's project under the dependent that declared the range", () => {
+    expect(edgeConflict(report.violations, core, 'aa')).toBe(report.violations[0]);
   });
   it('treats a non-empty report as blocking', () => {
     expect(hasBlocking(report)).toBe(true);
@@ -33,7 +39,7 @@ describe('preflight overlay mapping', () => {
   });
 });
 
-describe('toOverlayKeys edge cases', () => {
+describe('edgeConflict edge cases', () => {
   it('ignores missing_required violations (no provider_project needed)', () => {
     const missingReport: PreflightReport = {
       violations: [
@@ -51,7 +57,7 @@ describe('toOverlayKeys edge cases', () => {
         },
       ],
     };
-    expect(toOverlayKeys(missingReport).size).toBe(0);
+    expect(edgeConflict(missingReport.violations, core, 'bb')).toBeNull();
   });
 
   it('ignores version_out_of_range violations with no provider_project', () => {
@@ -71,7 +77,7 @@ describe('toOverlayKeys edge cases', () => {
         },
       ],
     };
-    expect(toOverlayKeys(noProviderReport).size).toBe(0);
+    expect(edgeConflict(noProviderReport.violations, core, 'cc')).toBeNull();
   });
 
   it('maps curseforge provider_project to curseforge:mod_id', () => {
@@ -91,42 +97,46 @@ describe('toOverlayKeys edge cases', () => {
         },
       ],
     };
-    expect(toOverlayKeys(cfReport)).toContain('curseforge:12345');
+    // A CurseForge node keys its numeric mod id as the project id.
+    const cf = { source: 'curseforge' as const, project_id: '12345' };
+    expect(edgeConflict(cfReport.violations, cf, 'dd')).toBe(cfReport.violations[0]);
   });
 
-  it('returns an empty set for an empty report', () => {
-    expect(toOverlayKeys({ violations: [] }).size).toBe(0);
+  it('marks nothing for an empty report, or where no mod declared the edge', () => {
+    expect(edgeConflict([], core, 'aa')).toBeNull();
+    // Under an absent parent nothing installed declared the node.
+    expect(edgeConflict(report.violations, core, null)).toBeNull();
   });
 });
 
-// The overlay marks a PROJECT; a tree node's «Fix…» needs the conflict behind the mark — the one
-// the node's own dependent declared when there is one (spec §6.5).
-describe('overlayConflict', () => {
-  const core = { source: 'modrinth' as const, project_id: 'core-id' };
+// A tree node's «Fix…» plans the conflict behind its mark (spec §6.5) — the node's own dependent's,
+// the only one that marks it.
+describe('edgeConflict', () => {
   const own = report.violations[0] as DepViolation;
   const other: DepViolation = { ...own, dependent_sha1: 'bb', dependent_name: 'Other' };
 
   it('is the conflict this dependent declared on the node’s project', () => {
-    expect(overlayConflict([other, own], core, 'aa')).toBe(own);
+    expect(edgeConflict([other, own], core, 'aa')).toBe(own);
   });
 
-  it('falls back to another dependent’s conflict on the project — the one the mark stands for', () => {
-    expect(overlayConflict([other], core, 'aa')).toBe(other);
-    expect(overlayConflict([other], core, null)).toBe(other);
+  it('never lends another dependent’s conflict on the same project to this edge (06d)', () => {
+    expect(edgeConflict([other], core, 'aa')).toBeNull();
+    expect(edgeConflict([other], core, null)).toBeNull();
+    expect(edgeConflict([other], core, 'bb')).toBe(other);
   });
 
-  it('is null for a project nothing marks — exactly the overlay’s rule', () => {
+  it('is null for a project this dependent’s ranges do not name', () => {
     const cf = { source: 'curseforge' as const, project_id: '12345' };
     const cfConflict: DepViolation = {
       ...own,
       provider_project: { source: 'curseforge', mod_id: 12345, file_id: null },
     };
-    expect(overlayConflict([own], { ...core, project_id: 'else' }, 'aa')).toBeNull();
+    expect(edgeConflict([own], { ...core, project_id: 'else' }, 'aa')).toBeNull();
     // A CurseForge node keys its numeric mod id as the project id.
-    expect(overlayConflict([cfConflict], cf, 'aa')).toBe(cfConflict);
+    expect(edgeConflict([cfConflict], cf, 'aa')).toBe(cfConflict);
     // An incompatibility or a conflict with no linked project marks no node.
-    expect(overlayConflict([{ ...own, kind: 'incompatible_installed' }], core, 'aa')).toBeNull();
-    expect(overlayConflict([{ ...own, provider_project: null }], core, 'aa')).toBeNull();
+    expect(edgeConflict([{ ...own, kind: 'incompatible_installed' }], core, 'aa')).toBeNull();
+    expect(edgeConflict([{ ...own, provider_project: null }], core, 'aa')).toBeNull();
   });
 });
 
@@ -230,7 +240,7 @@ describe('PreflightPanel', () => {
 });
 
 // ---------------------------------------------------------------------------
-// DepTree overlay — outOfRangeKeys replaces the green "installed" check
+// DepTree overlay — a version mismatch replaces the green "installed" check, per edge
 // ---------------------------------------------------------------------------
 
 const satisfiedNode: DepTreeNode = {
@@ -243,19 +253,21 @@ const satisfiedNode: DepTreeNode = {
   children: [],
 };
 
-const treeProps = {
+// The tree reads the report per edge: `dependentSha1` is the mod that declared this level.
+const treeProps = (dependentSha1: string, violations: DepViolation[]) => ({
   hoveredKey: null,
   onHover: () => {},
   onInstall: () => {},
   onAdd: () => {},
   onOpenDetail: () => {},
-};
+  dependentSha1,
+  ctx: { ...EMPTY_TREE_CTX, report: { violations } },
+});
 
 describe('DepTree overlay', () => {
-  it('shows treeOutOfRange text and hides installedStatus when key is in outOfRangeKeys', () => {
-    const outOfRangeKeys = new Set(['modrinth:core-id']);
+  it('shows treeOutOfRange text and hides installedStatus under the dependent whose range rejects it', () => {
     const { getByText, queryByText } = render(DepTree, {
-      props: { nodes: [satisfiedNode], outOfRangeKeys, ...treeProps },
+      props: { nodes: [satisfiedNode], ...treeProps('aa', report.violations) },
     });
     // Direction-neutral: the overlay also fires for an UPPER bound, where
     // "too old" would be the opposite of the truth.
@@ -263,20 +275,19 @@ describe('DepTree overlay', () => {
     expect(queryByText('installed')).toBeNull();
   });
 
-  it('shows installedStatus (green check) when outOfRangeKeys is empty (default)', () => {
+  it('shows installedStatus (green check) when nothing is out of range', () => {
     const { getByText, queryByText } = render(DepTree, {
-      props: { nodes: [satisfiedNode], ...treeProps },
+      props: { nodes: [satisfiedNode], ...treeProps('aa', []) },
     });
     expect(getByText('installed')).toBeTruthy();
-    expect(queryByText('version too old')).toBeNull();
+    expect(queryByText('version mismatch')).toBeNull();
   });
 
-  it('shows installedStatus when outOfRangeKeys does not contain the node key', () => {
-    const outOfRangeKeys = new Set(['modrinth:some-other-id']);
+  it("shows installedStatus under a mod whose own ranges accept it, whoever else's does not", () => {
     const { getByText, queryByText } = render(DepTree, {
-      props: { nodes: [satisfiedNode], outOfRangeKeys, ...treeProps },
+      props: { nodes: [satisfiedNode], ...treeProps('zz', report.violations) },
     });
     expect(getByText('installed')).toBeTruthy();
-    expect(queryByText('version too old')).toBeNull();
+    expect(queryByText('version mismatch')).toBeNull();
   });
 });

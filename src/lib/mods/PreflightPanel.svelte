@@ -6,9 +6,10 @@
   import { tooltip } from '$lib/ui/tooltip';
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
   import { depNameOf } from '$lib/mods/dep-names.svelte';
-  import { hasBlocking, isRangeRemediable, violationKey } from './preflight.svelte';
+  import { hasBlocking, violationKey } from './preflight.svelte';
   import {
     isFixable,
+    isRangeRemediable,
     type PlanSide,
     type PlanState,
     planOffers,

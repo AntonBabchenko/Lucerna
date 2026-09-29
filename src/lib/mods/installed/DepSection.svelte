@@ -15,7 +15,6 @@
     onInstall,
     onJump,
     onOpenDetail,
-    outOfRangeKeys = new Set(),
     treeCtx = EMPTY_TREE_CTX,
   }: {
     root: DepRoot;
@@ -26,7 +25,6 @@
     onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
     onOpenDetail: (source: ModSource, projectId: string) => void;
-    outOfRangeKeys?: Set<string>;
     // What the trees need to say what the loader does about each dependency.
     treeCtx?: DepTreeCtx;
   } = $props();
@@ -66,7 +64,6 @@
       labelledby={reqId}
       dependentSha1={root.sha1}
       ctx={treeCtx}
-      {outOfRangeKeys}
       {hoveredKey}
       {onHover}
       {onInstall}
@@ -84,7 +81,6 @@
       labelledby={optId}
       dependentSha1={root.sha1}
       ctx={treeCtx}
-      {outOfRangeKeys}
       {hoveredKey}
       {onHover}
       {onInstall}

@@ -106,6 +106,20 @@ export function isFixable(v: DepViolation): boolean {
   return violationAction(v) !== 'none';
 }
 
+/**
+ * True when "install a version that satisfies the declared range" is a sound
+ * manual repair for this violation — the panel's «Choose version» picker, whose
+ * "fits range" marks come from `modsFilterSatisfying`.
+ *
+ * Deliberately EXCLUDES `incompatible_installed`: there the range names the
+ * versions that clash, so the satisfying set is exactly what must be avoided.
+ * That row's repair is the planner (`planVersionFix`), which judges the
+ * negation.
+ */
+export function isRangeRemediable(v: DepViolation): boolean {
+  return v.kind === 'version_out_of_range' || v.kind === 'optional_out_of_range';
+}
+
 /** The planner's answer for one row, keyed by `violationKey` (the Installed tab's «Fix…»). */
 export type PlanState =
   | { status: 'loading' }

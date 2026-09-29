@@ -39,10 +39,8 @@
     createPreflight,
     hasBlocking,
     installMissing,
-    overlayConflict,
     planVersionFix,
     remediatePickedVersion,
-    toOverlayKeys,
     violationKey,
   } from '$lib/mods/preflight.svelte';
   import type { PlanSide, PlanState } from '$lib/mods/violation-view';
@@ -57,7 +55,7 @@
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
   import { depNameOf, depProjectOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
-  import type { DepTreeCtx } from '$lib/mods/dep-node-state';
+  import { type DepTreeCtx, edgeConflict } from '$lib/mods/dep-node-state';
   import { countFixed, fixAll } from '$lib/mods/fix-all';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
@@ -125,7 +123,6 @@
   // platform was told; only the pre-flight reads the descriptor the loader
   // enforces. A mod is blocking iff it is the dependent in a violation.
   const preflight = createPreflight(() => instanceId);
-  const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
   // Blocking = the gate's predicate (`hasBlocking`), one predicate for the
   // issues chip, the row line and the «What stops the game» panel (plan A17):
   // while a self-completing pack still has files to download, its violations
@@ -323,8 +320,9 @@
   // the blocking subset: "without it the game won't start" stays true while a pack is still
   // completing itself. A tree knows a dependency by its project only, so its «Enable» looks the
   // disabled jar up by (source, project id) and takes the row's own guarded path. A version
-  // mismatch's «Fix…» asks about the conflict behind it — only a BLOCKING one: the planner's
-  // offers show in the «What stops the game» row, which lists nothing else.
+  // mismatch belongs to the node's own dependent (`edgeConflict`, per edge — never another mod's
+  // range on the same project), and its «Fix…» asks about that conflict — only a BLOCKING one:
+  // the planner's offers show in the «What stops the game» row, which lists nothing else.
   const shaByKey = (enabled: boolean) =>
     new Map<string, string>(
       data.rows
@@ -349,7 +347,7 @@
       if (!sha1) return;
       void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
     },
-    conflictOf: (node, dependentSha1) => overlayConflict(blockingViolations, node, dependentSha1),
+    conflictOf: (node, dependentSha1) => edgeConflict(blockingViolations, node, dependentSha1),
     onPlan: (v) => fixVersion(v),
   };
 
@@ -1127,7 +1125,6 @@
             ? data.packSummary.project_name
             : null}
           selected={selection.selected.has(row.installed.sha1)}
-          {outOfRangeKeys}
           {treeCtx}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
           onHover={(k) => (deps.hoveredKey = k)}
