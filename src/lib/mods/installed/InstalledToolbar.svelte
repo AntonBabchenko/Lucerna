@@ -262,11 +262,11 @@
   </div>
   {#if counts.total > 0}
     <!-- One line that scrolls sideways (`scrollRow`, DESIGN.md §6): a fade on the side that has
-         more, a focused chip scrolled clear of it, the chosen one kept in view. `py-1 px-1` is
-         room for the focus ring, which the scrolling box would clip; the negative margins give
-         that room back, so the line sits where the chips did. -->
+         more, a focused chip scrolled clear of it, the chosen one kept in view. The line keeps
+         room for a focus ring, which the scrolling box would clip, and gives it back with negative
+         margins, so it sits where the chips did (`.scroll-row`, app.css). -->
     <div
-      class="scroll-row -mx-1 -my-1 px-1 py-1"
+      class="scroll-row"
       data-testid="installed-filter-row"
       use:scrollRow={{ keepInView: '[aria-checked="true"]' }}
     >

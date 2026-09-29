@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { revealScrollLeft, SCROLL_ROW_FADE_PX, scrollRow } from '$lib/ui/scroll-row';
 
@@ -5,6 +7,32 @@ import { revealScrollLeft, SCROLL_ROW_FADE_PX, scrollRow } from '$lib/ui/scroll-
 // filter chips wrapped to two lines under a sticky toolbar that already took four, and left the
 // rows ~170 px. The chips keep to one line that scrolls sideways instead: a fade says which side
 // has more, a focused chip is scrolled clear of the fade, and the chosen one is kept in view.
+
+// Plan §5d L1: the fades stopped 4 px short of the line's edges. They are sticky inside the line,
+// and a sticky box keeps to its scroll container's padding — the 4 px the line pads itself by for
+// a focused chip's ring. So the box owns that padding, and each fade is inset by minus it. happy-dom
+// computes no layout, so the rule is read from app.css (as tests/intent/browser-feel.test.ts does).
+describe('.scroll-row fades', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  );
+  // The body of the rule whose whole selector is `selector` — not a group that lists it.
+  const block = (selector: string) =>
+    [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1]?.trim() === selector)?.[2] ?? '';
+  const prop = (body: string, name: string) =>
+    body.match(new RegExp(`(?:^|[;\\s])${name}\\s*:\\s*([^;]+);`))?.[1]?.trim() ?? null;
+
+  it('reach the visible edges of the line, past the room it keeps for a focus ring', () => {
+    const line = block('.scroll-row');
+    const pad = prop(line, 'padding');
+    expect(pad).toMatch(/^\d*\.?\d+(rem|px)$/);
+    // The room is given back, so the line sits where its chips would.
+    expect(prop(line, 'margin')).toBe(`-${pad}`);
+    expect(prop(block('.scroll-row::before'), 'left')).toBe(`-${pad}`);
+    expect(prop(block('.scroll-row::after'), 'right')).toBe(`-${pad}`);
+  });
+});
 
 describe('revealScrollLeft', () => {
   const view = { scrollLeft: 100, clientWidth: 300 };

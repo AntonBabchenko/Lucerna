@@ -578,12 +578,18 @@ body[data-tour-active] .tour-overlay {
    set by the action) — the affordance where the scrollbar hides at rest (macOS, GTK overlay
    scrollbars). The fades are sticky overlays inside the line, in the page colour the toolbar sits
    on, so they never cover the scrollbar; they take no pointer, so a click lands on the chip under
-   them. Opacity only (§12). */
+   them. Opacity only (§12).
+   The line pads itself by a focus ring's 4 px — a scrolling box clips what spills out of it — and
+   gives the room back with negative margins, so it sits where its chips would. A sticky box keeps
+   to its scroll container's padding, so each fade is inset by minus that padding: at 0 it stopped
+   4 px short of the edge, and the chip under those 4 px showed unfaded (plan §5d L1). */
 .scroll-row {
   display: flex;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
+  padding: 0.25rem;
+  margin: -0.25rem;
 }
 .scroll-row::before,
 .scroll-row::after {
@@ -597,12 +603,12 @@ body[data-tour-active] .tour-overlay {
   transition: opacity var(--duration-fast) var(--ease-standard);
 }
 .scroll-row::before {
-  left: 0;
+  left: -0.25rem;
   margin-right: -2rem;
   background: linear-gradient(to right, rgb(var(--bg-base)), transparent);
 }
 .scroll-row::after {
-  right: 0;
+  right: -0.25rem;
   margin-left: -2rem;
   background: linear-gradient(to left, rgb(var(--bg-base)), transparent);
 }
