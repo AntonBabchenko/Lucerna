@@ -4,7 +4,11 @@
   // to ToggleChip via the shared toggleChipClass() helper. For multi-select use
   // bare ToggleChip[] instead.
   import { Icon, type IconName } from '$lib/ui/icons';
-  import { toggleChipClass, type ToggleChipTone } from '$lib/ui/ToggleChip.svelte';
+  import {
+    chipAttentionClass,
+    toggleChipClass,
+    type ToggleChipTone,
+  } from '$lib/ui/ToggleChip.svelte';
   import { nextRovingIndex } from '$lib/ui/roving';
 
   type Option = {
@@ -14,6 +18,8 @@
     icon?: IconName;
     count?: number;
     testId?: string;
+    /** Not chosen, it keeps its tone on its icon and count (a problem that exists right now). */
+    attention?: boolean;
   };
   let {
     options,
@@ -52,6 +58,7 @@
 >
   {#each options as option, i (option.value)}
     {@const active = value === option.value}
+    {@const tint = !active && option.attention ? chipAttentionClass(option.tone) : ''}
     <button
       bind:this={btnEls[i]}
       type="button"
@@ -62,9 +69,9 @@
       class={toggleChipClass(active, option.tone)}
       onclick={() => onChange(option.value)}
     >
-      {#if option.icon}<Icon name={option.icon} size={14} />{/if}
+      {#if option.icon}<Icon name={option.icon} size={14} class={tint} />{/if}
       <span>{option.label}</span>
-      {#if option.count !== undefined}<span class="opacity-70">{option.count}</span>{/if}
+      {#if option.count !== undefined}<span class={tint || 'opacity-70'}>{option.count}</span>{/if}
     </button>
   {/each}
 </div>

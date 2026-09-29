@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import InstalledToolbar from '$lib/mods/installed/InstalledToolbar.svelte';
 
@@ -130,5 +130,29 @@ describe('InstalledToolbar issues tone', () => {
     const chip = screen.getByTestId('installed-filter-issues');
     expect(chip.className).toContain('text-warning-text');
     expect(chip.className).not.toContain('text-danger');
+  });
+
+  // Plan §5b V2: at rest the chip was plain grey, with the amber triangle, while mods stopped the
+  // game. Now it keeps red on its icon and count while anything blocks — attention, not selection:
+  // no fill, no border, so it never looks chosen — and red takes the ✕; the triangle is amber's.
+  it('at rest it stays red on its ✕ and its count while something blocks', () => {
+    render(InstalledToolbar, { props: base() });
+    const chip = screen.getByTestId('installed-filter-issues');
+    expect(chip.getAttribute('aria-checked')).toBe('false');
+    expect(chip.className).not.toContain('bg-danger');
+    expect(chip.className).not.toContain('border-danger');
+    const icon = chip.querySelector('svg');
+    expect(icon?.classList).toContain('lucide-circle-x');
+    expect(icon?.classList).toContain('text-danger');
+    expect(within(chip).getByText('2').className).toContain('text-danger');
+  });
+
+  it('with only warnings left it rests neutral, with the amber triangle', () => {
+    render(InstalledToolbar, { props: { ...base(), issuesTone: 'warning' as const } });
+    const chip = screen.getByTestId('installed-filter-issues');
+    const icon = chip.querySelector('svg');
+    expect(icon?.classList).toContain('lucide-triangle-alert');
+    expect(chip.innerHTML).not.toContain('text-warning-text');
+    expect(chip.innerHTML).not.toContain('text-danger');
   });
 });

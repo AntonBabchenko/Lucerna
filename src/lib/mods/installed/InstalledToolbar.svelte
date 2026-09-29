@@ -144,15 +144,18 @@
           },
         ]
       : []),
+    // Red while a mod stops the game — on its icon and count even when not chosen (attention, not
+    // selection: DESIGN.md §6) — with the ✕ every blocking reason carries; the triangle is amber's.
     ...(counts.issues > 0
       ? [
           {
             value: 'issues',
             label: $t('mods.installed.filterIssuesLabel'),
             tone: issuesTone,
-            icon: 'warning' as const,
+            icon: issuesTone === 'danger' ? ('circleX' as const) : ('warning' as const),
             count: counts.issues,
             testId: 'installed-filter-issues',
+            attention: issuesTone === 'danger',
           },
         ]
       : []),

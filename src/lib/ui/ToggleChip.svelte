@@ -22,6 +22,22 @@
   export function toggleChipClass(active: boolean, tone: ToggleChipTone): string {
     return `${CHIP_BASE} ${active ? ACTIVE_TONE[tone] : INACTIVE}`;
   }
+
+  // A chip that stands for a problem may keep its tone while it is NOT the chosen one: on its icon
+  // and its count only — attention, not selection. No fill and no border, so it never competes
+  // with the chosen chip (DESIGN.md §6). The count drops its usual `opacity-70`: the tone must
+  // keep its full contrast on the page.
+  const ATTENTION_TEXT: Record<ToggleChipTone, string> = {
+    neutral: 'text-primary',
+    accent: 'text-accent',
+    success: 'text-success',
+    warning: 'text-warning-text',
+    danger: 'text-danger',
+    muted: 'text-muted',
+  };
+  export function chipAttentionClass(tone: ToggleChipTone): string {
+    return ATTENTION_TEXT[tone];
+  }
 </script>
 
 <script lang="ts">
