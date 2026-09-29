@@ -33,6 +33,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **NeoForge is offered for Minecraft 1.21 and every 26.x release.** Lucerna
+  read NeoForge's version numbers the wrong way: `21.0.167` as a build for
+  Minecraft 1.21.0 instead of 1.21, and the year-based numbers such as
+  `26.2.0.59` as builds for 1.26.2 instead of 26.2. So the mod loader picker
+  said NeoForge did not support these versions, switching a NeoForge profile to
+  one of them reset it to Vanilla, and importing a NeoForge server for 26.x
+  filled in the wrong Minecraft version. If NeoForge changes its numbering
+  again, Lucerna says it could not read the version list and refuses the
+  Minecraft change instead of resetting the profile to Vanilla.
+
 - **Updating a mod no longer installs a second copy of a library you already
   have.** An update used to install every library the new version needs, even
   one already there: a different version landed next to yours and the game
