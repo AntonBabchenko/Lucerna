@@ -214,10 +214,12 @@
       }}
       onfocusout={() => onHover(null)}
     >
+      <!-- Every row is one height — the chevron's and a button's (`min-h-7`) — so a row with an
+           action sits in the same rhythm as one without (plan §5b V2). -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         data-mod-key={k}
-        class="tree-row relative flex items-center gap-2 py-0.5 px-1 rounded"
+        class="tree-row relative flex min-h-7 items-center gap-2 px-1 rounded"
         class:dep-highlight={hoveredKey === k}
         onmouseenter={() => onHover(k)}
         onmouseleave={() => onHover(null)}
@@ -238,8 +240,8 @@
         {:else}
           <span class="inline-block w-7 shrink-0" aria-hidden="true"></span>
         {/if}
-        <!-- The name always opens the mod's info modal. For installed deps a separate ↗ button
-             jumps to the mod's own row in the list. -->
+        <!-- The name always opens the mod's info modal. A dependency with a row in the list —
+             installed, or there but switched off — has a separate ↗ that jumps to that row. -->
         <button
           type="button"
           id="{id}-name"
@@ -248,7 +250,7 @@
           tabindex={tab}
           onclick={() => onOpenDetail(n.source, n.project_id)}>{n.name}</button
         >
-        {#if n.installed}
+        {#if n.installed || n.disabled}
           <button
             type="button"
             class="text-accent inline-flex items-center justify-center"
@@ -307,20 +309,21 @@
           {:else}
             <span id="{id}-state" class="text-secondary">{$t('mods.deps.notInstalledStatus')}</span>
           {/if}
-          <span class="inline-flex" use:tooltip={label}>
-            <BusyButton
-              busy={installingKeys.has(k)}
-              class="btn-icon btn-icon-sm"
-              aria-label={label}
-              tabindex={tab}
-              onclick={() =>
-                n.declared === 'required' ? onInstall(n, dependentSha1) : onAdd(n, dependentSha1)}
-            >
-              <Icon name="download" size={12} />
-            </BusyButton>
-          </span>
+          <!-- Labelled, like «Enable» beside it (spec §6.3); the name says which mod. -->
+          <BusyButton
+            busy={installingKeys.has(k)}
+            class="btn-secondary btn-xs"
+            aria-label={label}
+            tabindex={tab}
+            onclick={() =>
+              n.declared === 'required' ? onInstall(n, dependentSha1) : onAdd(n, dependentSha1)}
+          >
+            {n.declared === 'required' ? $t('mods.deps.installBtn') : $t('mods.deps.addBtn')}
+          </BusyButton>
         {/if}
         {#if unknownWhy}
+          <!-- Set apart from the state before it: «installed · dependencies unknown». -->
+          <span class="text-placeholder" aria-hidden="true">·</span>
           <span
             id="{id}-unknown"
             class="text-secondary"

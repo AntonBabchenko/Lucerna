@@ -1387,6 +1387,7 @@ export type TranslationKey =
   | 'mods.deps.enableBtn'
   | 'mods.deps.fixConflictAriaLabel'
   | 'mods.deps.installAriaLabel'
+  | 'mods.deps.installBtn'
   | 'mods.deps.installedStatus'
   | 'mods.deps.jumpToTitle'
   | 'mods.deps.notInstalledStatus'

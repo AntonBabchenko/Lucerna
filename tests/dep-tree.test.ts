@@ -483,3 +483,64 @@ describe('DepTree — a WAI-ARIA tree', () => {
     expect(item('D').querySelector('.tree-row')?.classList.contains('dep-highlight')).toBe(true);
   });
 });
+
+// Plan §5b V2 (screenshots 06b–06d), spec §6.3: a node's action is a labelled button like
+// «Включить» — the download glyph alone read as nothing next to it; a mark after the state is set
+// apart («установлен · зависимости неизвестны», not run together); a disabled node jumps to its
+// row like an installed one; and every row is one height, a row with a button or a chevron in
+// the same rhythm as one without.
+describe('DepTree — node actions and rhythm', () => {
+  it('an absent dependency’s Install and Add are labelled buttons', async () => {
+    const onInstall = vi.fn();
+    const onAdd = vi.fn();
+    const nodes = [
+      leaf('arch', { name: 'Arch', installed: false }),
+      leaf('extra', { name: 'Extra', installed: false, declared: 'optional' }),
+    ];
+    render(DepTree, { props: treeProps({ nodes, onInstall, onAdd }) });
+    const install = screen.getByRole('button', { name: 'Install Arch' });
+    expect(install.textContent?.trim()).toBe('Install');
+    expect(install).toHaveBtnVariant('secondary');
+    expect(install).toHaveBtnSize('xs');
+    const add = screen.getByRole('button', { name: 'Add Extra' });
+    expect(add.textContent?.trim()).toBe('Add');
+    await fireEvent.click(add);
+    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'extra' }), null);
+  });
+
+  it('sets «dependencies unknown» apart from the state before it', () => {
+    render(DepTree, {
+      props: treeProps({ nodes: [leaf('x', { name: 'Xaero', deps_unknown: 'unreachable' })] }),
+    });
+    const mark = screen.getByText('dependencies unknown');
+    const sep = mark.previousElementSibling;
+    expect(sep?.textContent?.trim()).toBe('·');
+    expect(sep?.getAttribute('aria-hidden')).toBe('true');
+    // The description still reads the state and the mark, not the separator.
+    expect(describedText(item('Xaero'))).toBe('installed dependencies unknown');
+  });
+
+  it('a disabled dependency jumps to its row too', async () => {
+    const onJump = vi.fn();
+    const x = leaf('px', { name: 'Xaero', installed: false, disabled: true });
+    render(DepTree, { props: treeProps({ nodes: [x], onJump }) });
+    await fireEvent.click(screen.getByRole('button', { name: 'Show Xaero in the list' }));
+    expect(onJump).toHaveBeenCalledWith(x);
+  });
+
+  it('every row is one height, the height of its tallest control', () => {
+    const nodes = [
+      leaf('a', { children: [leaf('b')] }),
+      leaf('arch', { name: 'Arch', installed: false }),
+      leaf('d'),
+    ];
+    const { container } = render(DepTree, { props: treeProps({ nodes }) });
+    // A (a chevron), its open child B (a ↗), Arch (a button), D (a ↗).
+    const rows = [...container.querySelectorAll('.tree-row')];
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(row.classList).toContain('min-h-7');
+      expect(row.className).not.toMatch(/\bpy-/);
+    }
+  });
+});

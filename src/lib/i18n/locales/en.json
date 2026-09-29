@@ -924,7 +924,8 @@
       "jumpToTitle": "Show {name} in the list",
       "installAriaLabel": "Install {name}",
       "addAriaLabel": "Add {name}",
-      "addBtn": "+ Add"
+      "installBtn": "Install",
+      "addBtn": "Add"
     },
     "orphan": {
       "confirmUninstallAriaLabel": "Confirm uninstall",
