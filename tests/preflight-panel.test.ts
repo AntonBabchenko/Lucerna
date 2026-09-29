@@ -13,8 +13,9 @@ import type { PlanState } from '$lib/mods/violation-view';
 import { describedText } from './test-utils/aria';
 import { rangeDesc, rawRangeDesc } from './test-utils/range-desc';
 
-// With no `depName` from its host the panel reads the app-wide name store, keyed by instance +
-// (dependent, dep id) — the Play gate's case. Keyed here by `dependent:dep` alone.
+// The panel names a dependency by one rule (`depDisplayName`): the provider's name from the
+// report, else the app-wide name store — keyed by instance + (dependent, dep id); here by
+// `dependent:dep` alone — else the raw id. The same on the Installed tab and at the Play gate.
 const storeNames = vi.hoisted(() => new Map<string, string>());
 vi.mock('$lib/mods/dep-names.svelte', () => ({
   depNameOf: (_instance: string, dependentSha1: string, depId: string) =>
@@ -307,33 +308,58 @@ describe('PreflightPanel bulk migrate entry', () => {
     expect(queryByTestId('preflight-migrate-btn')).toBeNull();
   });
 
-  // A player cannot act on `forgeconfigapiport`. The Installed tab resolves the
-  // project name per (dependent, dep id) and hands down a lookup.
-  it('renders the resolved dependency name when the overlay supplies one', () => {
-    const { getByTestId } = render(PreflightPanel, {
-      props: {
-        report: reportWith(1),
-        depName: (v: { dep_id: string }) => (v.dep_id === 'dep-0' ? 'Forge Config API Port' : null),
-      },
-    });
-    const row = getByTestId('preflight-row');
-    expect(row.textContent).toContain('Forge Config API Port');
-    expect(row.textContent).not.toContain('dep-0');
+  // A player cannot act on `forgeconfigapiport`. The project name resolved per (dependent,
+  // dep id) — by the Installed tab, or the gate as it opens — lives in the name store.
+  it('renders the resolved dependency name from the name store', () => {
+    storeNames.set('sha0:dep-0', 'Forge Config API Port');
+    try {
+      const { getByTestId } = render(PreflightPanel, {
+        props: { report: reportWith(1), instanceId: 'i' },
+      });
+      const row = getByTestId('preflight-row');
+      expect(row.textContent).toContain('Forge Config API Port');
+      expect(row.textContent).not.toContain('dep-0');
+    } finally {
+      storeNames.clear();
+    }
   });
 
   it('names the dependency in the install button too, not just the sentence', () => {
-    const { getByRole } = render(PreflightPanel, {
-      props: {
-        report: reportWith(1),
-        depName: (v: { dep_id: string }) => (v.dep_id === 'dep-0' ? 'Forge Config API Port' : null),
-      },
-    });
-    expect(getByRole('button', { name: /Forge Config API Port/ })).toBeTruthy();
+    storeNames.set('sha0:dep-0', 'Forge Config API Port');
+    try {
+      const { getByRole } = render(PreflightPanel, {
+        props: { report: reportWith(1), instanceId: 'i' },
+      });
+      expect(getByRole('button', { name: /Forge Config API Port/ })).toBeTruthy();
+    } finally {
+      storeNames.clear();
+    }
   });
 
-  // The launch gate passes no overlay on purpose: resolving a name costs a
-  // network round, and nothing may sit between the user and Play.
-  it('falls back to the raw dep id with no overlay — the launch-gate case', () => {
+  // 07c: on a cold start nothing has been resolved yet, and the report names the provider's own
+  // row (`provider_name`) — a disabled jar or a range's provider never shows as its loader id.
+  it('names a provider by the name the report gives its row, never by its loader id', () => {
+    const disabled: DepViolation = {
+      ...missing(0),
+      kind: 'required_disabled',
+      dependent_name: 'Zoomify',
+      dep_id: 'yet_another_config_lib_v3',
+      provider_sha1: 'yacl-sha',
+      provider_name: 'YetAnotherConfigLib',
+    };
+    const range: DepViolation = { ...outOfRange(), provider_name: 'Sodium' };
+    render(PreflightPanel, {
+      props: { report: { violations: [disabled, range] }, instanceId: 'i', showRowActions: false },
+    });
+    const [first, second] = screen.getAllByTestId('preflight-row').map((r) => r.textContent ?? '');
+    expect(first).toContain('YetAnotherConfigLib');
+    expect(first).not.toContain('yet_another_config_lib_v3');
+    expect(second).toContain('Sodium');
+    expect(second).not.toMatch(/\bsodium\b/);
+  });
+
+  // Nothing resolved yet — a cold start: the id until a name arrives.
+  it('falls back to the raw dep id while no name is known — the cold-start case', () => {
     const { getByTestId } = render(PreflightPanel, {
       props: { report: reportWith(1), showRowActions: false },
     });
@@ -341,15 +367,17 @@ describe('PreflightPanel bulk migrate entry', () => {
   });
 
   it('falls back per row, so one unresolved id does not hide the others', () => {
-    const { getAllByTestId } = render(PreflightPanel, {
-      props: {
-        report: reportWith(2),
-        depName: (v: { dep_id: string }) => (v.dep_id === 'dep-0' ? 'Forge Config API Port' : null),
-      },
-    });
-    const rows = getAllByTestId('preflight-row');
-    expect(rows[0]!.textContent).toContain('Forge Config API Port');
-    expect(rows[1]!.textContent).toContain('dep-1');
+    storeNames.set('sha0:dep-0', 'Forge Config API Port');
+    try {
+      const { getAllByTestId } = render(PreflightPanel, {
+        props: { report: reportWith(2), instanceId: 'i' },
+      });
+      const rows = getAllByTestId('preflight-row');
+      expect(rows[0]!.textContent).toContain('Forge Config API Port');
+      expect(rows[1]!.textContent).toContain('dep-1');
+    } finally {
+      storeNames.clear();
+    }
   });
 });
 
@@ -361,6 +389,7 @@ describe('PreflightPanel — what stops the game', () => {
     dependent_sha1: 'w',
     dep_id: 'balm',
     provider_sha1: 'balm-sha',
+    provider_name: 'Balm',
   });
 
   it('titles the panel with what it lists, danger border on the surface — no danger box', () => {
@@ -377,7 +406,7 @@ describe('PreflightPanel — what stops the game', () => {
     const onEnableProvider = vi.fn();
     const v = disabledDep();
     render(PreflightPanel, {
-      props: { report: { violations: [v] }, onEnableProvider, depName: () => 'Balm' },
+      props: { report: { violations: [v] }, onEnableProvider },
     });
     expect(screen.getByTestId('preflight-row').textContent).toContain(
       'Waystones: Balm is disabled',
@@ -480,7 +509,7 @@ describe('PreflightPanel — the planner', () => {
 
   it('offers both sides once ready — the dependent first — and applies the one clicked', async () => {
     const onApplyPlan = vi.fn();
-    const v = outOfRange();
+    const v: DepViolation = { ...outOfRange(), provider_name: 'Sodium' };
     const plan = {
       update_dependent: { version: ver('3.1'), breaks: [] },
       change_provider: { version: ver('0.5.11'), direction: 'downgrade' as const, breaks: [] },
@@ -488,7 +517,6 @@ describe('PreflightPanel — the planner', () => {
     render(PreflightPanel, {
       props: {
         report: { violations: [v] },
-        depName: () => 'Sodium',
         plans: plansOf(v, { status: 'ready', plan }),
         onApplyPlan,
       },

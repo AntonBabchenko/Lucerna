@@ -5,13 +5,13 @@
  * i18n resolves to real EN strings in the test environment — use actual text
  * values from en.json rather than key paths.
  */
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 
 const h = vi.hoisted(() => ({ modsResolveDepNames: vi.fn() }));
-// The gate names dependencies from the module name store (dep-names.svelte.ts); only the
-// Installed tab fills it, through this command — the gate itself never calls it.
+// The gate names dependencies from the module name store (dep-names.svelte.ts), which this command
+// fills — for the Installed tab, and for the gate itself as it opens (never waited on).
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modsResolveDepNames: h.modsResolveDepNames } }));
 
 import { __resetDepNamesForTests, resolveDepNames } from '$lib/mods/dep-names.svelte';
@@ -31,6 +31,21 @@ const outOfRange: DepViolation = {
   family: 'maven',
 };
 const report: PreflightReport = { violations: [outOfRange] };
+// Sophisticated Backpacks needs `balm`, which nothing provides.
+const missingBalm: PreflightReport = {
+  violations: [
+    {
+      ...outOfRange,
+      kind: 'missing_required',
+      dep_id: 'balm',
+      needed: '',
+      needed_desc: rawRangeDesc(''),
+      installed_version: null,
+      provider_project: null,
+      family: null,
+    },
+  ],
+};
 
 const defaultProps = {
   report,
@@ -162,33 +177,52 @@ describe('PreflightGateDialog', () => {
     expect(document.activeElement).toBe(screen.getByTestId('preflight-gate-body'));
   });
 
-  it('names a dependency from the name store — resolved earlier, never asked for here', async () => {
-    const missing: PreflightReport = {
-      violations: [
-        {
-          ...outOfRange,
-          kind: 'missing_required',
-          dep_id: 'balm',
-          needed: '',
-          needed_desc: rawRangeDesc(''),
-          installed_version: null,
-          provider_project: null,
-          family: null,
-        },
-      ],
-    };
+  it('names a dependency resolved earlier at once, and asks nothing it already knows', async () => {
     h.modsResolveDepNames.mockResolvedValue({
       status: 'ok',
       data: [{ dependent_sha1: 'aa', dep_id: 'balm', name: 'Balm', project: null }],
     });
-    await resolveDepNames('inst', missing);
+    await resolveDepNames('inst', missingBalm);
     h.modsResolveDepNames.mockClear();
     render(PreflightGateDialog, {
-      props: { ...defaultProps, report: missing, instanceId: 'inst' },
+      props: { ...defaultProps, report: missingBalm, instanceId: 'inst' },
     });
     expect(screen.getByTestId('preflight-row').textContent).toContain(
       'Sophisticated Backpacks needs Balm, which is not installed',
     );
     expect(h.modsResolveDepNames).not.toHaveBeenCalled();
+  });
+
+  // 07c: a gate opened on a cold start knows no names. It asks as it opens — the same cache-first
+  // resolver the Installed tab uses — and never waits: the dialog and its buttons are there at once,
+  // and the row shows the loader id only until the name arrives.
+  it('asks for a missing dependency’s name as it opens, showing the id until it arrives', async () => {
+    let answer: (r: unknown) => void = () => {};
+    h.modsResolveDepNames.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    render(PreflightGateDialog, {
+      props: { ...defaultProps, report: missingBalm, instanceId: 'cold' },
+    });
+    const row = screen.getByTestId('preflight-row');
+    expect(row.textContent).toContain('Sophisticated Backpacks needs balm, which is not installed');
+    const anyway = screen.getByRole('button', { name: /launch anyway/i }) as HTMLButtonElement;
+    expect(anyway.disabled).toBe(false);
+    await waitFor(() =>
+      expect(h.modsResolveDepNames).toHaveBeenCalledWith('cold', [
+        { dependent_sha1: 'aa', dep_id: 'balm' },
+      ]),
+    );
+    answer({
+      status: 'ok',
+      data: [{ dependent_sha1: 'aa', dep_id: 'balm', name: 'Balm', project: null }],
+    });
+    await waitFor(() =>
+      expect(row.textContent).toContain(
+        'Sophisticated Backpacks needs Balm, which is not installed',
+      ),
+    );
   });
 });

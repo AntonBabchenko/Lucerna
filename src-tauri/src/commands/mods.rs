@@ -3596,9 +3596,11 @@ where
 /// Best-effort per pair — anything unresolved is simply absent from the result
 /// and the UI falls back to the id. Never invents a name: resolution goes
 /// through the strict matcher, because unlike the install path there is no
-/// downloaded jar here to check a guess against. The launch gate does not call
-/// it — nothing may sit between the user and Play — so any name the gate shows
-/// was resolved earlier.
+/// downloaded jar here to check a guess against. Cache-first: the version
+/// listings and project summaries it reads are cached, so the network is asked
+/// only on a miss. The launch gate asks too, as it opens, and never waits for
+/// the answer — nothing may sit between the user and Play: its rows show the id
+/// until a name arrives.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_resolve_dep_names(

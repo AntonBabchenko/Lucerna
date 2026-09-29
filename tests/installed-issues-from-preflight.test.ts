@@ -247,8 +247,8 @@ describe('the issue count comes from the pre-flight', () => {
     expect(line.textContent).toContain('Install stylisheffects');
   });
 
-  // The disabled provider IS a row: it is named as that row, and «Enable» switches that jar on
-  // through the guarded path — never an install of a second copy.
+  // The disabled provider IS a row: it is named as the report names that row (`provider_name`),
+  // and «Enable» switches that jar on through the guarded path — never an install of a second copy.
   it('a disabled dependency is named by its own row and switched on through mod-ops', async () => {
     const balm = { ...mod, filename: 'balm.jar', sha1: 'balm-sha', project_id: 'PBALM' };
     vi.mocked(commands.modsListInstalled).mockResolvedValue({
@@ -275,6 +275,7 @@ describe('the issue count comes from the pre-flight', () => {
             },
             provider_project: null,
             provider_sha1: 'balm-sha',
+            provider_name: 'Balm',
             family: null,
           },
         ],
@@ -299,5 +300,45 @@ describe('the issue count comes from the pre-flight', () => {
         data: [mod],
       } as never);
     }
+  });
+
+  // Plan §5b V1 (c): the Installed panel names a provider exactly as the Play gate does — by the
+  // name the report gives its row — so the two never disagree, and the panel (which shows while
+  // the list is still loading) never falls back to the loader id for a jar it has not listed yet.
+  it('names a provider as the gate does, by the report, before its row is listed', async () => {
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: {
+        violations: [
+          {
+            dependent_sha1: 'a',
+            dependent_name: 'Alpha',
+            dep_id: 'yet_another_config_lib_v3',
+            kind: 'required_disabled',
+            installed_version: null,
+            needed: '',
+            needed_desc: {
+              raw: '',
+              family: 'maven',
+              alternatives: [],
+              unparseable: false,
+              soft: false,
+            },
+            provider_project: null,
+            provider_sha1: 'yacl-sha',
+            provider_name: 'YetAnotherConfigLib',
+            family: null,
+          },
+        ],
+      },
+    });
+    render(InstalledModsView, { props: props('named-by-report') });
+    const row = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="preflight-row"]');
+      if (!el) throw new Error('panel row not rendered yet');
+      return el;
+    });
+    expect(row.textContent).toContain('YetAnotherConfigLib');
+    expect(row.textContent).not.toContain('yet_another_config_lib_v3');
   });
 });

@@ -553,6 +553,14 @@ pub struct DepViolation {
     /// that would leave duplicate jars. For `RequiredDisabled`: the DISABLED jar
     /// to switch back on. `None` otherwise.
     pub provider_sha1: Option<String>,
+    /// The registry name of the row `provider_sha1` names — what the registry
+    /// calls that mod, as `dependent_name` is what it calls the dependent — so
+    /// a surface with no installed list of its own (the Play gate on a cold
+    /// start) names the provider as a mod, never by its loader id. `None`
+    /// exactly when `provider_sha1` is. `#[serde(default)]` so specta emits it
+    /// optional.
+    #[serde(default)]
+    pub provider_name: Option<String>,
     /// Range grammar for `needed` (Maven / Fabric / Quilt). `None` for
     /// `MissingRequired` and `RequiredDisabled` (no range to interpret). Lets
     /// the UI pick a version that actually satisfies `needed` via
@@ -710,6 +718,7 @@ fn enrich(
             ),
             provider_project: None,
             provider_sha1: None,
+            provider_name: None,
             family: None,
         },
         Violation::VersionOutOfRange {
@@ -787,6 +796,7 @@ fn enrich(
             // No platform link: the fix is switching this jar back on, by digest.
             provider_project: None,
             provider_sha1: Some(provider_sha1),
+            provider_name: None,
             family: None,
         },
         Violation::PlatformMismatch {
@@ -808,6 +818,7 @@ fn enrich(
             // "provider" to update, the instance itself is the wrong platform.
             provider_project: None,
             provider_sha1: None,
+            provider_name: None,
             family: Some(family),
         },
     }
@@ -840,6 +851,7 @@ fn ranged(
         needed,
         provider_project: provider_owner.get(&key).cloned(),
         provider_sha1: provider_sha1_map.get(&key).cloned(),
+        provider_name: None,
         family: Some(family),
         dep_id,
     }
@@ -1444,13 +1456,29 @@ impl ParsedInstance {
 
     /// [`Self::resolve`], enriched for the UI. The provider maps come from the
     /// same `enabled` set, so a jar outside it can never be where «Обновить»
-    /// (`ranged()`) is routed.
+    /// (`ranged()`) is routed. Each violation names its provider's row
+    /// ([`Self::with_provider_name`]).
     pub fn report(&self, enabled: &HashSet<String>) -> Vec<DepViolation> {
         let (owner, by_id) = self.provider_maps(enabled);
         self.resolve(enabled)
             .into_iter()
-            .map(|v| enrich(v, &owner, &by_id))
+            .map(|v| self.with_provider_name(enrich(v, &owner, &by_id)))
             .collect()
+    }
+
+    /// `v` with `provider_name`: the registry name of the row `provider_sha1`
+    /// names — a range's enabled provider, or the disabled jar of a
+    /// `RequiredDisabled` — the same source `dependent_name` is read from, so a
+    /// surface with no installed list of its own names both mods alike. Every
+    /// digest `provider_sha1` can hold is a parsed row's (the provider maps and
+    /// `explain_absence` read nothing else), so `None` here means no provider.
+    fn with_provider_name(&self, v: DepViolation) -> DepViolation {
+        let provider_name = v
+            .provider_sha1
+            .as_deref()
+            .and_then(|sha1| self.row(sha1))
+            .map(|r| r.parsed.name.clone());
+        DepViolation { provider_name, ..v }
     }
 
     /// Canon provided id → platform ref / registry digest of the first row in
@@ -2444,6 +2472,7 @@ mod tests {
                     version_id: None,
                 }),
                 provider_sha1: Some("abc123".into()),
+                provider_name: Some("Sophisticated Core".into()),
                 family: Some(crate::mods::version_range::RangeFamily::Maven),
             }],
             pack_completion: None,
@@ -2453,6 +2482,10 @@ mod tests {
         let back: PreflightReport = serde_json::from_str(&json).unwrap();
         assert_eq!(back.violations.len(), 1);
         assert_eq!(back.violations[0].dep_id, "sophisticatedcore");
+        assert_eq!(
+            back.violations[0].provider_name.as_deref(),
+            Some("Sophisticated Core")
+        );
         assert!(matches!(
             back.violations[0].kind,
             ViolationKind::VersionOutOfRange
@@ -2851,7 +2884,9 @@ mod tests {
     /// flattened into one ownerless list, first-in-registry-order provider maps —
     /// the post-parse half of `dependency_preflight_for_root` as it stood before
     /// the split, over the SAME free `resolve`, `ProviderIndex::build` and
-    /// `enrich` it called.
+    /// `enrich` it called — plus `provider_name`, added since: the name of the
+    /// row `provider_sha1` names, an enabled one, the only kind of provider
+    /// there was then.
     fn pre_split_report(inst: &ParsedInstance) -> Vec<DepViolation> {
         let on: Vec<&ParsedRow> = inst.rows.iter().filter(|r| r.enabled).collect();
         let mods: Vec<ParsedMod> = on.iter().map(|r| r.parsed.clone()).collect();
@@ -2880,6 +2915,14 @@ mod tests {
         resolve(&mods, &index, inst.loader, inst.era, &inst.mc, None)
             .into_iter()
             .map(|v| enrich(v, &owner, &sha))
+            .map(|v| {
+                let provider_name = v
+                    .provider_sha1
+                    .as_deref()
+                    .and_then(|s| on.iter().find(|r| r.parsed.sha1 == s))
+                    .map(|r| r.parsed.name.clone());
+                DepViolation { provider_name, ..v }
+            })
             .collect()
     }
 
@@ -3051,6 +3094,45 @@ mod tests {
             fabric.resolve(&fabric.registry_enabled()).as_slice(),
             [Violation::RequiredDisabled { provider_sha1, .. }] if provider_sha1 == "ff"
         ));
+    }
+
+    /// Plan §5b V1 (07c): the Play gate on a cold start has no installed list
+    /// to name a provider from, so the report names it — the registry's name for
+    /// the row `provider_sha1` names, enabled (a range) or disabled (a jar to
+    /// switch on). No provider row, no name: an absent id, or one only an
+    /// embedded library answers.
+    #[test]
+    fn a_violation_names_the_row_its_provider_sha1_names() {
+        let p = row(modz("p", vec![prov("core", "1.0")], vec![]), true);
+        let off = row(modz("off", vec![prov("lib", "1.0")], vec![]), false);
+        let mut host = row(modz("host", vec![prov("host", "1.0")], vec![]), true);
+        host.jij_provided = vec![prov("inner", "1.0")];
+        let d = row(
+            modz(
+                "d",
+                vec![],
+                vec![
+                    dep("core", "[2.0,)", RangeFamily::Maven),
+                    dep("lib", "", RangeFamily::Maven),
+                    dep("inner", "[2.0,)", RangeFamily::Maven),
+                    dep("absent", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let inst = instance(vec![p, off, host, d]);
+        let got = inst.report(&inst.registry_enabled());
+        let named = |id: &str| {
+            let v = got
+                .iter()
+                .find(|v| v.dep_id == id)
+                .unwrap_or_else(|| panic!("no violation for {id}: {got:?}"));
+            (v.provider_sha1.as_deref(), v.provider_name.as_deref())
+        };
+        assert_eq!(named("core"), (Some("p"), Some("P")));
+        assert_eq!(named("lib"), (Some("off"), Some("OFF")));
+        assert_eq!(named("inner"), (None, None));
+        assert_eq!(named("absent"), (None, None));
     }
 
     #[test]

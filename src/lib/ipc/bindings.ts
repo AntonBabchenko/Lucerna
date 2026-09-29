@@ -1096,9 +1096,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Best-effort per pair — anything unresolved is simply absent from the result
 	 *  and the UI falls back to the id. Never invents a name: resolution goes
 	 *  through the strict matcher, because unlike the install path there is no
-	 *  downloaded jar here to check a guess against. The launch gate does not call
-	 *  it — nothing may sit between the user and Play — so any name the gate shows
-	 *  was resolved earlier.
+	 *  downloaded jar here to check a guess against. Cache-first: the version
+	 *  listings and project summaries it reads are cached, so the network is asked
+	 *  only on a miss. The launch gate asks too, as it opens, and never waits for
+	 *  the answer — nothing may sit between the user and Play: its rows show the id
+	 *  until a name arrives.
 	 */
 	modsResolveDepNames: (instanceId: string, queries: DepNameQuery[]) => typedError<DepNameResolved[], Error>(__TAURI_INVOKE("mods_resolve_dep_names", { instanceId, queries })),
 	/**
@@ -3495,6 +3497,15 @@ export type DepViolation = {
 	 *  to switch back on. `None` otherwise.
 	 */
 	provider_sha1: string | null,
+	/**
+	 *  The registry name of the row `provider_sha1` names — what the registry
+	 *  calls that mod, as `dependent_name` is what it calls the dependent — so
+	 *  a surface with no installed list of its own (the Play gate on a cold
+	 *  start) names the provider as a mod, never by its loader id. `None`
+	 *  exactly when `provider_sha1` is. `#[serde(default)]` so specta emits it
+	 *  optional.
+	 */
+	provider_name?: string | null,
 	/**
 	 *  Range grammar for `needed` (Maven / Fabric / Quilt). `None` for
 	 *  `MissingRequired` and `RequiredDisabled` (no range to interpret). Lets

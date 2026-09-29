@@ -27,6 +27,18 @@ export function platformLabel(depId: string): string {
 }
 
 /**
+ * The name a violation's dependency goes by — ONE rule for the Play gate, «What stops the game»
+ * and the row's reason line, so no two surfaces name one mod two ways: the provider's own
+ * registry name when the report names its jar (`provider_name` — a range's enabled provider, a
+ * disabled jar to switch on), else `resolved` (the dependent-scoped name store, spec §5.3), else
+ * the raw loader id. A blank name says less than the id, so it never wins.
+ */
+export function depDisplayName(v: DepViolation, resolved: string | null): string {
+  const own = v.provider_name?.trim() ? v.provider_name : null;
+  return own ?? resolved ?? v.dep_id;
+}
+
+/**
  * One sentence per violation; `dep` is the dependency's display name. The range
  * is rendered in plain language — raw Maven bracket notation (`(,6.0.9]`) is
  * not something a player can read, and for an incompatibility it would read

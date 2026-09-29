@@ -11,7 +11,7 @@ import { updateMod } from '$lib/tasks/adapters/mod-install';
 import { depNameOf, depProjectOf } from './dep-names.svelte';
 import { enableModsUnguarded, modWriteReason } from './mod-ops.svelte';
 import { decideLaunch, hasBlocking, violationKey } from './preflight.svelte';
-import { type ViolationAction, violationAction } from './violation-view';
+import { depDisplayName, type ViolationAction, violationAction } from './violation-view';
 
 // «Fix all» on the «What stops the game» panel and «Fix and launch» at the Play
 // gate (spec D5, §6.4): ONE repair, shared. A new function, not an extension of
@@ -97,9 +97,10 @@ async function installDependency(
   v: DepViolation,
   reasons: string[],
 ): Promise<boolean> {
-  // The project, when the Installed tab resolved this pair's name earlier —
-  // nothing here asks the network before Play. Otherwise the bare mod-id, which
-  // the backend resolves through the dependent's own platform metadata.
+  // The project, when this pair's name was resolved earlier — by the Installed
+  // tab, or by the Play gate as it opened; nothing here waits on the network
+  // before Play. Otherwise the bare mod-id, which the backend resolves through
+  // the dependent's own platform metadata.
   const project = depProjectOf(instanceId, v.dependent_sha1, v.dep_id);
   if (project) {
     const r = await commands.modsInstallDependency(
@@ -115,7 +116,7 @@ async function installDependency(
   if (r.data.kind === 'installed') return true;
   // `open_search`: the backend could not tell which project provides the id, so
   // it installed nothing.
-  const dep = depNameOf(instanceId, v.dependent_sha1, v.dep_id) ?? v.dep_id;
+  const dep = depDisplayName(v, depNameOf(instanceId, v.dependent_sha1, v.dep_id));
   reasons.push(get(t)('mods.preflight.notFound', { dep }));
   return false;
 }

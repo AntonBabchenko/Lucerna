@@ -95,6 +95,7 @@ const conflict = () => ({
   },
   provider_project: { source: 'modrinth', project_id: 'PSOD', version_id: null },
   provider_sha1: 'sod',
+  provider_name: 'Sodium',
   family: 'fabric_predicate',
 });
 const build = (projectId: string, n: string) => ({

@@ -16,10 +16,13 @@ import {
  * Module-level, like compat-scan.svelte.ts, so the answers outlive the Installed tab and any
  * surface can read them without a network round — nothing may sit between the user and Play.
  *
- * Only a caller that may wait (the Installed tab) calls `resolveDepNames`; everyone else reads
- * what is known and falls back to the raw id. An answer is a fact about an exact jar (its sha1),
- * so it is kept for the session: an updated mod is a new sha1 and so a new key. An unresolved
- * pair stays absent — the honest "unknown" — and is asked about again with the next report.
+ * `resolveDepNames` is asked by the Installed tab and by the Play gate as it opens — which never
+ * waits for it: every surface reads what is known and shows the raw id until a name arrives
+ * (plan §5b V1). A provider the report names by its jar needs no asking at all: the report
+ * carries its name (`provider_name`, read by `depDisplayName`). An answer is a fact about an
+ * exact jar (its sha1), so it is kept for the session: an updated mod is a new sha1 and so a new
+ * key. An unresolved pair stays absent — the honest "unknown" — and is asked about again with
+ * the next report.
  */
 export type DepNameEntry = { name: string; project: DepProjectKey | null };
 

@@ -43,7 +43,7 @@
     remediatePickedVersion,
     violationKey,
   } from '$lib/mods/preflight.svelte';
-  import type { PlanSide, PlanState } from '$lib/mods/violation-view';
+  import { depDisplayName, type PlanSide, type PlanState } from '$lib/mods/violation-view';
   import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
   import MigrationPlanDialog from '../MigrationPlanDialog.svelte';
   import { modProjectUrl } from '$lib/mods/project-url';
@@ -307,13 +307,12 @@
     if (!report || !id) return;
     void resolveDepNames(id, report);
   });
-  // A dependency's display name. When the report names the provider's jar — the
-  // disabled one to switch back on, or the enabled one a range points at — that
-  // jar is a row here, and its own name is the thing the player can act on;
-  // otherwise the dependent-scoped store (spec §5.3), else the raw loader id.
+  // A dependency's display name, by the rule every surface shares (`depDisplayName`): the
+  // provider's own name as the report gives it — the disabled jar to switch back on, or the
+  // enabled one a range points at — else the dependent-scoped store (spec §5.3), else the raw
+  // loader id. The Play gate names the same report the same way (plan §5b V1).
   function depName(v: DepViolation): string {
-    const own = v.provider_sha1 ? nameBySha.get(v.provider_sha1) : undefined;
-    return own ?? depNameOf(instanceId, v.dependent_sha1, v.dep_id) ?? v.dep_id;
+    return depDisplayName(v, depNameOf(instanceId, v.dependent_sha1, v.dep_id));
   }
 
   // What the dependency trees need to say what the loader does (spec §6.3). The FULL report, not
@@ -563,7 +562,8 @@
 
   // `required_disabled` → switch the provider back on through mod-ops (guarded:
   // it asks when the provider has disabled requirements of its own). The
-  // modToggle event re-runs the pre-flight. `depName` is the provider row's name.
+  // modToggle event re-runs the pre-flight. `depName` is the provider's own name, as the
+  // report gives it.
   function enableProvider(v: DepViolation): Promise<void> {
     const sha1 = v.provider_sha1;
     if (!sha1) return Promise.resolve();
@@ -1055,7 +1055,6 @@
   <PreflightPanel
     report={preflight.report}
     {instanceId}
-    {depName}
     onInstallMissing={onInstallMissingDep}
     onEnableProvider={enableProvider}
     onJumpToDependent={jumpToDependent}

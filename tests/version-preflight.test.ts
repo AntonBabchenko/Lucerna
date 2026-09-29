@@ -185,16 +185,21 @@ describe('PreflightPanel', () => {
     expect(queryByTestId('preflight-panel')).toBeNull();
   });
 
-  // The dep's human name used to ride on the violation itself
-  // (`dep_display_name`), a field the backend never populated. It now arrives
-  // as a lookup the Installed tab resolves and passes down; the row's job —
-  // naming both sides in words — is unchanged, which is what this asserts.
+  // A range's provider is a row the backend names (`provider_name`, the registry's name for the
+  // jar `provider_sha1` names — plan §5b V1); the row's job — naming both sides in words — is
+  // what this asserts.
   it('renders one row for a version_out_of_range violation with the dependent name and dep name', () => {
     const { getByTestId, getAllByTestId } = render(PreflightPanel, {
       props: {
-        report: { violations: [outOfRangeViolation] },
-        depName: (v: { dep_id: string }) =>
-          v.dep_id === 'sophisticatedcore' ? 'Sophisticated Core' : null,
+        report: {
+          violations: [
+            {
+              ...outOfRangeViolation,
+              provider_sha1: 'core-sha',
+              provider_name: 'Sophisticated Core',
+            },
+          ],
+        },
       },
     });
     expect(getByTestId('preflight-panel')).toBeTruthy();
@@ -205,7 +210,7 @@ describe('PreflightPanel', () => {
     expect(rowText).toContain('Sophisticated Core');
   });
 
-  it('shows the raw dep id when no overlay is supplied — the launch-gate case', () => {
+  it('shows the raw dep id when nothing names the dependency', () => {
     const { getAllByTestId } = render(PreflightPanel, {
       props: { report: { violations: [outOfRangeViolation] } },
     });

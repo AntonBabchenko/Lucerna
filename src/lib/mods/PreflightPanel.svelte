@@ -8,6 +8,7 @@
   import { depNameOf } from '$lib/mods/dep-names.svelte';
   import { hasBlocking, violationKey } from './preflight.svelte';
   import {
+    depDisplayName,
     isFixable,
     isRangeRemediable,
     type PlanSide,
@@ -22,7 +23,6 @@
   let {
     report,
     instanceId = null,
-    depName = undefined,
     onInstallMissing = () => {},
     onEnableProvider = () => {},
     onChooseVersion = () => {},
@@ -42,13 +42,11 @@
     showHeader = true,
   }: {
     report: PreflightReport | null;
-    // The dependency's display name. The host's lookup comes first (the
-    // Installed tab also knows its own rows' names); where it has none — or
-    // there is no host lookup, the launch gate's case — the dependent-scoped
-    // name store is read (spec §5.3): names already resolved, never a network
-    // call between the user and Play. Unresolved → the raw loader id, per row.
+    // Whose name store names the dependencies (spec §5.3). Every row is named by ONE rule
+    // (`depDisplayName`) — the provider's own name from the report, else the name resolved for
+    // this dependent, else the raw loader id, per row — the same on the Installed tab and at the
+    // Play gate, so the two never name one mod two ways. Reading the store makes no call.
     instanceId?: string | null;
-    depName?: (v: DepViolation) => string | null;
     onInstallMissing?: (v: DepViolation) => void;
     // `required_disabled`: switch the disabled provider back on (mod-ops asks
     // first when it has disabled requirements of its own).
@@ -88,9 +86,7 @@
   } = $props();
 
   const nameOf = (v: DepViolation): string =>
-    depName?.(v) ??
-    (instanceId ? depNameOf(instanceId, v.dependent_sha1, v.dep_id) : null) ??
-    v.dep_id;
+    depDisplayName(v, depNameOf(instanceId, v.dependent_sha1, v.dep_id));
 
   // Ids for the text a row's buttons are described by — the planner's note, a
   // change's «Breaks:» — per row index (and offer side).
