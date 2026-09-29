@@ -128,8 +128,8 @@ describe('«Fix…» on a version mismatch in the dependency tree', () => {
     });
 
     const chip = await waitFor(() => {
-      const el = document.querySelector<HTMLElement>('[data-testid="dep-expand-chip"]');
-      if (!el) throw new Error('dependency chip not rendered yet');
+      const el = document.querySelector<HTMLElement>('[data-testid="relation-pill"]');
+      if (!el) throw new Error('relation pill not rendered yet');
       return el;
     });
     await fireEvent.click(chip);

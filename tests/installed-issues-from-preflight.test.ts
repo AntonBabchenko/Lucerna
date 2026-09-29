@@ -53,7 +53,7 @@ const graphWithAbsentRequired = vi.hoisted(() => ({
   ],
 }));
 
-// Alpha's platform summary: a row with one renders its dependency chip, which opens the tree.
+// Alpha's platform summary: its row is a full card, whose relation pill opens the tree.
 const alphaSummary = vi.hoisted(() => ({
   source: 'modrinth',
   project_id: 'PA',
@@ -125,8 +125,8 @@ describe('the issue count comes from the pre-flight', () => {
     render(InstalledModsView, { props: props('graph-only') });
     // The graph has landed: Alpha's row counts the platform's dependency.
     const chip = await waitFor(() => {
-      const el = document.querySelector<HTMLElement>('[data-testid="dep-expand-chip"]');
-      if (!el) throw new Error('dependency chip not rendered yet');
+      const el = document.querySelector<HTMLElement>('[data-testid="relation-pill"]');
+      if (!el) throw new Error('relation pill not rendered yet');
       return el;
     });
 

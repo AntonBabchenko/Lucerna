@@ -96,32 +96,42 @@
     onRevealProblems?: () => void;
   } = $props();
 
-  // One expand control summarises both directions of the dependency relation:
-  // what this mod requires AND what requires it. Both share a single panel
-  // (DepSection), so a single chip / single toggle is the honest control. The
-  // pieces are joined with " · " (e.g. "1 dep · required by 2").
+  // One pill summarises both directions of the dependency relation (spec D12): ⛓ what this mod
+  // requires (distinct projects) and ↑ what requires it. Both share a single panel (DepSection),
+  // so a single toggle is the honest control. Its figures are in its name and tooltip, joined
+  // with " · " (e.g. "1 dep · required by 2").
   const optionalTotal = $derived(root?.optional.length ?? 0);
   // The platform could not describe this mod's installed version: no count is not zero.
   const depsUnknown = $derived(root?.deps_unknown ?? null);
 
-  const expandLabel = $derived.by(() => {
+  // `unknown` words the unknown requirements: the short status in the name, the reason in the
+  // tooltip — the only place the pill can say why.
+  function relationParts(unknown: string): string[] {
     const parts: string[] = [];
-    // Said where the count would be — the panel it opens says why.
-    if (depsUnknown) parts.push($t('mods.deps.depsUnknownStatus'));
+    if (depsUnknown) parts.push(unknown);
     // Relationship count only. The "· N missing" suffix is gone with the graph's
     // verdict: it counted absences the loader may never have asked for.
     if (depTotal > 0) parts.push($t('mods.installed.depCount', { count: depTotal }));
     if (requiredBy.length > 0)
       parts.push($t('mods.installed.requiredByCount', { count: requiredBy.length }));
-    // Last resort only, so every row that already renders a label keeps it
-    // byte-identical. A mod whose required deps are all loader-scoped away (a
+    // Last resort only. A mod whose required deps are all loader-scoped away (a
     // merged multi-loader jar on one of its loaders) would otherwise have no
-    // label and no chip at all, taking its still-correct optional section with
+    // label and no pill at all, taking its still-correct optional section with
     // it — the widened gate below needs something to render.
     if (parts.length === 0 && optionalTotal > 0)
       parts.push($t('mods.installed.depOptionalCount', { count: optionalTotal }));
-    return parts.join(' · ');
-  });
+    return parts;
+  }
+  const expandLabel = $derived(relationParts($t('mods.deps.depsUnknownStatus')).join(' · '));
+  const relationTooltip = $derived(
+    depsUnknown ? relationParts($t(DEPS_UNKNOWN_KEY[depsUnknown])).join(' · ') : expandLabel,
+  );
+  // Only an enabled platform mod becomes a root of the graph: no other row waits for it.
+  const mayHaveRoot = $derived(installed.enabled && !!installed.source && !!installed.project_id);
+  const relationLoading = $derived(graphLoading && !root && mayHaveRoot);
+  const hasRelation = $derived(
+    !!depsUnknown || depTotal > 0 || optionalTotal > 0 || requiredBy.length > 0,
+  );
 
   // There is deliberately no left-side danger badge any more. The one that used
   // to live here counted the graph's absent required children — i.e. the
@@ -142,10 +152,10 @@
         : null,
   );
 
-  // "View changelog" is offered only when an update is actually pending and the
-  // source implements a changelog API (Modrinth/CurseForge) — mirrors the Rust
-  // `changelog_supported` gate. Guards on identity so the modal always has a
-  // (source, project_id, base version) to query.
+  // The update badge opens the changelog only when an update is actually pending
+  // and the source implements a changelog API (Modrinth/CurseForge) — mirrors the
+  // Rust `changelog_supported` gate; otherwise it stays a static badge. Guards on
+  // identity so the modal always has a (source, project_id, base version) to query.
   const showChangelog = $derived(
     updateState?.kind === 'update_available' &&
       !!installed.source &&
@@ -155,12 +165,54 @@
   );
 </script>
 
+{#snippet relationPill()}
+  {#if relationLoading}
+    <Spinner
+      size="sm"
+      class="text-placeholder"
+      label={$t('mods.installed.resolvingShort')}
+      delayMs={150}
+    />
+  {:else}
+    <!-- One neutral pill for both directions (spec D12): ⛓ own dependencies (by project; «?»
+         while the platform could not describe them — unknown is not zero) and ↑ dependents.
+         The words live in its name and tooltip; accent only while its panel is open. The ⛓
+         figure falls back to the optional count when that is all there is to open. -->
+    <button
+      type="button"
+      data-testid="relation-pill"
+      aria-expanded={expanded}
+      aria-label={expandLabel}
+      use:tooltip={{ text: relationTooltip, describe: !!depsUnknown }}
+      class="px-1.5 py-0.5 rounded inline-flex items-center gap-2 text-xs tabular-nums {expanded
+        ? 'bg-accent-soft text-accent'
+        : 'bg-subtle text-secondary'}"
+      onclick={onToggleExpand}
+    >
+      {#if depsUnknown || depTotal > 0 || requiredBy.length === 0}
+        <span class="inline-flex items-center gap-0.5"
+          ><Icon name="link" size={12} />{depsUnknown
+            ? '?'
+            : depTotal > 0
+              ? depTotal
+              : optionalTotal}</span
+        >
+      {/if}
+      {#if requiredBy.length > 0}
+        <span class="inline-flex items-center gap-0.5"
+          ><Icon name="arrowUp" size={12} />{requiredBy.length}</span
+        >
+      {/if}
+    </button>
+  {/if}
+{/snippet}
+
 <div role="group" aria-label={installed.name}>
-  <!-- Hover region = the mod row + its problem and chip lines ONLY. The
-       expanded DepSection is a sibling below, so its per-node hover doesn't
-       fight the row's hover over the shared hoveredKey. It draws the
-       cross-highlight once, as a ring above the card and both lines
-       (`relative`: the ring's containing block). -->
+  <!-- Hover region = the mod row + its problem line ONLY. The expanded
+       DepSection is a sibling below, so its per-node hover doesn't fight the
+       row's hover over the shared hoveredKey. It draws the cross-highlight
+       once, as a ring above the card and its problem line (`relative`: the
+       ring's containing block). -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     data-mod-key={rowKey}
@@ -188,7 +240,11 @@
       selectable={true}
       {selected}
       {onSelectChange}
+      relation={relationLoading || hasRelation ? relationPill : undefined}
     />
+    <!-- The second line is there only for a problem (spec D12): what used to sit here — the
+         changelog chip and the dependency chip — is the update badge and the relation pill in
+         the row now. -->
     {#if problem}
       {@const tone = problem.level === 'blocking' ? 'text-danger' : 'text-warning-text'}
       <!-- One reason, in full (it wraps rather than truncates: it is the
@@ -227,53 +283,10 @@
         {/if}
       </div>
     {/if}
-    {#if summary || showChangelog}
-      <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
-        {#if showChangelog}
-          <button
-            type="button"
-            class="px-2 py-0.5 rounded inline-flex items-center gap-1 bg-subtle text-secondary"
-            onclick={onShowChangelog}
-            data-testid="mod-changelog-btn"
-          >
-            <Icon name="scrollText" />
-            {$t('mods.changelog.view')}
-          </button>
-        {/if}
-        {#if graphLoading && !root}
-          <span class="text-placeholder">
-            <Spinner
-              size="sm"
-              labelPlacement="right"
-              label={$t('mods.installed.resolvingShort')}
-              delayMs={150}
-            />
-          </span>
-        {:else if depsUnknown || depTotal > 0 || optionalTotal > 0 || requiredBy.length > 0}
-          <!-- Single toggle for the whole relation. Accent (actionable) when the
-               mod has its own deps; muted when it is only required-by, or when
-               what it requires is unknown (the panel then says why).
-               `optionalTotal` is in the condition because it is the sole reason
-               the panel may still be worth opening once every required dep has
-               been loader-scoped away. -->
-          <button
-            type="button"
-            data-testid="dep-expand-chip"
-            aria-expanded={expanded}
-            class="px-2 py-0.5 rounded inline-flex items-center gap-1.5 {depTotal > 0
-              ? 'bg-accent-soft text-accent'
-              : 'bg-subtle text-secondary'}"
-            use:tooltip={depsUnknown ? $t(DEPS_UNKNOWN_KEY[depsUnknown]) : null}
-            onclick={onToggleExpand}
-          >
-            <Icon name={expanded ? 'chevronDown' : 'caret'} />
-            {expandLabel}
-          </button>
-        {/if}
-      </div>
-    {/if}
   </div>
-  {#if summary && expanded && root}
+  <!-- A row whose platform details did not load still has its dependencies: the panel needs the
+       graph's root, not the summary. -->
+  {#if expanded && root}
     <DepSection
       {root}
       {requiredBy}

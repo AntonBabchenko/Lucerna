@@ -146,15 +146,13 @@ describe('hover cross-highlight across dep-tree nodes and rows', () => {
     });
 
     // Wait for rows + the async dep-graph load: once the graph resolves, A's
-    // row shows a "1 dep" chip button (depTotal > 0). Scope the search to A's
-    // row so we don't match the toolbar's "Re-check deps" button (which also
-    // contains "dep" but only re-resolves the graph — it does not expand).
+    // row shows the row's relation pill (depTotal > 0) — the one control that
+    // opens its dependencies.
     const expandBtn = await waitFor(() => {
-      const aRow = document.querySelector('[data-mod-row="modrinth:PA"]');
-      const btn = aRow
-        ? [...aRow.querySelectorAll('button')].find((b) => /dep/i.test(b.textContent ?? ''))
-        : undefined;
-      if (!btn) throw new Error('dep-chip not rendered yet');
+      const btn = document.querySelector(
+        '[data-mod-row="modrinth:PA"] [data-testid="relation-pill"]',
+      );
+      if (!btn) throw new Error('relation pill not rendered yet');
       return btn as HTMLButtonElement;
     });
 
@@ -204,11 +202,10 @@ describe('hover cross-highlight across dep-tree nodes and rows', () => {
     });
 
     const expandBtn = await waitFor(() => {
-      const aRow = document.querySelector('[data-mod-row="modrinth:PA"]');
-      const btn = aRow
-        ? [...aRow.querySelectorAll('button')].find((b) => /dep/i.test(b.textContent ?? ''))
-        : undefined;
-      if (!btn) throw new Error('dep-chip not rendered yet');
+      const btn = document.querySelector(
+        '[data-mod-row="modrinth:PA"] [data-testid="relation-pill"]',
+      );
+      if (!btn) throw new Error('relation pill not rendered yet');
       return btn as HTMLButtonElement;
     });
 

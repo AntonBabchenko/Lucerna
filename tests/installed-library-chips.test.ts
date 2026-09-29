@@ -205,10 +205,10 @@ describe('Installed — library chips and search', () => {
     h.listInstalled.mockResolvedValue({ status: 'ok', data: rowsWith('d', true) });
     render(InstalledModsView, { props: props('switched-on') });
 
-    // The graph has loaded (Alpha's row shows its dependency chip) …
+    // The graph has loaded (Alpha's row shows its relation pill) …
     await waitFor(() => {
       expect(shown()).toHaveLength(5);
-      expect(document.querySelector('[data-testid="dep-expand-chip"]')).not.toBeNull();
+      expect(document.querySelector('[data-testid="relation-pill"]')).not.toBeNull();
     });
     // … yet it does not know every enabled mod, so neither view is a fact.
     expect(screen.queryByRole('radio', { name: /Unused libraries/ })).toBeNull();

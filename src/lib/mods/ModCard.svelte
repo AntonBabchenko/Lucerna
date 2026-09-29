@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
   import { locale, t } from '$lib/i18n';
   import { formatCount } from '$lib/format/count';
@@ -41,6 +42,7 @@
     placeholderIcon = 'puzzle',
     installedLabel = null,
     actionsBlockedReason = null,
+    relation,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -80,6 +82,9 @@
     // server data pack catalog sets it for a world with only level.dat_old,
     // which refuses every add, switch and removal.
     actionsBlockedReason?: string | null;
+    /** Installed list rows: the relation pill, rendered between the badges and the actions (spec
+     *  §6.7). Pass it only when there is something to render — an empty slot still takes a gap. */
+    relation?: Snippet;
   } = $props();
 
   const blocked = $derived(actionsBlockedReason !== null);
@@ -113,16 +118,19 @@
   });
   const style = $derived(cardStatusStyle(statusKind));
 
-  // The single muted secondary line for an installed mod (version is the norm;
-  // cross-platform explains the version mismatch; otherwise the install state).
+  // The installed meta, split (spec §6.7, audit C-Q13): the version as its own node — its tooltip
+  // is the jar's file name, the held pin sits beside it — or a state / cross-platform note
+  // (cross-platform explains the version mismatch; otherwise the install state). Exactly one of
+  // the two is set for an installed mod, so the visible text is what the one line said before.
   // An explicit `installedLabel` wins outright — see its prop doc.
-  const installedMeta = $derived.by(() => {
-    if (!installed) return '';
-    if (installedLabel) return installedLabel;
+  const meta = $derived.by((): { version: string | null; note: string | null } => {
+    if (!installed) return { version: null, note: null };
+    if (installedLabel) return { version: null, note: installedLabel };
     const stateWord = installed.enabled ? $t('mods.card.installed') : $t('mods.card.disabled');
-    if (crossPlatform && otherPlatformLabel) return `${stateWord} (${otherPlatformLabel})`;
-    if (installed.version_number) return `v${installed.version_number}`;
-    return stateWord;
+    if (crossPlatform && otherPlatformLabel)
+      return { version: null, note: `${stateWord} (${otherPlatformLabel})` };
+    if (installed.version_number) return { version: `v${installed.version_number}`, note: null };
+    return { version: null, note: stateWord };
   });
 
   // Degraded-row identity (summary null).
@@ -338,6 +346,7 @@
         {/if}
       </div>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      {#if relation}<div class="flex items-center flex-shrink-0">{@render relation()}</div>{/if}
       {#if installed}
         <div class="flex items-center gap-1 flex-shrink-0">
           {#if canToggle}
@@ -379,7 +388,7 @@
         <span class="block font-medium text-primary truncate">{summary.name}</span>
         <span class="block text-xs text-muted truncate">
           {#if installed}
-            {installedMeta}
+            {meta.version ?? meta.note}
           {:else}
             <!-- Raw count, never pre-formatted: `{downloads, number}` groups the
                  digits using the UI locale, while a bare toLocaleString() uses
@@ -425,8 +434,16 @@
       >
         <span class="font-medium text-primary flex-shrink-0">{summary.name}</span>
         {#if installed}
-          <span class="text-xs text-muted flex-shrink-0">{installedMeta}</span>
-          {@render heldPin('')}
+          <!-- «Name · version · description» (spec D12): the file name is the version's tooltip,
+               the pin sits beside the version it keeps. -->
+          <span class="text-xs text-muted flex-shrink-0 inline-flex items-center gap-1">
+            {#if meta.version}
+              <span data-testid="mod-version" use:tooltip={installed.filename}>{meta.version}</span>
+            {:else}
+              <span data-testid="mod-state-note" use:tooltip={installed.filename}>{meta.note}</span>
+            {/if}
+            {@render heldPin('')}
+          </span>
         {:else}
           <span class="text-xs text-muted flex-shrink-0 inline-flex items-center gap-1">
             <Icon name="user" size={12} />
@@ -443,6 +460,7 @@
         {/if}
       </button>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      {#if relation}<div class="flex items-center flex-shrink-0">{@render relation()}</div>{/if}
       <div class="flex items-center gap-1 flex-shrink-0">{@render iconActions()}</div>
     </CardShell>
   </ContextMenu>
