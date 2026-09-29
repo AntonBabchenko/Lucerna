@@ -1079,7 +1079,7 @@
         "andDisable": "{count, plural, one {Remove and disable # dependent} other {Remove and disable # dependents}}"
       },
       "dependents": {
-        "lead": "{dependents, plural, =1 {This mod won't load} other {These mods won't load}} without {count, plural, =1 {it} other {them}}:",
+        "lead": "{dependents, plural, =1 {This mod won't load} other {These mods won't load}} {count, plural, =1 {without it} other {without them}}:",
         "needs": "needs: {names}",
         "note": "The game won't start while {dependents, plural, =1 {this mod is} other {these mods are}} enabled."
       },
