@@ -30,6 +30,7 @@
     graphLoading,
     hoveredKey,
     updateState,
+    held = false,
     checking,
     packChip,
     selected,
@@ -64,6 +65,8 @@
     graphLoading: boolean;
     hoveredKey: string | null;
     updateState: ModUpdateState | null;
+    // Updates for this project are held («Не обновлять»): the card pins its version.
+    held?: boolean;
     checking: boolean;
     packChip: string | null;
     selected: boolean;
@@ -79,8 +82,9 @@
     onToggle: () => void;
     onUninstall: () => void;
     onUpdate: () => void;
-    // Opens the cumulative changelog for the pending update. Only invoked when
-    // `showChangelog` below is true (update available + supported source).
+    // Opens the cumulative changelog for the pending update — from the card's
+    // update badge. Only wired when `showChangelog` below is true (update
+    // available + supported source).
     onShowChangelog: () => void;
     onSelectChange: (checked: boolean) => void;
     onInstallDep: (node: DepTreeNode) => void;
@@ -174,6 +178,8 @@
       {onUninstall}
       {updateState}
       {onUpdate}
+      onShowChangelog={showChangelog ? onShowChangelog : null}
+      {held}
       {checking}
       {packChip}
       {attention}

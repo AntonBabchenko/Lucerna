@@ -24,6 +24,9 @@
     either runs, backdrop/Escape are locked and every button is disabled, and only the running one
     spins. Rendered only when the caller passes both `secondaryLabel` and `onSecondary`, so every
     existing caller keeps its two buttons.
+
+    `confirmDisabled` turns the confirm off without a spinner — a confirm over a subset the user
+    picks (the update review) has nothing to run while nothing is picked.
   */
   import type { Snippet } from 'svelte';
   import Modal from './Modal.svelte';
@@ -40,6 +43,7 @@
     variant = 'primary',
     titleSize = 'base',
     busy = false,
+    confirmDisabled = false,
     error = null,
     confirmTestid,
     panelClass = 'w-[440px] p-5 flex flex-col gap-3',
@@ -66,6 +70,8 @@
     titleSize?: 'base' | 'lg';
     /** The confirm's in-flight flag. */
     busy?: boolean;
+    /** The confirm is off (e.g. a subset confirm with nothing ticked). */
+    confirmDisabled?: boolean;
     error?: string | null;
     confirmTestid?: string;
     panelClass?: string;
@@ -154,7 +160,7 @@
     {/if}
     <BusyButton
       {busy}
-      disabled={secondaryBusy}
+      disabled={secondaryBusy || confirmDisabled}
       type="button"
       class={confirmClass}
       data-testid={confirmTestid}

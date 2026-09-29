@@ -281,4 +281,20 @@ describe('«Fix…» on a version conflict', () => {
       ]),
     );
   });
+
+  // A switch is an update (`mods_update_one`): the dependencies the new build brought in are said,
+  // never installed silently (spec D9, review F7).
+  it('a switch names the dependencies it installed', async () => {
+    h.modsPlanVersionFix.mockResolvedValue(bothSides());
+    h.updateMod.mockResolvedValue(
+      ok({ primary_name: 'Build 2.0', installed_dependencies: ['Balm'], details: [] }),
+    );
+    render(InstalledModsView, { props: props('plan-deps') });
+    const p = await panel();
+    await fireEvent.click(within(p).getByRole('button', { name: 'Fix…' }));
+    await fireEvent.click(await within(p).findByTestId('preflight-plan-dependent'));
+    await waitFor(() =>
+      expect(h.pushSuccess).toHaveBeenCalledWith('Installed Indium', ['+ installed: Balm']),
+    );
+  });
 });

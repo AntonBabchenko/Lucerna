@@ -5,8 +5,9 @@
 // a sibling action runs:
 //   - "Check updates"  → own flag `checking`,      sibling-disabled by `busy`
 //   - "Check compat"   → own flag `checkingCompat`, sibling-disabled by `busy`
-//   - "Update all"     → own flag `busy`
-import { render, screen } from '@testing-library/svelte';
+//   - "Update all"     → no flag of its own: it only opens the review, which spins while the
+//                        updates run; disabled by `busy`
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import InstalledToolbar from '$lib/mods/installed/InstalledToolbar.svelte';
 
@@ -58,12 +59,27 @@ describe('InstalledToolbar — busy spinners on async actions', () => {
     expect(spinnerIn(screen.getByRole('button', { name: /checking/i }))).not.toBeNull();
   });
 
-  it('Update all shows a spinner while busy, and none at rest', () => {
-    const { rerender } = render(InstalledToolbar, { props: { ...base(), busy: false } });
-    expect(spinnerIn(screen.getByRole('button', { name: /update all/i }))).toBeNull();
-
+  it('Update all only opens the review: it never spins, and is off while another action runs', async () => {
+    const p = base();
+    const { rerender } = render(InstalledToolbar, { props: p });
+    const btn = () => screen.getByRole('button', { name: /update all/i }) as HTMLButtonElement;
+    await fireEvent.click(btn());
+    expect(p.onUpdateAll).toHaveBeenCalledOnce();
     rerender({ ...base(), busy: true });
-    expect(spinnerIn(screen.getByRole('button', { name: /update all/i }))).not.toBeNull();
+    expect(btn().disabled).toBe(true);
+    expect(spinnerIn(btn())).toBeNull();
+  });
+
+  it('says when the updates were last checked', () => {
+    render(InstalledToolbar, { props: { ...base(), checkedAtMs: Date.now() - 2 * 86_400_000 } });
+    expect(screen.getByTestId('updates-checked-at').textContent).toMatch(/checked 2d ago/);
+  });
+
+  it('says nothing about a check while one runs, or when none ran', () => {
+    const { rerender } = render(InstalledToolbar, { props: base() });
+    expect(screen.queryByTestId('updates-checked-at')).toBeNull();
+    rerender({ ...base(), checkedAtMs: Date.now(), checking: true });
+    expect(screen.queryByTestId('updates-checked-at')).toBeNull();
   });
 
   it('a button spins only for its own action, not a sibling action', () => {

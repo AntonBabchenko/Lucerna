@@ -1104,6 +1104,18 @@
         "removing": "{count, plural, one {Removing # mod:} other {Removing # mods:}}",
         "listLabel": "Installed only as their dependencies (optional)"
       }
+    },
+    "updates": {
+      "checkedAt": "checked {when}",
+      "reviewTitle": "Update mods",
+      "reviewHint": "Untick a mod to keep its current version.",
+      "reviewConfirm": "Update {count}",
+      "changelogFor": "Changelog: {name}",
+      "installedDeps": "+ installed: {names}",
+      "heldTooltip": "Updates for this mod are not offered",
+      "holdFailed": "Couldn't change updates for {name}",
+      "updateFailed": "Couldn't update {name}",
+      "badgeChangelogAria": "v{from} → v{to}, changelog"
     }
   },
   "addons": {

@@ -26,6 +26,8 @@
     onUninstall,
     updateState = null,
     onUpdate = () => {},
+    onShowChangelog = null,
+    held = false,
     checking = false,
     packChip = null,
     attention = null,
@@ -48,6 +50,10 @@
     onUninstall: () => void;
     updateState?: ModUpdateState | null;
     onUpdate?: () => void;
+    /** Set = the update badge opens the changelog (the caller owns the "supported" gate). */
+    onShowChangelog?: (() => void) | null;
+    /** Updates for this project are held («Не обновлять»): a pin next to the version. */
+    held?: boolean;
     checking?: boolean;
     packChip?: string | null;
     // Installed-tab attention state that outranks enabled/disabled for the accent
@@ -245,6 +251,19 @@
   {/if}
 {/snippet}
 
+{#snippet heldPin(klass: string)}
+  {#if held}
+    <!-- Beside the version it keeps: updates for this project are held (row menu). -->
+    <span
+      class="inline-flex text-secondary flex-shrink-0 {klass}"
+      data-testid="mod-held-pin"
+      use:tooltip={{ text: $t('mods.updates.heldTooltip'), describe: false }}
+    >
+      <Icon name="pin" size={12} label={$t('mods.updates.heldTooltip')} />
+    </span>
+  {/if}
+{/snippet}
+
 {#snippet badges()}
   {#if packChip}
     <StatusBadge
@@ -258,14 +277,32 @@
   {:else if checking}
     <span class="text-xs text-placeholder">{$t('mods.card.checking')}</span>
   {:else if hasUpdate && updateState?.kind === 'update_available'}
-    <StatusBadge
-      variant="warning"
-      title={$t('mods.card.updateAvailableTitle')}
-      testid="mod-update-badge"
-    >
-      v{installed?.version_number ?? '?'}
-      <Icon name="arrowRight" size={12} /> v{updateState.target.version_number}
-    </StatusBadge>
+    {@const from = installed?.version_number ?? '?'}
+    {@const to = updateState.target.version_number}
+    {#if onShowChangelog}
+      <!-- The badge opens what changed (spec §6.6); its name keeps the versions it shows. -->
+      <button
+        type="button"
+        class="rounded"
+        aria-label={$t('mods.updates.badgeChangelogAria', { from, to })}
+        use:tooltip={{ text: $t('mods.changelog.view'), describe: false }}
+        onclick={onShowChangelog}
+      >
+        <StatusBadge variant="warning" icon="scrollText" testid="mod-update-badge">
+          v{from}
+          <Icon name="arrowRight" size={12} /> v{to}
+        </StatusBadge>
+      </button>
+    {:else}
+      <StatusBadge
+        variant="warning"
+        title={$t('mods.card.updateAvailableTitle')}
+        testid="mod-update-badge"
+      >
+        v{from}
+        <Icon name="arrowRight" size={12} /> v{to}
+      </StatusBadge>
+    {/if}
   {:else if updateState && updateState.kind === 'check_failed'}
     <span class="text-xs text-placeholder" use:tooltip={updateState.reason}
       >{$t('mods.card.checkFailed')}</span
@@ -295,7 +332,10 @@
       <CardMedia iconUrl={null} placeholder={isPlatform ? 'circleX' : placeholderIcon} size="sm" />
       <div class="flex-1 min-w-0">
         <span class="font-medium text-primary truncate font-mono text-xs">{degradedTitle}</span>
-        {#if installed}<span class="text-xs text-muted ml-2">{degradedMeta}</span>{/if}
+        {#if installed}
+          <span class="text-xs text-muted ml-2">{degradedMeta}</span>
+          {@render heldPin('align-middle')}
+        {/if}
       </div>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
       {#if installed}
@@ -386,6 +426,7 @@
         <span class="font-medium text-primary flex-shrink-0">{summary.name}</span>
         {#if installed}
           <span class="text-xs text-muted flex-shrink-0">{installedMeta}</span>
+          {@render heldPin('')}
         {:else}
           <span class="text-xs text-muted flex-shrink-0 inline-flex items-center gap-1">
             <Icon name="user" size={12} />

@@ -10,11 +10,13 @@ import {
   type ModSource,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { modWriteReason } from '$lib/mods/mod-ops.svelte';
 import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { depGraphCache } from '../dep-graph-cache';
 import type { Row } from './installed-data.svelte';
 import { modKey, rowDisplayName } from './row-utils';
+import { depsLines } from './update-review';
 
 export type RequiredByEntry = { name: string; source: ModSource; projectId: string; sha1: string };
 
@@ -260,9 +262,15 @@ export function createDepGraph(
       [],
     );
     if (res.status === 'error') {
-      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(res.error)]);
+      // A refused install says the profile is busy — never that the game runs (plan A9).
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [modWriteReason(res.error)]);
     } else {
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: node.name }));
+      // Its own required dependencies come along: said, never installed silently (D9).
+      const tt = get(t);
+      pushSuccess(
+        tt('mods.browse.toastInstalledMod', { name: node.name }),
+        depsLines(tt, [res.data]),
+      );
     }
     busy = false;
     // Await the graph re-resolve before refreshing rows so the tree's

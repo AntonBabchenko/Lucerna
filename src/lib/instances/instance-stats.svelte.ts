@@ -19,6 +19,7 @@ import {
 import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
 import { ensureCompatScan } from '$lib/mods/compat-scan.svelte';
 import { ensureLiveCompat, knownCompatHints } from '$lib/mods/installed/compat-check.svelte';
+import { loadStoredUpdateCheck, pendingUpdateCount } from '$lib/mods/update-check-store.svelte';
 
 export type InstalledStats = { total: number; enabled: number; disabled: number };
 
@@ -44,20 +45,21 @@ export function createInstanceStats() {
   // the previous instance's data over the newer one. Each refresher bumps its
   // own counter and drops the commit if a newer call has started.
   //
-  // The compat flags have no counter because they commit nothing: they are
-  // read straight off the shared scan store, which owns its own generation
-  // guard. A number copied out of a shared store is a second source of truth by
+  // The compat flags and the update count have no counter because they commit
+  // nothing: they are read straight off their shared stores, which own their own
+  // guards. A number copied out of a shared store is a second source of truth by
   // another name — #332 removed the duplicated *scan* and left the duplicated
   // *count*, so the Overview kept showing a value the store no longer held.
   let statsSeq = 0;
   let playtimeSeq = 0;
   let packSeq = 0;
-  let updateSeq = 0;
 
-  // Pending updates from the persisted update check (spec §5.5). null = never
-  // checked, or the stored check could not be read — "not known", never a
-  // reassuring 0 (spec §9).
-  let updateCount = $state<number | null>(null);
+  // The profile whose pending updates the Overview shows. The count is read off
+  // the app-wide persisted check (update-check-store): a check the Installed tab
+  // runs lands there, and the Overview follows at once (plan A18) — a copy would
+  // wait for the next mod event. The store keys by profile, so a slow read for
+  // the previous profile never lands on this one.
+  let updateFor = $state<string | null>(null);
 
   // The platform triple the last `refreshIncompatible` ran for — the flags
   // getter needs it to look up live verdicts in the shared keyed store.
@@ -158,21 +160,12 @@ export function createInstanceStats() {
     packMissingMods = r.status === 'ok' && r.data ? r.data.missing_mods : [];
   }
 
-  // The persisted update check's pending updates for `id` — refreshed on an
-  // instance switch and after the mod set changes (an update replaces a jar).
+  // Re-read the persisted update check of `id` — on an instance switch and
+  // after the mod set changes (an update replaces a jar, the check then lists
+  // it no more).
   async function refreshUpdateCount(id: string | null) {
-    const seq = ++updateSeq;
-    if (!id) {
-      updateCount = null;
-      return;
-    }
-    const r = await commands.modsLastUpdateCheck(id);
-    if (seq !== updateSeq) return;
-    // An unreadable check is logged by the backend and reads "not known" here.
-    updateCount =
-      r.status === 'ok' && r.data
-        ? r.data.results.filter((c) => c.state.kind === 'update_available').length
-        : null;
+    updateFor = id;
+    if (id) await loadStoredUpdateCheck(id);
   }
 
   return {
@@ -193,8 +186,11 @@ export function createInstanceStats() {
         compatTriple?.loader ?? null,
       );
     },
+    // Pending updates in the persisted check (spec §5.5). null = never checked,
+    // or the stored check could not be read — "not known", never a reassuring
+    // 0 (spec §9).
     get updateCount() {
-      return updateCount;
+      return pendingUpdateCount(updateFor);
     },
     get playtime() {
       return playtime;

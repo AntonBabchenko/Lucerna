@@ -31,6 +31,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { createInstanceStats } from '$lib/instances/instance-stats.svelte';
 import { ensureCompatScan, invalidateCompatScan } from '$lib/mods/compat-scan.svelte';
 import { __resetLiveVerdictsForTests } from '$lib/mods/installed/compat-check.svelte';
+import { __resetUpdateCheckStoreForTests } from '$lib/mods/update-check-store.svelte';
 
 // Minimal typed stubs — the composable only touches the named fields.
 const mod = (enabled: boolean): InstalledMod => ({ enabled }) as unknown as InstalledMod;
@@ -56,6 +57,8 @@ describe('createInstanceStats', () => {
     // is deduplicated away and asserts against the previous test's entries.
     invalidateCompatScan();
     __resetLiveVerdictsForTests();
+    // The persisted update check is held once per profile for the whole app, too.
+    __resetUpdateCheckStoreForTests();
     // The fire-and-forget live ensure needs an answer; deciding nothing is
     // the neutral default. Cases that care override it.
     checkInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });

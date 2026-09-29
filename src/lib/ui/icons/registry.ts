@@ -36,6 +36,7 @@ import {
   Info,
   Languages,
   LayoutGrid,
+  Link2,
   List,
   Lock,
   Minus,
@@ -44,6 +45,7 @@ import {
   Package,
   PaintBucket,
   Pencil,
+  Pin,
   Pipette,
   Play,
   Plug,
@@ -112,6 +114,8 @@ export const ICONS = {
   arrowLeft: ArrowLeft, // back / prev navigation (tour)
   arrowRight: ArrowRight, // version-transition marker (v1 → v2) / next / CTA
   arrowUpRight: ArrowUpRight, // jump-to-row (dep tree internal navigation)
+  link: Link2, // ⛓ own-dependency count (Installed relation pill)
+  pin: Pin, // updates held for a mod (Installed row + menu)
   // i18n tier — nav/action + status.
   settings: Settings, // ⚙ Settings (gear) — app settings entry point
   sliders: SlidersHorizontal, // 🎚 Manage instances (tune/adjust a profile)
@@ -120,7 +124,7 @@ export const ICONS = {
   eraser: Eraser, // ✏ Clear / wipe log content
   blocks: Blocks, // 📂 Mods content kind (Add-ons tab kind switch)
   scrollText: ScrollText, // 📜 Logs
-  arrowUp: ArrowUp, // ↑ Updates filter
+  arrowUp: ArrowUp, // ↑ Updates filter; dependents count (relation pill)
   circleX: CircleX, // ✕ missing status
   play: Play, // Quick Play action — launch into a specific world / server
   stop: Square, // ■ Stop the running game (transport pair with play ▶)

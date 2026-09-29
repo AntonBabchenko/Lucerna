@@ -397,4 +397,65 @@ describe('createDepGraph', () => {
     expect(await d.jumpToSha1('nope')).toBe(false);
     expect(page).toBe(-1);
   });
+
+  // A mod write takes the SHARED claim: a refusal means another operation holds the profile — the
+  // shared `instance_busy` copy ("…or the game is running") would be false here (plan A9).
+  it('a tree install the profile refuses says it is busy — never that the game runs', async () => {
+    const toasts = await import('$lib/toasts/toasts.svelte');
+    mocks.modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [{ source: 'modrinth', project_id: 'PL', version_id: 'vl' }],
+    });
+    mocks.modsInstallWithDeps.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'instance_busy' },
+    });
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      ctx,
+    );
+    const node = {
+      source: 'modrinth',
+      project_id: 'PL',
+      name: 'Lib',
+      installed: false,
+      declared: 'required',
+      cycle: false,
+      children: [],
+    } as unknown as DepTreeNode;
+    await d.installDepNode(node);
+    expect(toasts.pushWarning).toHaveBeenCalledWith('mods.browse.toastInstallFailed', [
+      'mods.ops.busy',
+    ]);
+  });
+
+  it('a tree install names the dependencies that came along with it', async () => {
+    const toasts = await import('$lib/toasts/toasts.svelte');
+    mocks.modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [{ source: 'modrinth', project_id: 'PL', version_id: 'vl' }],
+    });
+    mocks.modsInstallWithDeps.mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'Lib', installed_dependencies: ['Api'], details: [] },
+    });
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      ctx,
+    );
+    await d.installDepNode({
+      source: 'modrinth',
+      project_id: 'PL',
+      name: 'Lib',
+      installed: false,
+      declared: 'required',
+      cycle: false,
+      children: [],
+    } as unknown as DepTreeNode);
+    expect(toasts.pushSuccess).toHaveBeenCalledWith('mods.browse.toastInstalledMod', [
+      'mods.updates.installedDeps',
+    ]);
+  });
 });

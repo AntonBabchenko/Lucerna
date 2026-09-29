@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Capture each listener callback at module-eval time via vi.hoisted so
 // the vi.mock factory (which is itself hoisted) can write through to
@@ -61,6 +61,8 @@ vi.mock('$lib/ipc/bindings', () => ({
       data: { requirements: [], order: sha1s },
     })),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsLastUpdateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsListHolds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
@@ -134,7 +136,12 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
+import { __resetUpdateCheckStoreForTests } from '$lib/mods/update-check-store.svelte';
 import { toastList } from '$lib/toasts/toasts.svelte';
+
+// The persisted update check is held once per profile for the whole app; a check one case runs
+// must not seed the next case's rows.
+beforeEach(() => __resetUpdateCheckStoreForTests());
 
 describe('InstalledModsView', () => {
   it('renders rows with Disable button when enabled and Enable when disabled', async () => {
@@ -238,6 +245,59 @@ describe('InstalledModsView', () => {
     expect(updateArrow?.parentElement?.textContent).toContain('v16.0');
     expect(screen.getByRole('button', { name: 'Update' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Update all (1)' })).toBeTruthy();
+  });
+
+  it('Update all opens a review, and only the ticked mods update', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const target = {
+      source: 'modrinth',
+      project_id: 'p',
+      version_id: 'v2',
+      name: 'Just Enough Items',
+      version_number: '16.0',
+      mc_versions: ['1.20.1'],
+      loaders: ['fabric'],
+      primary_file: {
+        filename: 'jei-16.jar',
+        url: 'https://example/jei-16.jar',
+        sha1: 'ffff',
+        size: 1,
+        distribution_allowed: true,
+      },
+      deps: [],
+      published_at: null,
+    };
+    const result = {
+      sha1: 'abc',
+      name: 'Just Enough Items',
+      source: 'modrinth',
+      project_id: 'p',
+      current_version_id: 'v',
+      current_version_number: '15.0',
+      state: { kind: 'update_available', target },
+    };
+    (mod.commands.modsLastUpdateCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { checked_at_secs: 1, results: [result] },
+    });
+    (mod.commands.modsUpdateOne as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { primary_name: 'Just Enough Items', installed_dependencies: [], details: [] },
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Update all (1)' }));
+    expect(
+      (screen.getByRole('checkbox', { name: 'Just Enough Items' }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(mod.commands.modsUpdateOne).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Update 1' }));
+    await waitFor(() =>
+      expect(mod.commands.modsUpdateOne).toHaveBeenCalledWith('i', 'abc', target, false),
+    );
+    // The run closes the review.
+    await waitFor(() => expect(screen.queryByTestId('update-review-list')).toBeNull());
   });
 
   it('marks a modpack-origin mod with a pack chip', async () => {

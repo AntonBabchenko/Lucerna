@@ -124,6 +124,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsLastUpdateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsListHolds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
@@ -169,7 +171,7 @@ import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import ModCard from '$lib/mods/ModCard.svelte';
 import ModDetailModal from '$lib/mods/ModDetailModal.svelte';
-import { updateCheckCache } from '$lib/mods/update-check-cache';
+import { __resetUpdateCheckStoreForTests } from '$lib/mods/update-check-store.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // ── Fixture factories ──────────────────────────────────────────────────────────
@@ -617,27 +619,33 @@ describe('InstalledModsView — Update all button is btn-warning btn-xs when upd
       status: 'ok',
       data: makeProject(),
     });
-    // Pre-seed the session cache so the component's $effect reads the
-    // update_available state on mount, without needing a button click.
-    updateCheckCache.set('inst-1', [
-      {
-        sha1: 'sha1mod',
-        name: 'Test Mod',
-        source: 'modrinth',
-        project_id: 'proj-abc',
-        current_version_id: 'v1.0',
-        current_version_number: '1.0',
-        state: { kind: 'update_available', target },
+    // The persisted check the view reads on mount carries the update_available
+    // state, so no button click is needed.
+    vi.mocked(commands.modsLastUpdateCheck).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        checked_at_secs: 1,
+        results: [
+          {
+            sha1: 'sha1mod',
+            name: 'Test Mod',
+            source: 'modrinth',
+            project_id: 'proj-abc',
+            current_version_id: 'v1.0',
+            current_version_number: '1.0',
+            state: { kind: 'update_available', target },
+          },
+        ],
       },
-    ]);
+    } as never);
     render(InstalledModsView, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const updateAllBtn = await screen.findByRole('button', { name: /update all/i });
     expect(updateAllBtn).toHaveBtnVariant('warning');
     expect(updateAllBtn).toHaveBtnSize('xs');
-    // Clean up cache so other tests start fresh.
-    updateCheckCache.delete('inst-1');
+    // The check is held once per profile for the app: later cases start from none.
+    __resetUpdateCheckStoreForTests();
   });
 });
 

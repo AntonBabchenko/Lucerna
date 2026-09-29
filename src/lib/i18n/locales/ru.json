@@ -1104,6 +1104,18 @@
         "removing": "{count, plural, one {Удаляется # мод:} few {Удаляются # мода:} many {Удаляются # модов:} other {Удаляются # мода:}}",
         "listLabel": "Установлены только как их зависимости (необязательно)"
       }
+    },
+    "updates": {
+      "checkedAt": "проверено {when}",
+      "reviewTitle": "Обновить моды",
+      "reviewHint": "Снимите отметку, чтобы оставить мод на текущей версии.",
+      "reviewConfirm": "Обновить {count}",
+      "changelogFor": "Что нового: {name}",
+      "installedDeps": "+ установлено: {names}",
+      "heldTooltip": "Обновления для этого мода не предлагаются",
+      "holdFailed": "Не удалось изменить обновления для {name}",
+      "updateFailed": "Не удалось обновить {name}",
+      "badgeChangelogAria": "v{from} → v{to}, что нового"
     }
   },
   "addons": {

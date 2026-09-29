@@ -1,7 +1,4 @@
-import { get } from 'svelte/store';
-import { t } from '$lib/i18n';
-import type { ModUpdateCheck, ModVersion } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
+import type { ModUpdateCheck } from '$lib/ipc/bindings';
 import {
   disableMods,
   enableMods,
@@ -10,10 +7,9 @@ import {
   type ModOpTarget,
   uninstallMods,
 } from '$lib/mods/mod-ops.svelte';
-import { updateMod } from '$lib/tasks/adapters/mod-install';
-import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import type { Row } from './installed-data.svelte';
 import { rowDisplayName } from './row-utils';
+import { pushUpdatesReport, runUpdates, type UpdateTarget, updatedShas } from './update-review';
 
 // Which bulk action is currently in flight, so the bulk bar can spin only the
 // clicked button (not all four). `null` when idle.
@@ -24,10 +20,11 @@ const toTarget = (r: Row): ModOpTarget => ({ sha1: r.installed.sha1, name: rowDi
 // Owns bulk-action selection state and the bulk operations themselves. The
 // `selected` Set is always reassigned whole (never mutated in place). Selections
 // for rows hidden by a filter/search change are dropped. `getUpdateChecks` lets
-// bulk Update target only rows with a pending update; `onMutated` is called
-// after install-set changes (uninstall) so the caller can invalidate the graph.
-// Enable, disable and removal go through the guarded path (mod-ops), which asks
-// about dependents, requirements and unneeded libraries and reports the outcome.
+// bulk Update target only rows with a pending update (a held project has none);
+// `onMutated` is called after install-set changes (uninstall) so the caller can
+// invalidate the graph. Enable, disable and removal go through the guarded path
+// (mod-ops), which asks about dependents, requirements and unneeded libraries
+// and reports the outcome; every operation here reports through a toast.
 export function createInstalledSelection(
   getFiltered: () => Row[],
   getInstanceId: () => string | null,
@@ -42,7 +39,6 @@ export function createInstalledSelection(
   // The specific bulk action in flight (drives per-button spinners); `busy`
   // stays the aggregate gate that disables the whole bar.
   let busyAction = $state<BulkAction | null>(null);
-  let error = $state<string | null>(null);
 
   const selectedRows = $derived(getFiltered().filter((r) => selected.has(r.installed.sha1)));
   const allSelected = $derived.by(() => {
@@ -96,17 +92,6 @@ export function createInstalledSelection(
     selected = new Set();
   }
 
-  async function applyUpdate(sha1: string, target: ModVersion): Promise<boolean> {
-    const id = getInstanceId();
-    if (!id) return false;
-    const r = await updateMod(id, target.name, sha1, target);
-    if (r.status === 'error') {
-      error = formatError(r.error);
-      return false;
-    }
-    return true;
-  }
-
   // Through the guarded path (spec §6.1): one impact check for the selection, one dialog, then
   // the flips, which report their own outcome. Rows already in the wanted state are left alone;
   // a cancelled dialog keeps the selection so the user can adjust it.
@@ -116,7 +101,6 @@ export function createInstalledSelection(
     const targets = selectedRows.filter((r) => r.installed.enabled !== enable).map(toTarget);
     busy = true;
     busyAction = enable ? 'enable' : 'disable';
-    error = null;
     let outcome: ModOpOutcome = 'cancelled';
     try {
       if (targets.length > 0)
@@ -132,30 +116,35 @@ export function createInstalledSelection(
     await refresh();
   }
 
-  async function bulkUpdate() {
+  // The selected rows with a pending update, one after another, then one notice for the run
+  // (D9: the dependencies they installed, why the rest failed). Returns the sha1s that updated, so
+  // the caller drops their now-stale checks — and only those.
+  async function bulkUpdate(): Promise<string[]> {
     const id = getInstanceId();
-    if (!id) return;
+    if (!id) return [];
     const checks = getUpdateChecks();
-    const targets = selectedUpdatable.flatMap((r) => {
+    const targets = selectedUpdatable.flatMap((r): UpdateTarget[] => {
       const st = checks.get(r.installed.sha1)?.state;
-      return st?.kind === 'update_available' ? [{ sha1: r.installed.sha1, target: st.target }] : [];
+      return st?.kind === 'update_available'
+        ? [{ sha1: r.installed.sha1, name: rowDisplayName(r), target: st.target }]
+        : [];
     });
-    if (targets.length === 0) return;
+    if (targets.length === 0) return [];
+    const scope = scopeFor(id);
     busy = true;
     busyAction = 'update';
-    error = null;
-    let ok = 0;
-    let failed = 0;
-    for (const tgt of targets) {
-      if (await applyUpdate(tgt.sha1, tgt.target)) ok++;
-      else failed++;
+    let attempts: Awaited<ReturnType<typeof runUpdates>> = [];
+    try {
+      attempts = await runUpdates(id, targets);
+    } finally {
+      busy = false;
+      busyAction = null;
     }
-    busy = false;
-    busyAction = null;
     selected = new Set();
     await refresh();
-    if (failed === 0) pushSuccess(get(t)('mods.installed.toastUpdated', { count: ok }));
-    else pushWarning(get(t)('mods.installed.toastUpdatedFailed', { count: ok, failed }), []);
+    const profile = getInstanceId() !== id ? (scope.profileName ?? null) : null;
+    pushUpdatesReport(attempts, { profile });
+    return updatedShas(attempts);
   }
 
   // ONE guarded removal for the selection (spec §6.1): the dependents dialog if any, the
@@ -166,7 +155,6 @@ export function createInstalledSelection(
     const targets = selectedRows.map(toTarget);
     busy = true;
     busyAction = 'uninstall';
-    error = null;
     let outcome: ModOpOutcome = 'cancelled';
     try {
       outcome = await uninstallMods(scopeFor(id), targets, { offerOrphans: true });
@@ -196,9 +184,6 @@ export function createInstalledSelection(
     },
     get busyAction() {
       return busyAction;
-    },
-    get error() {
-      return error;
     },
     toggleSelect,
     toggleSelectAll,

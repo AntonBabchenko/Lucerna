@@ -1,158 +1,242 @@
+import { untrack } from 'svelte';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import {
   commands,
   type InstalledMod,
+  type ModSource,
   type ModUpdateCheck,
-  type ModVersion,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { updateMod } from '$lib/tasks/adapters/mod-install';
-import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-import { updateCheckCache } from '../update-check-cache';
+import { type ModOpScope, modWriteReason } from '$lib/mods/mod-ops.svelte';
+import {
+  checkForUpdates,
+  dropUpdateRows,
+  isCheckingUpdates,
+  loadStoredUpdateCheck,
+  storedUpdateCheck,
+} from '$lib/mods/update-check-store.svelte';
+import { pushWarning } from '$lib/toasts/toasts.svelte';
+import {
+  depsOf,
+  pushUpdatesReport,
+  runUpdates,
+  type UpdateAttempt,
+  type UpdateTarget,
+  updatedShas,
+} from './update-review';
 
-// Owns mod-update-check state. `updateChecks` is keyed by installed-mod sha1
-// and seeded from the per-instance session cache so reopening the tab is
-// instant; "Check for updates" forces a fresh check.
+/** A hold is per project, never per jar (spec §5.5): it survives updates and restores. */
+export const holdKey = (source: ModSource, projectId: string): string => `${source}:${projectId}`;
+
+// The Installed tab's side of mod updates. The check itself — one row per mod (keyed by the
+// installed sha1) and when it ran — is the app-wide persisted check (`update-check-store`), the
+// copy the Overview reads too (plan A18). This adds what only the tab needs: which projects are
+// held, the CurseForge key banner, and running the updates the user picked.
 export function createUpdateCheck(
   getInstanceId: () => string | null,
   refresh: () => Promise<void>,
+  // What an update run captures (profile name, row names); the view supplies it.
+  scopeFor: (instanceId: string) => ModOpScope = (instanceId) => ({ instanceId }),
 ) {
-  let updateChecks = $state<Map<string, ModUpdateCheck>>(new Map());
-  let checking = $state(false);
+  const stored = $derived(storedUpdateCheck(getInstanceId()));
+  const updateChecks = $derived(
+    new Map<string, ModUpdateCheck>((stored?.results ?? []).map((c) => [c.sha1, c])),
+  );
+  const checkedAtMs = $derived(stored?.checkedAtMs ?? null);
+  // Held projects by holdKey. `null` = not read, or the read failed: hold controls are then hidden
+  // rather than guessing "not held" (fallback Q2 — "could not tell" is not "absent").
+  let holds = $state<Set<string> | null>(null);
   let showCfBanner = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let holdsSeq = 0;
 
-  const updateCount = $derived(
-    [...updateChecks.values()].filter((c) => c.state.kind === 'update_available').length,
+  const pending = $derived(
+    [...updateChecks.values()].filter((c) => c.state.kind === 'update_available'),
   );
-  const updatableShas = $derived(
-    new Set(
-      [...updateChecks.values()]
-        .filter((c) => c.state.kind === 'update_available')
-        .map((c) => c.sha1),
-    ),
-  );
+  const updateCount = $derived(pending.length);
+  const updatableShas = $derived(new Set(pending.map((c) => c.sha1)));
 
-  // Empty the checks and drop the current instance's cache entry. Used after a
-  // bulk update (versions moved → all checks are now stale) and by updateAll.
-  function clearChecks() {
-    const id = getInstanceId();
-    updateChecks = new Map();
-    if (id) updateCheckCache.delete(id);
+  async function updateCfBanner(id: string, results: readonly ModUpdateCheck[]) {
+    if (!results.some((c) => c.source === 'curseforge' && c.state.kind === 'check_failed')) {
+      showCfBanner = false;
+      return;
+    }
+    let key: Awaited<ReturnType<typeof commands.modsGetCurseforgeKeyStatus>> | null = null;
+    try {
+      key = await commands.modsGetCurseforgeKeyStatus();
+    } catch {
+      // The key status could not be read: no banner claims the key is missing.
+    }
+    if (getInstanceId() !== id) return;
+    // 'unknown' = the keyring could not be read and no built-in key serves.
+    showCfBanner = key?.status === 'ok' && (key.data === 'missing' || key.data === 'unknown');
   }
 
-  // Seed the map from the session cache when the instance changes. Wrapped in
-  // $effect.root for unit-testability; torn down via dispose() on unmount.
+  /** Read the persisted check of `id` back (the store's rules decide what it may replace). */
+  async function loadStored(id: string): Promise<void> {
+    await loadStoredUpdateCheck(id);
+    if (getInstanceId() !== id) return;
+    await updateCfBanner(id, storedUpdateCheck(id)?.results ?? []);
+  }
+
+  async function loadHolds(id: string): Promise<void> {
+    const seq = ++holdsSeq;
+    let r: Awaited<ReturnType<typeof commands.modsListHolds>> | null = null;
+    try {
+      r = await commands.modsListHolds(id);
+    } catch {
+      // Transport failure: unknown, handled exactly like a command error below.
+    }
+    if (seq !== holdsSeq || getInstanceId() !== id) return;
+    holds = r?.status === 'ok' ? new Set(r.data.map((h) => holdKey(h.source, h.project_id))) : null;
+  }
+
+  // Seed on every profile change. $effect.root so the composable is unit-testable; dispose()
+  // tears it down. The effect makes its first run at the caller's first await, under vitest too.
   let stopEffects: (() => void) | null = null;
   try {
     stopEffects = $effect.root(() => {
       $effect(() => {
         const id = getInstanceId();
-        if (id) {
-          const cached = updateCheckCache.get(id);
-          updateChecks = cached ? new Map(cached.map((c) => [c.sha1, c])) : new Map();
-        } else {
-          updateChecks = new Map();
-        }
+        untrack(() => {
+          holds = null;
+          showCfBanner = false;
+          error = null;
+          if (id) {
+            void loadStored(id);
+            void loadHolds(id);
+          }
+        });
       });
     });
   } catch {
-    /* no Svelte runtime (vitest) — effect inert/unflushed, which is fine for unit tests */
+    /* no reactive runtime to root the effect in — it stays inert; a caller seeds by hand */
   }
 
   async function checkUpdates() {
     const id = getInstanceId();
     if (!id) return;
-    checking = true;
     error = null;
-    const r = await commands.modsCheckUpdates(id);
-    // A rapid instance switch mid-check must not commit this (now stale)
-    // instance's results over the newer live map. The cache write keyed by the
-    // captured id is still correct — it seeds this instance's next open.
-    if (getInstanceId() !== id) {
-      checking = false;
-      if (r.status === 'ok') updateCheckCache.set(id, r.data);
+    let r: Awaited<ReturnType<typeof checkForUpdates>>;
+    try {
+      r = await checkForUpdates(id);
+    } catch (e) {
+      // The bridge failed: nothing was checked.
+      if (getInstanceId() === id) error = e instanceof Error ? e.message : String(e);
       return;
     }
-    checking = false;
+    // Switched away meanwhile: the answer is that profile's, and waits for its next visit.
+    if (getInstanceId() !== id) return;
     if (r.status === 'error') {
       error = formatError(r.error);
       showCfBanner = false;
       return;
     }
-    updateChecks = new Map(r.data.map((c) => [c.sha1, c]));
-    updateCheckCache.set(id, r.data);
-    const cfFailed = r.data.some(
-      (c) => c.source === 'curseforge' && c.state.kind === 'check_failed',
-    );
-    if (cfFailed) {
-      const s = await commands.modsGetCurseforgeKeyStatus();
-      // 'unknown' = the keyring could not be read and no built-in key serves.
-      showCfBanner = s.status === 'ok' && (s.data === 'missing' || s.data === 'unknown');
-    } else {
-      showCfBanner = false;
-    }
+    await updateCfBanner(id, r.data);
   }
 
-  async function applyUpdate(sha1: string, target: ModVersion): Promise<boolean> {
-    const id = getInstanceId();
-    if (!id) return false;
-    const r = await updateMod(id, target.name, sha1, target);
-    if (r.status === 'error') {
-      error = formatError(r.error);
-      return false;
-    }
-    return true;
+  /** Drop the rows of jars an update replaced — in the profile it ran for. */
+  function forget(sha1s: Iterable<string>, instanceId: string | null = getInstanceId()) {
+    const gone = new Set(sha1s);
+    if (!instanceId || gone.size === 0) return;
+    dropUpdateRows(instanceId, (c) => gone.has(c.sha1));
   }
 
-  async function updateOne(m: InstalledMod) {
-    const id = getInstanceId();
-    const c = updateChecks.get(m.sha1);
-    if (!id || !c || c.state.kind !== 'update_available') return;
+  const profileIfLeft = (id: string, scope: ModOpScope): string | null =>
+    getInstanceId() !== id ? (scope.profileName ?? null) : null;
+
+  async function run(id: string, scope: ModOpScope, targets: UpdateTarget[]) {
     busy = true;
     error = null;
-    const ok = await applyUpdate(m.sha1, c.state.target);
-    if (ok) {
-      const next = new Map(updateChecks);
-      next.delete(m.sha1);
-      updateChecks = next;
-      updateCheckCache.set(id, [...next.values()]);
+    let attempts: UpdateAttempt[] = [];
+    try {
+      attempts = await runUpdates(id, targets);
+    } finally {
+      busy = false;
     }
-    busy = false;
+    forget(updatedShas(attempts), id);
     await refresh();
+    return { attempts, profile: profileIfLeft(id, scope) };
   }
 
-  async function updateAll() {
+  function targetOf(scope: ModOpScope, sha1: string, name?: string): UpdateTarget | null {
+    const c = updateChecks.get(sha1);
+    if (!c || c.state.kind !== 'update_available') return null;
+    return { sha1, name: name ?? scope.nameOf?.(sha1) ?? c.name, target: c.state.target };
+  }
+
+  /** The row's own «Обновить». A plain success shows in the row itself; the update speaks when it
+   *  failed, or when it brought dependencies in (D9). */
+  async function updateOne(m: InstalledMod, name?: string) {
     const id = getInstanceId();
     if (!id) return;
-    const targets = [...updateChecks.values()].flatMap((c) =>
-      c.state.kind === 'update_available' ? [{ sha1: c.sha1, target: c.state.target }] : [],
-    );
-    if (targets.length === 0) return;
-    busy = true;
-    error = null;
-    let ok = 0;
-    let failed = 0;
-    for (const tgt of targets) {
-      if (await applyUpdate(tgt.sha1, tgt.target)) ok++;
-      else failed++;
+    const scope = scopeFor(id);
+    const target = targetOf(scope, m.sha1, name);
+    if (!target) return;
+    const { attempts, profile } = await run(id, scope, [target]);
+    const [attempt] = attempts;
+    if (attempt && (!attempt.ok || depsOf(attempt.summary).length > 0)) {
+      pushUpdatesReport(attempts, { single: true, profile });
     }
-    // Every check is now stale (versions moved) — clear and let the user re-check.
-    clearChecks();
-    busy = false;
-    await refresh();
-    if (failed === 0) pushSuccess(get(t)('mods.installed.toastUpdated', { count: ok }));
-    else pushWarning(get(t)('mods.installed.toastUpdatedFailed', { count: ok, failed }), []);
+  }
+
+  /** Run the reviewed subset (D9): one update per sha1, then one notice for the run. */
+  async function updateSelected(sha1s: readonly string[]) {
+    const id = getInstanceId();
+    if (!id) return;
+    const scope = scopeFor(id);
+    const targets = sha1s.flatMap((sha) => targetOf(scope, sha) ?? []);
+    if (targets.length === 0) return;
+    const { attempts, profile } = await run(id, scope, targets);
+    pushUpdatesReport(attempts, { profile });
+  }
+
+  function isHeld(m: InstalledMod): boolean {
+    return !!m.source && !!m.project_id && (holds?.has(holdKey(m.source, m.project_id)) ?? false);
+  }
+
+  /**
+   * Hold a project («Не обновлять») or release it. A hold drops its pending update at once, as
+   * the next stored read would; a release reads the stored check again, so an update the last
+   * check found is offered once more. The hold list is then re-read, never guessed.
+   */
+  async function setHold(m: InstalledMod, hold: boolean, name: string): Promise<boolean> {
+    const id = getInstanceId();
+    const { source, project_id: projectId } = m;
+    if (!id || !source || !projectId) return false;
+    const failed = (reason: string) => {
+      pushWarning(get(t)('mods.updates.holdFailed', { name }), [reason]);
+      return false;
+    };
+    let r: Awaited<ReturnType<typeof commands.modsSetHold>>;
+    try {
+      r = await commands.modsSetHold(id, source, projectId, hold);
+    } catch (e) {
+      return failed(e instanceof Error ? e.message : String(e));
+    }
+    // A write under the shared claim: a refusal means another operation holds the profile (A9).
+    if (r.status === 'error') return failed(modWriteReason(r.error));
+    if (hold) dropUpdateRows(id, (c) => c.source === source && c.project_id === projectId);
+    else await loadStoredUpdateCheck(id);
+    await loadHolds(id);
+    return true;
   }
 
   return {
     get updateChecks() {
       return updateChecks;
     },
+    get checkedAtMs() {
+      return checkedAtMs;
+    },
+    get holds() {
+      return holds;
+    },
+    // The spinner belongs to the profile being checked, whichever view started the check.
     get checking() {
-      return checking;
+      return isCheckingUpdates(getInstanceId());
     },
     get updateCount() {
       return updateCount;
@@ -176,9 +260,13 @@ export function createUpdateCheck(
       error = v;
     },
     checkUpdates,
+    loadStored,
+    loadHolds,
     updateOne,
-    updateAll,
-    clearChecks,
+    updateSelected,
+    forget,
+    isHeld,
+    setHold,
     dispose() {
       stopEffects?.();
     },

@@ -111,4 +111,33 @@ describe('createInstalledSelection', () => {
     expect(mocks.modsUninstall).not.toHaveBeenCalled();
     expect(s.selected.has('a')).toBe(true);
   });
+
+  it('bulkUpdate returns the updated sha1s and lists the dependencies they brought in', async () => {
+    const toasts = await import('$lib/toasts/toasts.svelte');
+    const target = { name: 'T', version_number: '2.0' } as never;
+    const checks = new Map([
+      ['a', { sha1: 'a', state: { kind: 'update_available', target } }],
+      ['b', { sha1: 'b', state: { kind: 'update_available', target } }],
+    ]) as never;
+    mocks.modsUpdateOne
+      .mockResolvedValueOnce({
+        status: 'ok',
+        data: { primary_name: 'A', installed_dependencies: ['Lib'], details: [] },
+      })
+      .mockResolvedValueOnce({ status: 'error', error: 'boom' });
+    const rows = [row('a', true), row('b', true)];
+    const s = createInstalledSelection(
+      () => rows,
+      () => 'i',
+      noop,
+      () => checks,
+      () => {},
+    );
+    s.toggleSelectAll(true);
+    expect(await s.bulkUpdate()).toEqual(['a']);
+    expect(toasts.pushWarning).toHaveBeenCalledWith('mods.installed.toastUpdatedFailed', [
+      'mods.updates.installedDeps',
+      'B: boom',
+    ]);
+  });
 });

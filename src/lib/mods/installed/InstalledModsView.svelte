@@ -60,6 +60,8 @@
   import { countFixed, fixAll } from '$lib/mods/fix-all';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
+  import UpdateReviewDialog from './UpdateReviewDialog.svelte';
+  import { buildReviewItems, depsLines, type UpdateReviewItem } from './update-review';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
   import { isProblem, type ModStatus, statusOf } from './mod-status';
@@ -95,7 +97,8 @@
 
   // --- composables (creation order matters; thunks keep cross-refs lazy) ---
   const data = createInstalledData(() => instanceId);
-  const updates = createUpdateCheck(() => instanceId, data.refresh);
+  // `opScope` is a hoisted function; it only runs once an update does.
+  const updates = createUpdateCheck(() => instanceId, data.refresh, opScope);
   const compat = createCompatCheck(
     () => instanceId,
     () => mcVersion,
@@ -141,8 +144,7 @@
   const compatHintOf = (sha1: string) =>
     compat.incompatibleShas.has(sha1) ? compat.hintFor(sha1) : null;
   // One status per row (mod-status.ts); the «Проблемы» chip is blocking ∪
-  // warning. `held` stays false until holds are wired in — a hold never changes
-  // a problem level, so the chip is right either way.
+  // warning. A hold never changes a problem level; it only hides an update.
   const statusBySha = $derived(
     new Map<string, ModStatus>(
       data.rows.map((r) => [
@@ -152,7 +154,7 @@
           violations: violationsBySha.get(r.installed.sha1) ?? [],
           compat: compatHintOf(r.installed.sha1),
           update: updates.updateChecks.get(r.installed.sha1)?.state ?? null,
-          held: false,
+          held: updates.isHeld(r.installed),
         }),
       ]),
     ),
@@ -346,6 +348,7 @@
     pickerViolation = null;
     findAltViolation = null;
     offPlatformPrompt = null;
+    updateReview = null;
   });
 
   // A plan answers for the mods it read, and so does a dead end. Once the
@@ -698,7 +701,7 @@
   let shellBusy = $state(false);
 
   const busy = $derived(shellBusy || fixAllBusy || selection.busy || deps.busy || updates.busy);
-  const error = $derived(data.error ?? deps.error ?? updates.error ?? selection.error);
+  const error = $derived(data.error ?? deps.error ?? updates.error);
 
   // Detail modal can target ANY mod by (source, project_id): the row's own mod,
   // an installed dependency, or a not-yet-installed dependency. Install resolves
@@ -737,6 +740,19 @@
       base: version_id,
     };
   }
+
+  // The review before «Update all» (spec D9, §6.6): every pending update, all
+  // ticked. Bound to the profile it opened for — a profile switch closes it.
+  let updateReview = $state<UpdateReviewItem[] | null>(null);
+  function openUpdateReview() {
+    const items = buildReviewItems(data.rows, updates.updateChecks);
+    if (items.length > 0) updateReview = items;
+  }
+  async function runUpdateReview(sha1s: string[]) {
+    await updates.updateSelected(sha1s);
+    updateReview = null;
+  }
+
   // The installed build of the project the detail modal shows: its version id
   // AND its bytes. `enrich` leaves `version_id` null for exactly the mods whose
   // platform tags disagree with the instance, and those are recognised by sha1.
@@ -804,7 +820,9 @@
       // A refused switch says the profile is busy — never that the game runs (plan A9).
       pushWarning(get(t)('mods.browse.toastInstallFailed'), [modWriteReason(res.error)]);
     } else {
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name }));
+      // A switch is an update: what the new build brought in is said, never silent (D9).
+      const tt = get(t);
+      pushSuccess(tt('mods.browse.toastInstalledMod', { name }), depsLines(tt, [res.data]));
     }
     deps.invalidateGraph();
     preflight.invalidate();
@@ -847,12 +865,13 @@
     }
   }
 
-  // Bulk update: apply, then clear the now-stale update-check state so badges
-  // don't linger (the selection composable owns the update IPC but not the
-  // update-check cache, which lives in the update-check composable).
+  // Bulk update: run it, then drop the checks of the jars it replaced — in the
+  // profile it ran for — so their badges don't linger (the selection composable
+  // runs the updates; the checks are the persisted check's).
   async function bulkUpdate() {
-    await selection.bulkUpdate();
-    updates.clearChecks();
+    const id = instanceId;
+    const updated = await selection.bulkUpdate();
+    updates.forget(updated, id);
   }
 
   // Event listeners (belt-and-suspenders; also call refresh directly). The
@@ -921,9 +940,10 @@
     checking={updates.checking}
     graphLoading={deps.graphLoading}
     updateCount={updates.updateCount}
+    checkedAtMs={updates.checkedAtMs}
     onCheckUpdates={updates.checkUpdates}
     onRecheckDeps={deps.recheckDeps}
-    onUpdateAll={updates.updateAll}
+    onUpdateAll={openUpdateReview}
     checkingCompat={compat.checking}
     onCheckCompat={compat.runLiveCheck}
     issuesTone={anyBlocking ? 'danger' : 'warning'}
@@ -1012,6 +1032,7 @@
           graphLoading={deps.graphLoading}
           hoveredKey={deps.hoveredKey}
           updateState={updates.updateChecks.get(row.installed.sha1)?.state ?? null}
+          held={updates.isHeld(row.installed)}
           checking={updates.checking}
           packChip={data.packSummary && data.packSummary.mod_shas.includes(row.installed.sha1)
             ? data.packSummary.project_name
@@ -1028,7 +1049,7 @@
           onOpenDetailMod={openDetailMod}
           onToggle={() => toggle(row)}
           onUninstall={() => uninstall(row)}
-          onUpdate={() => updates.updateOne(row.installed)}
+          onUpdate={() => updates.updateOne(row.installed, rowDisplayName(row))}
           onShowChangelog={() => openChangelog(row)}
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
@@ -1077,6 +1098,15 @@
       targetVersionId={changelogReq.target}
       baseVersionId={changelogReq.base}
       onClose={() => (changelogReq = null)}
+    />
+  {/if}
+
+  {#if updateReview}
+    <UpdateReviewDialog
+      items={updateReview}
+      busy={updates.busy}
+      onCancel={() => (updateReview = null)}
+      onConfirm={(shas) => void runUpdateReview(shas)}
     />
   {/if}
 

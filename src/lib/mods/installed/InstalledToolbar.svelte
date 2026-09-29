@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { relativeTime } from '$lib/format/relative-time';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -17,6 +18,7 @@
     checking,
     graphLoading,
     updateCount,
+    checkedAtMs = null,
     onCheckUpdates,
     onRecheckDeps,
     onUpdateAll,
@@ -40,8 +42,11 @@
     checking: boolean;
     graphLoading: boolean;
     updateCount: number;
+    // When the persisted update check ran (unix ms), or null when none did.
+    checkedAtMs?: number | null;
     onCheckUpdates: () => void;
     onRecheckDeps: () => void;
+    // Opens the review of the pending updates; the review runs them.
     onUpdateAll: () => void;
     checkingCompat: boolean;
     onCheckCompat: () => void;
@@ -49,6 +54,15 @@
     // (spec D6: red means "the game won't start" and nothing else).
     issuesTone?: 'danger' | 'warning';
   } = $props();
+
+  // «проверено …» moves on once a minute with no other change to re-render it.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (checkedAtMs === null) return;
+    now = Date.now();
+    const tick = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(tick);
+  });
 
   const checkDisabledReason = $derived(
     counts.total === 0
@@ -190,6 +204,14 @@
         {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
       </BusyButton>
     </span>
+    {#if checkedAtMs !== null && !checking}
+      <!-- A clock a moment behind the check still says "just now", never "−3s ago". -->
+      <span class="text-xs text-muted" data-testid="updates-checked-at"
+        >{$t('mods.updates.checkedAt', {
+          when: relativeTime($t, checkedAtMs, Math.max(now, checkedAtMs)),
+        })}</span
+      >
+    {/if}
     <span class="inline-flex" use:tooltip={{ text: checkDisabledReason, describe: false }}>
       <BusyButton
         busy={checkingCompat}
@@ -214,9 +236,10 @@
       {/if}
     </button>
     {#if updateCount > 0}
-      <BusyButton {busy} class="btn-warning btn-xs" onclick={onUpdateAll}>
+      <!-- Only opens the review (D9): the review runs the updates and shows their spinner. -->
+      <button type="button" class="btn-warning btn-xs" disabled={busy} onclick={onUpdateAll}>
         {$t('mods.installed.updateAll', { count: updateCount })}
-      </BusyButton>
+      </button>
     {/if}
   </div>
   {#if counts.total > 0}

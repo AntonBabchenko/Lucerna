@@ -486,6 +486,11 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         // Mod cache size (Settings panel).
         mods_cache_size_bytes: () => 0,
 
+        // Mod updates: never checked, nothing held. The holds need their own
+        // empty list — the catch-all null would read as an ok-null list.
+        mods_last_update_check: () => null,
+        mods_list_holds: () => [],
+
         // Data-root location (Settings → Storage). `open` is the
         // plugin:dialog|open directory picker — the prefix stripper below
         // reduces it to its bare name.
