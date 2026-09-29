@@ -45,6 +45,23 @@ describe('UpdateReviewDialog', () => {
     expect((screen.getByTestId('update-review-confirm') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  // Plan §5b V1: the «v» goes only before a version that starts with a digit — never «vmc1.21.1».
+  it('glues no «v» to a version that starts with a letter', () => {
+    const lithium = {
+      sha1: 'c',
+      name: 'Lithium',
+      from: 'mc1.21.1-0.13.1',
+      to: 'mc1.21.1-0.13.2',
+      changelog: null,
+    };
+    render(UpdateReviewDialog, {
+      props: { items: [lithium], onCancel: vi.fn(), onConfirm: vi.fn() },
+    });
+    const text = screen.getByTestId('update-review-list').textContent ?? '';
+    expect(text).toMatch(/mc1\.21\.1-0\.13\.1\s*mc1\.21\.1-0\.13\.2/);
+    expect(text).not.toContain('vmc');
+  });
+
   it('holds the list still while the updates run', () => {
     render(UpdateReviewDialog, {
       props: { items, busy: true, onCancel: vi.fn(), onConfirm: vi.fn() },

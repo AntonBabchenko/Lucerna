@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { displayVersion } from '$lib/format/version';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { Icon } from '$lib/ui/icons';
   import ChangelogModal from '../ChangelogModal.svelte';
@@ -59,9 +60,9 @@
             <span class="truncate text-primary">{item.name}</span>
           </label>
           <span class="flex-shrink-0 inline-flex items-center gap-1 text-xs text-muted">
-            v{item.from ?? '?'}
+            {displayVersion(item.from ?? '?')}
             <Icon name="arrowRight" size={12} />
-            v{item.to}
+            {displayVersion(item.to)}
           </span>
           {#if item.changelog}
             <button

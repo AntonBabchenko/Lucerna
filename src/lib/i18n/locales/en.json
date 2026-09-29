@@ -1131,7 +1131,7 @@
       "unhold": "Allow updates",
       "holdFailed": "Couldn't change updates for {name}",
       "updateFailed": "Couldn't update {name}",
-      "badgeChangelogAria": "v{from} → v{to}, changelog"
+      "badgeChangelogAria": "{from} → {to}, changelog"
     }
   },
   "addons": {

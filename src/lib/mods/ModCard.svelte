@@ -3,6 +3,7 @@
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
   import { locale, t } from '$lib/i18n';
   import { formatCount } from '$lib/format/count';
+  import { displayVersion } from '$lib/format/version';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -139,7 +140,8 @@
     const stateWord = installed.enabled ? $t('mods.card.installed') : $t('mods.card.disabled');
     if (crossPlatform && otherPlatformLabel)
       return { version: null, note: `${stateWord} (${otherPlatformLabel})` };
-    if (installed.version_number) return { version: `v${installed.version_number}`, note: null };
+    if (installed.version_number)
+      return { version: displayVersion(installed.version_number), note: null };
     return { version: null, note: stateWord };
   });
 
@@ -313,8 +315,8 @@
   {:else if checking}
     <span class="text-xs text-placeholder">{$t('mods.card.checking')}</span>
   {:else if hasUpdate && updateState?.kind === 'update_available'}
-    {@const from = installed?.version_number ?? '?'}
-    {@const to = updateState.target.version_number}
+    {@const from = displayVersion(installed?.version_number ?? '?')}
+    {@const to = displayVersion(updateState.target.version_number)}
     {#if onShowChangelog}
       <!-- The badge opens what changed (spec §6.6); its name keeps the versions it shows. -->
       <button
@@ -325,8 +327,9 @@
         onclick={onShowChangelog}
       >
         <StatusBadge variant="warning" icon="scrollText" testid="mod-update-badge">
-          v{from}
-          <Icon name="arrowRight" size={12} /> v{to}
+          {from}
+          <Icon name="arrowRight" size={12} />
+          {to}
         </StatusBadge>
       </button>
     {:else}
@@ -335,8 +338,9 @@
         title={$t('mods.card.updateAvailableTitle')}
         testid="mod-update-badge"
       >
-        v{from}
-        <Icon name="arrowRight" size={12} /> v{to}
+        {from}
+        <Icon name="arrowRight" size={12} />
+        {to}
       </StatusBadge>
     {/if}
   {:else if updateState && updateState.kind === 'check_failed'}

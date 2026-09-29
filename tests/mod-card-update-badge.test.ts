@@ -53,6 +53,27 @@ describe('ModCard update badge', () => {
     expect(screen.getByTestId('mod-update-badge').closest('button')).toBeNull();
   });
 
+  // Plan §5b V1: «vmc1.21.1-0.13.1» in the row and the badge — the «v» goes only before a
+  // version that starts with a digit.
+  it('glues no «v» to a version that starts with a letter — row and badge alike', () => {
+    render(ModCard, {
+      props: {
+        ...base,
+        installed: { ...installed, version_number: 'mc1.21.1-0.13.1' },
+        updateState: {
+          kind: 'update_available',
+          target: { version_number: 'mc1.21.1-0.13.2' },
+        } as never,
+        onShowChangelog: vi.fn(),
+      },
+    });
+    expect(screen.getByTestId('mod-version').textContent).toBe('mc1.21.1-0.13.1');
+    expect(screen.getByTestId('mod-update-badge').textContent).not.toContain('vmc');
+    expect(
+      screen.getByRole('button', { name: 'mc1.21.1-0.13.1 → mc1.21.1-0.13.2, changelog' }),
+    ).toBeTruthy();
+  });
+
   it('a held mod carries a pin that says updates are not offered', () => {
     render(ModCard, { props: { ...base, updateState: null, held: true } });
     expect(screen.getByRole('img', { name: 'Updates for this mod are not offered' })).toBeTruthy();

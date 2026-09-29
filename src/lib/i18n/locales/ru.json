@@ -1131,7 +1131,7 @@
       "unhold": "Разрешить обновления",
       "holdFailed": "Не удалось изменить обновления для {name}",
       "updateFailed": "Не удалось обновить {name}",
-      "badgeChangelogAria": "v{from} → v{to}, что нового"
+      "badgeChangelogAria": "{from} → {to}, что нового"
     }
   },
   "addons": {
