@@ -33,6 +33,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Quilt servers can be created.** Creating a server on Quilt always failed
+  with a download error: Lucerna asked Quilt for a ready-made server file that
+  Quilt has never published. Lucerna now puts the Quilt server together itself,
+  the way Quilt's own installer does. The same fix covers re-downloading a
+  Quilt server's files and importing a Quilt server whose loader has to be
+  reinstalled. An imported Quilt server that would have started as plain
+  Minecraft, without Quilt and its mods, now says so instead of starting.
+
 - **Updating a mod no longer installs a second copy of a library you already
   have.** An update used to install every library the new version needs, even
   one already there: a different version landed next to yours and the game

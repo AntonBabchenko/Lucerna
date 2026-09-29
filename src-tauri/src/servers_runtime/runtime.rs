@@ -278,6 +278,8 @@ pub(crate) fn java_component_or_legacy(component: Option<&str>) -> String {
 /// Build the JVM argv to launch an assembled server, per loader. Paths are
 /// relative to `runtime/` (the spawn cwd). Forge/NeoForge use the installer-
 /// generated `@argfile` mechanism; the args file lives under libraries/.
+/// Quilt starts from its launch jar (`quilt::launch_jar`), never from a
+/// vanilla `server.jar`, which would run Minecraft without Quilt.
 ///
 /// The user's `extra_jvm_args` blob is tokenized with the SAME sanitizer the
 /// client launch uses (`crate::launch::args::sanitize_jvm_args`: drops
@@ -294,14 +296,17 @@ pub(crate) fn build_launch_argv(
     let xmx = format!("-Xmx{heap_mb}m");
     let extra = crate::launch::args::sanitize_jvm_args(extra_jvm_args);
     match loader {
-        ServerCore::Vanilla
-        | ServerCore::Fabric
-        | ServerCore::Quilt
-        | ServerCore::Paper
-        | ServerCore::Purpur => {
+        ServerCore::Vanilla | ServerCore::Fabric | ServerCore::Paper | ServerCore::Purpur => {
             let mut argv = vec![xmx];
             argv.extend(extra);
             argv.extend(["-jar".into(), "server.jar".into(), "nogui".into()]);
+            Ok(argv)
+        }
+        ServerCore::Quilt => {
+            let jar = crate::servers_runtime::quilt::launch_jar(runtime)?;
+            let mut argv = vec![xmx];
+            argv.extend(extra);
+            argv.extend(["-jar".into(), jar.into(), "nogui".into()]);
             Ok(argv)
         }
         ServerCore::Forge | ServerCore::NeoForge => {
@@ -811,6 +816,29 @@ mod tests {
         );
         assert_eq!(argv.last().map(String::as_str), Some("nogui"));
     }
+    #[test]
+    fn quilt_launches_its_launch_jar() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("quilt-server-launch.jar"), b"x").unwrap();
+        // In Quilt's layout server.jar is the vanilla game jar, never the entry point.
+        std::fs::write(dir.path().join("server.jar"), b"x").unwrap();
+        let argv = build_launch_argv(ServerCore::Quilt, dir.path(), 2048, "").unwrap();
+        assert_eq!(
+            argv,
+            vec!["-Xmx2048m", "-jar", "quilt-server-launch.jar", "nogui"]
+        );
+    }
+
+    #[test]
+    fn quilt_without_a_launcher_refuses_to_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = build_launch_argv(ServerCore::Quilt, dir.path(), 2048, "");
+        assert!(matches!(
+            r,
+            Err(crate::error::Error::ServerSpawnFailed { .. })
+        ));
+    }
+
     #[test]
     fn launch_argv_forge_errors_without_args_file() {
         let dir = tempfile::tempdir().unwrap();

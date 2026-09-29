@@ -20,6 +20,7 @@ pub mod preflight;
 pub mod properties;
 pub mod purpur;
 pub mod quarantine;
+pub mod quilt;
 pub mod runtime;
 pub mod schema;
 pub mod serverlog;

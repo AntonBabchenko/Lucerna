@@ -22,6 +22,11 @@ pub const SKIP_TOP_LEVEL: &[&str] = &[
     "fabric-server-launch.jar",
     "fabric-server-launcher.jar",
     "quilt-server-launch.jar",
+    // Quilt's launcher reads which jar is the game from this file. It
+    // describes the loader binaries a reprovision regenerates, and may name a
+    // jar this very copy skips; without it the launcher uses server.jar, the
+    // vanilla jar the reprovision just installed.
+    "quilt-server-launcher.properties",
     ".fabric",
     ".quilt",
     "logs",

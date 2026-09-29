@@ -5,6 +5,9 @@
 //!   `[{ loader: { version, build, maven, separator } }, …]`
 //! - `https://meta.quiltmc.org/v3/versions/loader/<mc>/<loader>/profile/json` →
 //!   Mojang-format VersionDetails with `inheritsFrom`.
+//! - `https://meta.quiltmc.org/v3/versions/loader/<mc>/<loader>/server/json` →
+//!   the dedicated-server launch profile (`launcherMainClass` + `libraries`),
+//!   read by `servers_runtime::quilt`. There is no `server/jar` endpoint.
 //!
 //! Quilt meta does NOT expose a `stable` boolean on each loader entry,
 //! and its `build` field is just the LAST numeric component of the
@@ -189,6 +192,30 @@ pub(super) async fn profile(mc: &str, ver: &str) -> Result<VersionDetails> {
         }
     }
     Ok(details)
+}
+
+/// Quilt's dedicated-server launch profile: `launcherMainClass` plus the
+/// `libraries[]` a server needs (the loader, its dependencies and the
+/// `hashed` + `intermediary` mappings — unlike `profile/json`, this one still
+/// lists them). Quilt publishes no prebuilt server jar; this JSON is what
+/// `quilt-installer install server` assembles a server from, and so does
+/// `servers_runtime::quilt`. A 404 means Quilt publishes no server build for
+/// this Minecraft / loader pair → `ServerJarUnavailable`. Not
+/// `LoaderUnavailable` ("Quilt does not support Minecraft X"): the 404 is
+/// just as likely an unknown loader version on a supported Minecraft — an
+/// imported server's detected loader, say.
+pub async fn server_profile(mc: &str, ver: &str) -> Result<serde_json::Value> {
+    let url = format!("{}/v3/versions/loader/{mc}/{ver}/server/json", meta_base());
+    match get_json::<serde_json::Value>(&url, "servers").await {
+        Err(Error::Network { details, .. }) if details.starts_with("HTTP 404") => {
+            Err(Error::ServerJarUnavailable {
+                loader: "quilt".into(),
+                mc_version: mc.into(),
+                reason: format!("Quilt publishes no server profile for loader {ver}"),
+            })
+        }
+        other => other,
+    }
 }
 
 /// Pick the maven host for a Quilt-side mapping coord. `org.quiltmc:hashed:*`
