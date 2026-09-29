@@ -35,8 +35,6 @@
     ctx = EMPTY_TREE_CTX,
     tree = null,
     installingKeys = new Set(),
-    hoveredKey,
-    onHover,
     onInstall,
     onAdd,
     onJump = () => {},
@@ -59,8 +57,6 @@
     // Keys (`source:project_id`) whose install is in flight — drives the per-node BusyButton
     // spinner. Empty in the common read-only render.
     installingKeys?: Set<string>;
-    hoveredKey: string | null;
-    onHover: (key: string | null) => void;
     // Both name this level's `dependentSha1`: the install records the edge on the mod that
     // declared the node (spec §5.6) — none under an absent parent.
     onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
@@ -208,22 +204,12 @@
       data-path={path}
       data-node-state={state}
       onfocusin={(e) => {
-        if (!isOwnFocus(e, path)) return;
-        st.setActive(path);
-        onHover(k);
+        if (isOwnFocus(e, path)) st.setActive(path);
       }}
-      onfocusout={() => onHover(null)}
     >
       <!-- Every row is one height — the chevron's and a button's (`min-h-7`) — so a row with an
            action sits in the same rhythm as one without (plan §5b V2). -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        data-mod-key={k}
-        class="tree-row relative flex min-h-7 items-center gap-2 px-1 rounded"
-        class:dep-highlight={hoveredKey === k}
-        onmouseenter={() => onHover(k)}
-        onmouseleave={() => onHover(null)}
-      >
+      <div class="tree-row flex min-h-7 items-center gap-2 px-1 rounded">
         {#if hasKids(n)}
           <!-- The mouse's way to open a branch; the keyboard's is ←/→ on the item. It never
                takes focus, so a click leaves the tab stop where it was. -->
@@ -344,8 +330,6 @@
           dependentSha1={n.installed ? ctx.enabledShaOf(k) : null}
           {ctx}
           {installingKeys}
-          {hoveredKey}
-          {onHover}
           {onInstall}
           {onAdd}
           {onJump}

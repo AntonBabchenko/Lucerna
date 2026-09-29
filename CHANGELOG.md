@@ -63,9 +63,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
   levels — the game won't start, and the mod may not work — and a panel above
   the list that names what stops the game, each with its fix and a way to fix
   them all. A row with a problem gives its reason and one fix under its name.
-  Red means the game won't start, everywhere; the highlight that links a mod
-  to its dependencies is a thin outline instead of an amber wash, so the text
-  under it stays readable.
+  Red means the game won't start, everywhere.
 - **Fixing before launch checks its own work.** The pre-launch dialog's main
   action fixes what it can — switches disabled dependencies on, installs
   missing ones with their own dependencies, applies a version fix that breaks
@@ -89,6 +87,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   problems panel. Branches fold, the count is per project rather than per file,
   the tree follows every switch on and off, and it works from the keyboard and
   with a screen reader. The author-claim badge and its hide button are gone.
+- **Pointing at a mod no longer highlights it everywhere it appears.** Its row
+  and its mentions in other mods' dependency lists used to light up together;
+  the arrow beside a dependency or a dependent still takes you to its row.
 - **The Overview shows the active profile's problems and pending updates**:
   mods that stop the game, or may not work, lead to the Installed tab's
   problem list, and the Mods card counts problems and updates.

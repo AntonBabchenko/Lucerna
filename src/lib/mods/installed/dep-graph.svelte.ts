@@ -58,7 +58,6 @@ export function createDepGraph(
   let graph = $state<DependencyGraph | null>(null);
   let graphLoading = $state(false);
   let expanded = $state<Set<string>>(new Set());
-  let hoveredKey = $state<string | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
 
@@ -213,7 +212,6 @@ export function createDepGraph(
   // ↗ jump works from both the dependency tree and the "Required by" list.
   async function jumpToMod(target: { source: ModSource; project_id: string }) {
     const key = `${target.source}:${target.project_id}`;
-    hoveredKey = key;
     const filtered = ctx.getFiltered();
     const idx = filtered.findIndex(
       (r) => modKey(r.installed.source, r.installed.project_id, r.installed.sha1) === key,
@@ -230,9 +228,7 @@ export function createDepGraph(
     const idx = filtered.findIndex((r) => r.installed.sha1 === sha1);
     const r = filtered[idx];
     if (!r) return false;
-    const key = modKey(r.installed.source, r.installed.project_id, sha1);
-    hoveredKey = key;
-    await showRow(idx, key);
+    await showRow(idx, modKey(r.installed.source, r.installed.project_id, sha1));
     return true;
   }
 
@@ -315,7 +311,6 @@ export function createDepGraph(
       $effect(() => {
         const id = getInstanceId();
         expanded = new Set();
-        hoveredKey = null;
         if (!id) {
           graph = null;
           return;
@@ -352,12 +347,6 @@ export function createDepGraph(
     },
     get expanded() {
       return expanded;
-    },
-    get hoveredKey() {
-      return hoveredKey;
-    },
-    set hoveredKey(v: string | null) {
-      hoveredKey = v;
     },
     get rootBySha() {
       return rootBySha;
