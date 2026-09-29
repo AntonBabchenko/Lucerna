@@ -13,7 +13,7 @@
   // bolting a fourth inline row icon onto an already-crowded row. Backups used
   // to be its own dialog (BackupsDialog, now retired): that content lives in
   // BackupsPanel so it can sit inside this shared chrome instead of nesting a
-  // second Modal (Modal's shared openStack only gives Escape to the topmost
+  // second Modal (the shared layer stack only gives Escape to the topmost
   // layer, so two stacked Modals for one logical surface would be wrong).
   //
   // Migration to another instance (world-migration spec §7, A12) lives here

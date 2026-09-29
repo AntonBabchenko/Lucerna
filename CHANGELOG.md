@@ -40,6 +40,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
   same file name made the update fail halfway, and a library you had switched
   off came back on. A library you already have is now left as it is, the same
   way installing a mod treats it, so a switched-off one stays off.
+- **Anything you open while a tour is running is shown clearly.** An
+  explanation, a menu or a dialog opened during one of the short tours used
+  to sit under the tour's dimming. The tour now steps aside while it is open
+  and comes back on the same step when you close it, and opening the
+  translations editor from the Overview tour starts the editor's own tour
+  straight away.
+- **Escape closes only the topmost thing.** Closing an explanation with
+  Escape no longer ends the tour behind it, and no longer closes the dialog it
+  was opened from.
 
 ## [0.25.0] — 2026-09-27
 

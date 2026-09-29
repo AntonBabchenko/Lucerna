@@ -544,8 +544,8 @@
        same predicate — and remounts fresh when it is free again, which is what
        makes "overview fires after the main tour" true. The mode gate matters too:
        in servers mode this panel is class:hidden, and a tour activating
-       inside display:none would set data-ctx-tour-active invisibly and be
-       burned unseen by the first Escape. The last two conjuncts are the
+       inside display:none would take the top of the layer stack invisibly and
+       be burned unseen by the first Escape. The last two conjuncts are the
        anchor's own render conditions: with no instance selected, or none of
        its mods installed, the localization row is not in the DOM, and an
        anchorless step degrades to a full-screen dim with a centred popover

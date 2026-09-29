@@ -12,13 +12,14 @@ vi.mock('$lib/ipc/bindings', () => ({
 import ContextualTour from '../src/lib/onboarding/ContextualTour.svelte';
 import { hasSeen, MANAGE_STEPS } from '../src/lib/onboarding/contextual-tours';
 import { tourState } from '../src/lib/onboarding/state.svelte';
+import { __resetLayers, insertTour, newLayerId } from '../src/lib/ui/layer-stack.svelte';
 import TourInReactiveHost from './fixtures/TourInReactiveHost.svelte';
 import TwoContextualTours from './fixtures/TwoContextualTours.svelte';
 
 describe('ContextualTour interplay with the main tour', () => {
   beforeEach(() => {
     localStorage.clear();
-    document.body.removeAttribute('data-ctx-tour-active');
+    __resetLayers();
     tourState.active = false;
     tourState.contextual = false;
     tourState.currentStep = 0;
@@ -111,12 +112,10 @@ describe('ContextualTour interplay with the main tour', () => {
   });
 
   it('a yielded tour ignores Escape instead of burning itself', async () => {
-    // The window keydown handler is NOT inside the {#if active} block — it
-    // stays registered after the tour yields to the main tour, which is the
-    // whole reason the handler early-returns on !active. Without that return,
-    // the Escape the user pressed for the MAIN tour also reaches this one and
-    // runs finish(), marking a tour seen that the user never got to see (the
-    // yield deliberately leaves it armed for its next visit).
+    // A yielded tour has left the layer stack, so the layer router never hands
+    // it the Escape the user pressed for the MAIN tour. If it did, finish()
+    // would mark a tour seen that the user never got to see (the yield
+    // deliberately leaves it armed for its next visit).
     render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
     await tick();
     expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
@@ -130,8 +129,8 @@ describe('ContextualTour interplay with the main tour', () => {
     expect(hasSeen('manage')).toBe(false);
   });
 
-  it('defers when another contextual tour is on screen', async () => {
-    document.body.setAttribute('data-ctx-tour-active', 'true');
+  it('defers when another contextual tour already runs on the page', async () => {
+    insertTour(newLayerId('other'), null, () => {});
     render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
     await tick();
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
