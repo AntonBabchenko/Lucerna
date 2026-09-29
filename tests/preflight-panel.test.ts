@@ -5,7 +5,7 @@
  *
  * i18n resolves to real EN strings in the test environment.
  */
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
@@ -659,5 +659,71 @@ describe('PreflightPanel — the planner', () => {
     );
     // There is no page to open without a project.
     expect(screen.queryByText('Open mod page')).toBeNull();
+  });
+});
+
+// Plan §5c V3 (screenshot n03b): the reason was `flex-1` — a basis of 0 — beside fixed-width offers,
+// so from 820 to 1280 px the offers took the line and left the reason a word per line. The reason
+// keeps a readable width; its fixes sit beside it while both fit and wrap under it, as one group,
+// when they do not. Only a browser lays this out: these pin the structure the re-render measures.
+describe('PreflightPanel — a narrow row', () => {
+  const ver = (n: string) => ({ version_number: n }) as never;
+
+  function offersRow(): HTMLElement {
+    const v: DepViolation = { ...outOfRange(), provider_name: 'Sodium' };
+    const plan = {
+      update_dependent: { version: ver('3.1'), breaks: [] },
+      change_provider: {
+        version: ver('0.5.11'),
+        direction: 'downgrade' as const,
+        breaks: ['Iris'],
+      },
+    };
+    render(PreflightPanel, {
+      props: {
+        report: { violations: [v] },
+        plans: new Map<string, PlanState>([
+          [`${v.dependent_sha1}:${v.dep_id}`, { status: 'ready', plan }],
+        ]),
+        onJumpToDependent: () => {},
+      },
+    });
+    return screen.getByTestId('preflight-row');
+  }
+
+  it('keeps the reason a readable width and wraps the fixes under it as one group', () => {
+    const row = offersRow();
+    const text = within(row).getByTestId('preflight-row-text');
+    const actions = within(row).getByTestId('preflight-row-actions');
+    // A basis of its own, never flex-1's 0 — and still free to shrink in a very narrow window.
+    expect(text.className).toMatch(/\bbasis-72\b/);
+    expect(text.className).toMatch(/\bgrow\b/);
+    expect(text.className).toMatch(/\bmin-w-0\b/);
+    expect(text.className).not.toMatch(/\bflex-1\b/);
+    // The reason and its fixes share one line that wraps…
+    const body = text.parentElement;
+    expect(actions.parentElement).toBe(body);
+    expect(body?.className).toMatch(/\bflex-wrap\b/);
+    // …and every fix rides in the one group, which wraps in itself.
+    expect(actions.className).toMatch(/\bflex-wrap\b/);
+    for (const id of [
+      'preflight-plan-dependent',
+      'preflight-plan-provider',
+      'preflight-plan-breaks',
+    ])
+      expect(actions.contains(screen.getByTestId(id))).toBe(true);
+    expect(actions.contains(screen.getByText('Choose version'))).toBe(true);
+  });
+
+  it("keeps the icon on the reason's first line and ↗ at the row's end", () => {
+    const row = offersRow();
+    // By baseline: the icon's line sits on the reason's first line, whether the fixes share that
+    // line or wrap under it.
+    expect(row.className).toMatch(/\bitems-baseline\b/);
+    const [icon, body, jump] = [...row.children];
+    expect(icon?.querySelector('svg')).not.toBeNull();
+    expect(body?.contains(within(row).getByTestId('preflight-row-text'))).toBe(true);
+    expect(jump).toBe(within(row).getByRole('button', { name: 'Show indium in the list' }));
+    expect(jump?.className).toMatch(/\bself-center\b/);
   });
 });

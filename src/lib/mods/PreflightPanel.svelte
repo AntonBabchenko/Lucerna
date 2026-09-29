@@ -14,6 +14,7 @@
     type PlanSide,
     type PlanState,
     planOffers,
+    type ViolationAction,
     violationAction,
     violationMessage,
   } from './violation-view';
@@ -173,151 +174,50 @@
         {#each violations as v, i (violationKey(v))}
           {@const key = violationKey(v)}
           {@const action = violationAction(v)}
+          <!-- A platform mismatch has no automatic fix (spec §6.4): another build of THIS mod,
+               as its row offers. -->
+          {@const openOwn =
+            showRowActions && v.kind === 'platform_mismatch'
+              ? (ownVersionOpener?.(v) ?? null)
+              : null}
+          {@const hasActions = showRowActions && (action !== 'none' || openOwn !== null)}
+          <!-- Three columns: the icon, the reason with its fixes, ↗. The row lines them up by
+               baseline, so the icon sits on the reason's first line whatever shares that line. The
+               reason keeps a readable width (`basis-72`); its fixes sit beside it while both fit
+               and wrap under it — one group, which wraps in itself — when they do not. `flex-1`
+               gave it a basis of 0: fixed-width offers took the line and left it a word per line
+               (plan §5c, screenshot n03b). -->
           <div
-            class="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-subtle last:border-b-0"
+            class="px-4 py-2.5 flex items-baseline gap-3 border-b border-border-subtle last:border-b-0"
             data-testid="preflight-row"
             data-violation-key={key}
           >
-            <Icon name="circleX" class="text-danger shrink-0" />
-            <span class="flex-1 min-w-0 text-sm text-primary"
-              >{violationMessage($t, v, nameOf(v))}</span
+            <span class="shrink-0 text-sm"
+              ><Icon name="circleX" class="inline-block align-middle text-danger" /></span
             >
-            {#if showRowActions}
-              {#if action === 'enable'}
-                <button
-                  type="button"
-                  class="btn-secondary btn-xs shrink-0"
-                  use:tooltip={{ text: $t('mods.preflight.enableTip'), describe: false }}
-                  onclick={() => onEnableProvider(v)}
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+              <span
+                class="min-w-0 grow basis-72 text-sm text-primary"
+                data-testid="preflight-row-text">{violationMessage($t, v, nameOf(v))}</span
+              >
+              {#if hasActions}
+                <div
+                  class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
+                  data-testid="preflight-row-actions"
                 >
-                  {$t('mods.preflight.enable')}
-                </button>
-              {:else if action === 'install'}
-                <button
-                  type="button"
-                  class="btn-secondary btn-xs shrink-0"
-                  use:tooltip={{ text: $t('mods.preflight.installTip'), describe: false }}
-                  onclick={() => onInstallMissing(v)}
-                >
-                  {$t('mods.preflight.install', { dep: nameOf(v) })}
-                </button>
-              {:else if action === 'plan'}
-                {@const plan = plans.get(key)}
-                {@const noteId = `${uid}-${i}-note`}
-                <!-- A version conflict (a range either way, or an incompatibility):
-                     «Fix…» asks the two-sided planner. A look that failed is not
-                     «no version» (spec §9); both sides empty is the honest dead end.
-                     What the planner said describes the buttons after it, so it is
-                     heard where focus lands, not only seen. -->
-                {#if busyKeys.has(key)}
-                  <Spinner size="sm" class="shrink-0 text-secondary" />
-                {:else if plan?.status === 'loading'}
-                  <Spinner
-                    size="sm"
-                    labelPlacement="right"
-                    label={$t('mods.preflight.planLooking')}
-                    class="shrink-0 text-secondary"
-                  />
-                {:else if deadEndKeys.has(key)}
-                  <span id={noteId} class="shrink-0 text-xs text-secondary">
-                    {$t('mods.preflight.noCompatible')}
-                  </span>
-                  {#if v.provider_project !== null}
-                    <button
-                      type="button"
-                      class="btn-link text-xs shrink-0"
-                      aria-describedby={noteId}
-                      onclick={() => onOpenModPage(v)}
-                    >
-                      {$t('mods.preflight.openModPage')}
-                    </button>
-                  {/if}
-                  <button
-                    type="button"
-                    class="btn-link text-xs shrink-0"
-                    aria-describedby={noteId}
-                    use:tooltip={{ text: $t('mods.preflight.findAlternativeTip'), describe: false }}
-                    onclick={() => onFindAlternative(v)}
-                  >
-                    {$t('mods.preflight.findAlternative')}
-                  </button>
-                {:else}
-                  {#if plan?.status === 'ready'}
-                    {#each planOffers($t, v, plan.plan, nameOf(v)) as o (o.side)}
-                      {@const breaksId = `${uid}-${i}-${o.side}-breaks`}
-                      <!-- What a change would break is said beside it and heard with it;
-                           it is never the default, and it takes its own click (D8). -->
-                      <button
-                        type="button"
-                        class="{o.primary ? 'btn-primary' : 'btn-secondary'} btn-xs shrink-0"
-                        data-testid="preflight-plan-{o.side}"
-                        aria-describedby={o.breaks.length > 0 ? breaksId : undefined}
-                        onclick={() => onApplyPlan(v, o.side)}
-                      >
-                        {o.label}
-                      </button>
-                      {#if o.breaks.length > 0}
-                        <span
-                          id={breaksId}
-                          class="shrink-0 text-xs text-warning-text"
-                          data-testid="preflight-plan-breaks"
-                        >
-                          {$t('mods.preflight.planBreaks', { names: o.breaks.join(', ') })}
-                        </span>
-                      {/if}
-                    {/each}
-                  {:else}
-                    {#if plan?.status === 'failed'}
-                      <span id={noteId} class="min-w-0 text-xs text-secondary">
-                        {$t('mods.preflight.planFailed', { reason: plan.message })}
-                      </span>
-                    {/if}
-                    <button
-                      type="button"
-                      class="btn-secondary btn-xs shrink-0"
-                      aria-describedby={plan?.status === 'failed' ? noteId : undefined}
-                      onclick={() => onPlan(v)}
-                    >
-                      {$t('mods.preflight.fixPlan')}
-                    </button>
-                  {/if}
-                  <!-- The manual path, for a range only: for an incompatibility the
-                       picker's "fits range" marks exactly the builds that clash. -->
-                  {#if isRangeRemediable(v) && v.provider_project !== null}
-                    <button
-                      type="button"
-                      class="btn-link text-xs shrink-0"
-                      use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
-                      onclick={() => onChooseVersion(v)}
-                    >
-                      {$t('mods.preflight.chooseVersion')}
-                    </button>
-                  {/if}
-                {/if}
-              {:else if v.kind === 'platform_mismatch'}
-                <!-- No automatic fix (spec §6.4): another build of THIS mod, as its row offers. -->
-                {@const openOwn = ownVersionOpener?.(v) ?? null}
-                {#if openOwn}
-                  <button
-                    type="button"
-                    class="btn-secondary btn-xs shrink-0"
-                    use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
-                    onclick={openOwn}
-                  >
-                    {$t('mods.preflight.chooseVersion')}
-                  </button>
-                {/if}
+                  {@render rowActions(v, i, key, action, openOwn)}
+                </div>
               {/if}
-              {#if onJumpToDependent}
-                <button
-                  type="button"
-                  class="btn-icon btn-icon-sm shrink-0"
-                  aria-label={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
-                  use:tooltip={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
-                  onclick={() => onJumpToDependent?.(v)}
-                  ><Icon name="arrowUpRight" size={14} /></button
-                >
-              {/if}
+            </div>
+            {#if showRowActions && onJumpToDependent}
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm shrink-0 self-center"
+                aria-label={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
+                use:tooltip={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
+                onclick={() => onJumpToDependent?.(v)}
+                ><Icon name="arrowUpRight" size={14} /></button
+              >
             {/if}
           </div>
         {/each}
@@ -325,3 +225,134 @@
     {/if}
   </div>
 {/if}
+
+<!-- What fixes one row, in the order it offers them. -->
+{#snippet rowActions(
+  v: DepViolation,
+  i: number,
+  key: string,
+  action: ViolationAction,
+  openOwn: (() => void) | null,
+)}
+  {#if action === 'enable'}
+    <button
+      type="button"
+      class="btn-secondary btn-xs shrink-0"
+      use:tooltip={{ text: $t('mods.preflight.enableTip'), describe: false }}
+      onclick={() => onEnableProvider(v)}
+    >
+      {$t('mods.preflight.enable')}
+    </button>
+  {:else if action === 'install'}
+    <button
+      type="button"
+      class="btn-secondary btn-xs shrink-0"
+      use:tooltip={{ text: $t('mods.preflight.installTip'), describe: false }}
+      onclick={() => onInstallMissing(v)}
+    >
+      {$t('mods.preflight.install', { dep: nameOf(v) })}
+    </button>
+  {:else if action === 'plan'}
+    {@const plan = plans.get(key)}
+    {@const noteId = `${uid}-${i}-note`}
+    <!-- A version conflict (a range either way, or an incompatibility):
+         «Fix…» asks the two-sided planner. A look that failed is not
+         «no version» (spec §9); both sides empty is the honest dead end.
+         What the planner said describes the buttons after it, so it is
+         heard where focus lands, not only seen. -->
+    {#if busyKeys.has(key)}
+      <Spinner size="sm" class="shrink-0 text-secondary" />
+    {:else if plan?.status === 'loading'}
+      <Spinner
+        size="sm"
+        labelPlacement="right"
+        label={$t('mods.preflight.planLooking')}
+        class="shrink-0 text-secondary"
+      />
+    {:else if deadEndKeys.has(key)}
+      <span id={noteId} class="shrink-0 text-xs text-secondary">
+        {$t('mods.preflight.noCompatible')}
+      </span>
+      {#if v.provider_project !== null}
+        <button
+          type="button"
+          class="btn-link text-xs shrink-0"
+          aria-describedby={noteId}
+          onclick={() => onOpenModPage(v)}
+        >
+          {$t('mods.preflight.openModPage')}
+        </button>
+      {/if}
+      <button
+        type="button"
+        class="btn-link text-xs shrink-0"
+        aria-describedby={noteId}
+        use:tooltip={{ text: $t('mods.preflight.findAlternativeTip'), describe: false }}
+        onclick={() => onFindAlternative(v)}
+      >
+        {$t('mods.preflight.findAlternative')}
+      </button>
+    {:else}
+      {#if plan?.status === 'ready'}
+        {#each planOffers($t, v, plan.plan, nameOf(v)) as o (o.side)}
+          {@const breaksId = `${uid}-${i}-${o.side}-breaks`}
+          <!-- What a change would break is said beside it and heard with it;
+               it is never the default, and it takes its own click (D8). -->
+          <button
+            type="button"
+            class="{o.primary ? 'btn-primary' : 'btn-secondary'} btn-xs shrink-0"
+            data-testid="preflight-plan-{o.side}"
+            aria-describedby={o.breaks.length > 0 ? breaksId : undefined}
+            onclick={() => onApplyPlan(v, o.side)}
+          >
+            {o.label}
+          </button>
+          {#if o.breaks.length > 0}
+            <span
+              id={breaksId}
+              class="shrink-0 text-xs text-warning-text"
+              data-testid="preflight-plan-breaks"
+            >
+              {$t('mods.preflight.planBreaks', { names: o.breaks.join(', ') })}
+            </span>
+          {/if}
+        {/each}
+      {:else}
+        {#if plan?.status === 'failed'}
+          <span id={noteId} class="min-w-0 text-xs text-secondary">
+            {$t('mods.preflight.planFailed', { reason: plan.message })}
+          </span>
+        {/if}
+        <button
+          type="button"
+          class="btn-secondary btn-xs shrink-0"
+          aria-describedby={plan?.status === 'failed' ? noteId : undefined}
+          onclick={() => onPlan(v)}
+        >
+          {$t('mods.preflight.fixPlan')}
+        </button>
+      {/if}
+      <!-- The manual path, for a range only: for an incompatibility the
+           picker's "fits range" marks exactly the builds that clash. -->
+      {#if isRangeRemediable(v) && v.provider_project !== null}
+        <button
+          type="button"
+          class="btn-link text-xs shrink-0"
+          use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
+          onclick={() => onChooseVersion(v)}
+        >
+          {$t('mods.preflight.chooseVersion')}
+        </button>
+      {/if}
+    {/if}
+  {:else if openOwn}
+    <button
+      type="button"
+      class="btn-secondary btn-xs shrink-0"
+      use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
+      onclick={openOwn}
+    >
+      {$t('mods.preflight.chooseVersion')}
+    </button>
+  {/if}
+{/snippet}
