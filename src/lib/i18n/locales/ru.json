@@ -964,6 +964,7 @@
       "install": "Установить {dep}",
       "enable": "Включить",
       "installSearchFallback": "Не удалось определить {dep} автоматически — открываю поиск",
+      "notFound": "Не удалось определить {dep} автоматически",
       "dependentGone": "{name} больше не установлен",
       "chooseVersion": "Выбрать версию",
       "fixPlan": "Исправить…",

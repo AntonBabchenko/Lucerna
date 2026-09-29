@@ -1599,6 +1599,7 @@ export type TranslationKey =
   | 'mods.preflight.installedVersion'
   | 'mods.preflight.missing'
   | 'mods.preflight.noCompatible'
+  | 'mods.preflight.notFound'
   | 'mods.preflight.openModPage'
   | 'mods.preflight.optionalOutOfRange'
   | 'mods.preflight.outOfRange'

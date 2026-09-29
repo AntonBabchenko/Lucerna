@@ -50,6 +50,11 @@ describe('+page pre-flight wiring', () => {
     expect(src).not.toContain('remediateAll');
   });
 
+  it('shows the gate why the steps a partial repair could not do failed', () => {
+    const body = functionBody('async function onGateFixAndLaunch(');
+    expect(body).toContain('reasons: outcome.reasons');
+  });
+
   it('gives the gate the profile, so it can name dependencies from the name store', () => {
     const gate = src.slice(
       src.indexOf('<PreflightGateDialog'),

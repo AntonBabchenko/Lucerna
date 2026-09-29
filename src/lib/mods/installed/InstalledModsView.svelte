@@ -494,7 +494,7 @@
     ) {
       return;
     }
-    pushWarning(get(t)('mods.browse.toastInstallFailed'), r.error ? [formatError(r.error)] : []);
+    pushWarning(get(t)('mods.browse.toastInstallFailed'), r.error ? [modWriteReason(r.error)] : []);
   }
 
   // One-click install of a missing required dependency from the pre-flight
@@ -596,8 +596,9 @@
   }
 
   // «Fix all (N)»: the Play gate's repair (fix-all.ts), then a FRESH pre-flight
-  // — only it says which rows are gone — and one toast «Fixed N of M». The
-  // profile it ran for is captured and named when the user has moved on.
+  // — only it says which rows are gone — and one toast «Fixed N of M», with why
+  // the steps that failed failed when rows are left. The profile it ran for is
+  // captured and named when the user has moved on.
   let fixAllBusy = $state(false);
   async function runFixAll(): Promise<void> {
     const id = instanceId;
@@ -606,7 +607,7 @@
     if (!id || !report || fixAllBusy) return;
     fixAllBusy = true;
     try {
-      const { attempted } = await fixAll(id, report);
+      const { attempted, reasons } = await fixAll(id, report);
       const after = await preflight.check(id);
       deps.invalidateGraph();
       await data.refresh();
@@ -619,7 +620,7 @@
       const fixed = countFixed(attempted, after.data);
       const title = get(t)('mods.preflight.gateFixed', { fixed, total: attempted.length });
       if (fixed === attempted.length) pushSuccess(title, where);
-      else pushWarning(title, where);
+      else pushWarning(title, [...reasons, ...where]);
     } catch (e) {
       // The bridge failed on the re-check (the repair's own steps never throw):
       // what is left is unknown until the next pre-flight.
@@ -800,7 +801,8 @@
       ) {
         return;
       }
-      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(res.error)]);
+      // A refused switch says the profile is busy — never that the game runs (plan A9).
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [modWriteReason(res.error)]);
     } else {
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name }));
     }

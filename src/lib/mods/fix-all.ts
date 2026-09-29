@@ -1,3 +1,5 @@
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import {
   commands,
   type DepViolation,
@@ -6,8 +8,8 @@ import {
   type PreflightReport,
 } from '$lib/ipc/bindings';
 import { updateMod } from '$lib/tasks/adapters/mod-install';
-import { depProjectOf } from './dep-names.svelte';
-import { enableModsUnguarded } from './mod-ops.svelte';
+import { depNameOf, depProjectOf } from './dep-names.svelte';
+import { enableModsUnguarded, modWriteReason } from './mod-ops.svelte';
 import { decideLaunch, hasBlocking, violationKey } from './preflight.svelte';
 import { type ViolationAction, violationAction } from './violation-view';
 
@@ -27,6 +29,14 @@ export type FixAllResult = {
    * a dependency can install and still not satisfy it.
    */
   applied: DepViolation[];
+  /**
+   * Why the steps that failed failed, each reason once, worded for the user — a
+   * busy profile as busy (`modWriteReason`). «Fixed 0 of 3» alone cannot tell a
+   * held profile from three unrelated failures. A row the repair had no fix for
+   * (no build breaks nothing, an unidentified jar) is no failed step and gives
+   * none: the row that stays says what is wrong.
+   */
+  reasons: string[];
 };
 
 type PreflightResult = Parameters<typeof decideLaunch>[0];
@@ -36,10 +46,11 @@ type PreflightResult = Parameters<typeof decideLaunch>[0];
  * the disabled mods they need), install missing dependencies (each with its
  * own required closure), then the planner's preferred version switch when it
  * breaks nothing. Never throws for a failed step: a step whose call fails, or
- * whose bridge call throws, is not applied, and the rest still run.
+ * whose bridge call throws, is not applied — its reason is kept — and the rest
+ * still run.
  */
 export async function fixAll(instanceId: string, report: PreflightReport): Promise<FixAllResult> {
-  const out: FixAllResult = { attempted: [], applied: [] };
+  const out: FixAllResult = { attempted: [], applied: [], reasons: [] };
   // A self-completing pack still fetching its own files: its rows are advisory
   // (plan A17) and the pack brings those files itself — installing them here
   // would put a second jar beside the one it fetches.
@@ -49,7 +60,7 @@ export async function fixAll(instanceId: string, report: PreflightReport): Promi
   await enableDisabled(instanceId, rows('enable'), out);
   await installMissing(instanceId, rows('install'), out);
   await applyPlans(instanceId, rows('plan'), out);
-  return out;
+  return { ...out, reasons: [...new Set(out.reasons)] };
 }
 
 async function enableDisabled(instanceId: string, rows: DepViolation[], out: FixAllResult) {
@@ -57,7 +68,8 @@ async function enableDisabled(instanceId: string, rows: DepViolation[], out: Fix
   // One call for every jar the rows name (plan A5): the impact adds the disabled
   // mods they need and orders the flip; a jar several rows name goes on once.
   const providers = [...new Set(rows.flatMap((v) => (v.provider_sha1 ? [v.provider_sha1] : [])))];
-  const { enabled } = await enableModsUnguarded(instanceId, providers);
+  const { enabled, reasons } = await enableModsUnguarded(instanceId, providers);
+  out.reasons.push(...reasons);
   const on = new Set(enabled);
   for (const v of rows) {
     out.attempted.push(v);
@@ -73,14 +85,18 @@ async function installMissing(instanceId: string, rows: DepViolation[], out: Fix
     out.attempted.push(v);
     let installed = byDepId.get(v.dep_id);
     if (installed === undefined) {
-      installed = await attempt(() => installDependency(instanceId, v), false);
+      installed = await attempt(() => installDependency(instanceId, v, out.reasons), false, out);
       byDepId.set(v.dep_id, installed);
     }
     if (installed) out.applied.push(v);
   }
 }
 
-async function installDependency(instanceId: string, v: DepViolation): Promise<boolean> {
+async function installDependency(
+  instanceId: string,
+  v: DepViolation,
+  reasons: string[],
+): Promise<boolean> {
   // The project, when the Installed tab resolved this pair's name earlier —
   // nothing here asks the network before Play. Otherwise the bare mod-id, which
   // the backend resolves through the dependent's own platform metadata.
@@ -92,20 +108,30 @@ async function installDependency(instanceId: string, v: DepViolation): Promise<b
       project.source,
       project.project_id,
     );
-    return r.status === 'ok' || alreadyThere(r.error);
+    return r.status === 'ok' || settled(r.error, reasons);
   }
   const r = await commands.modsInstallMissingRequired(instanceId, v.dependent_sha1, v.dep_id);
-  if (r.status === 'error') return alreadyThere(r.error);
+  if (r.status === 'error') return settled(r.error, reasons);
+  if (r.data.kind === 'installed') return true;
   // `open_search`: the backend could not tell which project provides the id, so
   // it installed nothing.
-  return r.data.kind === 'installed';
+  const dep = depNameOf(instanceId, v.dependent_sha1, v.dep_id) ?? v.dep_id;
+  reasons.push(get(t)('mods.preflight.notFound', { dep }));
+  return false;
 }
 
-// The profile already lists that project — an earlier step of this repair
-// brought it under another mod-id, or the user did meanwhile. There is nothing
-// to install, and a second copy would be the real fault; whether it satisfies
-// the row is the re-run pre-flight's call, like every step's.
-const alreadyThere = (e: IpcError) => e.kind === 'mods_already_installed';
+/**
+ * A failed install call. The profile already listing that project is no
+ * failure — an earlier step of this repair brought it under another mod-id, or
+ * the user did meanwhile: there is nothing to install, and a second copy would
+ * be the real fault; whether it satisfies the row is the re-run pre-flight's
+ * call, like every step's. Anything else failed, and says why.
+ */
+function settled(e: IpcError, reasons: string[]): boolean {
+  if (e.kind === 'mods_already_installed') return true;
+  reasons.push(modWriteReason(e));
+  return false;
+}
 
 async function applyPlans(instanceId: string, rows: DepViolation[], out: FixAllResult) {
   // Jars this repair has tried to switch. A later row naming one was read
@@ -117,50 +143,60 @@ async function applyPlans(instanceId: string, rows: DepViolation[], out: FixAllR
     out.attempted.push(v);
     if (touched.has(v.dependent_sha1) || (v.provider_sha1 && touched.has(v.provider_sha1)))
       continue;
-    const switched = await attempt(async () => {
-      const plan = await preferredSwitch(instanceId, v);
-      if (!plan) return false;
-      touched.add(plan.oldSha1);
-      // Named like every other update: after the build it becomes.
-      return (
-        (await updateMod(instanceId, plan.version.name, plan.oldSha1, plan.version)).status === 'ok'
-      );
-    }, false);
+    const switched = await attempt(
+      async () => {
+        const plan = await preferredSwitch(instanceId, v);
+        if (plan.kind === 'failed') out.reasons.push(plan.reason);
+        if (plan.kind !== 'switch') return false;
+        touched.add(plan.oldSha1);
+        // Named like every other update: after the build it becomes.
+        const r = await updateMod(instanceId, plan.version.name, plan.oldSha1, plan.version);
+        if (r.status === 'ok') return true;
+        out.reasons.push(modWriteReason(r.error));
+        return false;
+      },
+      false,
+      out,
+    );
     if (switched) out.applied.push(v);
   }
 }
 
-/** The planner's preferred switch for `v`, or null when it offers none this repair may take. */
-async function preferredSwitch(
-  instanceId: string,
-  v: DepViolation,
-): Promise<{ oldSha1: string; version: ModVersion } | null> {
+type PreferredSwitch =
+  | { kind: 'switch'; oldSha1: string; version: ModVersion }
+  /** Nothing this repair may take: no build either side, or only one that breaks another mod. */
+  | { kind: 'none' }
+  /** The planner could not ask the platform — never "no version". */
+  | { kind: 'failed'; reason: string };
+
+/** The planner's preferred switch for `v`, if it offers one this repair may take. */
+async function preferredSwitch(instanceId: string, v: DepViolation): Promise<PreferredSwitch> {
   const plan = await commands.modsPlanVersionFix(instanceId, v.dependent_sha1, v.dep_id);
-  // A planner that could not ask the platform offers nothing — never "no version".
-  if (plan.status !== 'ok') return null;
+  if (plan.status !== 'ok') return { kind: 'failed', reason: modWriteReason(plan.error) };
   const { update_dependent: dependent, change_provider: provider } = plan.data;
   // A newer build of the dependent first (spec D8): it changes no other mod.
-  if (dependent) return { oldSha1: v.dependent_sha1, version: dependent.version };
+  if (dependent) return { kind: 'switch', oldSha1: v.dependent_sha1, version: dependent.version };
   // Never a change that breaks another mod without an explicit click (D8), and
   // never beside a provider the registry does not track — that would install a
   // second jar.
   if (provider && provider.breaks.length === 0 && v.provider_sha1) {
-    return { oldSha1: v.provider_sha1, version: provider.version };
+    return { kind: 'switch', oldSha1: v.provider_sha1, version: provider.version };
   }
-  return null;
+  return { kind: 'none' };
 }
 
 /**
  * One repair step. A throw is a bridge failure with no Result to read: the step
- * is not applied — never read as success — and the repair goes on; the re-run
- * pre-flight reports what is left either way.
+ * is not applied — never read as success — its message is a reason like any
+ * failure's, and the repair goes on; the re-run pre-flight reports what is left
+ * either way.
  */
-async function attempt<T>(step: () => Promise<T>, failed: T): Promise<T> {
+async function attempt<T>(step: () => Promise<T>, failed: T, out: FixAllResult): Promise<T> {
   try {
     return await step();
   } catch (e) {
-    // The row that stays tells the user; the detail is for whoever debugs it.
     console.warn('[fix-all] a repair step failed:', e);
+    out.reasons.push(e instanceof Error ? e.message : String(e));
     return failed;
   }
 }
@@ -181,20 +217,21 @@ const nameKey = (v: DepViolation): string => `${v.dependent_name}\u0000${v.dep_i
 
 export type RepairOutcome =
   | { kind: 'launch'; checked: boolean }
-  | { kind: 'stay'; report: PreflightReport; fixed: number; total: number };
+  | { kind: 'stay'; report: PreflightReport; fixed: number; total: number; reasons: string[] };
 
 /**
  * The Play gate's loop (spec D5): repair, re-run the pre-flight, decide. Clean →
- * launch. Still blocking → stay on the rows that remain, with «Fixed N of M».
- * A re-check that cannot run launches like any unchecked Play (maintainer rule:
- * a failed check never blocks) — `checked: false`, so the page can say so.
+ * launch. Still blocking → stay on the rows that remain, with «Fixed N of M» and
+ * why the steps that failed failed. A re-check that cannot run launches like
+ * any unchecked Play (maintainer rule: a failed check never blocks) —
+ * `checked: false`, so the page can say so.
  */
 export async function repairForLaunch(
   instanceId: string,
   report: PreflightReport,
   recheck: () => Promise<PreflightResult>,
 ): Promise<RepairOutcome> {
-  const { attempted } = await fixAll(instanceId, report);
+  const { attempted, reasons } = await fixAll(instanceId, report);
   const decision = decideLaunch(await recheck());
   if (decision.kind !== 'gate') return { kind: 'launch', checked: decision.kind === 'launch' };
   return {
@@ -202,5 +239,6 @@ export async function repairForLaunch(
     report: decision.report,
     fixed: countFixed(attempted, decision.report),
     total: attempted.length,
+    reasons,
   };
 }

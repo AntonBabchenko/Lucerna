@@ -513,8 +513,9 @@
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
   let gateReport = $state<PreflightReport | null>(null);
   let gateBusy = $state(false);
-  // «Fixed N of M» after a repair that left rows behind; null until one did.
-  let gateFixed = $state<{ fixed: number; total: number } | null>(null);
+  // «Fixed N of M» after a repair that left rows behind, with why the steps
+  // that failed failed; null until one did.
+  let gateFixed = $state<{ fixed: number; total: number; reasons: readonly string[] } | null>(null);
   // The launch the gate interrupted, so its three buttons resume the RIGHT one.
   // Play, Quick Play and Quick Join all reach the gate, so this can no longer be
   // the single `doLaunch` constant it used to be. Plain state, not `$state`: it
@@ -1398,7 +1399,7 @@
     }
     if (outcome.kind === 'stay') {
       gateReport = outcome.report;
-      gateFixed = { fixed: outcome.fixed, total: outcome.total };
+      gateFixed = { fixed: outcome.fixed, total: outcome.total, reasons: outcome.reasons };
       return;
     }
     preflightUnknown = !outcome.checked;

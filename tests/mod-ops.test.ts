@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
+import { formatError } from '$lib/ipc/format-error';
 
 const h = vi.hoisted(() => ({
   modsRemovalImpact: vi.fn(),
@@ -259,6 +260,7 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
     await expect(enableModsUnguarded('inst', ['i', 's'])).resolves.toEqual({
       enabled: ['f', 's', 'i'],
       failed: [],
+      reasons: [],
     });
     // One impact call for every target (plan A5).
     expect(h.modsEnableImpact.mock.calls).toEqual([['inst', ['i', 's']]]);
@@ -277,8 +279,22 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
     await expect(enableModsUnguarded('inst', ['i'])).resolves.toEqual({
       enabled: [],
       failed: ['f', 'i'],
+      // The untried step failed for the same reason: said once.
+      reasons: [formatError(ioErr.error)],
     });
     expect(flipped(h.modsEnable)).toEqual(['f']);
+  });
+
+  // The repair says why a step failed («Fixed 0 of N» alone cannot tell a held profile from
+  // unrelated failures) — a refused flip in the busy-profile wording, never «the game is running».
+  it('says why a flip failed — a busy profile as busy', async () => {
+    h.modsEnableImpact.mockResolvedValue(ok({ requirements: [], order: ['i'] }));
+    h.modsEnable.mockResolvedValueOnce(busyErr);
+    await expect(enableModsUnguarded('inst', ['i'])).resolves.toEqual({
+      enabled: [],
+      failed: ['i'],
+      reasons: [BUSY],
+    });
   });
 
   it('with no order to follow — the check could not run — every target gets its try', async () => {
@@ -288,6 +304,7 @@ describe('unguarded enable — the repair, whose click is the consent (plan A13)
     await expect(enableModsUnguarded('inst', ['a', 'b'])).resolves.toEqual({
       enabled: ['b'],
       failed: ['a'],
+      reasons: [formatError(ioErr.error)],
     });
     expect(screen.queryByRole('dialog')).toBeNull();
   });

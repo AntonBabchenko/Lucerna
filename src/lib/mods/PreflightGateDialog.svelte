@@ -26,8 +26,9 @@
     // resolved earlier, never a network call between the user and Play.
     instanceId?: string | null;
     busy?: boolean;
-    // «Fixed N of M» after a repair that left rows behind; null before one.
-    fixed?: { fixed: number; total: number } | null;
+    // «Fixed N of M» after a repair that left rows behind, with why the steps
+    // that failed failed (each once); null before one.
+    fixed?: { fixed: number; total: number; reasons: readonly string[] } | null;
     onFixAndLaunch: () => void;
     onLaunchAnyway: () => void;
     onCancel: () => void;
@@ -78,11 +79,14 @@
     class="flex flex-col gap-3 mb-4 outline-none"
     data-testid="preflight-gate-body"
   >
-    <!-- Announced: focus sits on this body while the repair runs. -->
+    <!-- Announced: focus sits on this body while the repair runs. «Fixed 0 of N»
+         alone cannot tell a held profile from unrelated failures, so the reasons
+         follow in the same announcement. -->
     <StatusMessage
       message={fixed
         ? $t('mods.preflight.gateFixed', { fixed: fixed.fixed, total: fixed.total })
         : null}
+      details={fixed?.reasons ?? []}
       tone="info"
       dataTestid="preflight-gate-fixed"
     />

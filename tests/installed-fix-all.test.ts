@@ -1,10 +1,11 @@
 /**
  * «Fix all (N)» on the Installed tab's «What stops the game» panel runs the same repair as the
  * Play gate (fix-all.ts), then a FRESH pre-flight — only it says which rows are gone — and says
- * «Fixed N of M» in one toast.
+ * «Fixed N of M» in one toast — with why the steps that failed failed.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatError } from '$lib/ipc/format-error';
 
 const alpha = vi.hoisted(() => ({
   filename: 'alpha.jar',
@@ -123,18 +124,18 @@ describe('«Fix all» on the Installed panel', () => {
     await waitFor(() => expect(screen.queryByTestId('preflight-panel')).toBeNull());
   });
 
-  it('a row the re-check still reports is not counted as fixed', async () => {
+  it('a row the re-check still reports is not counted as fixed — and the toast says why', async () => {
     h.instanceDependencyPreflight.mockResolvedValue({
       status: 'ok',
       data: { violations: [balmDisabled] },
     });
-    h.modsEnable.mockResolvedValue({
-      status: 'error',
-      error: { kind: 'io', path: 'mods', details: 'denied' },
-    });
+    const denied = { kind: 'io' as const, path: 'mods', details: 'denied' };
+    h.modsEnable.mockResolvedValue({ status: 'error', error: denied });
     render(InstalledModsView, { props: props('fix-all-partial') });
     await fireEvent.click(await screen.findByRole('button', { name: 'Fix all (1)' }));
-    await waitFor(() => expect(h.pushWarning).toHaveBeenCalledWith('Fixed 0 of 1', []));
+    await waitFor(() =>
+      expect(h.pushWarning).toHaveBeenCalledWith('Fixed 0 of 1', [formatError(denied)]),
+    );
     expect(h.pushSuccess).not.toHaveBeenCalled();
   });
 });

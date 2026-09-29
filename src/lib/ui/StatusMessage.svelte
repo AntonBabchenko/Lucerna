@@ -3,6 +3,7 @@
 
   let {
     message,
+    details = [],
     tone = 'danger',
     live,
     withIcon = false,
@@ -16,6 +17,12 @@
      * empty, so a later null→text transition is announced (aria-atomic).
      */
     message: string | null;
+    /**
+     * Lines that explain the message (why a repair left something behind),
+     * listed under it inside the same region — one announcement. Shown only
+     * with a message.
+     */
+    details?: readonly string[];
     /** danger → role=alert; warning / info / success → role=status. success is the "set" / ok tone (DESIGN §10). */
     tone?: 'danger' | 'warning' | 'info' | 'success';
     /** Defaults to assertive for danger, polite for advisory tones. */
@@ -70,5 +77,12 @@
         {message}
       {/if}
     </p>
+    {#if details.length > 0}
+      <ul class="mt-1 list-disc pl-5 text-xs {toneClass}">
+        {#each details as line}
+          <li>{line}</li>
+        {/each}
+      </ul>
+    {/if}
   {/if}
 </div>

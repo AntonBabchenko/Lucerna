@@ -265,4 +265,20 @@ describe('«Fix…» on a version conflict', () => {
     });
     expect(within(p).getByRole('button', { name: 'Fix…' })).toBeTruthy();
   });
+
+  // A mod write takes the SHARED claim: it is refused only while a long operation holds the
+  // profile, never because the game runs (plan A9).
+  it('a switch the profile refuses says it is busy — never that the game runs', async () => {
+    h.modsPlanVersionFix.mockResolvedValue(bothSides());
+    h.updateMod.mockResolvedValue({ status: 'error', error: { kind: 'instance_busy' } });
+    render(InstalledModsView, { props: props('plan-busy') });
+    const p = await panel();
+    await fireEvent.click(within(p).getByRole('button', { name: 'Fix…' }));
+    await fireEvent.click(await within(p).findByTestId('preflight-plan-dependent'));
+    await waitFor(() =>
+      expect(h.pushWarning).toHaveBeenCalledWith('Mod install failed', [
+        'Another operation — such as a modpack update, a migration or a clone — is using this profile. Try again once it finishes.',
+      ]),
+    );
+  });
 });

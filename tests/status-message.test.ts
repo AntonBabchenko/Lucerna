@@ -84,4 +84,23 @@ describe('StatusMessage', () => {
     expect(region.textContent).toContain('Saved');
     expect(region.querySelector('p')?.className).toContain('text-success');
   });
+
+  // A message and the lines that explain it («Fixed 0 of 2» and why) are ONE announcement: the
+  // lines sit inside the same atomic region, under the message — and never without it.
+  it('carries detail lines inside the region, under the message', () => {
+    render(StatusMessage, {
+      props: { message: 'Fixed 0 of 2', tone: 'info', details: ['Busy', 'Offline'] },
+    });
+    const region = screen.getByRole('status');
+    expect(region.querySelector('p')?.textContent?.trim()).toBe('Fixed 0 of 2');
+    const lines = [...region.querySelectorAll('li')].map((li) => li.textContent?.trim());
+    expect(lines).toEqual(['Busy', 'Offline']);
+  });
+
+  it('shows no detail lines without a message — an idle region stays empty', () => {
+    render(StatusMessage, { props: { message: null, tone: 'info', details: ['Busy'] } });
+    const region = screen.getByRole('status');
+    expect(region.textContent?.trim()).toBe('');
+    expect(region.classList.contains('absolute')).toBe(true);
+  });
 });

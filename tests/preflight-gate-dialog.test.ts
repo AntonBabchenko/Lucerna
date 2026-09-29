@@ -135,9 +135,22 @@ describe('PreflightGateDialog', () => {
 
   it('says how much a partial repair fixed', () => {
     const { getByTestId } = render(PreflightGateDialog, {
-      props: { ...defaultProps, fixed: { fixed: 1, total: 3 } },
+      props: { ...defaultProps, fixed: { fixed: 1, total: 3, reasons: [] } },
     });
     expect(getByTestId('preflight-gate-fixed').textContent?.trim()).toBe('Fixed 1 of 3');
+  });
+
+  // «Fixed 0 of 2» alone cannot tell a held profile from unrelated failures.
+  it('says why the steps that failed failed, under «Fixed N of M», and in the same announcement', () => {
+    const busy =
+      'Another operation — such as a modpack update, a migration or a clone — is using this profile. Try again once it finishes.';
+    const { getByTestId } = render(PreflightGateDialog, {
+      props: { ...defaultProps, fixed: { fixed: 0, total: 2, reasons: [busy, 'No connection'] } },
+    });
+    const region = getByTestId('preflight-gate-fixed');
+    expect(region.querySelector('p')?.textContent?.trim()).toBe('Fixed 0 of 2');
+    const lines = [...region.querySelectorAll('li')].map((li) => li.textContent?.trim());
+    expect(lines).toEqual([busy, 'No connection']);
   });
 
   it('parks focus on the dialog body when the repair starts (DESIGN.md §8)', async () => {
