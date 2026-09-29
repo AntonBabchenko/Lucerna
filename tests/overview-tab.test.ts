@@ -365,6 +365,35 @@ describe('OverviewTab', () => {
   });
 });
 
+// Plan §5b V1 (screenshot 11, pre-existing F11): the header said «Ready to play» right above
+// «5 mods will stop the game from starting». The pill follows the page pre-flight the attention
+// item reads: blocking → not ready; not answered yet (`problemCount` null, "—") → no claim.
+describe('OverviewTab readiness pill', () => {
+  const pill = () => screen.getByTestId('overview-status-pill');
+
+  it('is not «Ready to play» while mods stop the game', () => {
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, blockingModsCount: 5, problemCount: 5 },
+    });
+    expect(pill().getAttribute('data-status')).toBe('mods_blocking');
+    expect(screen.getByTestId('overview-attention-mods_blocking')).toBeTruthy();
+  });
+
+  it('claims nothing about readiness before the pre-flight has answered', () => {
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, problemCount: null },
+    });
+    expect(pill().getAttribute('data-status')).toBe('mods_unknown');
+  });
+
+  it('is ready once the pre-flight found nothing that stops the game', () => {
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 1, problemCount: 1 },
+    });
+    expect(pill().getAttribute('data-status')).toBe('ready');
+  });
+});
+
 describe('OverviewTab attention dismiss', () => {
   it('hides the panel and shows the restore triangle when collapsed', () => {
     attentionCollapse.setCollapsed('i1', true);

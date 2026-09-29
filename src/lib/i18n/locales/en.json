@@ -3339,6 +3339,8 @@
       "pillNeedsInstall": "Install required",
       "pillPickVersion": "Pick a version",
       "pillInstalling": "Installing…",
+      "pillModsUnknown": "Installed",
+      "pillModsBlocking": "The game won't start",
       "sectionModpack": "Modpack",
       "modpackOpen": "Open pack",
       "modpackUpdateBtn": "Update",
@@ -3357,7 +3359,8 @@
         "ready": "Ready to play — files are installed and up to date.",
         "needsInstall": "Files need to be installed before this instance can launch.",
         "pickVersion": "Choose a Minecraft version to finish setting up this instance.",
-        "installing": "Installing files for this instance…"
+        "installing": "Installing files for this instance…",
+        "modsUnknown": "Files are installed; the mods haven't been checked yet."
       }
     },
     "servers": {

@@ -12,6 +12,7 @@
     instance,
     running,
     installing,
+    blockingMods,
     attentionCollapsed = false,
     attentionCount = 0,
     onShowAttention = () => {},
@@ -19,12 +20,15 @@
     instance: InstanceWithStatus;
     running: boolean;
     installing: boolean;
+    // Mods that stop the game, from the page pre-flight (the Play gate's verdict); null while it
+    // has not answered. No default: a pill that says «Ready to play» must have been told.
+    blockingMods: number | null;
     attentionCollapsed?: boolean;
     attentionCount?: number;
     onShowAttention?: () => void;
   } = $props();
 
-  const status = $derived(deriveStatus(instance, running, installing));
+  const status = $derived(deriveStatus(instance, running, installing, blockingMods));
 
   // The restore affordance only makes sense when the panel is collapsed AND
   // there is actually something hidden behind it.
@@ -36,20 +40,30 @@
     needs_install: 'page.overview.pillNeedsInstall',
     pick_version: 'page.overview.pillPickVersion',
     installing: 'page.overview.pillInstalling',
+    mods_unknown: 'page.overview.pillModsUnknown',
+    mods_blocking: 'page.overview.pillModsBlocking',
   };
 
+  // Every tooltip gets the blocking count; only the blocking one says it — in the attention
+  // item's own words, so the pill and «Needs attention» never tell it two ways.
   const PILL_TOOLTIP: Record<StatusKind, TranslationKey> = {
     running: 'page.overview.pillTooltip.running',
     ready: 'page.overview.pillTooltip.ready',
     needs_install: 'page.overview.pillTooltip.needsInstall',
     pick_version: 'page.overview.pillTooltip.pickVersion',
     installing: 'page.overview.pillTooltip.installing',
+    mods_unknown: 'page.overview.pillTooltip.modsUnknown',
+    mods_blocking: 'page.overview.attnModsBlocking',
   };
 
+  // Blocking is red, as everywhere a mod stops the game (DESIGN.md §9) — on the surface with a
+  // danger border, never on the soft danger box, whose red text misses AA (DESIGN.md Known gaps).
   const PILL_TONE: Record<StatusTone, string> = {
     ok: 'bg-success-bg border-success text-success',
     warn: 'bg-warning-bg border-warning-text text-warning-text',
     accent: 'bg-accent-soft border-accent text-accent',
+    danger: 'bg-surface border-danger text-danger',
+    neutral: 'bg-surface border-border-subtle text-secondary',
   };
 </script>
 
@@ -104,7 +118,7 @@
       ]}"
       data-testid="overview-status-pill"
       data-status={status.kind}
-      use:tooltip={$t(PILL_TOOLTIP[status.kind])}
+      use:tooltip={$t(PILL_TOOLTIP[status.kind], { count: blockingMods ?? 0 })}
     >
       <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true"></span>
       {$t(PILL_LABEL[status.kind])}

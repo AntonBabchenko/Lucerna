@@ -3339,6 +3339,8 @@
       "pillNeedsInstall": "Требуется установка",
       "pillPickVersion": "Выберите версию",
       "pillInstalling": "Установка…",
+      "pillModsUnknown": "Установлено",
+      "pillModsBlocking": "Игра не запустится",
       "sectionModpack": "Сборка",
       "modpackOpen": "Открыть сборку",
       "modpackUpdateBtn": "Обновить",
@@ -3357,7 +3359,8 @@
         "ready": "Готово к запуску — файлы установлены и актуальны.",
         "needsInstall": "Перед запуском нужно установить файлы профиля.",
         "pickVersion": "Выберите версию Minecraft, чтобы завершить настройку профиля.",
-        "installing": "Идёт установка файлов профиля…"
+        "installing": "Идёт установка файлов профиля…",
+        "modsUnknown": "Файлы установлены; моды ещё не проверены."
       }
     },
     "servers": {

@@ -125,6 +125,11 @@
       : 0,
   );
 
+  // What the readiness pill may say about the mods: how many stop the game — the attention
+  // item's own count — or null while the page pre-flight has not answered (`problemCount` null,
+  // the same «—» the Mods card shows). Never «Ready to play» beside «N mods will stop the game».
+  const pillBlockingMods = $derived(problemCount === null ? null : blockingModsCount);
+
   const attentionItems = $derived(
     activeInstance
       ? buildAttentionItems({
@@ -211,6 +216,7 @@
       instance={activeInstance}
       {running}
       {installing}
+      blockingMods={pillBlockingMods}
       {attentionCollapsed}
       attentionCount={attentionItems.length}
       onShowAttention={() =>
