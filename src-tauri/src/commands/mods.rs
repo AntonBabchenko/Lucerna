@@ -798,6 +798,23 @@ async fn finish_dependency_install(
     run.summary
 }
 
+/// The end of an update (D9), as [`finish_dependency_install`] is of a
+/// dependency install: the swap is on disk, journalled and announced, the new
+/// row (`new_sha1`) records its `requires` edges when it can
+/// ([`log_unrecorded_edges`] says why a failure there is not the update's), and
+/// the summary is the answer either way.
+async fn finish_update(
+    instance_id: &str,
+    inst_root: &std::path::Path,
+    new_sha1: &str,
+    requires: Vec<String>,
+    summary: crate::mods::platform::InstallSummary,
+) -> crate::mods::platform::InstallSummary {
+    let edges = crate::mods::installed::set_requires(inst_root, new_sha1, requires).await;
+    log_unrecorded_edges(instance_id, new_sha1, edges);
+    summary
+}
+
 /// Refuse to install `(source, project_id)` when the registry already has a row
 /// for that project, enabled or switched off: a second jar of one mod stops the
 /// game on the duplicate mod id. A stale view or a double click asks for it, and
@@ -2365,14 +2382,10 @@ pub async fn mods_update_one(
                         }
                         .emit(&app);
                     }
-                    // Written LAST and, as on the install path, not the update's
-                    // verdict: the swap is durably on disk and already journalled
-                    // and announced, so a failed edge write is logged (see
-                    // `log_unrecorded_edges`), never reported as a failed update.
-                    let edges =
-                        crate::mods::installed::set_requires(&inst_root, &new_sha1, requires).await;
-                    log_unrecorded_edges(&instance_id, &new_sha1, edges);
-                    Ok(update_summary(&install_seq, &landed, &titles))
+                    // The edges are written LAST and, as on the install path, are
+                    // not the update's verdict (`finish_update`).
+                    let summary = update_summary(&install_seq, &landed, &titles);
+                    Ok(finish_update(&instance_id, &inst_root, &new_sha1, requires, summary).await)
                 }
                 Err(e) => {
                     let _ = ModInstallFailed {
@@ -5417,6 +5430,42 @@ mod tests {
         assert_eq!(
             done.primary_name, "Lib",
             "a finished install is reported done"
+        );
+    }
+
+    /// The end of an update, like a dependency install's: the old jar is swapped
+    /// for the new one, journalled and announced by now, so the summary is the
+    /// answer. The new row records its `requires` edges when it can, and an edge
+    /// write that fails (it only feeds orphan detection) never turns the finished
+    /// update into a failure.
+    #[tokio::test]
+    async fn a_finished_update_is_reported_done_even_if_its_edges_fail() {
+        let summary = || crate::mods::platform::InstallSummary {
+            primary_name: "Target".into(),
+            installed_dependencies: vec!["Lib".into()],
+            details: vec![],
+        };
+
+        let ok = tempfile::tempdir().unwrap();
+        crate::mods::installed::add(ok.path(), named_dependent("n1"))
+            .await
+            .unwrap();
+        let done = finish_update("inst", ok.path(), "n1", vec!["lib".into()], summary()).await;
+        assert_eq!(done.primary_name, "Target");
+        assert_eq!(done.installed_dependencies, ["Lib"]);
+        let rows = crate::mods::installed::read_or_empty(ok.path())
+            .await
+            .unwrap()
+            .mods;
+        assert_eq!(rows[0].requires, ["lib"], "the new row records its edges");
+
+        let broken = tempfile::tempdir().unwrap();
+        // A folder where the registry file belongs: the edge write cannot land.
+        std::fs::create_dir_all(crate::mods::installed::registry_path(broken.path())).unwrap();
+        let done = finish_update("inst", broken.path(), "n1", vec!["lib".into()], summary()).await;
+        assert_eq!(
+            done.primary_name, "Target",
+            "a finished update is reported done"
         );
     }
 
