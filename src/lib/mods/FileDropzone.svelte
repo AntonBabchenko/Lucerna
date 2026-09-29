@@ -65,7 +65,7 @@
   class:cursor-pointer={!disabled}
   class:border-accent={adds}
   class:bg-accent-soft={adds}
-  class:border-border-emphasis={!adds}
+  class:border-border-strong={!adds}
   class:hover:border-accent={!disabled && dropPreview.value === null}
   class:opacity-50={disabled}
   onclick={activate}
@@ -93,7 +93,7 @@
   <!-- z-20: above the sticky toolbars and pagers of the lists it covers (z-10). -->
   <div
     class="pointer-events-none absolute inset-0 z-20 flex justify-center rounded-lg border-2 border-dashed transition-opacity duration-150 {refuses
-      ? 'border-border-emphasis bg-subtle/90'
+      ? 'border-border-strong bg-subtle/90'
       : 'border-accent bg-accent-soft/90'}"
     class:opacity-0={drag === null}
     class:opacity-100={drag !== null}

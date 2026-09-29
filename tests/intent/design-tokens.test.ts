@@ -242,3 +242,26 @@ describe('dependency cross-highlight (.dep-highlight)', () => {
     });
   }
 });
+
+// A border that is a control's only edge — the dashed drop box has no fill at rest — must clear
+// the 3:1 non-text minimum (WCAG 1.4.11). --border-emphasis is 1.42:1 on the light page (plan §5b
+// V2); retuning it would repaint every input and secondary button, so the drop box takes its own
+// tier.
+describe('--border-strong (an edge a control stands on alone)', () => {
+  it('is a Tailwind colour that follows the theme token', () => {
+    expect(withoutComments(tailwindConfig)).toMatch(
+      /'border-strong':\s*'rgb\(var\(--border-strong\) \/ <alpha-value>\)'/,
+    );
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    it(`clears 3:1 on the page and on a surface in the ${theme} theme`, () => {
+      const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
+      const edge = token(block, 'border-strong', theme);
+      for (const surface of ['bg-base', 'bg-surface']) {
+        const ratio = contrastRatio(edge, token(block, surface, theme));
+        expect(ratio, `--border-strong on --${surface}`).toBeGreaterThanOrEqual(3);
+      }
+    });
+  }
+});

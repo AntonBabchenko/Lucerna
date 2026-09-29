@@ -67,6 +67,21 @@ describe('FileDropzone', () => {
     expect(getByTestId('file-dropzone').className).not.toContain('bg-accent-soft');
   });
 
+  // Plan §5b V2: at rest the dashed outline is the box's only edge, and in the light theme
+  // --border-emphasis was 1.4:1 on the page. It takes --border-strong (≥ 3:1, WCAG 1.4.11, held by
+  // tests/intent/design-tokens.test.ts) — the strip and the full box alike.
+  it.each([
+    'strip',
+    'full',
+  ] as const)('the %s box’s outline at rest is the strong border', (variant) => {
+    const { getByTestId } = render(FileDropzone, {
+      props: { target: 'client-mods', label: 'Drop', variant, onClick: () => {} },
+    });
+    const zone = getByTestId('file-dropzone');
+    expect(zone.classList).toContain('border-border-strong');
+    expect(zone.classList).not.toContain('border-border-emphasis');
+  });
+
   it('is the full box by default and paints no overlay', () => {
     const { getByTestId, queryByTestId } = render(FileDropzone, {
       props: { target: 'client-mods', label: 'Drop', onClick: () => {} },
