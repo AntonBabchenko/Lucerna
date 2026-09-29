@@ -63,11 +63,13 @@ pub(crate) fn find_orphans(mods: &[InstalledMod], removing: &[String]) -> Vec<Or
 /// - `outgoing_sha1` is the row being replaced; `None` for a fresh install.
 ///   An update must not forget why a library is there, so its edges carry
 ///   over — including transitive ones the update itself never resolves.
-/// - `pulled_in` are the dependencies the operation installs. One that was
-///   already in the registry (same source + project) is NOT claimed: the user
-///   had it first, and claiming it would later offer it as this mod's orphan.
-///   The install path's closure is already pruned this way, so for it the
-///   filter changes nothing; the update path resolves its deps unpruned.
+/// - `pulled_in` are the dependencies the operation resolved: the install
+///   path's pruned closure, or — for an update — the resolver's full one-level
+///   answer, of which the update installs only what is missing
+///   (`deps::prune_update_deps`). One that was already in the registry (same
+///   source + project) is NOT claimed: the user had it first, and claiming it
+///   would later offer it as this mod's orphan. For the install path's closure
+///   the filter changes nothing.
 pub(crate) fn requires_edges<'a>(
     registry: &[InstalledMod],
     outgoing_sha1: Option<&str>,

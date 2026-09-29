@@ -445,33 +445,16 @@ async fn install_with_closure(
     // (CurseForge's key), and the dependency installs pass none.
     let mut optional_platform: Option<Box<dyn crate::mods::platform::ModPlatform>> = None;
 
-    // Build the set of already-installed mods so resolve_closure can prune
-    // them. Two views: by source-specific ProjectKey, and by lowercased jar
-    // filename so a dependency already satisfied from a *different* source —
-    // same jar, different platform id — is also pruned.
-    //
-    // The filename view is deliberately enabled-only: a disabled mod lives on
-    // disk as `<name>.jar.disabled`, so it neither loads at runtime (it cannot
-    // satisfy a dependency) nor collides with a fresh `<name>.jar` install.
-    // Letting the dependency install a fresh enabled copy is the right call.
-    // (The ProjectKey view keeps its pre-existing all-mods behaviour for
-    // same-source pruning; only the new cross-source path is enabled-gated.)
+    // What the instance already has, in the two views `resolve_closure`
+    // prunes by: by project (enabled or not) and by the file name of an
+    // enabled jar, so a dependency already satisfied from another source
+    // is pruned too. `deps::InstalledView` holds the rule and its reasons;
+    // an update prunes by the very same one.
     let installed_mods = crate::mods::installed::list(&inst_root).await?;
-    let installed: std::collections::HashSet<ProjectKey> = installed_mods
-        .iter()
-        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
-            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
-            (Some(ModSource::Curseforge), Some(pid)) => {
-                pid.parse().ok().map(ProjectKey::Curseforge)
-            }
-            _ => None,
-        })
-        .collect();
-    let installed_filenames: std::collections::HashSet<String> = installed_mods
-        .iter()
-        .filter(|m| m.enabled)
-        .map(|m| m.filename.to_ascii_lowercase())
-        .collect();
+    let crate::mods::deps::InstalledView {
+        keys: installed,
+        enabled_filenames: installed_filenames,
+    } = crate::mods::deps::InstalledView::of(&installed_mods);
 
     // Shared Arc platform + loader-slug cache for the make_fetch factory.
     let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
@@ -955,11 +938,12 @@ fn mod_install_details(
 /// target, the required dependencies the update installed — named by PROJECT
 /// title where the summary cache knows it, as the install path's names are
 /// (`update_one` records version titles) — and one report row per landed jar.
-/// `install_seq` and `landed` share order and length (target, then its deps).
+/// `install_seq` and `landed` share order and length (target, then the
+/// dependencies `deps::prune_update_deps` left to install).
 ///
-/// Unlike an install's closure, an update's dependency list is not pruned of
-/// what is installed, so a dependency `update_one` found already in place byte
-/// for byte (`placement: None`) was NOT installed by it: it is left out of
+/// A dependency `update_one` still found in place byte for byte
+/// (`placement: None` — the file landed after the registry snapshot the
+/// pruning judged) was NOT installed by this update: it is left out of
 /// `installed_dependencies` — which the UI announces whenever it is non-empty —
 /// and its report row says `Unchanged`.
 fn update_summary(
@@ -1564,27 +1548,14 @@ pub async fn mods_resolve_install_plan(
     use std::sync::Arc;
 
     let root = instance_root(&app, &instance_id)?;
-    // Mirror mods_install_with_deps: prune by source-specific ProjectKey AND by
-    // lowercased jar filename, so a dependency already satisfied from a
-    // different source is not offered for (re)install. The filename view is
-    // enabled-only for the same reason as there — a disabled `.jar.disabled`
-    // neither loads nor collides, so it should not suppress a fresh install.
+    // Mirror mods_install_with_deps: the same two views (`deps::InstalledView`),
+    // so a dependency already satisfied — from this source or another — is not
+    // offered for (re)install.
     let installed_mods = crate::mods::installed::list(&root).await?;
-    let installed: std::collections::HashSet<ProjectKey> = installed_mods
-        .iter()
-        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
-            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
-            (Some(ModSource::Curseforge), Some(pid)) => {
-                pid.parse().ok().map(ProjectKey::Curseforge)
-            }
-            _ => None,
-        })
-        .collect();
-    let installed_filenames: std::collections::HashSet<String> = installed_mods
-        .iter()
-        .filter(|m| m.enabled)
-        .map(|m| m.filename.to_ascii_lowercase())
-        .collect();
+    let crate::mods::deps::InstalledView {
+        keys: installed,
+        enabled_filenames: installed_filenames,
+    } = crate::mods::deps::InstalledView::of(&installed_mods);
 
     // Shared platform + loader-slug cache, cloned into each closure via Arc.
     let platform: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(primary.source).into();
@@ -2197,11 +2168,16 @@ pub async fn mods_enrich_pack_mods(
 
 /// Apply one mod update: resolve `target`'s required dependencies,
 /// pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
-/// its required deps, and preserve the old mod's enabled state. Emits
-/// `mod-install-progress` during downloads, `mod-uninstalled` for the
-/// old jar, `mod-installed` per landed mod, and `mod-install-failed`
-/// on error. Optional dependencies are intentionally not installed —
-/// see the spec ("Dependencies on update").
+/// the dependencies the instance does not already have, and preserve the old
+/// mod's enabled state. Emits `mod-install-progress` during downloads,
+/// `mod-uninstalled` for the old jar, `mod-installed` per landed mod, and
+/// `mod-install-failed` on error. Optional dependencies are intentionally not
+/// installed — see the spec ("Dependencies on update").
+///
+/// "Already has" is the install path's rule (`deps::prune_update_deps`): the
+/// dependency's project is installed at any version, enabled or not, or an
+/// enabled jar of the same file name is. Such a library is left as it is — no
+/// second copy, no re-install over its record, a disabled one stays disabled.
 ///
 /// `target` is re-resolved through `find_version` — the same gate, the same
 /// typed `ModVersionNotForInstance` and the same `allow_off_platform` consent
@@ -2211,7 +2187,8 @@ pub async fn mods_enrich_pack_mods(
 /// there leaves the mod uninstalled (own spec — 2026-09-20 design, §8-A).
 ///
 /// After the swap the new row inherits the outgoing row's `requires` edges
-/// plus whatever this update pulled in (`orphans::requires_edges`).
+/// plus whatever this update resolved that was not installed before
+/// (`orphans::requires_edges`).
 ///
 /// Returns the `InstallSummary` a fresh install returns — the dependencies it
 /// installed included (`update_summary`).
@@ -2256,12 +2233,32 @@ pub async fn mods_update_one(
             )
             .await?;
 
-            // Required dependencies of the target version (optional deps skipped).
+            // Required dependencies of the target version (optional deps skipped),
+            // as the platform resolves them: one level, and blind to what this
+            // instance already has.
             let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
-            let required_deps: Vec<ModVersion> =
+            let resolved_required: Vec<ModVersion> =
                 resolved.required.into_iter().map(|r| r.version).collect();
-            // The summary's names, in `update_one`'s install order — cache-first and
-            // before anything is touched, like every other network step here.
+
+            // ONE registry snapshot, taken before any jar is downloaded or anything
+            // is touched: what the update may skip, the outgoing version's name for
+            // the journal, and its `requires` edges. An unreadable registry stops
+            // the update HERE — `update_one` would fail on the very same read later.
+            let registry_before = crate::mods::installed::list(&inst_root).await?;
+            // Only the dependencies the instance will not already have once the old
+            // jar is swapped out, by the install path's rule: a library that is
+            // installed — at another version, from another source under the same
+            // file name, or switched off — is left exactly as it is.
+            let required_deps = crate::mods::deps::prune_update_deps(
+                &registry_before,
+                &old_sha1,
+                &target,
+                &resolved_required,
+            );
+            // The summary's names, in `update_one`'s install order — the target, then
+            // the PRUNED list it is handed below, so `update_summary` zips each name
+            // with its own outcome. Cache-first and before anything is touched, like
+            // every other network step here.
             let install_seq: Vec<ModVersion> = std::iter::once(target.clone())
                 .chain(required_deps.iter().cloned())
                 .collect();
@@ -2313,20 +2310,18 @@ pub async fn mods_update_one(
             });
 
             let target_project_id = target.project_id.clone();
-            // ONE registry snapshot, taken before the swap removes the old row:
-            // the outgoing version's name for the journal, its `requires` edges,
-            // and which projects were already installed. An unreadable registry
-            // stops the update HERE, with nothing touched — `update_one` would
-            // fail on the very same read a moment later.
-            let registry_before = crate::mods::installed::list(&inst_root).await?;
             let previous = registry_before
                 .iter()
                 .find(|m| m.sha1.eq_ignore_ascii_case(&old_sha1))
                 .map(|m| (m.name.clone(), m.version_number.clone()));
+            // From the resolver's FULL answer, not the pruned list — as before the
+            // pruning existed. `requires_edges` carries every edge the outgoing row
+            // had (so one to a library this update now skips survives) and claims
+            // no library that was installed before this update.
             let requires = crate::mods::orphans::requires_edges(
                 &registry_before,
                 Some(old_sha1.as_str()),
-                required_deps.iter(),
+                resolved_required.iter(),
             );
             let target_name = target.name.clone();
             let target_version = target.version_number.clone();
@@ -2955,20 +2950,13 @@ pub async fn mods_plan_mc_migration(
             .collect();
 
         // 5. What the instance already has a jar for, regardless of fit — the
-        //    "post-migration mod set already contains this" test. Mirrors the
-        //    `installed: HashSet<ProjectKey>` construction `mods_install_with_deps`
-        //    / `mods_resolve_install_plan` already use for the same purpose.
+        //    "post-migration mod set already contains this" test. The row → key
+        //    rule of `deps::InstalledView::keys`, which `mods_install_with_deps`
+        //    / `mods_resolve_install_plan` use for the same purpose — applied to
+        //    this plan's `installed`, which holds enabled rows only (see above).
         let already_installed: std::collections::HashSet<ProjectKey> = installed
             .iter()
-            .filter_map(|m| match (m.source, m.project_id.as_deref()) {
-                (Some(ModSource::Modrinth), Some(pid)) => {
-                    Some(ProjectKey::Modrinth(pid.to_string()))
-                }
-                (Some(ModSource::Curseforge), Some(pid)) => {
-                    pid.parse().ok().map(ProjectKey::Curseforge)
-                }
-                _ => None,
-            })
+            .filter_map(ProjectKey::of_installed)
             .collect();
         plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
 
@@ -3055,11 +3043,11 @@ fn migration_task_detail(
 /// Apply a Minecraft-version-change mod migration the user has already
 /// reviewed via `mods_plan_mc_migration` and settled into `selections`.
 ///
-/// Never calls `mods_update_one`: that command resolves `target`'s ENTIRE
-/// required-dependency set fresh via `ModPlatform::resolve_deps` and installs
-/// it unpruned against whatever is already on disk — the exact anti-pattern
-/// that manufactures a duplicate-modId FML crash on a version-change
-/// migration (BiomesOPlenty mandatorily requiring `terrablender` +
+/// Never calls `mods_update_one`: that command resolves `target`'s required
+/// dependencies afresh via `ModPlatform::resolve_deps`, and an apply must
+/// install exactly what the reviewed plan showed — the plan resolved every
+/// replacement's dependencies once, across all rows, and the user settled
+/// each jar it touches (BiomesOPlenty mandatorily requires `terrablender` +
 /// `glitchcore`; see the `mods::migration` module doc). This command drives
 /// [`crate::mods::install::update_one`] with an EMPTY required-deps list —
 /// the plan already resolved and pruned what each replacement needs — and

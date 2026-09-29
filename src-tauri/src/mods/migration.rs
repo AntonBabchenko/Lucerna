@@ -1380,10 +1380,10 @@ mod tests {
     /// `Keep`, and no `new_dependencies` row for it was accepted.
     ///
     /// A per-row `mods_update_one` call would resolve BoP's declared deps
-    /// fresh and install `terrablender` regardless of the user's choice —
-    /// landing a second `terrablender` jar next to the one the user chose to
-    /// keep, which is the exact duplicate-modId FML abort this task exists
-    /// to prevent. The produced action set must contain ONLY the BoP
+    /// afresh, outside the plan the user reviewed — and before 2026-09-28 it
+    /// installed them unpruned, landing a second `terrablender` jar next to
+    /// the one the user chose to keep: the duplicate-modId FML abort this task
+    /// exists to prevent. The produced action set must contain ONLY the BoP
     /// replacement — nothing that installs, mentions, or otherwise touches
     /// terrablender.
     #[test]

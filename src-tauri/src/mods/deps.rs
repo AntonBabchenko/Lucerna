@@ -5,10 +5,16 @@
 //! at a time (the caller decides whether to opt in, then re-walks from the
 //! chosen optional). Cycle-safe, deduplicating, and prunes already-installed
 //! projects and loader projects.
+//!
+//! "Already installed" has one definition here, [`InstalledView`] +
+//! [`is_installed`], shared by the closure walk and by [`prune_update_deps`],
+//! which applies it to an update's one-level answer.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::mods::platform::{DepProjectRef, ModSource, ModVersion, PlannedDep, SelectionReason};
+use crate::mods::platform::{
+    DepProjectRef, InstalledMod, ModSource, ModVersion, PlannedDep, SelectionReason,
+};
 
 /// Stable identity for dedup/cycle/skip checks. Modrinth keys on the
 /// project_id string; CurseForge on the numeric mod_id.
@@ -51,6 +57,24 @@ impl ProjectKey {
             DepProjectRef::Curseforge { mod_id, .. } => ProjectKey::Curseforge(*mod_id),
         }
     }
+    /// The key of an installed row, when it has one: a Modrinth project id, or
+    /// a CurseForge numeric mod id. A row from another source, or with no
+    /// platform identity at all (a hand-dropped jar), has none — pruning can
+    /// then only recognise it by file name ([`InstalledView`]). Stricter than
+    /// [`ProjectKey::of_version`] on purpose: that one must key every version
+    /// and falls back (an unparsable CurseForge id becomes `Curseforge(0)`, the
+    /// pack-only sources borrow the Modrinth tag), while a row that cannot be
+    /// keyed for certain gets no key at all — the install path's rule before
+    /// it moved here.
+    pub fn of_installed(m: &InstalledMod) -> Option<ProjectKey> {
+        match (m.source, m.project_id.as_deref()) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// One node's resolved direct dependencies, already classified by the fetcher.
@@ -76,6 +100,95 @@ pub struct Closure {
     pub loader_keys: Vec<ProjectKey>,
     pub incompatible: Vec<DepProjectRef>,
     pub unresolvable: Vec<DepProjectRef>,
+}
+
+/// What an instance already has, in the two views every dependency resolver
+/// prunes by. One definition for installs and updates, which had drifted: an
+/// update used to install every required dependency blind
+/// ([`prune_update_deps`]).
+///
+/// - `keys` — [`ProjectKey::of_installed`] of every row, enabled OR disabled.
+///   A disabled jar of the very project a dependency names counts as present:
+///   nothing installs a second copy beside it, and nothing switches it back on
+///   behind the user's back. If the mod needing it cannot run without it, the
+///   dependency pre-flight — which reads enabled jars only — reports it.
+/// - `enabled_filenames` — the lowercased jar name of every ENABLED row. This
+///   is how a dependency already satisfied from another platform (same jar,
+///   another project id) or by a hand-dropped jar is recognised. A disabled
+///   row stays out: `<name>.jar.disabled` neither loads nor collides with a
+///   fresh `<name>.jar`, so installing the dependency beside it is right.
+#[derive(Debug, Clone, Default)]
+pub struct InstalledView {
+    pub keys: HashSet<ProjectKey>,
+    pub enabled_filenames: HashSet<String>,
+}
+
+impl InstalledView {
+    pub fn of<'a, I>(rows: I) -> InstalledView
+    where
+        I: IntoIterator<Item = &'a InstalledMod>,
+        I::IntoIter: Clone,
+    {
+        let rows = rows.into_iter();
+        InstalledView {
+            keys: rows.clone().filter_map(ProjectKey::of_installed).collect(),
+            enabled_filenames: rows
+                .filter(|m| m.enabled)
+                .map(|m| m.filename.to_ascii_lowercase())
+                .collect(),
+        }
+    }
+}
+
+/// Whether the instance already has `v`: its project is in `installed`, or an
+/// enabled jar of the same file name is in `installed_filenames` — the views of
+/// [`InstalledView`], possibly widened by a caller that is also excluding what
+/// it has already collected. The one test every pruner applies:
+/// [`resolve_closure`] at its frontier, [`prune_update_deps`] on an update.
+pub fn is_installed(
+    v: &ModVersion,
+    installed: &HashSet<ProjectKey>,
+    installed_filenames: &HashSet<String>,
+) -> bool {
+    installed.contains(&ProjectKey::of_version(v))
+        || installed_filenames.contains(&v.primary_file.filename.to_ascii_lowercase())
+}
+
+/// The required dependencies an update of `target` still has to install:
+/// `resolved` — the platform's one-level answer, which knows nothing of the
+/// instance — minus what the instance will already have once the swap is done
+/// ([`is_installed`] over an [`InstalledView`]: the install path's rule), one
+/// per project, in the resolver's order.
+///
+/// "Once the swap is done": the outgoing row (`outgoing_sha1`) is left out of
+/// the view, because the update removes that jar before it installs
+/// dependencies; and `target`'s own project counts as present, as
+/// [`resolve_closure`] never re-adds a root.
+///
+/// An update used to install every required dependency blind. One already
+/// installed at another version got a second jar — two copies of one mod id,
+/// and the loader refuses to start. One under the same file name with other
+/// bytes failed the update with `ModsFilenameConflict` after the old jar was
+/// already gone. One already current had its registry row rewritten, losing its
+/// own `requires` edges. A disabled one got an enabled copy beside it.
+pub fn prune_update_deps(
+    registry: &[InstalledMod],
+    outgoing_sha1: &str,
+    target: &ModVersion,
+    resolved: &[ModVersion],
+) -> Vec<ModVersion> {
+    let after_swap = InstalledView::of(
+        registry
+            .iter()
+            .filter(|m| !m.sha1.eq_ignore_ascii_case(outgoing_sha1)),
+    );
+    let mut seen: HashSet<ProjectKey> = HashSet::from([ProjectKey::of_version(target)]);
+    resolved
+        .iter()
+        .filter(|v| !is_installed(v, &after_swap.keys, &after_swap.enabled_filenames))
+        .filter(|v| seen.insert(ProjectKey::of_version(v)))
+        .cloned()
+        .collect()
 }
 
 /// Walk the required-dependency graph from `roots`, returning the
@@ -125,10 +238,7 @@ where
 
     while let Some(p) = frontier.pop() {
         let key = ProjectKey::of_version(&p.version);
-        if visited.contains(&key)
-            || installed.contains(&key)
-            || installed_filenames.contains(&p.version.primary_file.filename.to_ascii_lowercase())
-        {
+        if visited.contains(&key) || is_installed(&p.version, installed, installed_filenames) {
             continue;
         }
         visited.insert(key.clone());
@@ -491,5 +601,463 @@ mod tests {
             ),
             "unresolvable ref must be the CF mod_id=999 declared by b"
         );
+    }
+
+    // ── The install path's views, shared with updates (2026-09-28) ───────────
+
+    /// An installed row. `source: None` is a hand-dropped jar.
+    fn row(
+        sha1: &str,
+        source: Option<ModSource>,
+        project_id: Option<&str>,
+        filename: &str,
+        enabled: bool,
+    ) -> InstalledMod {
+        InstalledMod {
+            filename: filename.into(),
+            sha1: sha1.into(),
+            source,
+            project_id: project_id.map(Into::into),
+            version_id: None,
+            name: filename.into(),
+            version_number: None,
+            installed_at: "2026-09-28T00:00:00Z".into(),
+            enabled,
+            enrich_attempted: false,
+            requires: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn installed_view_counts_disabled_projects_but_only_enabled_file_names() {
+        // The two views `mods_install_with_deps` / `mods_resolve_install_plan`
+        // built inline before they moved here — the rule an update now shares.
+        let rows = vec![
+            row(
+                "a",
+                Some(ModSource::Modrinth),
+                Some("sodium"),
+                "Sodium-0.6.jar",
+                true,
+            ),
+            row(
+                "b",
+                Some(ModSource::Modrinth),
+                Some("iris"),
+                "iris-1.8.jar",
+                false,
+            ),
+            row(
+                "c",
+                Some(ModSource::Curseforge),
+                Some("238222"),
+                "jei-19.jar",
+                true,
+            ),
+            row(
+                "d",
+                Some(ModSource::Curseforge),
+                Some("not-a-number"),
+                "odd.jar",
+                true,
+            ),
+            row("e", None, None, "Dropped.jar", true),
+            row(
+                "h",
+                Some(ModSource::Hangar),
+                Some("worldedit"),
+                "worldedit.jar",
+                true,
+            ),
+        ];
+        let view = InstalledView::of(&rows);
+        assert_eq!(
+            view.keys,
+            HashSet::from([
+                ProjectKey::Modrinth("sodium".into()),
+                ProjectKey::Modrinth("iris".into()),
+                ProjectKey::Curseforge(238222),
+            ])
+        );
+        assert_eq!(
+            view.enabled_filenames,
+            HashSet::from([
+                "sodium-0.6.jar".to_string(),
+                "jei-19.jar".to_string(),
+                "odd.jar".to_string(),
+                "dropped.jar".to_string(),
+                "worldedit.jar".to_string(),
+            ])
+        );
+    }
+
+    // ── prune_update_deps ────────────────────────────────────────────────────
+
+    /// A resolved build of `project_id` on `source`, shipped as `filename`.
+    fn build(source: ModSource, project_id: &str, filename: &str) -> ModVersion {
+        let mut v = mv(project_id, vec![]);
+        v.source = source;
+        v.primary_file.filename = filename.into();
+        v
+    }
+
+    fn files(vs: &[ModVersion]) -> Vec<&str> {
+        vs.iter()
+            .map(|v| v.primary_file.filename.as_str())
+            .collect()
+    }
+
+    /// The row being updated: Modrinth project `x`, `x-1.0.jar`, enabled.
+    fn outgoing() -> InstalledMod {
+        row(
+            "old",
+            Some(ModSource::Modrinth),
+            Some("x"),
+            "x-1.0.jar",
+            true,
+        )
+    }
+
+    fn target() -> ModVersion {
+        build(ModSource::Modrinth, "x", "x-2.0.jar")
+    }
+
+    #[test]
+    fn a_disabled_jar_matched_only_by_file_name_does_not_count_on_update() {
+        // D1. Balm is installed from Modrinth but switched off; the dependency is
+        // CurseForge's Balm — another project id, the same jar name.
+        // `balm-1.0.jar.disabled` neither loads nor collides with a fresh
+        // `balm-1.0.jar`, so the dependency is installed, as a fresh install does.
+        let registry = vec![
+            outgoing(),
+            row(
+                "b",
+                Some(ModSource::Modrinth),
+                Some("balm-mr"),
+                "balm-1.0.jar",
+                false,
+            ),
+        ];
+        let resolved = [build(ModSource::Curseforge, "531761", "balm-1.0.jar")];
+        assert_eq!(
+            files(&prune_update_deps(&registry, "old", &target(), &resolved)),
+            ["balm-1.0.jar"]
+        );
+    }
+
+    #[test]
+    fn the_jar_being_replaced_does_not_count_as_installed_on_update() {
+        // D2. Two projects that ship one generic file name: the mod being updated
+        // is `mod.jar`, and its new version needs another project whose jar is
+        // ALSO `mod.jar`. The update removes the old jar before it installs
+        // dependencies, so skipping the dependency because of that name would
+        // leave the new version without it. The SHA-1 compares case-blind, as
+        // every registry lookup does.
+        let registry = vec![row(
+            "old",
+            Some(ModSource::Modrinth),
+            Some("x"),
+            "mod.jar",
+            true,
+        )];
+        let resolved = [build(ModSource::Modrinth, "lib", "mod.jar")];
+        assert_eq!(
+            files(&prune_update_deps(&registry, "OLD", &target(), &resolved)),
+            ["mod.jar"]
+        );
+    }
+
+    #[test]
+    fn the_target_and_a_repeated_project_are_installed_once_on_update() {
+        // D2/D3. The resolver's answer can name the target's own project (bad
+        // metadata) — the update installs the target itself, as `resolve_closure`
+        // never re-adds a root — and can name one project twice: the first build
+        // listed is the one installed.
+        let registry = vec![outgoing()];
+        let resolved = [
+            build(ModSource::Modrinth, "x", "x-1.5.jar"),
+            build(ModSource::Modrinth, "lib", "lib-2.0.jar"),
+            build(ModSource::Modrinth, "lib", "lib-1.0.jar"),
+        ];
+        assert_eq!(
+            files(&prune_update_deps(&registry, "old", &target(), &resolved)),
+            ["lib-2.0.jar"]
+        );
+    }
+
+    #[test]
+    fn a_dependency_the_instance_lacks_is_still_installed_on_update() {
+        // (pin) Pruning removes only what is there.
+        let registry = vec![
+            outgoing(),
+            row(
+                "f",
+                Some(ModSource::Modrinth),
+                Some("fabric-api"),
+                "fabric-api-0.90.jar",
+                true,
+            ),
+        ];
+        let resolved = [build(
+            ModSource::Modrinth,
+            "cloth-config",
+            "cloth-config-15.jar",
+        )];
+        assert_eq!(
+            files(&prune_update_deps(&registry, "old", &target(), &resolved)),
+            ["cloth-config-15.jar"]
+        );
+    }
+
+    // ── An update end to end: snapshot → prune → swap (2026-09-28) ───────────
+    //
+    // `mods_update_one` takes an `AppHandle` and has no test harness, so these
+    // compose the same steps it does — one registry snapshot, the pruned list to
+    // install, the `requires` edges from the resolver's FULL answer, the swap,
+    // the edges written last — and observe each defect on disk, through the
+    // real install pipeline.
+    use crate::mods::install::{install_one, update_one, ProgressCount, ProgressFn, UpdateOutcome};
+    use crate::mods::installed;
+    use sha1::{Digest, Sha1};
+    use std::path::Path;
+    use tempfile::TempDir;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn nop() -> ProgressFn {
+        Box::new(|_, _, _| {})
+    }
+
+    /// A build of `project_id` whose jar `filename` holds `bytes`, served by `server`.
+    async fn served(
+        server: &MockServer,
+        source: ModSource,
+        project_id: &str,
+        filename: &str,
+        bytes: &[u8],
+    ) -> ModVersion {
+        let at = format!("/{project_id}/{filename}");
+        Mock::given(method("GET"))
+            .and(path(at.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes.to_vec()))
+            .mount(server)
+            .await;
+        let mut v = build(source, project_id, filename);
+        v.primary_file.url = format!("{}{at}", server.uri());
+        v.primary_file.sha1 = Some(hex::encode(Sha1::digest(bytes)));
+        v.primary_file.size = bytes.len() as f64;
+        v
+    }
+
+    async fn install(dd: &Path, root: &Path, v: ModVersion, name: Option<&str>) -> String {
+        install_one(dd, root, v, name.map(Into::into), &nop())
+            .await
+            .unwrap()
+            .sha1
+    }
+
+    /// `mods_update_one` without the network resolution and the events.
+    async fn update_as_the_command_does(
+        dd: &Path,
+        root: &Path,
+        old_sha1: &str,
+        target: ModVersion,
+        resolved: Vec<ModVersion>,
+    ) -> Result<UpdateOutcome, crate::error::Error> {
+        let registry_before = installed::list(root).await?;
+        let deps = prune_update_deps(&registry_before, old_sha1, &target, &resolved);
+        let requires =
+            crate::mods::orphans::requires_edges(&registry_before, Some(old_sha1), resolved.iter());
+        let outcome = update_one(
+            dd,
+            root,
+            old_sha1,
+            target,
+            deps,
+            &nop(),
+            &ProgressCount::default(),
+        )
+        .await?;
+        installed::set_requires(root, &outcome.primary.sha1, requires).await?;
+        Ok(outcome)
+    }
+
+    #[tokio::test]
+    async fn an_update_keeps_the_one_copy_of_a_dependency_installed_at_another_version() {
+        // Outcome 1. Fabric API 0.90 is installed; the resolver picks 0.92 for the
+        // new version of X. Installing it as well put two jars of one mod id in
+        // `mods/`, and the loader refuses to start.
+        let s = MockServer::start().await;
+        let (dd, inst) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let x1 = served(&s, ModSource::Modrinth, "x", "x-1.0.jar", b"x one").await;
+        let fapi_090 = served(
+            &s,
+            ModSource::Modrinth,
+            "fabric-api",
+            "fabric-api-0.90.jar",
+            b"fapi 0.90",
+        )
+        .await;
+        let old = install(dd.path(), inst.path(), x1, None).await;
+        install(dd.path(), inst.path(), fapi_090, None).await;
+        // X's install pulled Fabric API in: the edge its new row must keep (D5).
+        installed::set_requires(inst.path(), &old, vec!["fabric-api".into()])
+            .await
+            .unwrap();
+
+        let x2 = served(&s, ModSource::Modrinth, "x", "x-2.0.jar", b"x two").await;
+        let fapi_092 = served(
+            &s,
+            ModSource::Modrinth,
+            "fabric-api",
+            "fabric-api-0.92.jar",
+            b"fapi 0.92",
+        )
+        .await;
+        let outcome = update_as_the_command_does(dd.path(), inst.path(), &old, x2, vec![fapi_092])
+            .await
+            .unwrap();
+
+        let mods = installed::mods_dir(inst.path());
+        assert!(
+            !mods.join("fabric-api-0.92.jar").exists(),
+            "a second Fabric API jar was installed"
+        );
+        assert!(mods.join("fabric-api-0.90.jar").exists());
+        assert!(outcome.deps.is_empty());
+        let rows = installed::list(inst.path()).await.unwrap();
+        let fapi_rows = rows
+            .iter()
+            .filter(|m| m.project_id.as_deref() == Some("fabric-api"))
+            .count();
+        assert_eq!(fapi_rows, 1);
+        let x = rows
+            .iter()
+            .find(|m| m.sha1 == outcome.primary.sha1)
+            .unwrap();
+        assert_eq!(
+            x.requires,
+            ["fabric-api"],
+            "the edge the old row carried survives"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_update_whose_dependency_file_name_is_taken_no_longer_fails_half_way() {
+        // Outcome 2. Balm is installed from Modrinth as `balm-1.0.jar`; the new
+        // version of X needs CurseForge's Balm, shipped under the same name with
+        // other bytes. Installing it failed with `ModsFilenameConflict` after X's
+        // old jar was already gone and the new one in — and X, which the user
+        // had switched off, came back on.
+        let s = MockServer::start().await;
+        let (dd, inst) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let x1 = served(&s, ModSource::Modrinth, "x", "x-1.0.jar", b"x one").await;
+        let balm_mr = served(
+            &s,
+            ModSource::Modrinth,
+            "balm-mr",
+            "balm-1.0.jar",
+            b"balm from modrinth",
+        )
+        .await;
+        let old = install(dd.path(), inst.path(), x1, None).await;
+        install(dd.path(), inst.path(), balm_mr, None).await;
+        crate::mods::install::disable(inst.path(), &old)
+            .await
+            .unwrap();
+
+        let x2 = served(&s, ModSource::Modrinth, "x", "x-2.0.jar", b"x two").await;
+        let balm_cf = served(
+            &s,
+            ModSource::Curseforge,
+            "531761",
+            "balm-1.0.jar",
+            b"balm from curseforge",
+        )
+        .await;
+        let outcome = update_as_the_command_does(dd.path(), inst.path(), &old, x2, vec![balm_cf])
+            .await
+            .expect("the update must succeed");
+
+        let mods = installed::mods_dir(inst.path());
+        assert!(
+            mods.join("x-2.0.jar.disabled").exists(),
+            "X stays switched off"
+        );
+        assert!(!mods.join("x-2.0.jar").exists());
+        assert_eq!(
+            std::fs::read(mods.join("balm-1.0.jar")).unwrap(),
+            b"balm from modrinth"
+        );
+        assert!(outcome.deps.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_update_leaves_the_record_of_a_current_dependency_as_it_was() {
+        // Outcome 3, the commonest: the dependency is already at the version the
+        // resolver picks. Re-installing it rewrote its registry row, which lost
+        // its own `requires` edges and its project name.
+        let s = MockServer::start().await;
+        let (dd, inst) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let x1 = served(&s, ModSource::Modrinth, "x", "x-1.0.jar", b"x one").await;
+        let d = served(&s, ModSource::Modrinth, "d", "d-1.0.jar", b"d one").await;
+        let old = install(dd.path(), inst.path(), x1, None).await;
+        let d_sha = install(dd.path(), inst.path(), d.clone(), Some("D Library")).await;
+        installed::set_requires(inst.path(), &d_sha, vec!["d-lib".into()])
+            .await
+            .unwrap();
+
+        let x2 = served(&s, ModSource::Modrinth, "x", "x-2.0.jar", b"x two").await;
+        update_as_the_command_does(dd.path(), inst.path(), &old, x2, vec![d])
+            .await
+            .unwrap();
+
+        let rows = installed::list(inst.path()).await.unwrap();
+        let d_row = rows.iter().find(|m| m.sha1 == d_sha).unwrap();
+        assert_eq!(d_row.requires, ["d-lib"]);
+        assert_eq!(d_row.name, "D Library");
+    }
+
+    #[tokio::test]
+    async fn an_update_does_not_switch_a_disabled_dependency_back_on() {
+        // Outcome 4, D1. The user switched the library off. The update placed a
+        // fresh, enabled copy beside `d-1.0.jar.disabled` — the library loaded
+        // again — and, at the same version, replaced its row.
+        let s = MockServer::start().await;
+        let (dd, inst) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let x1 = served(&s, ModSource::Modrinth, "x", "x-1.0.jar", b"x one").await;
+        let d = served(&s, ModSource::Modrinth, "d", "d-1.0.jar", b"d one").await;
+        let old = install(dd.path(), inst.path(), x1, None).await;
+        let d_sha = install(dd.path(), inst.path(), d.clone(), None).await;
+        crate::mods::install::disable(inst.path(), &d_sha)
+            .await
+            .unwrap();
+
+        let x2 = served(&s, ModSource::Modrinth, "x", "x-2.0.jar", b"x two").await;
+        update_as_the_command_does(dd.path(), inst.path(), &old, x2, vec![d])
+            .await
+            .unwrap();
+
+        let mods = installed::mods_dir(inst.path());
+        assert!(
+            !mods.join("d-1.0.jar").exists(),
+            "an enabled copy was placed beside the disabled one"
+        );
+        assert!(mods.join("d-1.0.jar.disabled").exists());
+        let rows = installed::list(inst.path()).await.unwrap();
+        let d_rows: Vec<&InstalledMod> = rows
+            .iter()
+            .filter(|m| m.project_id.as_deref() == Some("d"))
+            .collect();
+        assert_eq!(d_rows.len(), 1);
+        assert!(!d_rows[0].enabled);
     }
 }
