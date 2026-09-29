@@ -167,6 +167,12 @@ export async function remediatePickedVersion(
     : { ok: false, error: res.error };
 }
 
+/** What «Install {dep}» on a missing dependency came to. */
+export type InstallMissingResult =
+  | InstallMissingOutcome
+  /** The call failed: typed, never passed off as the backend's `open_search` miss. */
+  | { kind: 'failed'; error: IpcError };
+
 /**
  * Resolve + install a missing required dependency by its loader mod-id.
  *
@@ -175,17 +181,18 @@ export async function remediatePickedVersion(
  * project outright, and only then falls back to guessing a slug from the bare
  * id — a guess that fails outright for a slammed id like `forgeconfigapiport`.
  *
- * Fail-safe: any IPC error degrades to an `open_search` outcome so the caller
- * always has an actionable next step (never throws).
+ * `open_search` is the backend's own "could not resolve it with confidence".
+ * An error is not that: «already installed» or a busy profile read as a miss
+ * would send the user to a search for a second copy — so it comes back typed,
+ * for the caller to tell apart.
  */
 export async function installMissing(
   instanceId: string,
   dependentSha1: string,
   depId: string,
-): Promise<InstallMissingOutcome> {
+): Promise<InstallMissingResult> {
   const res = await commands.modsInstallMissingRequired(instanceId, dependentSha1, depId);
-  if (res.status === 'ok') return res.data;
-  return { kind: 'open_search', query: depId };
+  return res.status === 'ok' ? res.data : { kind: 'failed', error: res.error };
 }
 
 // ---------------------------------------------------------------------------

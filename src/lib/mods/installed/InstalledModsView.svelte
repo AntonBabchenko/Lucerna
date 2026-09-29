@@ -24,6 +24,7 @@
     enableMods,
     type ModOpScope,
     type ModOpTarget,
+    modWriteReason,
     uninstallMods,
   } from '$lib/mods/mod-ops.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
@@ -497,22 +498,36 @@
   }
 
   // One-click install of a missing required dependency from the pre-flight
-  // panel. Resolves the dep by its loader mod-id and installs it; on success
-  // the panel + graph refresh. When the dep can't be auto-resolved the helper
-  // returns an open_search outcome — hand the query up to the Add-ons shell so
-  // it switches to Browse with the search pre-filled.
+  // panel or the row. Resolves the dep by its loader mod-id and installs it; on
+  // success the panel + graph refresh. A dep the backend cannot resolve with
+  // confidence (`open_search`) — or an install a manual pick may get past —
+  // hands the query up to the Add-ons shell, which switches to Browse with the
+  // search pre-filled. Two failures are no miss, and a search would lie about
+  // them: a project the profile already lists (the search invites the second
+  // copy that stops the game — say so and re-read the report instead), and a
+  // busy profile (nothing can install until it is free).
   const onInstallMissingDep = async (v: DepViolation): Promise<void> => {
     if (!instanceId) return;
     const outcome = await installMissing(instanceId, v.dependent_sha1, v.dep_id);
     if (outcome.kind === 'installed') {
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: outcome.name }));
-      preflight.invalidate();
-      deps.invalidateGraph();
-      await data.refresh();
-    } else {
-      pushWarning(get(t)('mods.preflight.installSearchFallback', { dep: depName(v) }));
-      onBrowseFor(outcome.query);
+      await refreshAfterRemediate();
+      return;
     }
+    if (outcome.kind === 'failed' && outcome.error.kind === 'mods_already_installed') {
+      pushInfo(formatError(outcome.error));
+      await refreshAfterRemediate();
+      return;
+    }
+    if (outcome.kind === 'failed' && outcome.error.kind === 'instance_busy') {
+      pushWarning(get(t)('mods.browse.toastInstallFailedWithMod', { name: depName(v) }), [
+        modWriteReason(outcome.error),
+      ]);
+      return;
+    }
+    const why = outcome.kind === 'failed' ? [modWriteReason(outcome.error)] : [];
+    pushWarning(get(t)('mods.preflight.installSearchFallback', { dep: depName(v) }), why);
+    onBrowseFor(outcome.kind === 'open_search' ? outcome.query : v.dep_id);
   };
 
   // A find-alternative install resolves the original violation (the alternative

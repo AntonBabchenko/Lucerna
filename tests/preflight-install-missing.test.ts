@@ -33,13 +33,14 @@ describe('installMissing', () => {
     expect(r).toEqual({ kind: 'open_search', query: 'balm' });
   });
 
-  it('maps an IPC error to an open_search fallback (never throws)', async () => {
-    vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({
-      status: 'error',
-      error: { kind: 'mods_network', url: 'x', details: 'y' },
-    });
+  // An error is not a miss. Turned into `open_search`, «already installed» read as "couldn't find
+  // it — search", and a search invites the second copy that stops the game. Typed, the caller can
+  // tell them apart (tests/installed-install-missing.test.ts).
+  it('hands an IPC error back typed, never as a miss (never throws)', async () => {
+    const error = { kind: 'mods_already_installed' as const, name: 'Balm' };
+    vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({ status: 'error', error });
     const r = await installMissing('inst-1', 'sha-waystones', 'balm');
-    expect(r).toEqual({ kind: 'open_search', query: 'balm' });
+    expect(r).toEqual({ kind: 'failed', error });
   });
 
   // The sha1 of the mod that DECLARED the dependency is what lets the backend

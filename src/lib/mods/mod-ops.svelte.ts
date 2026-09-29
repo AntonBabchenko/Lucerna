@@ -251,7 +251,7 @@ async function settleCall<T>(
   try {
     const r = await run();
     if (r.status === 'ok') return { ok: true, data: r.data };
-    return { ok: false, message: reasonOf(r.error), busy: r.error.kind === 'instance_busy' };
+    return { ok: false, message: modWriteReason(r.error), busy: r.error.kind === 'instance_busy' };
   } catch (e) {
     // The bridge itself failed (e.g. torn down mid-call): no Result to read. Reported as a
     // failure — never read as success, never as "nothing depends on it".
@@ -259,9 +259,12 @@ async function settleCall<T>(
   }
 }
 
-// The shared `instance_busy` copy also names a running game, which is true for a launch or a
-// long writer but false for a mod write: the shared claim admits writers while the game runs.
-function reasonOf(e: IpcError): string {
+/**
+ * Why a mod write failed, for the user. The shared `instance_busy` copy also names a running game,
+ * which is true for a launch or a long writer but false for a mod write: the shared claim admits
+ * writers while the game runs (plan A9) — so a refused mod write says the profile is busy.
+ */
+export function modWriteReason(e: IpcError): string {
   return e.kind === 'instance_busy' ? tr()('mods.ops.busy') : formatError(e);
 }
 
