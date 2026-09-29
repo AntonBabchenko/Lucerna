@@ -115,6 +115,17 @@ describe('InstalledToolbar keeps focus clear of itself', () => {
       scroller.remove();
     }
   });
+
+  // Plan §5b V2 (screenshot 01e): rows scrolled under it were cut mid-glyph with no edge. Its edge
+  // shows while it is stuck (`data-stuck`, tests/sticky-edge.test.ts) — and it is there, transparent,
+  // at rest too, so it appearing moves nothing.
+  it('shows a bottom edge while stuck, without changing its height', () => {
+    render(InstalledToolbar, { props: base() });
+    const bar = screen.getByTestId('installed-toolbar');
+    expect(bar.classList).toContain('border-b');
+    expect(bar.classList).toContain('border-transparent');
+    expect(bar.classList).toContain('data-[stuck]:border-border-subtle');
+  });
 });
 
 describe('InstalledToolbar issues tone', () => {

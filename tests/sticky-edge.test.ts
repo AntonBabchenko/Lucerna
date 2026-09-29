@@ -52,6 +52,31 @@ describe('stickyEdge', () => {
     expect(scroller.style.scrollPaddingTop).toBe('');
   });
 
+  // Plan §5b V2 (screenshot 01e): rows scrolled under the toolbar were cut mid-glyph with no edge
+  // to say so. A bar says when it is stuck — content scrolls under it — so its edge can show then.
+  it('marks a header stuck while content scrolls under it, and unmarks it at rest', () => {
+    const { scroller, bars } = scrollerWith(84);
+    const bar = bars[0] as HTMLElement;
+    let scrollTop = 0;
+    let barTop = 112; // at rest: 12 px of the view's padding above it
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop });
+    scroller.getBoundingClientRect = () => ({ top: 100, bottom: 600, height: 500 }) as DOMRect;
+    bar.getBoundingClientRect = () => ({ height: 84, top: barTop, bottom: barTop + 84 }) as DOMRect;
+    const scrollTo = (top: number, stuckAt: number) => {
+      scrollTop = top;
+      barTop = stuckAt;
+      scroller.dispatchEvent(new Event('scroll'));
+    };
+    stickyEdge(bar);
+    expect(bar.hasAttribute('data-stuck')).toBe(false);
+    scrollTo(6, 106); // moving up with the page, not stuck yet
+    expect(bar.hasAttribute('data-stuck')).toBe(false);
+    scrollTo(240, 100); // stuck to the top, rows under it
+    expect(bar.hasAttribute('data-stuck')).toBe(true);
+    scrollTo(0, 112);
+    expect(bar.hasAttribute('data-stuck')).toBe(false);
+  });
+
   it('outside a scroll container it touches nothing', () => {
     const outer = document.createElement('div');
     const bar = document.createElement('div');

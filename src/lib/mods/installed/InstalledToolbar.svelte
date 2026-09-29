@@ -188,9 +188,11 @@
      edge to edge over the view's padding, above the rows — they are positioned (accent strip,
      dependency ring) and would otherwise paint over it. The counts line is gone: the chips
      carry every count. It reserves its height in the scroll container, so a focused row never
-     hides under it (`stickyEdge`, WCAG 2.4.11). -->
+     hides under it (`stickyEdge`, WCAG 2.4.11), and shows its bottom edge while it is stuck —
+     rows cut under it read as scrolled, not broken. The edge is there at rest, transparent, so
+     it appearing moves nothing. -->
 <div
-  class="sticky top-0 z-10 -mx-3 mb-2 space-y-2 bg-base px-3 pt-1 pb-2"
+  class="sticky top-0 z-10 -mx-3 mb-2 space-y-2 border-b border-transparent bg-base px-3 pt-1 pb-2 data-[stuck]:border-border-subtle"
   data-testid="installed-toolbar"
   use:stickyEdge
 >
