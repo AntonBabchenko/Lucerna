@@ -94,6 +94,27 @@ describe('use:tooltip action', () => {
     expect(tooltipState.text).toBe('v0.102.0 · a.jar');
   });
 
+  // Plan §5d M1: a version with no room left wraps out of its row, and the name beside it then
+  // carries it. The node is not clipped itself; what its neighbour gave up is its to say.
+  it('alsoClipped counts the node as clipped while a neighbour it speaks for is gone', () => {
+    let versionGone = false;
+    const { node } = mount({
+      text: 'Alpha',
+      whenOverflowing: true,
+      clippedText: 'Alpha · v1.0',
+      alsoClipped: () => versionGone,
+    });
+    Object.defineProperty(node, 'scrollWidth', { value: 50, configurable: true });
+    Object.defineProperty(node, 'clientWidth', { value: 50, configurable: true });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.visible).toBe(false);
+    node.dispatchEvent(new FocusEvent('focusout'));
+    versionGone = true;
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Alpha · v1.0');
+  });
+
   it('update(null) hides an open tooltip', () => {
     const { node, handle } = mount('Hi');
     node.dispatchEvent(new FocusEvent('focusin'));

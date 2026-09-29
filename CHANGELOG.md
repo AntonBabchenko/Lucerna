@@ -172,8 +172,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the game, a problem's fixes move under its text when they do not fit beside
   it, instead of squeezing the text to a word per line.
 - **A mod's version no longer runs under its update badge in a narrow
-  window.** It ends in "…", and so does a long name once the version has no
-  room left; pointing at either shows it in full.
+  window.** It ends in "…" while a few characters of it fit and steps aside
+  when they don't; only then is a long name shortened. Pointing at the version,
+  or at the name while the version is out of sight, shows it in full.
 - **Anything you open while a tour is running is shown clearly.** An
   explanation, a menu or a dialog opened during one of the short tours used
   to sit under the tour's dimming. The tour now steps aside while it is open

@@ -88,24 +88,78 @@ describe('ModCard update badge', () => {
 });
 
 // Plan §5c V3 (screenshot n01e): at 820 px «Fabric API v0.10|» — the version ran on under the
-// update badge and was cut mid-glyph. It gives way first and ends in «…»; the name gives way only
-// once the version is gone, and ends in «…» too. Only a browser lays this out: these pin the
-// structure the re-render measures.
+// update badge and was cut mid-glyph. Plan §5d M1 (n01j): shrinking in proportion still cut the
+// name («Fabric A…») while the version kept a 2.7 px sliver. The version now takes only the room
+// left once the name is whole: from a few characters up it shows, ending in «…»; with less it
+// wraps onto a line the row clips, and the name is cut only once it alone does not fit. Only a
+// browser lays this out: these pin the structure the re-render measures.
 describe('ModCard in a narrow row', () => {
-  it('lets the version give way first, then the name, each ending in «…»', () => {
-    render(ModCard, { props: base });
+  const withSummary = { ...base, summary: { ...summary, summary: 'Does things' } };
+
+  it('gives the version the room the whole name leaves — a few characters or none', () => {
+    render(ModCard, { props: withSummary });
     const version = screen.getByTestId('mod-version');
     expect(version.classList).toContain('truncate');
     expect(version.classList).toContain('min-w-0');
-    // The version's own node (with its pin) shrinks, and far before the name does.
+    // Its node (with its pin) starts from a few characters and grows to its whole width before the
+    // description gets any room; it never shrinks in proportion with the name.
     const node = version.parentElement as HTMLElement;
+    expect(node.classList).toContain('basis-[4ch]');
+    expect(node.classList).toContain('grow-[1000]');
+    expect(node.classList).toContain('max-w-max');
     expect(node.classList).toContain('min-w-0');
-    expect(node.classList).toContain('shrink-[1000]');
-    expect(node.classList).not.toContain('flex-shrink-0');
+    expect(node.className).not.toMatch(/\bshrink-\[/);
+    // Less room than that: the node wraps onto a second line, which the one-line row clips.
+    const line = node.parentElement as HTMLElement;
+    expect(line.tagName).toBe('BUTTON');
+    for (const c of ['flex-wrap', 'h-5', 'overflow-hidden']) expect(line.classList).toContain(c);
+    // The name keeps its width until it alone does not fit, then ends in «…».
     const name = screen.getByText('Alpha');
+    expect(name.parentElement).toBe(line);
     expect(name.classList).toContain('truncate');
     expect(name.classList).toContain('min-w-0');
-    expect(name.classList).not.toContain('flex-shrink-0');
+    expect(name.className).not.toMatch(/\b(grow|basis-|flex-1)/);
+    // The description comes after the version and takes only what the version leaves.
+    const description = screen.getByText('Does things');
+    expect(description.parentElement).toBe(line);
+    expect(node.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(description.classList).toContain('flex-1');
+  });
+
+  it('keeps room for the pin beside a held version', () => {
+    render(ModCard, { props: { ...base, updateState: null, held: true } });
+    const node = screen.getByTestId('mod-version').parentElement as HTMLElement;
+    expect(node.contains(screen.getByTestId('mod-held-pin'))).toBe(true);
+    expect(node.classList).toContain('basis-[calc(4ch+1rem)]');
+    expect(node.classList).not.toContain('basis-[4ch]');
+  });
+
+  it('leaves a catalogue row as it was: nothing there wraps away', () => {
+    render(ModCard, { props: { ...withSummary, installed: null, updateState: null } });
+    const line = screen.getByText('Alpha').parentElement as HTMLElement;
+    expect(line.classList).not.toContain('flex-wrap');
+    expect(line.classList).not.toContain('overflow-hidden');
+  });
+
+  // With the version wrapped out of the line, pointing at the name shows what it no longer does.
+  it('lets the name carry the version while the version has stepped aside', () => {
+    render(ModCard, { props: { ...base, updateState: null } });
+    const node = screen.getByTestId('mod-version').parentElement as HTMLElement;
+    const line = node.parentElement as HTMLElement;
+    const name = screen.getByText('Alpha');
+    line.getBoundingClientRect = () => ({ top: 100, bottom: 120, height: 20 }) as DOMRect;
+    // On the line: the name fits and says nothing more.
+    node.getBoundingClientRect = () => ({ top: 102, bottom: 118, height: 16 }) as DOMRect;
+    revealTooltip(name);
+    expect(tooltipState.visible).toBe(false);
+    // Wrapped onto the clipped second line.
+    node.getBoundingClientRect = () => ({ top: 128, bottom: 144, height: 16 }) as DOMRect;
+    revealTooltip(name);
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Alpha · v1.0 · a.jar');
+    hideTooltip();
   });
 
   it('keeps the whole version in its tooltip while it is cut short', () => {

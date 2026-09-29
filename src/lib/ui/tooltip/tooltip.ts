@@ -9,6 +9,8 @@
 //   <span use:tooltip={{ text: reason, describe: false }}><button disabled>…</button></span>
 //   <span class="truncate" use:tooltip={{ text: name, whenOverflowing: true }}>{name}</span>
 //   <span class="truncate" use:tooltip={{ text: file, clippedText: `${version} · ${file}` }}>
+//   <span class="truncate" use:tooltip={{ text: name, whenOverflowing: true,
+//         clippedText: `${name} · ${version}`, alsoClipped: () => versionWrappedAway() }}>
 //
 // Only valid on DOM elements — wrap Svelte components (e.g. BusyButton) in a span.
 import type { Placement } from './position';
@@ -24,6 +26,9 @@ export type TooltipParam =
       /** Shown instead of `text` while the node is clipped: a tooltip that says something of
        *  its own (a version's file name) must then also carry what the node no longer shows. */
       clippedText?: string;
+      /** The node also counts as clipped while this says so: a neighbour it speaks for is gone
+       *  from sight (a mod's version wrapped out of its row), and `clippedText` carries it. */
+      alsoClipped?: () => boolean;
     }
   | null
   | undefined;
@@ -34,6 +39,7 @@ interface Normalized {
   whenOverflowing: boolean;
   describe: boolean | undefined;
   clippedText: string | null;
+  alsoClipped: (() => boolean) | null;
 }
 
 function normalize(param: TooltipParam): Normalized | null {
@@ -46,6 +52,7 @@ function normalize(param: TooltipParam): Normalized | null {
           whenOverflowing: false,
           describe: undefined,
           clippedText: null,
+          alsoClipped: null,
         }
       : null;
   }
@@ -56,6 +63,7 @@ function normalize(param: TooltipParam): Normalized | null {
         whenOverflowing: param.whenOverflowing ?? false,
         describe: param.describe,
         clippedText: param.clippedText?.trim() ? param.clippedText : null,
+        alsoClipped: param.alsoClipped ?? null,
       }
     : null;
 }
@@ -63,7 +71,7 @@ function normalize(param: TooltipParam): Normalized | null {
 export function tooltip(node: HTMLElement, param: TooltipParam) {
   let opts = normalize(param);
 
-  const isClipped = () => node.scrollWidth > node.clientWidth;
+  const isClipped = () => (opts?.alsoClipped?.() ?? false) || node.scrollWidth > node.clientWidth;
   const shouldShow = () => !!opts && (!opts.whenOverflowing || isClipped());
   // Focus surfaces the tooltip only for genuine keyboard focus. Programmatic
   // focus — a modal's focus trap landing on its close button when it opens, or

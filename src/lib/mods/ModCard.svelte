@@ -228,6 +228,24 @@
   const menuLabel = $derived(
     $t('mods.card.menuAriaLabel', { name: summary?.name ?? degradedTitle }),
   );
+
+  // The list row's text line and its version node. Short of room, the version node wraps onto a
+  // second line that the one-line row clips (plan §5d M1) — then the name's tooltip carries it.
+  let textLine = $state<HTMLElement | undefined>();
+  let versionNode = $state<HTMLElement | undefined>();
+  /** The version node sits below the row's one line: wrapped away, out of sight. A box with no
+   *  layout (a hidden view) measures 0 tall and says no. */
+  function versionWrappedAway(): boolean {
+    if (!textLine || !versionNode) return false;
+    const line = textLine.getBoundingClientRect();
+    return line.height > 0 && versionNode.getBoundingClientRect().top >= line.bottom;
+  }
+  // What the version's own tooltip says, for the name to say while the version is away.
+  const versionTip = $derived(
+    installed && (meta.version ?? meta.note)
+      ? `${meta.version ?? meta.note} · ${installed.filename}`
+      : null,
+  );
 </script>
 
 {#snippet iconActions()}
@@ -465,24 +483,42 @@
         />
       {/if}
       <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="sm" />
+      <!-- An installed row's line is one line tall, and what wraps off it is clipped: short of room,
+           the description goes first, then the version — which takes only the room the whole name
+           leaves: from a few characters up (`basis-[4ch]`) it grows to its full width before the
+           description gets any (`grow-[1000]`, `max-w-max`), ending in «…» while cut; with less it
+           wraps onto the clipped line, never a sliver (plan §5d M1, screenshot n01j). The name is
+           cut, ending in «…», only once it alone does not fit. Shrinking in proportion cut the name
+           a fraction of a pixel while the version kept 2.7 px. A catalogue row keeps shrinking. -->
       <button
+        bind:this={textLine}
         type="button"
-        class="flex flex-1 items-center gap-2 text-left min-w-0"
+        class="flex flex-1 items-center gap-2 text-left min-w-0 {installed
+          ? 'h-5 flex-wrap overflow-hidden'
+          : ''}"
         onclick={onOpenDetail}
       >
-        <!-- Short of room, the version gives way first (`shrink-[1000]`: it takes the whole
-             shortfall until nothing of it is left), then the name; each ends in «…», never cut
-             mid-glyph under the badges beside it (plan §5c, screenshot n01e). A name cut short
-             shows whole in its tooltip. -->
+        <!-- Cut short, the name shows whole in its tooltip; with the version wrapped away, the
+             tooltip carries the version too. -->
         <span
           class="min-w-0 truncate font-medium text-primary"
-          use:tooltip={{ text: summary.name, whenOverflowing: true }}>{summary.name}</span
+          use:tooltip={{
+            text: summary.name,
+            whenOverflowing: true,
+            clippedText: versionTip ? `${summary.name} · ${versionTip}` : undefined,
+            alsoClipped: versionTip ? versionWrappedAway : undefined,
+          }}>{summary.name}</span
         >
         {#if installed}
           <!-- «Name · version · description» (spec D12): the file name is the version's tooltip —
                with the version whole before it while the version is cut short — and the pin sits
-               beside the version it keeps. -->
-          <span class="min-w-0 shrink-[1000] text-xs text-muted inline-flex items-center gap-1">
+               beside the version it keeps, inside the version's room (`+1rem`). -->
+          <span
+            bind:this={versionNode}
+            class="min-w-0 max-w-max grow-[1000] {held
+              ? 'basis-[calc(4ch+1rem)]'
+              : 'basis-[4ch]'} text-xs text-muted inline-flex items-center gap-1"
+          >
             {#if meta.version}
               <span
                 class="min-w-0 truncate"
