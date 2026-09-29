@@ -1331,7 +1331,11 @@
 {:else if needsCfKey}
   <CurseForgeKeyBanner />
 {:else}
-  <div class="sticky top-0 z-10 bg-base border-b border-border-subtle" use:stickyEdge>
+  <!-- An open filter list lifts the bar above the sticky page switcher (DESIGN.md §14). -->
+  <div
+    class="sticky top-0 z-10 has-[[aria-expanded=true]]:z-[var(--z-popover)] bg-base border-b border-border-subtle"
+    use:stickyEdge
+  >
     <BrowseFilterBar
       searchAriaLabel={$t('mods.browse.searchAriaLabel')}
       searchPlaceholder={$t('mods.browse.searchPlaceholder')}

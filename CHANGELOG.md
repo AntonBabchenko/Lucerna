@@ -184,6 +184,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Escape closes only the topmost thing.** Closing an explanation with
   Escape no longer ends the tour behind it, and no longer closes the dialog it
   was opened from.
+- **A filter's list opens over the page switcher.** In a short window, a list
+  opened from the filters of the mod or modpack browser, such as the Minecraft
+  versions, went under the page switcher at the bottom, and its last entries
+  were hidden there.
 
 ## [0.25.0] — 2026-09-27
 

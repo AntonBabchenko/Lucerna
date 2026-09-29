@@ -195,9 +195,13 @@
      Compact in a narrow window (plan §5c V3: four lines, 163 px, at the default 820 px): the chips
      keep to one line that scrolls sideways, and the controls pack tighter — the sort drops its
      visible label at 1100 px and narrower (the Select keeps it as its name, and its value reads as a sort),
-     and the update check never parts from its «checked …». -->
+     and the update check never parts from its «checked …».
+     Its z-10 makes it a stacking context, which holds the ⋯ menu, its click-scrim and the sort
+     list at 10 too — under the sticky pager after the list, which then took the click meant to
+     close the menu (plan §5d). While one of them is open (its trigger says `aria-expanded`), the
+     bar lifts itself to the popover tier (DESIGN.md §14). -->
 <div
-  class="sticky top-0 z-10 -mx-3 mb-2 flex flex-col gap-2 border-b border-transparent bg-base px-3 pt-1 pb-2 data-[stuck]:border-border-subtle"
+  class="sticky top-0 z-10 has-[[aria-expanded=true]]:z-[var(--z-popover)] -mx-3 mb-2 flex flex-col gap-2 border-b border-transparent bg-base px-3 pt-1 pb-2 data-[stuck]:border-border-subtle"
   data-testid="installed-toolbar"
   use:stickyEdge
 >
