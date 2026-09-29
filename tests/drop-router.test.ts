@@ -4,6 +4,7 @@ import { type DropContext, routeDrop } from '$lib/layout/drop-router';
 const base: DropContext = {
   modpacksOpen: false,
   serverImportOpen: false,
+  dataRootFellBack: false,
   mode: 'client',
   clientTab: 'mod_browser',
   addonsKind: 'mod',

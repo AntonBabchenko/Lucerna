@@ -20,6 +20,19 @@
     "installed": "Установлено",
     "restricted": "Ограничено — откройте страницу для загрузки",
     "dropToAdd": "Отпустите, чтобы добавить в «{name}»",
+    "dropNotAdded": "{count, plural, one {# файл не добавлен} few {# файла не добавлено} many {# файлов не добавлено} other {# файла не добавлено}}",
+    "dropSkip": {
+      "nowhere": "Сюда нельзя добавить файлы",
+      "noInstance": "Сначала выберите профиль",
+      "onlyMods": "Сюда можно добавить только моды (.jar)",
+      "onlyPlugins": "Сюда можно добавить только плагины (.jar)",
+      "onlyResourcePacks": "Сюда можно добавить только ресурспаки (.zip)",
+      "onlyShaders": "Сюда можно добавить только шейдеры (.zip)",
+      "onlyDatapacks": "Сюда можно добавить только датапаки (.zip)",
+      "onlyModpacks": "Сюда можно импортировать только сборки (.mrpack или .zip)",
+      "oneModpack": "Сборки импортируются по одной",
+      "oneServer": "Серверы импортируются по одному"
+    },
     "fileFilter": {
       "modrinthModpack": "Сборка Modrinth",
       "curseforgeModpack": "Сборка CurseForge",

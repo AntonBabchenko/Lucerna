@@ -20,6 +20,19 @@
     "installed": "Installed",
     "restricted": "Restricted — open the page to download",
     "dropToAdd": "Drop to add to “{name}”",
+    "dropNotAdded": "{count, plural, one {# file wasn't added} other {# files weren't added}}",
+    "dropSkip": {
+      "nowhere": "Files can't be added here",
+      "noInstance": "Select an instance first",
+      "onlyMods": "Only mod .jar files can be added here",
+      "onlyPlugins": "Only plugin .jar files can be added here",
+      "onlyResourcePacks": "Only resource pack .zip files can be added here",
+      "onlyShaders": "Only shader .zip files can be added here",
+      "onlyDatapacks": "Only datapack .zip files can be added here",
+      "onlyModpacks": "Only modpacks (.mrpack or .zip) can be imported here",
+      "oneModpack": "Modpacks are imported one at a time",
+      "oneServer": "Servers are imported one at a time"
+    },
     "fileFilter": {
       "modrinthModpack": "Modrinth modpack",
       "curseforgeModpack": "CurseForge modpack",

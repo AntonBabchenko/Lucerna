@@ -85,6 +85,7 @@ import {
 const addonsResourcePacks: DropContext = {
   modpacksOpen: false,
   serverImportOpen: false,
+  dataRootFellBack: false,
   mode: 'client',
   clientTab: 'mod_browser',
   addonsKind: 'resource_pack',

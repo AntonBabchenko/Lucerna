@@ -7,7 +7,7 @@ import FileDropzone from '../src/lib/mods/FileDropzone.svelte';
 // A drag the window drop router sends to this box (`target: 'client-mods'`, as every case below
 // renders it). Which box a drag goes to is the router's business: tests/window-drop-owner.test.ts.
 const dragHere = () => {
-  dropPreview.value = { target: 'client-mods' };
+  dropPreview.value = { target: 'client-mods', adds: true, notes: [] };
 };
 
 describe('FileDropzone', () => {

@@ -17,6 +17,7 @@
   import type { IconName } from '$lib/ui/icons';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
+  import { reportNotAdded } from '$lib/layout/drop-report';
   import { coreToLoaderKind } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
@@ -195,11 +196,18 @@
     if (paths.length > 0) await installLocalPaths(paths);
   }
 
-  // Drops routed here by +page.svelte (window drop router); consume only our kind.
+  // Drops routed here by +page.svelte (window drop router); consume only our kind. The router
+  // cannot see the world's level.dat, so a drop can arrive while the drop zone is off: it is
+  // refused here — and said so, in the zone's own words (a drop is never discarded in silence).
   $effect(() => {
     const payload = droppedServerContent.value;
     if (payload && payload.kind === kind) {
       droppedServerContent.value = null;
+      const blocked = addBlockedLabel;
+      if (blocked !== null) {
+        reportNotAdded(payload.paths.map((path) => ({ path, reason: blocked })));
+        return;
+      }
       void installLocalPaths(payload.paths);
     }
   });

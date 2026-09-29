@@ -61,6 +61,7 @@ import { markSeen } from '$lib/onboarding/contextual-tours';
 import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { droppedServerContent, serverAddonsKind } from '$lib/settings/state.svelte';
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
 
 function makeServer(id: string, running: boolean, loader: ServerCore = 'vanilla') {
   return {
@@ -126,6 +127,24 @@ describe('ServerAddonsTab — data packs on a world with only level.dat_old', ()
     droppedServerContent.value = { kind: 'datapack', paths: ['C:/p.zip'] };
     await new Promise((r) => setTimeout(r, 50));
     expect(cmd.serverInstallDatapack).not.toHaveBeenCalled();
+  });
+
+  // A drop is never discarded in silence (DESIGN.md §14): the window's router cannot see the
+  // world's level.dat, so the pane that can says why — in the words its drop zone shows.
+  it('a file dropped on the window says why nothing was added', async () => {
+    for (const x of toastList()) dismiss(x.id);
+    await seed(false);
+    world('only_old');
+    render(ServerAddonsTab, { serverId: 's1', visible: true });
+    await waitFor(() => expect(zone().getAttribute('aria-disabled')).toBe('true'));
+    droppedServerContent.value = { kind: 'datapack', paths: ['C:/packs/p.zip'] };
+    await waitFor(() =>
+      expect(toastList().filter((x) => x.kind === 'warning')).toEqual([
+        expect.objectContaining({ title: "1 file wasn't added", lines: [`p.zip: ${ONLY_OLD}`] }),
+      ]),
+    );
+    expect(cmd.serverInstallDatapack).not.toHaveBeenCalled();
+    expect(droppedServerContent.value).toBeNull();
   });
 
   it('the catalog browser is told why it cannot add', async () => {

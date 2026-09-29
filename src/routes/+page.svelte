@@ -829,6 +829,7 @@
       return {
         modpacksOpen: modpacksActive.value,
         serverImportOpen: serverImportActive.value,
+        dataRootFellBack: dataLocation.fellBack,
         mode: serversUi.mode,
         clientTab: clientActiveTab.value,
         addonsKind: addonsKind.value,

@@ -178,10 +178,16 @@ export const modpacksActive = $state<{ value: boolean }>({ value: false });
 
 // The OS file drag over the window, as the window drop router sees it: set on
 // the drag's `enter`, cleared on `leave` (the drag left the window or was
-// cancelled) and `drop`. `target` is the drop box that takes the drop (null:
-// nothing on screen takes files); FileDropzone lights up only when it is that
-// box. Null while nothing is dragged.
-export type DropPreview = { target: DropTarget | null };
+// cancelled) and `drop`. FileDropzone lights up only when it is `target`, the
+// box that takes the drop (null: nothing on screen takes files) — with the
+// promise to add when `adds` (some of the files fit), and `notes` saying why
+// the others would stay behind: all of them when nothing fits. Null while
+// nothing is dragged.
+export type DropPreview = {
+  target: DropTarget | null;
+  adds: boolean;
+  notes: string[];
+};
 export const dropPreview = $state<{ value: DropPreview | null }>({ value: null });
 
 // Bumped whenever a resource pack / shader is installed or uninstalled, so the

@@ -1,9 +1,12 @@
 // Pure routing decision for the app's SINGLE window-level drag-drop listener
 // (`listenForFileDrops`, mounted by +page.svelte). Extracted so the matrix
 // (open surfaces x mode x tab x kind x extension) is unit-testable without a
-// webview. The caller translates the returned target into the matching rune
-// write.
+// webview. `planDrop` is the one table: the listener asks it on a drag's
+// `enter` (what the drop box shows) and again on the `drop` (what happens), so
+// the preview can never promise what the drop will not do. `routeDrop` is its
+// route alone; the caller translates the target into the matching rune write.
 import type { ContentKind } from '$lib/ipc/bindings';
+import type { InstanceContentKind } from '$lib/mods/content-kind';
 import type { ServerAddonsKind } from '$lib/settings/state.svelte';
 
 export type DropContext = {
@@ -13,6 +16,10 @@ export type DropContext = {
   // owns nothing.
   modpacksOpen: boolean;
   serverImportOpen: boolean;
+  // The configured data folder is unavailable and the launcher runs on a
+  // temporary one: a world or a modpack import would write into the wrong
+  // place, so their boxes take nothing (data-root-gating.ts).
+  dataRootFellBack: boolean;
   mode: 'client' | 'servers';
   // Tab ids arrive as plain strings on purpose: the router predates the
   // ServerTab union change and must not import either tab union — callers
@@ -26,13 +33,16 @@ export type DropContext = {
   serverCanMutate: boolean;
 };
 
+/** A client add-on kind that installs from a `.zip`. */
+type AssetKind = Exclude<InstanceContentKind, 'mod'>;
+
 /** The drop box on screen that takes an OS file drop — the one a drag lights up. */
 export type DropHost =
   | { target: 'modpack' }
   | { target: 'server-import' }
   | { target: 'client-world' }
   | { target: 'client-mods' }
-  | { target: 'client-assets'; kind: ContentKind }
+  | { target: 'client-assets'; kind: AssetKind }
   | { target: 'server-content'; kind: ServerAddonsKind };
 
 export type DropTarget = DropHost['target'];
@@ -47,6 +57,37 @@ export type DropRoute =
   | { target: 'server-content'; kind: ServerAddonsKind; paths: string[] }
   | null;
 
+/** Why a dragged file is not added. The listener words each one; the blocked
+ *  ones in the words the box's own disabled strip shows. */
+export type DropSkip =
+  // Nothing on screen takes files.
+  | 'nowhere'
+  // The box is there but takes nothing right now.
+  | 'no_instance'
+  | 'no_mod_loader'
+  | 'server_running'
+  | 'data_root'
+  // The box takes other files.
+  | 'only_mods'
+  | 'only_plugins'
+  | 'only_resource_packs'
+  | 'only_shaders'
+  | 'only_datapacks'
+  | 'only_modpacks'
+  // The box takes one source per drop.
+  | 'one_modpack'
+  | 'one_server';
+
+/** What a drop of `paths` does in a context. */
+export type DropPlan = {
+  /** The drop box the drag lights up; null when nothing on screen takes files. */
+  host: DropHost | null;
+  /** Where the files that are added go; null when none is. */
+  route: DropRoute;
+  /** Every other dragged file, and why it is not added. */
+  skipped: { path: string; why: DropSkip }[];
+};
+
 /** Which drop box takes a drop in `ctx`, or null when nothing on screen takes files. A surface on
  *  top comes first; under it, the mode's active tab (and kind) decides. */
 export function dropHost(ctx: DropContext): DropHost | null {
@@ -58,40 +99,96 @@ export function dropHost(ctx: DropContext): DropHost | null {
   }
   if (ctx.clientTab === 'worlds') return { target: 'client-world' };
   if (ctx.clientTab !== 'mod_browser') return null;
-  return ctx.addonsKind === 'mod'
-    ? { target: 'client-mods' }
-    : { target: 'client-assets', kind: ctx.addonsKind };
+  if (ctx.addonsKind === 'mod') return { target: 'client-mods' };
+  // Plugins install to servers; the client Add-ons tab never shows the kind.
+  if (ctx.addonsKind === 'plugin') return null;
+  return { target: 'client-assets', kind: ctx.addonsKind };
 }
 
-const byExt = (paths: string[], ext: string) => paths.filter((p) => p.toLowerCase().endsWith(ext));
+/** Why a box takes nothing right now (its strip is disabled for the same reason), or null. */
+function blockOf(host: DropHost, ctx: DropContext): DropSkip | null {
+  switch (host.target) {
+    case 'modpack':
+      return ctx.dataRootFellBack ? 'data_root' : null;
+    case 'server-import':
+      return null;
+    case 'server-content':
+      return ctx.serverCanMutate ? null : 'server_running';
+    case 'client-world':
+      if (!ctx.instanceSelected) return 'no_instance';
+      return ctx.dataRootFellBack ? 'data_root' : null;
+    case 'client-mods':
+      return ctx.canInstallMods ? null : 'no_mod_loader';
+    case 'client-assets':
+      return ctx.instanceSelected ? null : 'no_instance';
+  }
+}
+
+const isJar = (p: string) => p.toLowerCase().endsWith('.jar');
+const isZip = (p: string) => p.toLowerCase().endsWith('.zip');
 const isModpack = (p: string) => /\.(mrpack|zip)$/i.test(p);
 
-export function routeDrop(paths: string[], ctx: DropContext): DropRoute {
-  if (paths.length === 0) return null;
-  const host = dropHost(ctx);
-  if (host === null) return null;
+const ASSET_ONLY: Record<AssetKind, DropSkip> = {
+  resource_pack: 'only_resource_packs',
+  shader: 'only_shaders',
+  datapack: 'only_datapacks',
+};
+
+/** The files a box takes, and why it leaves the others; null when it takes any path — a world or
+ *  a server source may be a folder, whose name says nothing (the importer judges it). */
+function acceptOf(host: DropHost): { takes: (path: string) => boolean; other: DropSkip } | null {
   switch (host.target) {
-    case 'modpack': {
-      const pack = paths.find(isModpack);
-      return pack === undefined ? null : { target: 'modpack', path: pack };
-    }
+    case 'modpack':
+      return { takes: isModpack, other: 'only_modpacks' };
     case 'server-import':
-      // A .zip or a server folder: the view inspects the source and says what it is.
-      return { target: 'server-import', path: paths[0] };
-    case 'server-content': {
-      if (!ctx.serverCanMutate) return null;
-      const matched = byExt(paths, host.kind === 'datapack' ? '.zip' : '.jar');
-      return matched.length === 0 ? null : { ...host, paths: matched };
+    case 'client-world':
+      return null;
+    case 'client-mods':
+      return { takes: isJar, other: 'only_mods' };
+    case 'client-assets':
+      return { takes: isZip, other: ASSET_ONLY[host.kind] };
+    case 'server-content':
+      if (host.kind === 'datapack') return { takes: isZip, other: 'only_datapacks' };
+      return { takes: isJar, other: host.kind === 'plugin' ? 'only_plugins' : 'only_mods' };
+  }
+}
+
+export function planDrop(paths: string[], ctx: DropContext): DropPlan {
+  const host = dropHost(ctx);
+  const skip = (list: string[], why: DropSkip) => list.map((path) => ({ path, why }));
+  if (host === null) return { host, route: null, skipped: skip(paths, 'nowhere') };
+  const block = blockOf(host, ctx);
+  if (block !== null) return { host, route: null, skipped: skip(paths, block) };
+  const accept = acceptOf(host);
+  const taken = accept === null ? paths : paths.filter(accept.takes);
+  const skipped =
+    accept === null
+      ? []
+      : skip(
+          paths.filter((p) => !accept.takes(p)),
+          accept.other,
+        );
+  if (taken.length === 0) return { host, route: null, skipped };
+  switch (host.target) {
+    case 'modpack':
+    case 'server-import': {
+      const [first, ...rest] = taken;
+      const one: DropSkip = host.target === 'modpack' ? 'one_modpack' : 'one_server';
+      return {
+        host,
+        route: { target: host.target, path: first },
+        skipped: [...skipped, ...skip(rest, one)],
+      };
     }
     case 'client-world':
-      return ctx.instanceSelected ? { target: 'client-world', paths } : null;
-    case 'client-mods': {
-      const jars = byExt(paths, '.jar');
-      return jars.length > 0 && ctx.canInstallMods ? { target: 'client-mods', paths: jars } : null;
-    }
-    case 'client-assets': {
-      const zips = byExt(paths, '.zip');
-      return zips.length > 0 && ctx.instanceSelected ? { ...host, paths: zips } : null;
-    }
+    case 'client-mods':
+      return { host, route: { target: host.target, paths: taken }, skipped };
+    case 'client-assets':
+    case 'server-content':
+      return { host, route: { ...host, paths: taken }, skipped };
   }
+}
+
+export function routeDrop(paths: string[], ctx: DropContext): DropRoute {
+  return planDrop(paths, ctx).route;
 }
