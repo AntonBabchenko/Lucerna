@@ -111,4 +111,16 @@ describe('i18n locale parity (en vs ru)', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  // D14 (installed-mods UX program): Russian says one word per thing — «профиль», «загрузчик»,
+  // «сборка» — and spells «ресурспак» one way. Search keywords are exempt on purpose, like the
+  // tour's legacy names above: someone who types the slang must still find the row.
+  it('uses one Russian word per thing: профиль, загрузчик, сборка, ресурспак', () => {
+    const BANNED = [/инстанс/i, /экземпляр/i, /лоадер/i, /модпак/i, /ресурс-пак/i];
+    const offenders = Object.entries(flatRu)
+      .filter(([key]) => !key.startsWith('settings.search.keywords.'))
+      .filter(([, value]) => typeof value === 'string' && BANNED.some((re) => re.test(value)))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
 });

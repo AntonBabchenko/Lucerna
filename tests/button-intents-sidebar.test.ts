@@ -180,9 +180,9 @@ describe('Sidebar — instance section buttons', () => {
     expect(btn).toHaveBtnSize('xs');
   });
 
-  it('Mods is btn-secondary btn-xs', () => {
+  it('Mods folder is btn-secondary btn-xs', () => {
     render(Sidebar, { props: baseProps });
-    const btn = screen.getByRole('button', { name: /mods$/i });
+    const btn = screen.getByRole('button', { name: /^mods folder$/i });
     expect(btn).toHaveBtnVariant('secondary');
     expect(btn).toHaveBtnSize('xs');
   });
