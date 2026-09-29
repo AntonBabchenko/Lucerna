@@ -1065,7 +1065,7 @@
         "action": "Undo",
         "removedOne": "Removed {name}",
         "removedMany": "{count, plural, one {Removed # mod} other {Removed # mods}}",
-        "alsoDisabled": "Also disabled: {names}",
+        "alsoDisabled": "{count, plural, =1 {Also disabled: {names}} other {Also disabled: {names}}}",
         "more": "and {count} more"
       },
       "disable": {
@@ -1114,7 +1114,7 @@
         "busy": "Can't restore {what} while another operation is using the profile",
         "modsCount": "{count, plural, one {# mod} other {# mods}}",
         "inProfile": "Profile: {profile}",
-        "stillDisabled": "Still disabled: {names}",
+        "stillDisabled": "{count, plural, =1 {Still disabled: {names}} other {Still disabled: {names}}}",
         "reenabled": "{count, plural, one {# dependent switched back on} other {# dependents switched back on}}: {names}",
         "reenableFailed": "Couldn't re-enable {name}"
       },

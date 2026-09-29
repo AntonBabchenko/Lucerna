@@ -1065,7 +1065,7 @@
         "action": "Вернуть",
         "removedOne": "Удалено: {name}",
         "removedMany": "Удалено модов: {count}",
-        "alsoDisabled": "Также отключены: {names}",
+        "alsoDisabled": "{count, plural, =1 {Также отключён: {names}} other {Также отключены: {names}}}",
         "more": "и ещё {count}"
       },
       "disable": {
@@ -1114,7 +1114,7 @@
         "busy": "Нельзя вернуть {what}, пока профиль занят другой операцией",
         "modsCount": "{count, plural, one {# мод} few {# мода} many {# модов} other {# мода}}",
         "inProfile": "Профиль: {profile}",
-        "stillDisabled": "Остались отключены: {names}",
+        "stillDisabled": "{count, plural, =1 {Остался отключён: {names}} other {Остались отключены: {names}}}",
         "reenabled": "{count, plural, one {Снова включён # зависимый мод} few {Снова включены # зависимых мода} many {Снова включены # зависимых модов} other {Снова включены # зависимого мода}}: {names}",
         "reenableFailed": "Не удалось снова включить {name}"
       },

@@ -642,8 +642,14 @@ function pushUndo(
       : tt('mods.ops.undo.removedMany', { count: shown.length });
   const lines = [
     ...(shown.length > 1 ? listLines(shown) : []),
+    // The line agrees with how many it names («Также отключён» / «Также отключены»).
     ...(disabled.done.length > 0
-      ? [tt('mods.ops.undo.alsoDisabled', { names: disabled.done.map((d) => d.name).join(', ') })]
+      ? [
+          tt('mods.ops.undo.alsoDisabled', {
+            count: disabled.done.length,
+            names: disabled.done.map((d) => d.name).join(', '),
+          }),
+        ]
       : []),
     ...disabled.failed.map(
       (f) => `${tt('mods.ops.failed.disable', { name: f.target.name })}: ${f.message}`,
@@ -670,9 +676,15 @@ async function restoreUninstalled(
   const r = await settleCall(() => commands.modsRestoreUninstalled(scope.instanceId, token));
   // Read after the call: the user may have switched profiles meanwhile.
   const where = profileLine(scope);
+  // Agrees with how many it names («Остался отключён» / «Остались отключены»).
   const stillDisabled =
     reEnable.length > 0
-      ? [tt('mods.ops.restore.stillDisabled', { names: reEnable.map((d) => d.name).join(', ') })]
+      ? [
+          tt('mods.ops.restore.stillDisabled', {
+            count: reEnable.length,
+            names: reEnable.map((d) => d.name).join(', '),
+          }),
+        ]
       : [];
   if (!r.ok) {
     if (r.busy) {

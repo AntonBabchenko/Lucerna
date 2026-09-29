@@ -815,6 +815,58 @@ describe('uninstall and undo', () => {
   });
 });
 
+// Plan §5b V2 (carried from V1): «Также отключены: Indium» and «Остались отключены: Indium» read
+// plural over one name. Each line agrees with how many mods it names — `=1`, so one name is
+// singular whatever the number, never «21 → one» — and the count reaches $t as a number.
+describe('the lines naming disabled dependents agree with how many they name', () => {
+  const twoImpact = ok({
+    dependents: [
+      { sha1: 'i', name: 'Indium', needs: ['Sodium'] },
+      { sha1: 'r', name: 'Reese', needs: ['Sodium'] },
+    ],
+    order: ['i', 'r', 's'],
+  });
+  const notBack = ok({
+    restored: [],
+    skipped: [{ name: 'Sodium', reason: 'already_installed' as const }],
+    expired: false,
+  });
+  /** Removes Sodium with its dependents disabled, then an Undo that brings nothing back. */
+  async function removeThenFailUndo(impact: typeof sodiumImpact) {
+    h.modsRemovalImpact.mockResolvedValue(impact);
+    host();
+    const done = uninstallMods(scope, [sodium]);
+    await fireEvent.click(await screen.findByRole('button', { name: /^Удалить и отключить/ }));
+    await done;
+    h.modsRestoreUninstalled.mockResolvedValueOnce(notBack);
+    toast(0)[2].run();
+    await waitFor(() => expect(h.pushWarning).toHaveBeenCalled());
+    return { undo: toast(0)[3], restore: h.pushWarning.mock.calls[0]?.[1] as string[] };
+  }
+
+  it('one: «Также отключён», «Остался отключён»', async () => {
+    locale.set('ru');
+    try {
+      const { undo, restore } = await removeThenFailUndo(sodiumImpact);
+      expect(undo).toEqual(['Также отключён: Indium']);
+      expect(restore).toEqual(['Sodium уже установлен снова', 'Остался отключён: Indium']);
+    } finally {
+      locale.set('en');
+    }
+  });
+
+  it('two: «Также отключены», «Остались отключены»', async () => {
+    locale.set('ru');
+    try {
+      const { undo, restore } = await removeThenFailUndo(twoImpact);
+      expect(undo).toEqual(['Также отключены: Indium, Reese']);
+      expect(restore).toEqual(['Sodium уже установлен снова', 'Остались отключены: Indium, Reese']);
+    } finally {
+      locale.set('en');
+    }
+  });
+});
+
 // A row action has no busy state of its own: a double click on Remove fired two guarded calls, and
 // the second one failed or asked about a mod that was already gone.
 describe('a mod already being changed', () => {
