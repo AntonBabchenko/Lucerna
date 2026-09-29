@@ -455,7 +455,7 @@ export type TranslationKey =
   | 'instance.error.dirNameEmpty'
   | 'instance.error.dirNameReserved'
   | 'instance.error.dirNameTaken'
-  | 'instance.error.loaderNoSupport'
+  | 'instance.error.loaderVersionRequired'
   | 'instance.error.nameEmpty'
   | 'instance.error.nameRequired'
   | 'instance.error.nameTooLong'

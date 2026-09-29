@@ -366,7 +366,7 @@
       "nameEmpty": "Name cannot be empty",
       "nameTooLong": "Name is too long: {actual}/{max} characters",
       "pickMcFirst": "Pick a Minecraft version first",
-      "loaderNoSupport": "{loader} does not support Minecraft {mc} — try another version or loader",
+      "loaderVersionRequired": "Choose a {loader} version first",
       "dirNameEmpty": "That name leaves no usable folder name.",
       "dirNameTaken": "A folder named {name} already exists.",
       "dirNameReserved": "{name} is a name Windows reserves for devices.",
