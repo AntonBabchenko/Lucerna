@@ -3650,6 +3650,29 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  a file written here first would switch that recovery off.
  */
 { kind: "server_world_only_old" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+/**  A new server (create or import) was given no Minecraft version. */
+{ kind: "server_mc_version_required" } | 
+/**
+ *  A new server (create or import) was given a Minecraft version Mojang's
+ *  manifest does not list, so it could never resolve its Java runtime.
+ */
+{ kind: "server_mc_version_unlisted"; mc_version: string } | 
+/**
+ *  Mojang's version list could not be loaded while a new server's
+ *  Minecraft version was being checked; the server is refused rather than
+ *  saved with a version nobody checked.
+ */
+{ kind: "server_mc_version_unchecked" } | 
+/**
+ *  A saved server has no Minecraft version recorded (it was imported
+ *  before the import required one).
+ */
+{ kind: "server_saved_mc_version_missing" } | 
+/**
+ *  A saved server records a Minecraft version Mojang's manifest does not
+ *  list.
+ */
+{ kind: "server_saved_mc_version_unknown"; mc_version: string } | 
 /**  Server SFTP upload is not configured (no `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Could not establish the SSH/SFTP connection to the user's server. */

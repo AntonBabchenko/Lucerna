@@ -71,6 +71,13 @@ describe('ServerOverviewTab', () => {
     expect(card.textContent).toContain('4.0 GB');
   });
 
+  it('says the version is not recorded instead of leaving a blank', async () => {
+    await seed([{ ...makeServer('srv-1'), mc_version: '' }]);
+    render(ServerOverviewTab, { serverId: 'srv-1' });
+    const card = screen.getByTestId('server-overview-server-card');
+    expect(card.textContent).toContain('Not recorded');
+  });
+
   it('renders both cards, with the console card spanning the full grid width', async () => {
     await seed([makeServer('srv-1')]);
     render(ServerOverviewTab, { serverId: 'srv-1' });

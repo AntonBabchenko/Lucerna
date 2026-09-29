@@ -2551,6 +2551,11 @@
     "serverImportTooLarge": "That server is too large to import.",
     "serverImportNotAServer": "That folder doesn't look like a Minecraft server (no server jar, loader files, or server.properties).",
     "serverImportStagingExpired": "This import session expired — start the import again.",
+    "serverMcVersionRequired": "No Minecraft version was given for the server.",
+    "serverMcVersionUnlisted": "Minecraft {mcVersion} is not in Mojang's version list. Check the version number.",
+    "serverMcVersionUnchecked": "Lucerna couldn't load Mojang's version list, so it couldn't check the Minecraft version. Try again in a moment.",
+    "serverSavedMcVersionMissing": "This server has no Minecraft version recorded. Export it as a .zip on the Hosting tab, import that .zip under a new name and enter the version, then delete this server.",
+    "serverSavedMcVersionUnknown": "This server records Minecraft {mcVersion}, which is not in Mojang's version list. Export it as a .zip on the Hosting tab, import that .zip under a new name with the correct version, then delete this server.",
     "dataLocationBusy": "Lucerna can't do that right now: a game or server is running, another operation is still in progress, or it couldn't check. Stop games and servers, wait for running operations to finish, then try again.",
     "dataLocationInvalid": "That folder can't be used: {reason}",
     "dataLocationInvalidReason": {
@@ -3487,7 +3492,8 @@
       "consoleCard": "Console",
       "version": "Version",
       "core": "Core",
-      "memory": "Memory"
+      "memory": "Memory",
+      "versionNotRecorded": "Not recorded"
     },
     "addons": {
       "kindPlugins": "Plugins",
@@ -4137,14 +4143,18 @@
       "dropzone": "Drop a server .zip or folder here, or click to choose",
       "inspecting": "Reading the server…",
       "detected": "Detected from the import — adjust if needed.",
-      "willPreserve": "Ready to run as-is (offline)",
+      "willPreserve": "Ready to run as-is",
       "willReprovision": "The loader will be reinstalled",
       "loaderUnknownWarn": "Couldn't detect the mod loader — defaulted to Vanilla. If this server uses mods, choose the correct loader below, or they won't load.",
       "modCount": "{count, plural, one {# mod} other {# mods}}",
       "worldPresent": "Includes a world",
       "import": "Import",
       "importing": "Importing…",
-      "back": "Back"
+      "back": "Back",
+      "mcVersionUndetected": "Lucerna couldn't read this server's Minecraft version. Enter it to import the server.",
+      "disabledReason": {
+        "version": "Enter the server's Minecraft version to continue."
+      }
     }
   },
   "tasks": {

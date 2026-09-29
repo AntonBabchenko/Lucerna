@@ -232,6 +232,11 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_import_too_large: 'clean',
   server_import_not_a_server: 'clean',
   server_import_staging_expired: 'clean',
+  server_mc_version_required: 'clean',
+  server_mc_version_unlisted: 'clean',
+  server_mc_version_unchecked: 'clean',
+  server_saved_mc_version_missing: 'clean',
+  server_saved_mc_version_unknown: 'clean',
   data_location_busy: 'clean',
   data_location_invalid: 'clean',
   data_location_migration_failed: 'opaque',
@@ -847,6 +852,16 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverImportNotAServer');
     case 'server_import_staging_expired':
       return translate('errors.serverImportStagingExpired');
+    case 'server_mc_version_required':
+      return translate('errors.serverMcVersionRequired');
+    case 'server_mc_version_unlisted':
+      return translate('errors.serverMcVersionUnlisted', { mcVersion: e.mc_version });
+    case 'server_mc_version_unchecked':
+      return translate('errors.serverMcVersionUnchecked');
+    case 'server_saved_mc_version_missing':
+      return translate('errors.serverSavedMcVersionMissing');
+    case 'server_saved_mc_version_unknown':
+      return translate('errors.serverSavedMcVersionUnknown', { mcVersion: e.mc_version });
     case 'upload_not_configured':
       return translate('errors.uploadNotConfigured');
     case 'sftp_connect_failed':

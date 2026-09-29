@@ -12,6 +12,7 @@ pub mod import;
 pub mod installed;
 pub mod jar;
 pub mod maintenance;
+pub mod mc_version;
 pub mod mod_classify;
 pub mod paper;
 pub mod pid;

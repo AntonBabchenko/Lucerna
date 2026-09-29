@@ -46,6 +46,9 @@
   // Surfaced as a warning until the user picks a real loader — otherwise mods
   // silently won't load.
   let loaderUnknown = $state(false);
+  // Detection found no Minecraft version, so the field starts empty and the
+  // user has to supply it (said under the field).
+  let mcUndetected = $state(false);
 
   // Heap for the imported server. The adaptive bounds live inside MemorySlider.
   let memoryMb = $state(4096);
@@ -115,6 +118,7 @@
         token = r.preview.token;
         name = r.preview.detected_name;
         mcVersion = r.preview.mc_version ?? '';
+        mcUndetected = r.preview.mc_version === null;
         loaderUnknown = r.preview.loader === null;
         loader = r.preview.loader ?? 'vanilla';
         loaderVersion = r.preview.loader_version ?? null;
@@ -143,7 +147,7 @@
   }
 
   async function doImport(): Promise<void> {
-    if (!name.trim() || !eula || !token) return;
+    if (!canImport || !token) return;
     busy = true;
     error = null;
     try {
@@ -154,7 +158,7 @@
       const r = await serverState.importCommit(
         token,
         name.trim(),
-        mcVersion.trim(),
+        mcTrimmed,
         loader,
         effectiveLoaderVersion,
         memoryMb,
@@ -180,7 +184,19 @@
     error = null;
   }
 
-  const canImport = $derived(name.trim().length > 0 && eula);
+  const mcTrimmed = $derived(mcVersion.trim());
+  // A server needs a Minecraft version: Start resolves its Java runtime by that
+  // id. Whether Mojang lists it is checked by the backend on Import, against a
+  // list fresher than the one this window loaded at startup.
+  const canImport = $derived(name.trim().length > 0 && mcTrimmed !== '' && eula);
+  // Why Import is disabled, checked in canImport's order so the first missing
+  // requirement is named (the create wizard's pattern).
+  const disabledReason = $derived.by<string | null>(() => {
+    if (name.trim().length === 0) return $t('servers.wizard.disabledReason.name');
+    if (mcTrimmed === '') return $t('servers.import.disabledReason.version');
+    if (!eula) return $t('servers.wizard.disabledReason.eula');
+    return null;
+  });
 
   // LoaderPicker only understands the 5 mod-loader kinds; paper/purpur are
   // shown read-only below instead (see the loader section markup). Deriving
@@ -270,8 +286,14 @@
         id="import-mc-version"
         type="text"
         class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
+        aria-describedby={mcUndetected ? 'import-mc-version-hint' : undefined}
         bind:value={mcVersion}
       />
+      {#if mcUndetected}
+        <p id="import-mc-version-hint" class="text-xs text-muted">
+          {$t('servers.import.mcVersionUndetected')}
+        </p>
+      {/if}
     </div>
 
     <!-- Core / loader -->
@@ -359,14 +381,21 @@
       <button type="button" class="btn-ghost btn-sm" onclick={() => void goBack()}>
         {$t('servers.import.back')}
       </button>
-      <BusyButton
-        class="btn-primary btn-sm"
-        {busy}
-        disabled={!canImport}
-        onclick={() => void doImport()}
-      >
-        {busy ? $t('servers.import.importing') : $t('servers.import.import')}
-      </BusyButton>
+      <div class="flex items-center gap-2">
+        {#if disabledReason}
+          <span class="text-xs text-muted" data-testid="import-disabled-reason">
+            {disabledReason}
+          </span>
+        {/if}
+        <BusyButton
+          class="btn-primary btn-sm"
+          {busy}
+          disabled={!canImport}
+          onclick={() => void doImport()}
+        >
+          {busy ? $t('servers.import.importing') : $t('servers.import.import')}
+        </BusyButton>
+      </div>
     </div>
   </div>
 {/if}

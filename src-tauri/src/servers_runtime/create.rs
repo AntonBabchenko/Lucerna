@@ -212,18 +212,13 @@ pub async fn create_installer_server(
 /// Найти серверный download-URL и SHA-1 для vanilla-версии через манифест Mojang.
 ///
 /// Возвращает `(url, sha1)` из `downloads.server` в per-version JSON.
-/// Ошибка `ServerJarUnavailable` если версия отсутствует в манифесте или у неё
-/// нет серверного артефакта (очень старые версии).
+/// `ServerSavedMcVersionMissing` / `ServerSavedMcVersionUnknown` для пустой или не
+/// известной Mojang версии (пустая — до обращения к сети);
+/// `ServerJarUnavailable` если у версии нет серверного артефакта (очень старые).
 pub async fn resolve_vanilla_jar(mc_version: &str) -> Result<(String, String)> {
+    crate::servers_runtime::mc_version::saved_recorded(mc_version)?;
     let manifest = crate::versions::manifest::list_manifest().await?;
-    let entry = manifest
-        .iter()
-        .find(|e| e.id == mc_version)
-        .ok_or_else(|| Error::ServerJarUnavailable {
-            loader: "vanilla".into(),
-            mc_version: mc_version.to_string(),
-            reason: "version not in manifest".into(),
-        })?;
+    let entry = crate::servers_runtime::mc_version::saved_entry(mc_version, &manifest)?;
     let json_text = crate::network::get_text(&entry.url, "servers").await?;
     let details = crate::versions::version_json::parse(&json_text)
         .map_err(|e| Error::io("<version_json>", format!("parse: {e}")))?;
@@ -241,17 +236,13 @@ pub async fn resolve_vanilla_jar(mc_version: &str) -> Result<(String, String)> {
 
 /// MC version's required Java component (e.g. "java-runtime-delta"), via the
 /// Mojang manifest + version JSON. Falls back to the legacy component when the
-/// version JSON has no `javaVersion`.
+/// version JSON has no `javaVersion`. A blank or unlisted version fails with
+/// `ServerSavedMcVersionMissing` / `ServerSavedMcVersionUnknown` (a blank one before any
+/// network request, so an offline Start still names the real problem).
 pub async fn resolve_server_java_component(mc_version: &str) -> Result<String> {
+    crate::servers_runtime::mc_version::saved_recorded(mc_version)?;
     let manifest = crate::versions::manifest::list_manifest().await?;
-    let entry = manifest
-        .iter()
-        .find(|e| e.id == mc_version)
-        .ok_or_else(|| Error::ServerJarUnavailable {
-            loader: "vanilla".into(),
-            mc_version: mc_version.to_string(),
-            reason: "version not in manifest".into(),
-        })?;
+    let entry = crate::servers_runtime::mc_version::saved_entry(mc_version, &manifest)?;
     let json = crate::network::get_text(&entry.url, "servers").await?;
     let details = crate::versions::version_json::parse(&json)
         .map_err(|e| Error::io("<version_json>", format!("parse: {e}")))?;

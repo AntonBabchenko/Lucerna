@@ -26,7 +26,13 @@
       </h3>
       <div class="flex items-center justify-between text-sm">
         <span class="text-secondary">{$t('servers.overview.version')}</span>
-        <span class="font-mono">{server.mc_version}</span>
+        {#if server.mc_version.trim() === ''}
+          <!-- Imported before the import required a version: say so rather
+               than leave a blank (Start explains how to fix it). -->
+          <span class="text-muted">{$t('servers.overview.versionNotRecorded')}</span>
+        {:else}
+          <span class="font-mono">{server.mc_version}</span>
+        {/if}
       </div>
       <div class="flex items-center justify-between text-sm">
         <span class="text-secondary">{$t('servers.overview.core')}</span>

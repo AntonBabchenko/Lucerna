@@ -58,6 +58,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   in as Minecraft `9999.0`, the version of an unrelated library. The version
   now comes only from where a profile actually records it; when it cannot be
   told, the field stays empty for you to fill in.
+- **Importing a server no longer goes through without its Minecraft version.**
+  When Lucerna could not read the version from the server's files, the import
+  went ahead with the field left empty, and the server then refused to start
+  with a message about a missing vanilla download. Import now waits until the
+  version is filled in, says so next to the button, and refuses a version that
+  is not in Mojang's version list. A server imported that way before shows its
+  version as not recorded, and starting it explains how to bring it back with
+  the version set.
 
 ## [0.25.0] — 2026-09-27
 
