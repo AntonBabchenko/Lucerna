@@ -134,7 +134,8 @@ describe('«Fix all» on the Installed panel', () => {
     render(InstalledModsView, { props: props('fix-all-partial') });
     await fireEvent.click(await screen.findByRole('button', { name: 'Fix all (1)' }));
     await waitFor(() =>
-      expect(h.pushWarning).toHaveBeenCalledWith('Fixed 0 of 1', [formatError(denied)]),
+      // Named by the jar it could not switch on (plan §5c V3): no name store here, so its id.
+      expect(h.pushWarning).toHaveBeenCalledWith('Fixed 0 of 1', [`balm: ${formatError(denied)}`]),
     );
     expect(h.pushSuccess).not.toHaveBeenCalled();
   });
