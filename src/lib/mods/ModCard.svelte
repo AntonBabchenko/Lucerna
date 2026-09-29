@@ -470,15 +470,37 @@
         class="flex flex-1 items-center gap-2 text-left min-w-0"
         onclick={onOpenDetail}
       >
-        <span class="font-medium text-primary flex-shrink-0">{summary.name}</span>
+        <!-- Short of room, the version gives way first (`shrink-[1000]`: it takes the whole
+             shortfall until nothing of it is left), then the name; each ends in «…», never cut
+             mid-glyph under the badges beside it (plan §5c, screenshot n01e). A name cut short
+             shows whole in its tooltip. -->
+        <span
+          class="min-w-0 truncate font-medium text-primary"
+          use:tooltip={{ text: summary.name, whenOverflowing: true }}>{summary.name}</span
+        >
         {#if installed}
-          <!-- «Name · version · description» (spec D12): the file name is the version's tooltip,
-               the pin sits beside the version it keeps. -->
-          <span class="text-xs text-muted flex-shrink-0 inline-flex items-center gap-1">
+          <!-- «Name · version · description» (spec D12): the file name is the version's tooltip —
+               with the version whole before it while the version is cut short — and the pin sits
+               beside the version it keeps. -->
+          <span class="min-w-0 shrink-[1000] text-xs text-muted inline-flex items-center gap-1">
             {#if meta.version}
-              <span data-testid="mod-version" use:tooltip={installed.filename}>{meta.version}</span>
+              <span
+                class="min-w-0 truncate"
+                data-testid="mod-version"
+                use:tooltip={{
+                  text: installed.filename,
+                  clippedText: `${meta.version} · ${installed.filename}`,
+                }}>{meta.version}</span
+              >
             {:else}
-              <span data-testid="mod-state-note" use:tooltip={installed.filename}>{meta.note}</span>
+              <span
+                class="min-w-0 truncate"
+                data-testid="mod-state-note"
+                use:tooltip={{
+                  text: installed.filename,
+                  clippedText: `${meta.note} · ${installed.filename}`,
+                }}>{meta.note}</span
+              >
             {/if}
             {@render heldPin('')}
           </span>

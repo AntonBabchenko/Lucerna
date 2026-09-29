@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import ModCard from '$lib/mods/ModCard.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 const summary = {
   source: 'modrinth' as const,
@@ -82,5 +84,37 @@ describe('ModCard update badge', () => {
   it('a row whose project details could not load carries the pin too', () => {
     render(ModCard, { props: { ...base, summary: null, updateState: null, held: true } });
     expect(screen.getByTestId('mod-held-pin')).toBeTruthy();
+  });
+});
+
+// Plan §5c V3 (screenshot n01e): at 820 px «Fabric API v0.10|» — the version ran on under the
+// update badge and was cut mid-glyph. It gives way first and ends in «…»; the name gives way only
+// once the version is gone, and ends in «…» too. Only a browser lays this out: these pin the
+// structure the re-render measures.
+describe('ModCard in a narrow row', () => {
+  it('lets the version give way first, then the name, each ending in «…»', () => {
+    render(ModCard, { props: base });
+    const version = screen.getByTestId('mod-version');
+    expect(version.classList).toContain('truncate');
+    expect(version.classList).toContain('min-w-0');
+    // The version's own node (with its pin) shrinks, and far before the name does.
+    const node = version.parentElement as HTMLElement;
+    expect(node.classList).toContain('min-w-0');
+    expect(node.classList).toContain('shrink-[1000]');
+    expect(node.classList).not.toContain('flex-shrink-0');
+    const name = screen.getByText('Alpha');
+    expect(name.classList).toContain('truncate');
+    expect(name.classList).toContain('min-w-0');
+    expect(name.classList).not.toContain('flex-shrink-0');
+  });
+
+  it('keeps the whole version in its tooltip while it is cut short', () => {
+    render(ModCard, { props: { ...base, updateState: null } });
+    const version = screen.getByTestId('mod-version');
+    Object.defineProperty(version, 'scrollWidth', { value: 80, configurable: true });
+    Object.defineProperty(version, 'clientWidth', { value: 30, configurable: true });
+    revealTooltip(version);
+    expect(tooltipState.text).toBe('v1.0 · a.jar');
+    hideTooltip();
   });
 });

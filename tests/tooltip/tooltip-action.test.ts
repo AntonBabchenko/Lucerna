@@ -80,6 +80,20 @@ describe('use:tooltip action', () => {
     expect(tooltipState.visible).toBe(true);
   });
 
+  // Plan §5c V3: a version cut short («v0.10…») keeps its file name as its tooltip, and the
+  // tooltip must then carry the version whole too — the text the node no longer shows.
+  it('clippedText stands in for the text while the node is clipped', () => {
+    const { node } = mount({ text: 'a.jar', clippedText: 'v0.102.0 · a.jar' });
+    Object.defineProperty(node, 'scrollWidth', { value: 50, configurable: true });
+    Object.defineProperty(node, 'clientWidth', { value: 50, configurable: true });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.text).toBe('a.jar');
+    node.dispatchEvent(new FocusEvent('focusout'));
+    Object.defineProperty(node, 'scrollWidth', { value: 200, configurable: true });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.text).toBe('v0.102.0 · a.jar');
+  });
+
   it('update(null) hides an open tooltip', () => {
     const { node, handle } = mount('Hi');
     node.dispatchEvent(new FocusEvent('focusin'));

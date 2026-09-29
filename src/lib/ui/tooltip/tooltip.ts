@@ -8,6 +8,7 @@
 //   <button aria-label={label} use:tooltip={label}><Icon .../></button>
 //   <span use:tooltip={{ text: reason, describe: false }}><button disabled>…</button></span>
 //   <span class="truncate" use:tooltip={{ text: name, whenOverflowing: true }}>{name}</span>
+//   <span class="truncate" use:tooltip={{ text: file, clippedText: `${version} · ${file}` }}>
 //
 // Only valid on DOM elements — wrap Svelte components (e.g. BusyButton) in a span.
 import type { Placement } from './position';
@@ -20,6 +21,9 @@ export type TooltipParam =
       placement?: Placement;
       whenOverflowing?: boolean;
       describe?: boolean;
+      /** Shown instead of `text` while the node is clipped: a tooltip that says something of
+       *  its own (a version's file name) must then also carry what the node no longer shows. */
+      clippedText?: string;
     }
   | null
   | undefined;
@@ -29,13 +33,20 @@ interface Normalized {
   placement: Placement;
   whenOverflowing: boolean;
   describe: boolean | undefined;
+  clippedText: string | null;
 }
 
 function normalize(param: TooltipParam): Normalized | null {
   if (param == null) return null;
   if (typeof param === 'string') {
     return param.trim()
-      ? { text: param, placement: 'top', whenOverflowing: false, describe: undefined }
+      ? {
+          text: param,
+          placement: 'top',
+          whenOverflowing: false,
+          describe: undefined,
+          clippedText: null,
+        }
       : null;
   }
   return param.text && param.text.trim()
@@ -44,6 +55,7 @@ function normalize(param: TooltipParam): Normalized | null {
         placement: param.placement ?? 'top',
         whenOverflowing: param.whenOverflowing ?? false,
         describe: param.describe,
+        clippedText: param.clippedText?.trim() ? param.clippedText : null,
       }
     : null;
 }
@@ -80,7 +92,8 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 
   function open(immediate: boolean) {
     if (!opts || !shouldShow()) return;
-    showTooltip(node.getBoundingClientRect(), opts.text, {
+    const text = opts.clippedText !== null && isClipped() ? opts.clippedText : opts.text;
+    showTooltip(node.getBoundingClientRect(), text, {
       placement: opts.placement,
       immediate,
       owner: node,
