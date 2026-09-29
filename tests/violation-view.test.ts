@@ -58,8 +58,9 @@ describe('violationMessage', () => {
     );
     locale.set('ru');
     try {
+      // A no-break space before the dash: no line of the gate starts with «—» (plan §5d L3).
       expect(violationMessage(get(t), v, 'Sodium')).toBe(
-        'Waystones не загрузится с Sodium 0.6.0 — только с версией 0.6.1 и новее или без Sodium',
+        'Waystones не загрузится с Sodium 0.6.0 — только с версией 0.6.1 и новее или без Sodium',
       );
     } finally {
       locale.set('en');

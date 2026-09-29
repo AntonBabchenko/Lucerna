@@ -152,8 +152,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the game**, and claims nothing either way until the check has run.
 - **Problems read more clearly.** A version range reads as one range instead of
   two phrases strung together, an optional dependency at the wrong version is
-  reported as a problem instead of as something the mod supports, and a
-  version that starts with a letter no longer gets a stray "v".
+  reported as a problem instead of as something the mod supports, a version
+  that starts with a letter no longer gets a stray "v", and in Russian no line
+  of a problem or of the reason a fix failed starts with a dash.
 - **Keyboard focus stays in sight in the mod lists.** Moving through Browse
   results with the keyboard could land on one hidden under the filters or the
   page switcher that stay on screen; the list now scrolls it clear of them.
