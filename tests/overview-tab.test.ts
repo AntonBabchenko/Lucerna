@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
 import { whatsNewState } from '$lib/changelog/whats-new.svelte';
+import { locale } from '$lib/i18n';
 import { hasSeen, markSeen, OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
 import { tourState } from '$lib/onboarding/state.svelte';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
@@ -391,6 +392,23 @@ describe('OverviewTab readiness pill', () => {
       props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 1, problemCount: 1 },
     });
     expect(pill().getAttribute('data-status')).toBe('ready');
+  });
+});
+
+// Plan §5b V1: a profile is «профиль» in Russian — «сборка» is a modpack.
+describe('OverviewTab — a dependency check that could not run', () => {
+  it('names the profile, in Russian too', () => {
+    locale.set('ru');
+    try {
+      render(OverviewTab, {
+        props: { ...baseProps, activeInstance: fabricInst, preflightUnknown: true },
+      });
+      expect(screen.getByTestId('overview-attention-preflight_unknown').textContent).toContain(
+        'Не удалось проверить зависимости этого профиля',
+      );
+    } finally {
+      locale.set('en');
+    }
   });
 });
 

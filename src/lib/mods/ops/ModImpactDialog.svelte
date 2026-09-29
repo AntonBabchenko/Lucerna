@@ -19,6 +19,10 @@
 
   const count = $derived(view.targets.length);
   const name = $derived(view.targets[0]?.name ?? '');
+  // The disabled mods an enable needs, named — in its title and its body alike.
+  const deps = $derived(
+    view.mode === 'enable-with-requirements' ? view.requirements.map((r) => r.name).join(', ') : '',
+  );
 
   const title = $derived.by(() => {
     switch (view.mode) {
@@ -30,12 +34,10 @@
         return count === 1
           ? $t('mods.ops.remove.titleOne', { name })
           : $t('mods.ops.remove.titleMany', { count });
-      case 'enable-with-requirements': {
-        const deps = view.requirements.map((r) => r.name).join(', ');
+      case 'enable-with-requirements':
         return count === 1
           ? $t('mods.ops.enable.titleOne', { name, deps })
           : $t('mods.ops.enable.titleMany', { count, deps });
-      }
       case 'impact-check-failed':
         return view.action === 'enable'
           ? $t('mods.ops.checkFailed.requirements', { count })
@@ -86,7 +88,11 @@
 >
   {#snippet body()}
     {#if view.mode === 'dependents-on-disable' || view.mode === 'dependents-on-remove'}
-      <p class="text-sm text-secondary">{$t('mods.ops.dependents.lead', { count })}</p>
+      <!-- Every pronoun and verb agrees with the count it stands for (plan §5b V1): the mods
+           leaving (`count`) and the dependents that will not load. -->
+      <p class="text-sm text-secondary">
+        {$t('mods.ops.dependents.lead', { count, dependents: view.dependents.length })}
+      </p>
       <ul class="text-sm text-primary list-disc pl-5 max-h-40 overflow-auto selectable">
         {#each view.dependents as d (d.sha1)}
           <li>
@@ -96,9 +102,18 @@
           </li>
         {/each}
       </ul>
-      <p class="text-sm text-secondary">{$t('mods.ops.dependents.note')}</p>
+      <p class="text-sm text-secondary">
+        {$t('mods.ops.dependents.note', { dependents: view.dependents.length })}
+      </p>
     {:else if view.mode === 'enable-with-requirements'}
-      <p class="text-sm text-secondary">{$t('mods.ops.enable.body', { count })}</p>
+      <p class="text-sm text-secondary">
+        {$t('mods.ops.enable.body', {
+          count,
+          name,
+          requirements: view.requirements.length,
+          deps,
+        })}
+      </p>
     {:else}
       <p class="text-sm text-secondary selectable">{view.error}</p>
     {/if}

@@ -288,7 +288,7 @@ describe('the issue count comes from the pre-flight', () => {
         if (!el) throw new Error('reason line not rendered yet');
         return el;
       });
-      expect(line.textContent).toContain('Alpha: Balm is disabled');
+      expect(line.textContent).toContain("Alpha won't load: Balm is disabled");
       await fireEvent.click(within(line).getByRole('button', { name: 'Enable' }));
       await waitFor(() =>
         expect(commands.modsEnable).toHaveBeenCalledWith('enable-provider', 'balm-sha'),

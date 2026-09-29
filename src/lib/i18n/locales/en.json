@@ -964,11 +964,11 @@
       "fixAll": "Fix all ({count})",
       "fixIncompatible": "Fix incompatible ({count})",
       "missing": "{dependent} needs {dep}, which is not installed",
-      "requiredDisabled": "{dependent}: {dep} is disabled",
+      "requiredDisabled": "{dependent} won't load: {dep} is disabled",
       "outOfRange": "{dependent} needs {dep} {needed} — installed: {installed}",
       "incompatibleWith": "{dependent} is incompatible with {dep} {needed} — installed: {installed}",
       "incompatibleWithAny": "{dependent} is incompatible with {dep} — installed: {installed}",
-      "optionalOutOfRange": "{dependent} supports {dep} {needed} — installed: {installed}",
+      "optionalOutOfRange": "{dependent} won't load with {dep} {installed} — only with version {needed}, or without {dep}",
       "platformMismatch": "{dependent} is made for {platform} {needed} — this profile has {installed}",
       "gateFixLaunch": "Fix and launch",
       "gateFixed": "Fixed {fixed} of {total}",
@@ -1078,14 +1078,14 @@
         "andDisable": "{count, plural, one {Remove and disable # dependent} other {Remove and disable # dependents}}"
       },
       "dependents": {
-        "lead": "{count, plural, =1 {These won't load without it:} other {These won't load without them:}}",
+        "lead": "{dependents, plural, =1 {This mod won't load} other {These mods won't load}} without {count, plural, =1 {it} other {them}}:",
         "needs": "needs: {names}",
-        "note": "The game won't start while they're enabled."
+        "note": "The game won't start while {dependents, plural, =1 {this mod is} other {these mods are}} enabled."
       },
       "enable": {
         "titleOne": "Enable {name} together with {deps}?",
         "titleMany": "{count, plural, one {Enable # mod} other {Enable # mods}} together with {deps}?",
-        "body": "{count, plural, =1 {It won't load while they are disabled.} other {They won't load while those are disabled.}}",
+        "body": "{count, plural, =1 {{name} won't load} other {These mods won't load}} while {requirements, plural, =1 {{deps} is disabled} other {{deps} are disabled}}.",
         "together": "Enable together"
       },
       "checkFailed": {

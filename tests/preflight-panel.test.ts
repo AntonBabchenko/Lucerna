@@ -131,7 +131,9 @@ describe('PreflightPanel violation wording', () => {
     expect(getByTestId('preflight-row').textContent).not.toContain('any version works');
   });
 
-  it('words an out-of-range optional dependency as support, not a requirement', () => {
+  // Not a requirement — the mod loads without it — but the installed build stops the load: a
+  // blocker, never a fact about what the mod supports (plan §5b V1).
+  it('words an out-of-range optional dependency as a blocker the mod can do without', () => {
     const v: DepViolation = {
       ...incompatible(),
       kind: 'optional_out_of_range',
@@ -143,7 +145,9 @@ describe('PreflightPanel violation wording', () => {
     const { getByTestId } = render(PreflightPanel, {
       props: { report: { violations: [v] } },
     });
-    expect(getByTestId('preflight-row').textContent).toContain('supports curios 9.0 or newer');
+    expect(getByTestId('preflight-row').textContent).toContain(
+      "AsyncParticles won't load with curios 5.4.0 — only with version 9.0 or newer, or without curios",
+    );
   });
 });
 
@@ -409,7 +413,7 @@ describe('PreflightPanel — what stops the game', () => {
       props: { report: { violations: [v] }, onEnableProvider },
     });
     expect(screen.getByTestId('preflight-row').textContent).toContain(
-      'Waystones: Balm is disabled',
+      "Waystones won't load: Balm is disabled",
     );
     expect(screen.queryByRole('button', { name: /install/i })).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Enable' }));

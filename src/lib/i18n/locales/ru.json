@@ -964,11 +964,11 @@
       "fixAll": "Исправить всё ({count})",
       "fixIncompatible": "Исправить несовместимые ({count})",
       "missing": "{dependent} требует {dep}, который не установлен",
-      "requiredDisabled": "{dependent}: отключён {dep}",
+      "requiredDisabled": "{dependent} не загрузится: отключён {dep}",
       "outOfRange": "{dependent} требует {dep} {needed} — установлено: {installed}",
       "incompatibleWith": "{dependent} несовместим с {dep} {needed} — установлено: {installed}",
       "incompatibleWithAny": "{dependent} несовместим с {dep} любой версии — установлено: {installed}",
-      "optionalOutOfRange": "{dependent} работает с {dep} {needed} — установлено: {installed}",
+      "optionalOutOfRange": "{dependent} не загрузится с {dep} {installed} — только с версией {needed} или без {dep}",
       "platformMismatch": "{dependent} сделан для {platform} {needed} — в профиле {installed}",
       "gateFixLaunch": "Исправить и запустить",
       "gateFixed": "Исправлено {fixed} из {total}",
@@ -1078,14 +1078,14 @@
         "andDisable": "{count, plural, one {Удалить и отключить # зависимый мод} few {Удалить и отключить # зависимых мода} many {Удалить и отключить # зависимых модов} other {Удалить и отключить # зависимого мода}}"
       },
       "dependents": {
-        "lead": "{count, plural, =1 {Без него не загрузятся:} other {Без них не загрузятся:}}",
+        "lead": "{count, plural, =1 {Без него} other {Без них}} {dependents, plural, =1 {не загрузится:} other {не загрузятся:}}",
         "needs": "требует: {names}",
-        "note": "Пока они включены, игра не запустится."
+        "note": "Пока {dependents, plural, =1 {этот мод включён} other {эти моды включены}}, игра не запустится."
       },
       "enable": {
         "titleOne": "Включить {name} вместе с {deps}?",
         "titleMany": "{count, plural, one {Включить # мод} few {Включить # мода} many {Включить # модов} other {Включить # мода}} вместе с {deps}?",
-        "body": "{count, plural, =1 {Пока они отключены, он не загрузится.} other {Пока те отключены, они не загрузятся.}}",
+        "body": "{count, plural, =1 {{name} не загрузится} other {Эти моды не загрузятся}}, пока {requirements, plural, =1 {{deps} отключён} other {отключены {deps}}}.",
         "together": "Включить вместе"
       },
       "checkFailed": {
@@ -3333,7 +3333,7 @@
       "attnLogFixAvailable": "Доступно исправление",
       "attnModpackUpdate": "Доступно обновление сборки",
       "attnServerLogFix": "Серверу нужно исправление в один клик",
-      "attnPreflightUnknown": "Не удалось проверить зависимости этой сборки",
+      "attnPreflightUnknown": "Не удалось проверить зависимости этого профиля",
       "attentionView": "Открыть",
       "attentionDismissTooltip": "Я знаю, что я делаю",
       "attentionDismissAria": "Скрыть предупреждения",

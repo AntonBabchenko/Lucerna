@@ -27,11 +27,43 @@ const base: DepViolation = {
 describe('violationMessage', () => {
   beforeAll(() => locale.set('en'));
 
-  it('says a disabled provider is disabled — never "not installed"', () => {
+  // Plan §5b V1: «Zoomify: отключён YetAnotherConfigLib» said a fact, not why it matters.
+  it('says a disabled provider is disabled — never "not installed" — and what that stops', () => {
     const v: DepViolation = { ...base, kind: 'required_disabled', provider_sha1: 'balm-sha' };
     const s = violationMessage(get(t), v, 'Balm');
-    expect(s).toBe('Waystones: Balm is disabled');
+    expect(s).toBe("Waystones won't load: Balm is disabled");
     expect(s).not.toContain('not installed');
+    locale.set('ru');
+    try {
+      expect(violationMessage(get(t), v, 'Balm')).toBe('Waystones не загрузится: отключён Balm');
+    } finally {
+      locale.set('en');
+    }
+  });
+
+  // Plan §5b V1: «работает с …» read as a fact about the mod. An optional dependency out of range
+  // stops the load; the sentence says so, and that the mod does without it too.
+  it('words an optional dependency out of range as a blocker the mod can do without', () => {
+    const v: DepViolation = {
+      ...base,
+      kind: 'optional_out_of_range',
+      dep_id: 'sodium',
+      needed: '>=0.6.1',
+      needed_desc: rangeDesc('>=0.6.1', [{ kind: 'at_least', version: '0.6.1' }]),
+      installed_version: '0.6.0',
+      family: 'fabric_predicate',
+    };
+    expect(violationMessage(get(t), v, 'Sodium')).toBe(
+      "Waystones won't load with Sodium 0.6.0 — only with version 0.6.1 or newer, or without Sodium",
+    );
+    locale.set('ru');
+    try {
+      expect(violationMessage(get(t), v, 'Sodium')).toBe(
+        'Waystones не загрузится с Sodium 0.6.0 — только с версией 0.6.1 и новее или без Sodium',
+      );
+    } finally {
+      locale.set('en');
+    }
   });
 
   it('words a platform mismatch as what the jar is made for, with a readable platform', () => {

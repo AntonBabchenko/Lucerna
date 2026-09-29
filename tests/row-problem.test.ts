@@ -71,7 +71,7 @@ describe('rowProblemOf', () => {
       status({ violations: [v({ kind: 'required_disabled', provider_sha1: 'p' })] }),
       input(),
     );
-    expect(disabled?.text).toBe('Alpha: Balm is disabled');
+    expect(disabled?.text).toBe("Alpha won't load: Balm is disabled");
     expect(disabled?.fix).toMatchObject({ kind: 'enable', label: 'Enable' });
     const range = rowProblemOf(
       status({ violations: [v({ kind: 'version_out_of_range', installed_version: '1' })] }),
