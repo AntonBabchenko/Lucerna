@@ -10,7 +10,7 @@
     toastList,
   } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
-  import { modalDepth } from '$lib/ui/Modal.svelte';
+  import { modalDepth } from '$lib/ui/layer-stack.svelte';
 
   onMount(() => {
     const un = events.gpuPrefApplied.listen((e) => {

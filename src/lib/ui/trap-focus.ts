@@ -3,12 +3,14 @@
 //
 // Generalises the inline Tab-trap the onboarding tour overlays already
 // implement (TourOverlay.svelte / ContextualTour.svelte) and adds the
-// focus-restore that dialogs need. Mount on a modal/drawer panel via
-// `use:trapFocus`.
+// focus-restore that dialogs need. Mount on a modal panel via
+// `use:trapFocus={layerId}` — the panel's entry in the layer stack.
 //
 // Initial focus: the first descendant marked `[data-autofocus]`, else the
 // first focusable descendant, else the node itself (give the node
 // `tabindex="-1"` so this fallback works).
+
+import { type LayerId, onLayersChange, tourAbove } from './layer-stack.svelte';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -29,35 +31,29 @@ function focusableDescendants(node: HTMLElement): HTMLElement[] {
   );
 }
 
-// A contextual onboarding tour (ContextualTour.svelte) renders its popover
-// above the trapped panel and runs its own Tab-trap. While it is up, this
-// modal trap must yield: it must neither pull initial focus back off the tour
-// popover nor wrap Tab within the panel, or keyboard users get locked out of
-// the tour. Gated on the body flag the tour sets while active.
-const CTX_TOUR_ATTR = 'data-ctx-tour-active';
-
-function ctxTourActive(): boolean {
-  return typeof document !== 'undefined' && document.body.hasAttribute(CTX_TOUR_ATTR);
-}
-
-export function trapFocus(node: HTMLElement) {
+// A contextual tour hosted by this dialog (ContextualTour.svelte) sits above it
+// in the layer stack and runs its own Tab-trap on its card. While that tour is
+// the top layer this trap yields: it neither pulls initial focus off the tour
+// card nor wraps Tab inside the panel. It yields to nothing else — a popover
+// opened inside the panel is a DOM descendant this trap already covers, and a
+// page tour BELOW this dialog is not on screen at all.
+export function trapFocus(node: HTMLElement, layer: LayerId) {
   const restoreTo = document.activeElement as HTMLElement | null;
 
-  // Armed only on the yield path below; disconnected on the first release and
-  // on destroy, so the common case (no tour up) allocates nothing.
-  let tourWatch: MutationObserver | null = null;
+  // Armed only on the yield path below; dropped on the first release and on
+  // destroy, so the common case (no tour up) subscribes to nothing.
+  let stopWaiting: (() => void) | null = null;
 
-  function watchForTourRelease() {
-    tourWatch = new MutationObserver(() => {
-      if (ctxTourActive()) return;
-      tourWatch?.disconnect();
-      tourWatch = null;
+  function waitForTourToEnd() {
+    stopWaiting = onLayersChange(() => {
+      if (tourAbove(layer)) return;
+      stopWaiting?.();
+      stopWaiting = null;
       // Not `focusInitial()` unconditionally: the user may have clicked into
       // the panel while the tour was up, and pulling them to [data-autofocus]
       // would undo their own choice.
       if (!node.contains(document.activeElement)) focusInitial();
     });
-    tourWatch.observe(document.body, { attributes: true, attributeFilter: [CTX_TOUR_ATTR] });
   }
 
   function focusInitial() {
@@ -65,21 +61,15 @@ export function trapFocus(node: HTMLElement) {
     // with focus, from a banner): keep it. A plain open still lands on
     // [data-autofocus] below.
     if (node.contains(document.activeElement)) return;
-    // If a contextual tour is already up when this panel mounts, leave focus
-    // where the tour placed it rather than yanking it into the panel — and
-    // then GIVE THE YIELD BACK. A tour ends by unmounting, which drops focus
-    // to <body>; nothing else would ever move it into this panel, so the
+    // A tour on top of this dialog placed focus on its card: leave it there,
+    // and then GIVE THE YIELD BACK. A tour ends by unmounting, which drops
+    // focus to <body>; nothing else would ever move it into this panel, so the
     // dialog would sit unfocused (never announced to a screen reader) with its
     // node-scoped Tab handler unreachable — Tab would walk the application
     // behind the open dialog instead of cycling inside it.
-    if (ctxTourActive() && !node.contains(document.activeElement)) {
-      // Yield only when the way back exists. Without MutationObserver there is
-      // no release signal, and a permanently focusless dialog is the worse of
-      // the two failures — so take focus now and let the tour lose it.
-      if (typeof MutationObserver === 'function') {
-        watchForTourRelease();
-        return;
-      }
+    if (tourAbove(layer)) {
+      waitForTourToEnd();
+      return;
     }
     const preferred = node.querySelector<HTMLElement>('[data-autofocus]');
     (preferred ?? focusableDescendants(node)[0] ?? node).focus();
@@ -87,8 +77,8 @@ export function trapFocus(node: HTMLElement) {
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Tab') return;
-    // Let the active contextual tour own Tab while it is on screen.
-    if (ctxTourActive()) return;
+    // The tour on top of this dialog owns Tab while it is on screen.
+    if (tourAbove(layer)) return;
     const items = focusableDescendants(node);
     const active = document.activeElement as HTMLElement | null;
 
@@ -133,8 +123,8 @@ export function trapFocus(node: HTMLElement) {
   return {
     destroy() {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
-      tourWatch?.disconnect();
-      tourWatch = null;
+      stopWaiting?.();
+      stopWaiting = null;
       node.removeEventListener('keydown', onKeydown);
       // Restore focus to whatever was focused before the trap opened, if it is
       // still in the document and focusable.

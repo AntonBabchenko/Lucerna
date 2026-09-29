@@ -23,6 +23,7 @@
   import { t } from '$lib/i18n';
   import Icon from '$lib/ui/icons/Icon.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { phaseLabel } from './phase-label';
   import {
@@ -56,18 +57,14 @@
       .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0)),
   );
 
-  $effect(() => {
-    function onKeydown(e: KeyboardEvent): void {
-      if (e.key !== 'Escape') return;
-      // Mirrors Select's own Escape handling: stop propagation so an
-      // enclosing modal (if this panel is ever opened while one happens to
-      // be up) doesn't also treat the same keypress as its own close.
-      e.stopPropagation();
-      onClose();
-    }
-    window.addEventListener('keydown', onKeydown);
-    return () => window.removeEventListener('keydown', onKeydown);
-  });
+  // Mounted only while expanded, so it is in the app's layer stack for its
+  // whole life: Escape reaches this panel through the layer router, only while
+  // it is the top layer, and a contextual tour underneath steps aside.
+  useLayer(
+    'popover',
+    () => true,
+    () => onClose(),
+  );
 </script>
 
 {#snippet row(task: Task, index: number, total: number)}

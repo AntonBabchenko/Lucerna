@@ -1,9 +1,9 @@
 <script lang="ts">
   // One-shot tour overlay for a single surface. Mount inside the
-  // host modal/popover/tab. Auto-fires on first visit, then
-  // localStorage-persists dismissed so it never returns. Mirrors
-  // TourOverlay's spotlight + popover chrome; intentionally
-  // separate to keep main-tour state isolated.
+  // host tab, or among the children of the host Modal (which then hosts it in
+  // the layer stack). Auto-fires on first visit, then localStorage-persists
+  // dismissed so it never returns. Mirrors TourOverlay's spotlight + popover
+  // chrome; intentionally separate to keep main-tour state isolated.
   import { onDestroy, onMount, tick } from 'svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import type { TourStep } from './steps';
@@ -11,9 +11,10 @@
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
   import { tourState } from './state.svelte';
-  import { claimPresence, releasePresence, screenOwnedElsewhere } from './tour-presence';
+  import { screenOwnedElsewhere } from './tour-presence';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { insertTour, isTopmost, layerHost, newLayerId } from '$lib/ui/layer-stack.svelte';
 
   let { id, steps }: { id: ContextualTourId; steps: ReadonlyArray<TourStep> } = $props();
 
@@ -26,7 +27,22 @@
   const MARGIN = 16;
   const PADDING = 6;
 
-  // The claim is taken in onMount (below) and given back HERE, on this effect's
+  // This tour's entry in the app's layer stack (layer-stack.svelte.ts). It sits
+  // directly above its HOST — the Modal it is rendered inside, or the page —
+  // and is shown only while it is the TOP layer: anything the user opens during
+  // the tour (an (i), a menu, a dialog) goes on top, the tour steps aside with
+  // its step kept, and comes back when that closes. Escape reaches it through
+  // the layer router, i.e. only while it is on top.
+  const layerId = newLayerId('contextual-tour');
+  const host = layerHost();
+  let releaseLayer: (() => void) | null = null;
+  // Plain `let`, not $state: read by onDestroy's microtask (see there). Set
+  // once the tour has actually been on screen.
+  let everShown = false;
+
+  const shown = $derived(active && isTopmost(layerId));
+
+  // The layer is taken in onMount (below) and given back HERE, on this effect's
   // teardown — the one place every "the tour ended" path passes through:
   // finish() and the yield effect both clear `active`, and an unmount mid-tour
   // runs the teardown too. Svelte runs a teardown at most once per run, which
@@ -34,10 +50,14 @@
   //
   // Set-and-teardown, NOT if/else: this effect runs on every instance,
   // including one that deferred and never activated, and an `else` branch would
-  // release a claim this instance never took — defeating the ctx-vs-ctx guard
-  // in onMount. A deferred instance registers no teardown at all.
+  // run a release this instance never took. A deferred instance registers no
+  // teardown at all.
   $effect(() => {
-    if (active) return () => releasePresence(id);
+    if (!active) return;
+    return () => {
+      releaseLayer?.();
+      releaseLayer = null;
+    };
   });
 
   // Yield to the main tour. Replay (Settings → Help) and a TOUR_VERSION-bump
@@ -62,17 +82,19 @@
     // contextual popover. Defer — the surface stays un-toured this visit and
     // re-fires next time (the "seen" flag is only set on finish).
     if (tourState.active) return;
-    // Take the screen, or defer if another contextual tour already holds it
-    // (cross-surface chaining: e.g. the overview step's own CTA opens the
-    // translations modal, which hosts the l10n tour). Same deferral as the
-    // main-tour case — this surface stays un-toured this visit and re-fires on
-    // its next mount. See tour-presence.ts for why the claim must be
-    // synchronous here rather than inferred from the <body> flag.
-    if (!claimPresence(id)) return;
+    // Take a place in the layer stack above this tour's host, or defer if a
+    // tour already runs at or above that level (two tours of one page). A
+    // dialog opened OVER a running tour lies above it, so the dialog's own tour
+    // is allowed and goes on top — the overview step's CTA opening the
+    // translations editor, whose l10n tour then runs at once. Same deferral as
+    // the main-tour case: this surface stays un-toured this visit and re-fires
+    // on its next mount. The check-and-insert is one synchronous call, so two
+    // tours mounting in the same flush cannot both get in.
+    releaseLayer = insertTour(layerId, host, finish);
+    if (!releaseLayer) return;
     active = true;
-    void tick().then(() => updateRect());
     const onResize = () => {
-      if (active) updateRect();
+      if (shown) updateRect();
     };
     window.addEventListener('resize', onResize);
     window.addEventListener('scroll', onResize, true);
@@ -83,9 +105,9 @@
   });
 
   onDestroy(() => {
-    // Nothing to release here: the effect above hands the screen back on
+    // Nothing to release here: the effect above gives the layer back on
     // destroy (Svelte runs effect teardowns then too), and only for the
-    // instance that actually claimed it. This callback decides one thing —
+    // instance that actually took one. This callback decides one thing —
     // whether the id is burned.
     //
     // Host unmounted mid-tour: soft-skip so the tour doesn't re-fire on every
@@ -104,25 +126,30 @@
     //      reads false precisely when the main tour just switched it on.
     // One microtask lands after the batch, where both reads are honest. A tour
     // suppressed by replay was just reset by it and must stay armed.
+    //
+    // And only a tour the user has actually SEEN is burned: one inserted under
+    // an open dialog that never reached the top was dismissed by nobody.
+    // `everShown` is a plain variable, so this read is honest too.
     queueMicrotask(() => {
-      if (active && !screenOwnedElsewhere()) markSeen(id);
+      if (active && everShown && !screenOwnedElsewhere()) markSeen(id);
     });
   });
 
+  // On every appearance — activation, a return after stepping aside, a step
+  // change — re-measure (the layout may have moved while hidden) and put focus
+  // on the primary button unless the user is already inside the card: the top
+  // layer owns focus.
   $effect(() => {
     void currentStep;
-    if (active) updateRect();
-  });
-
-  $effect(() => {
-    void currentStep;
-    if (active) {
-      void tick().then(() => {
-        if (!popoverEl) return;
-        if (popoverEl.contains(document.activeElement)) return;
-        popoverEl.querySelector<HTMLElement>('[data-tour-primary]')?.focus();
-      });
-    }
+    if (!shown) return;
+    everShown = true;
+    updateRect();
+    void tick().then(() => {
+      if (!shown || !popoverEl) return;
+      updateRect();
+      if (popoverEl.contains(document.activeElement)) return;
+      popoverEl.querySelector<HTMLElement>('[data-tour-primary]')?.focus();
+    });
   });
 
   function updateRect() {
@@ -158,13 +185,11 @@
     markSeen(id);
     active = false;
   }
+  // Tab only. Escape arrives through the layer router as `finish`, and only
+  // while this tour is the top layer — a yielded or stepped-aside tour never
+  // sees the Escape meant for whatever is on top.
   function onKeydown(e: KeyboardEvent) {
-    if (!active) return;
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      finish();
-      return;
-    }
+    if (!shown) return;
     if (e.key === 'Tab') {
       const items = popoverEl
         ? Array.from(popoverEl.querySelectorAll<HTMLElement>('button:not([disabled])'))
@@ -226,7 +251,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-{#if active}
+{#if shown}
   {#if rect && step.targetSelector}
     <!-- Geometry is inline and JUMPS between steps rather than tweening: the dim
          IS this element's own 9999px box-shadow, so a transform would scale

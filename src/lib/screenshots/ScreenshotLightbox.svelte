@@ -67,9 +67,9 @@
   function next() {
     index = (index + 1) % shots.length;
   }
-  // Escape is owned by Modal's topmost-only open-stack (so closing the
-  // lightbox never also closes the gallery modal under it); this window
-  // handler only adds the arrow-key navigation.
+  // Escape is owned by the layer router (layer-stack.svelte.ts), which gives
+  // it to the top layer only (so closing the lightbox never also closes the
+  // gallery modal under it); this window handler only adds the arrow keys.
   function onKey(e: KeyboardEvent) {
     if (e.key === 'ArrowLeft') prev();
     else if (e.key === 'ArrowRight') next();

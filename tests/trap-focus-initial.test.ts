@@ -4,6 +4,7 @@
 // banner path, and the search box wins.
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { newLayerId } from '$lib/ui/layer-stack.svelte';
 import { trapFocus } from '$lib/ui/trap-focus';
 
 let cleanup: (() => void) | null = null;
@@ -36,7 +37,7 @@ describe('trapFocus and a focus already placed inside the dialog', () => {
   it('leaves focus alone when something inside the dialog already has it', async () => {
     const { dialog, other } = mountDialog();
     other.focus();
-    const handle = trapFocus(dialog);
+    const handle = trapFocus(dialog, newLayerId('dialog'));
     cleanup = () => handle.destroy();
     await frame();
     expect(document.activeElement).toBe(other);
@@ -47,7 +48,7 @@ describe('trapFocus and a focus already placed inside the dialog', () => {
     document.body.appendChild(outside);
     outside.focus();
     const { dialog, search } = mountDialog();
-    const handle = trapFocus(dialog);
+    const handle = trapFocus(dialog, newLayerId('dialog'));
     cleanup = () => handle.destroy();
     await frame();
     expect(document.activeElement).toBe(search);

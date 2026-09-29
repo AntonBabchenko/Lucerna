@@ -18,7 +18,8 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import ToastHost from '$lib/toasts/ToastHost.svelte';
 import { dismiss, pushInfo, toastList } from '$lib/toasts/toasts.svelte';
-import Modal, { modalDepth } from '$lib/ui/Modal.svelte';
+import { modalDepth } from '$lib/ui/layer-stack.svelte';
+import Modal from '$lib/ui/Modal.svelte';
 
 const body = createRawSnippet(() => ({
   render: () => '<div><h2 id="over-toasts-title">Title</h2><button>OK</button></div>',

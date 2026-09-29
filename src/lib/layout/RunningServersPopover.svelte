@@ -36,6 +36,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
   import { tooltip } from '$lib/ui/tooltip';
 
@@ -125,30 +126,27 @@
     if (open && rows.length === 0) open = false;
   });
 
-  // While open: wire the shared dismiss behaviour (scroll/resize) plus an
-  // Escape handler that also refocuses the trigger (keyboard dismiss). No event
+  // In the app's layer stack while open: a contextual tour underneath steps
+  // aside, and Escape — routed to the top layer only — closes this popover and
+  // refocuses the trigger (keyboard dismiss).
+  useLayer(
+    'popover',
+    () => open,
+    () => {
+      open = false;
+      trigger?.focus();
+    },
+  );
+
+  // While open: wire the shared dismiss behaviour (scroll/resize). No event
   // listeners / tick — serverState is already reactive and there is no uptime.
   $effect(() => {
     if (!open) return;
-
-    const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        open = false;
-        trigger?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKeydown);
     // A scroll inside the internally-scrollable list must not dismiss.
-    const detach = attachPopoverDismiss({
+    return attachPopoverDismiss({
       onDismiss: () => (open = false),
       ignoreScrollWithin: () => listEl,
     });
-
-    return () => {
-      window.removeEventListener('keydown', onKeydown);
-      detach();
-    };
   });
 </script>
 
