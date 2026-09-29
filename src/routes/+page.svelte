@@ -1757,6 +1757,7 @@
               incompatibleCount={modProblems.warning}
               blockingModsCount={modProblems.blocking}
               problemCount={modsProblemCount}
+              modsCheckError={pagePreflight.error}
               updateCount={stats.updateCount}
               missingModsCount={stats.unresolvedMissing.length}
               running={selectedRunning}

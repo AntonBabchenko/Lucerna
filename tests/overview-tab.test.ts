@@ -387,6 +387,23 @@ describe('OverviewTab readiness pill', () => {
     expect(pill().getAttribute('data-status')).toBe('mods_unknown');
   });
 
+  // Plan §5b V2 (carried from V1): a pre-flight that could not run is not one that has not run
+  // yet — the pill's tooltip says it failed, and why.
+  it('says the mods could not be checked, and why, when the pre-flight failed', () => {
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        problemCount: null,
+        modsCheckError: 'instance.json is unreadable',
+      },
+    });
+    expect(pill().getAttribute('data-status')).toBe('mods_unknown');
+    revealTooltip(pill());
+    expect(tooltipState.text).toContain('instance.json is unreadable');
+    hideTooltip();
+  });
+
   it('is ready once the pre-flight found nothing that stops the game', () => {
     render(OverviewTab, {
       props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 1, problemCount: 1 },

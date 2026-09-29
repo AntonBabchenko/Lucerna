@@ -35,6 +35,7 @@
     incompatibleCount,
     blockingModsCount = 0,
     problemCount = null,
+    modsCheckError = null,
     updateCount = null,
     missingModsCount,
     running,
@@ -73,6 +74,8 @@
     blockingModsCount?: number;
     /** Blocking ∪ warning mods; null = the pre-flight has not answered ("—"). */
     problemCount?: number | null;
+    /** Why the page pre-flight could not run, when it could not (the readiness pill says so). */
+    modsCheckError?: string | null;
     /** Pending updates from the persisted check; null = never checked ("—"). */
     updateCount?: number | null;
     missingModsCount: number;
@@ -217,6 +220,7 @@
       {running}
       {installing}
       blockingMods={pillBlockingMods}
+      {modsCheckError}
       {attentionCollapsed}
       attentionCount={attentionItems.length}
       onShowAttention={() =>

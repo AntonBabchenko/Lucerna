@@ -13,6 +13,7 @@
     running,
     installing,
     blockingMods,
+    modsCheckError = null,
     attentionCollapsed = false,
     attentionCount = 0,
     onShowAttention = () => {},
@@ -23,6 +24,9 @@
     // Mods that stop the game, from the page pre-flight (the Play gate's verdict); null while it
     // has not answered. No default: a pill that says «Ready to play» must have been told.
     blockingMods: number | null;
+    // Why the page pre-flight could not run, when it could not: "not checked" is then not "not
+    // checked yet" — the pill's tooltip says it failed, and why (plan §5b V2).
+    modsCheckError?: string | null;
     attentionCollapsed?: boolean;
     attentionCount?: number;
     onShowAttention?: () => void;
@@ -55,6 +59,12 @@
     mods_unknown: 'page.overview.pillTooltip.modsUnknown',
     mods_blocking: 'page.overview.attnModsBlocking',
   };
+  // Unknown because the check FAILED reads differently from unknown because it has not run yet.
+  const pillTooltip = $derived(
+    status.kind === 'mods_unknown' && modsCheckError
+      ? $t('page.overview.pillTooltip.modsCheckFailed', { reason: modsCheckError })
+      : $t(PILL_TOOLTIP[status.kind], { count: blockingMods ?? 0 }),
+  );
 
   // Blocking is red, as everywhere a mod stops the game (DESIGN.md §9) — on the surface with a
   // danger border, never on the soft danger box, whose red text misses AA (DESIGN.md Known gaps).
@@ -118,7 +128,7 @@
       ]}"
       data-testid="overview-status-pill"
       data-status={status.kind}
-      use:tooltip={$t(PILL_TOOLTIP[status.kind], { count: blockingMods ?? 0 })}
+      use:tooltip={pillTooltip}
     >
       <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true"></span>
       {$t(PILL_LABEL[status.kind])}

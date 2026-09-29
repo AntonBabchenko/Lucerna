@@ -65,6 +65,16 @@ describe('+page pre-flight wiring', () => {
     expect(gate).toContain('fixed={gateFixed}');
   });
 
+  // Plan §5b V2 (carried from V1): a pre-flight that could not run left the Overview's pill
+  // looking merely unchecked. The page hands the Overview why it failed.
+  it('tells the Overview why its pre-flight could not run', () => {
+    const overview = src.slice(
+      src.indexOf('<OverviewTab'),
+      src.indexOf('/>', src.indexOf('<OverviewTab')),
+    );
+    expect(overview).toContain('modsCheckError={pagePreflight.error}');
+  });
+
   it('keeps the page pre-flight fresh on every mod event', () => {
     for (const name of [
       'debouncedModSetStats',

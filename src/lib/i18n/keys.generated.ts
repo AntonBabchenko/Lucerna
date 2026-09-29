@@ -1988,6 +1988,7 @@ export type TranslationKey =
   | 'page.overview.pillReady'
   | 'page.overview.pillRunning'
   | 'page.overview.pillTooltip.installing'
+  | 'page.overview.pillTooltip.modsCheckFailed'
   | 'page.overview.pillTooltip.modsUnknown'
   | 'page.overview.pillTooltip.needsInstall'
   | 'page.overview.pillTooltip.pickVersion'

@@ -3364,7 +3364,8 @@
         "needsInstall": "Files need to be installed before this instance can launch.",
         "pickVersion": "Choose a Minecraft version to finish setting up this instance.",
         "installing": "Installing files for this instance…",
-        "modsUnknown": "Files are installed; the mods haven't been checked yet."
+        "modsUnknown": "Files are installed; the mods haven't been checked yet.",
+        "modsCheckFailed": "Files are installed; the mods couldn't be checked: {reason}"
       }
     },
     "servers": {

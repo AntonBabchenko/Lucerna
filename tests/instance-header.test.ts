@@ -83,6 +83,30 @@ describe('InstanceHeader', () => {
     const pill = getByTestId('overview-status-pill');
     expect(pill.getAttribute('data-status')).toBe('mods_unknown');
     expect(pill.textContent).not.toContain('Ready to play');
+    revealTooltip(pill);
+    expect(tooltipState.text).toBe("Files are installed; the mods haven't been checked yet.");
+    hideTooltip();
+  });
+
+  // Plan §5b V2 (carried from V1): a pre-flight that FAILED left the pill looking merely
+  // unchecked. It says the check could not run, and why.
+  it('says the mods could not be checked, and why, when the check failed', () => {
+    const { getByTestId } = render(InstanceHeader, {
+      props: {
+        instance: inst,
+        running: false,
+        installing: false,
+        blockingMods: null,
+        modsCheckError: 'instance.json is unreadable',
+      },
+    });
+    const pill = getByTestId('overview-status-pill');
+    expect(pill.getAttribute('data-status')).toBe('mods_unknown');
+    revealTooltip(pill);
+    expect(tooltipState.text).toBe(
+      "Files are installed; the mods couldn't be checked: instance.json is unreadable",
+    );
+    hideTooltip();
   });
 
   it('does not show the attention-restore triangle by default', () => {
