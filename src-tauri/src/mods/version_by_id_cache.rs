@@ -8,9 +8,9 @@
 //! burst after one good load then costs no network, and an offline reload after
 //! an earlier good load in the same session is complete.
 //!
-//! In memory only, for the process lifetime; no disk writes. Bounded: past
-//! [`MAX_ENTRIES`] it starts over. Only answers are kept — a failed lookup
-//! caches nothing, so the next build asks again.
+//! In memory only, for the process lifetime; no disk writes. Bounded: it never
+//! holds more than [`MAX_ENTRIES`], and past that it starts over. Only answers
+//! are kept — a failed lookup caches nothing, so the next build asks again.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
@@ -48,14 +48,16 @@ impl VersionByIdCache {
     }
 
     /// Keep `versions`, each under the id it answers to. Past the bound the
-    /// cache starts over with this batch, so it never grows without limit and
-    /// the newest answers survive.
+    /// cache starts over with this batch, so it never holds more than
+    /// [`MAX_ENTRIES`] and the newest answers survive — of a batch larger than
+    /// the bound on its own, its last [`MAX_ENTRIES`].
     pub fn remember(&self, source: ModSource, versions: &[ModVersion]) {
+        let kept = &versions[versions.len().saturating_sub(MAX_ENTRIES)..];
         let mut entries = self.entries();
-        if entries.len() + versions.len() > MAX_ENTRIES {
+        if entries.len() + kept.len() > MAX_ENTRIES {
             entries.clear();
         }
-        for v in versions {
+        for v in kept {
             entries.insert((source, v.version_id.clone()), v.clone());
         }
     }
@@ -137,5 +139,22 @@ mod tests {
         let (hits, misses) = cache.lookup(ModSource::Modrinth, &ids(&["next", "v0"]));
         assert_eq!(hits.len(), 1, "the new batch survives");
         assert_eq!(misses, ["v0"]);
+    }
+
+    /// The bound is a bound: one batch larger than it keeps no more than it —
+    /// the batch's last answers, as a start-over keeps the newest.
+    #[test]
+    fn one_batch_larger_than_the_bound_keeps_no_more_than_the_bound() {
+        let cache = VersionByIdCache::default();
+        let batch: Vec<ModVersion> = (0..MAX_ENTRIES + 10)
+            .map(|i| version(&format!("v{i}")))
+            .collect();
+        cache.remember(ModSource::Modrinth, &batch);
+        assert_eq!(cache.len(), MAX_ENTRIES);
+        let last = format!("v{}", MAX_ENTRIES + 9);
+        let (hits, misses) = cache.lookup(ModSource::Modrinth, &ids(&[last.as_str(), "v9", "v10"]));
+        let hit_ids: Vec<&str> = hits.iter().map(|v| v.version_id.as_str()).collect();
+        assert_eq!(hit_ids, [last.as_str(), "v10"], "the last answers are kept");
+        assert_eq!(misses, ["v9"], "the first ones past the bound are not");
     }
 }

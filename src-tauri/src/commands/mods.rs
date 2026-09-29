@@ -3858,13 +3858,10 @@ type VersionMeta = std::collections::HashMap<
 /// in place of one it could not get (CLAUDE.md, fallback discipline: "could not
 /// tell" is not "declares nothing").
 ///
-/// Versions come from `cache` first; only the ids it misses are asked of the
-/// platform, one batch per source, and what the platform answers is kept. A
-/// failed batch leaves exactly its own ids [`Unreachable`] (logged); a mod with
-/// no stored version id, or whose id the platform's answer does not hold, is
-/// [`Unidentified`].
+/// A mod with no stored version id is [`Unidentified`]; the rest are answered
+/// one source at a time ([`source_version_meta`]): from `cache` first, the ids
+/// it misses in one platform batch.
 ///
-/// [`Unreachable`]: crate::mods::depgraph::DepsUnknown::Unreachable
 /// [`Unidentified`]: crate::mods::depgraph::DepsUnknown::Unidentified
 async fn installed_version_meta<P>(
     rows: &[InstalledMod],
@@ -3875,7 +3872,7 @@ where
     P: Fn(ModSource) -> Box<dyn crate::mods::platform::ModPlatform>,
 {
     use crate::mods::depgraph::DepsUnknown;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     let mut meta = VersionMeta::new();
     // Per source: (project_id, version_id) of each enabled mod that names one.
@@ -3899,47 +3896,73 @@ where
         }
     }
     for (source, mods) in wanted {
-        let mut ids: Vec<String> = mods.iter().map(|(_, vid)| vid.clone()).collect();
-        ids.sort();
-        ids.dedup();
-        let (mut versions, misses) = cache.lookup(source, &ids);
-        let mut unreachable: HashSet<String> = HashSet::new();
-        if !misses.is_empty() {
-            let refs: Vec<&str> = misses.iter().map(String::as_str).collect();
-            match platform_of(source).versions_by_ids(&refs).await {
-                Ok(fetched) => {
-                    cache.remember(source, &fetched);
-                    versions.extend(fetched);
-                }
-                Err(e) => {
-                    // Only what the cache could not answer is unknown, and each
-                    // of those mods says so; why is diagnosable here (a missing
-                    // CurseForge key, a transient 429, offline).
-                    crate::diag!(
-                        "[depgraph] versions_by_ids failed for {source:?} ({} ids): {e}",
-                        misses.len()
-                    );
-                    unreachable.extend(misses);
-                }
-            }
-        }
-        let by_id: HashMap<&str, &ModVersion> = versions
-            .iter()
-            .map(|v| (v.version_id.as_str(), v))
-            .collect();
-        for (pid, vid) in mods {
-            let answer = match by_id.get(vid.as_str()) {
-                Some(v) => Ok(DepNodeMeta {
-                    loaders: v.loaders.clone(),
-                    deps: v.deps.clone(),
-                }),
-                None if unreachable.contains(&vid) => Err(DepsUnknown::Unreachable),
-                None => Err(DepsUnknown::Unidentified),
-            };
+        let answers = source_version_meta(source, &mods, cache, &platform_of).await;
+        for ((pid, _), answer) in mods.into_iter().zip(answers) {
             record_version_meta(&mut meta, (source, pid), answer);
         }
     }
     meta
+}
+
+/// One source's share of [`installed_version_meta`]: an answer for each
+/// `(project_id, version_id)` of `mods`, in their order. The versions come from
+/// `cache` first; only the ids it misses are asked of the platform, in one
+/// batch, and what the platform answers is kept. A failed batch leaves exactly
+/// its own ids [`Unreachable`] (logged); an id the platform's answer does not
+/// hold is [`Unidentified`].
+///
+/// [`Unreachable`]: crate::mods::depgraph::DepsUnknown::Unreachable
+/// [`Unidentified`]: crate::mods::depgraph::DepsUnknown::Unidentified
+async fn source_version_meta<P>(
+    source: ModSource,
+    mods: &[(String, String)],
+    cache: &crate::mods::version_by_id_cache::VersionByIdCache,
+    platform_of: &P,
+) -> Vec<Result<DepNodeMeta, crate::mods::depgraph::DepsUnknown>>
+where
+    P: Fn(ModSource) -> Box<dyn crate::mods::platform::ModPlatform>,
+{
+    use crate::mods::depgraph::DepsUnknown;
+    use std::collections::{HashMap, HashSet};
+
+    let mut ids: Vec<String> = mods.iter().map(|(_, vid)| vid.clone()).collect();
+    ids.sort();
+    ids.dedup();
+    let (mut versions, misses) = cache.lookup(source, &ids);
+    let mut unreachable: HashSet<String> = HashSet::new();
+    if !misses.is_empty() {
+        let refs: Vec<&str> = misses.iter().map(String::as_str).collect();
+        match platform_of(source).versions_by_ids(&refs).await {
+            Ok(fetched) => {
+                cache.remember(source, &fetched);
+                versions.extend(fetched);
+            }
+            Err(e) => {
+                // Only what the cache could not answer is unknown, and each of
+                // those mods says so; why is diagnosable here (a missing
+                // CurseForge key, a transient 429, offline).
+                crate::diag!(
+                    "[depgraph] versions_by_ids failed for {source:?} ({} ids): {e}",
+                    misses.len()
+                );
+                unreachable.extend(misses);
+            }
+        }
+    }
+    let by_id: HashMap<&str, &ModVersion> = versions
+        .iter()
+        .map(|v| (v.version_id.as_str(), v))
+        .collect();
+    mods.iter()
+        .map(|(_, vid)| match by_id.get(vid.as_str()) {
+            Some(v) => Ok(DepNodeMeta {
+                loaders: v.loaders.clone(),
+                deps: v.deps.clone(),
+            }),
+            None if unreachable.contains(vid) => Err(DepsUnknown::Unreachable),
+            None => Err(DepsUnknown::Unidentified),
+        })
+        .collect()
 }
 
 /// Record one mod's answer. Two enabled jars of one project share one graph
