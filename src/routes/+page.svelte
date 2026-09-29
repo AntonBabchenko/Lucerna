@@ -90,7 +90,7 @@
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { debounceTrailing } from '$lib/ui/debounce';
-  import { modalBlocksFileDrops } from '$lib/ui/Modal.svelte';
+  import { modalBlocksFileDrops } from '$lib/ui/layer-stack.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import { SvelteMap } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';

@@ -83,10 +83,14 @@
      tooltip layer stays highest (both are root-mounted, outside modal contexts). */
   --z-popover: 50;
   --z-modal: 50;
-  /* Contextual tours sit above modals (spotlight 100 / tour popover 101);
-     toasts must beat tours; the tooltip layer stays highest. These values
-     mirror what ToastHost / ContextualTour / TooltipLayer actually ship —
-     keep them in sync when adding a new overlay tier. */
+  /* A contextual tour's dim (100) and card (101) sit above modals — and that is
+     right exactly when it is shown: a tour is shown only while it is the TOP
+     layer of the layer stack (src/lib/ui/layer-stack.svelte.ts), i.e. when
+     everything else on screen was opened before it. Anything opened during a
+     tour goes on top of the stack and the tour steps aside, so nothing is ever
+     painted under its dim. Toasts must beat tours; the tooltip layer stays
+     highest. These values mirror what ToastHost / ContextualTour /
+     TooltipLayer actually ship — keep them in sync when adding a new tier. */
   --z-tour: 100;
   --z-tour-popover: 101;
   --z-toast: 200;
@@ -415,9 +419,10 @@ body[data-tour-active] .tour-overlay {
 }
 
 /* NOTE: the *contextual* tour (ContextualTour.svelte) is intentionally NOT
-   pointer-events-blocked. It sets `data-ctx-tour-active` on <body> only so the
-   host Modal can route Escape to the tour; its dim is a non-interactive overlay
-   (pointer-events:none) so it never traps the user or intercepts app clicks. */
+   pointer-events-blocked: its dim is a non-interactive overlay
+   (pointer-events:none), so it never traps the user or intercepts app clicks.
+   Whatever the user opens while it is up goes on top of the layer stack and
+   the tour steps aside until that closes. */
 
 /*
   Button system. Every button across the launcher should reach for one

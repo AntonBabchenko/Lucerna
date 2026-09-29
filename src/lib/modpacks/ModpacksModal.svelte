@@ -24,7 +24,7 @@
   // (which takes visible effect once they close the modal themselves).
   //
   // Its body (ModpacksTab) takes OS file drops — the window drop router hands
-  // it a dropped pack — so the modal tells the dialog stack it does
+  // it a dropped pack — so the modal tells the layer stack it does
   // (`takesFileDrops`): only a dialog on top of it leaves its drop box out.
   let {
     open = false,

@@ -13,6 +13,7 @@
   // context menu from the pointer's left) and is clamped back on screen.
   import { onMount } from 'svelte';
   import { Icon } from '$lib/ui/icons';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
   import type { ContextMenuItem } from '$lib/ui/menu-item';
 
@@ -76,8 +77,8 @@
   function onMenuKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.preventDefault();
-      // Stop here so a host Modal's `<svelte:window onkeydown>` does not close
-      // too — Escape dismisses only the menu, the way Select's dropdown does.
+      // Stop here so the layer router does not act on it too — Escape
+      // dismisses only the menu, the way Select's dropdown does.
       e.stopPropagation();
       onClose();
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -109,6 +110,15 @@
   // ignoreScrollWithin keeps a tall internally-scrolling menu (max-h-[80vh])
   // from dismissing itself when the user wheels it — a fix the hand-rolled menu
   // listeners lacked. The returned cleanup detaches the listeners on close/unmount.
+  // Mounted only while open, so it is in the app's layer stack for its whole
+  // life: a contextual tour underneath steps aside, and Escape from outside the
+  // menu (focus elsewhere) still closes the menu first.
+  useLayer(
+    'popover',
+    () => true,
+    () => onClose(),
+  );
+
   onMount(() => {
     activeIndex = openedByKeyboard ? items.findIndex((it) => !it.disabled) : -1;
     if (menuEl) place(menuEl.offsetWidth);

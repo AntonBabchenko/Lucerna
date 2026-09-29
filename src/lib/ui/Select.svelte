@@ -26,6 +26,7 @@
 
   import { Icon } from '$lib/ui/icons';
   import type { Snippet } from 'svelte';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { computePopoverPlacement } from './select-placement';
   import { attachPopoverDismiss } from './popover-dismiss';
@@ -167,6 +168,11 @@
     trigger?.focus();
   }
 
+  // The open list is a layer in the app's layer stack: a contextual tour running
+  // underneath steps aside while it is open, and an Escape that reaches the
+  // router (focus elsewhere) closes the list, not the dialog around it.
+  useLayer('popover', () => open, closeList);
+
   function commit(i: number) {
     if (i < 0 || i >= options.length || options[i].disabled) return;
     onChange(options[i].value);
@@ -208,8 +214,8 @@
       }
       return;
     }
-    // Keys consumed while open are stopped from propagating, so an enclosing
-    // modal's `<svelte:window onkeydown>` (Escape-to-close, etc.) doesn't also
+    // Keys consumed while open are stopped from propagating, so the layer
+    // router (Escape-to-close of an enclosing modal, etc.) doesn't also
     // fire — pressing Escape should dismiss only the dropdown, matching native
     // <select>. Tab is the exception: it commits but must keep bubbling/default
     // so focus moves on to the next control.

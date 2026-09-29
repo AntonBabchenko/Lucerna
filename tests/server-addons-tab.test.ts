@@ -72,10 +72,18 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 }));
 
 import { hasSeen, markSeen, SERVER_ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
-import { isPresent } from '$lib/onboarding/tour-presence';
 import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { droppedServerContent, serverAddonsKind } from '$lib/settings/state.svelte';
+import { insertTour, newLayerId } from '$lib/ui/layer-stack.svelte';
+
+/** Whether the page is free for a contextual tour: no tour is left in the
+ *  layer stack. Probes by inserting (and at once removing) a page tour. */
+function pageFree(): boolean {
+  const release = insertTour(newLayerId('probe'), null, () => {});
+  release?.();
+  return release !== null;
+}
 
 function makeServer(
   id: string,
@@ -320,8 +328,8 @@ describe('ServerAddonsTab', () => {
 
   // The servers panel is display:none — not unmounted — while the launcher is
   // in client mode, so a tour firing in here would paint nothing, hold the
-  // contextual-tour claim (suppressing every later tour) and set the body flag
-  // that swallows every modal's Escape. `visible` is the same gate ServersPanel
+  // top of the layer stack for no one (swallowing every Escape and suppressing
+  // every later tour). `visible` is the same gate ServersPanel
   // applies to its own two tours; this tab needs it because nothing else in its
   // mount conditions knows which mode is on screen.
   it('does not mount the tour while the panel is hidden, and still mounts it once shown', async () => {
@@ -336,7 +344,7 @@ describe('ServerAddonsTab', () => {
     await waitFor(() => expect(screen.queryByTestId('server-addons-kind-switch')).not.toBeNull());
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
-    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(false);
+    expect(pageFree()).toBe(true);
     // Suppressed, not burned: switching to servers mode must still get the tour.
     expect(hasSeen('serverAddons')).toBe(false);
 
@@ -349,16 +357,14 @@ describe('ServerAddonsTab', () => {
     await seed([makeServer('t4', false, 'fabric', '1.20.6')]);
     const { rerender } = render(ServerAddonsTab, { serverId: 't4', visible: true });
     await waitFor(() => expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy());
-    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(true);
+    expect(pageFree()).toBe(false);
 
     // The mode switch stays clickable under the tour (its dim is
     // pointer-events:none), so this is a reachable sequence — and the tour must
-    // not survive it. Both halves of the presence claim have to go: the body
-    // flag (Escape routing, focus traps) AND the module-level claim, which has
-    // no reset path and would suppress every later contextual tour.
+    // not survive it. Its layer has to go with it: a tour left in the layer
+    // stack would take every Escape and suppress every later contextual tour.
     await rerender({ serverId: 't4', visible: false });
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
-    expect(document.body.hasAttribute('data-ctx-tour-active')).toBe(false);
-    expect(isPresent()).toBe(false);
+    expect(pageFree()).toBe(true);
   });
 });

@@ -13,7 +13,8 @@ export type DropContext = {
   // Only the topmost surface takes a drop (DESIGN.md §14). A dialog that takes
   // no files — Settings, Manage, a mod's details, the skin editor, a confirm —
   // covers the whole window under its scrim, the surfaces below included: while
-  // one is on top nothing takes a drop (`modalBlocksFileDrops()`, Modal.svelte).
+  // it is the topmost modal nothing takes a drop, whatever popover or tour sits
+  // over it (`modalBlocksFileDrops()`, layer-stack.svelte.ts).
   modalOnTop: boolean;
   // A surface on top owns every drop while it is up: the Modpacks modal covers
   // the whole window; the server-import view covers its servers panel — which

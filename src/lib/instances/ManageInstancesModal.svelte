@@ -1443,8 +1443,11 @@
         {/if}
       </section>
     </div>
+    <!-- Inside the Modal, not after it: the Modal is this tour's host in the
+         layer stack (layer-stack.svelte.ts), so a sub-dialog opened over it
+         (a delete or detach confirm) goes on top and the tour steps aside. -->
+    <ContextualTour id="manage" steps={MANAGE_STEPS} />
   </Modal>
-  <ContextualTour id="manage" steps={MANAGE_STEPS} />
 
   {#if deleteTarget}
     <Modal

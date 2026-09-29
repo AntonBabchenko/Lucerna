@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Icon } from '$lib/ui/icons';
   import type { WorldQuickEntry } from '$lib/ipc/bindings';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
 
   // The green Play button plus a hover/keyboard popover of the instance's
   // worlds. Single-click launches normally (onPlay); the popover lets the
@@ -87,6 +88,15 @@
     open = false;
     if (returnFocus) triggerEl?.focus();
   }
+
+  // The open world list is a layer in the app's layer stack: a contextual tour
+  // underneath steps aside while it is open, and an Escape that reaches the
+  // router closes the list (returning focus to the trigger), nothing below it.
+  useLayer(
+    'popover',
+    () => open,
+    () => close(true),
+  );
 
   function selectWorld(folder: string) {
     close();

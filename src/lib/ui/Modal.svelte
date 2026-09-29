@@ -1,38 +1,3 @@
-<script module lang="ts">
-  // Stack of currently-open modals, in mount order. Only the topmost responds
-  // to Escape, so a nested modal (e.g. a delete-confirm opened on top of a
-  // detail modal) does not close every layer with one keypress.
-  //
-  // Invariant: mount order == paint (DOM) order. All modals share one z-index
-  // (z-50) and stack purely by DOM order, so the last-mounted modal is also the
-  // visually-topmost one. This holds because stacked modals are always rendered
-  // *after* their predecessors (a nested confirm sits after its parent in the
-  // template; cross-component modals are ordered in +page.svelte). If a future
-  // modal is placed earlier in the DOM but mounts later, Escape would close the
-  // visually-lower one — keep new stacked modals after the ones they cover.
-  //
-  // $state so a reader outside this file can react to it: ToastHost moves the
-  // toast stack out of an open modal's way. Module-level state cannot be
-  // exported directly, and nobody outside needs the ids — only the depth and
-  // what the topmost layer does with a file drop.
-  type Layer = { id: symbol; takesFileDrops: boolean };
-  let openStack = $state<Layer[]>([]);
-
-  /** How many modals are open right now; 0 when none. Reactive. */
-  export function modalDepth(): number {
-    return openStack.length;
-  }
-
-  /** True while the topmost modal takes no OS file drops — then nothing does: its scrim covers
-   *  every drop box under it (DESIGN.md §14), which must neither light up behind it nor take the
-   *  files where nobody can see. False with no modal open, or when the topmost one takes drops
-   *  (the Modpacks modal). The window drop router reads it as `modalOnTop`. */
-  export function modalBlocksFileDrops(): boolean {
-    const top = openStack[openStack.length - 1];
-    return top !== undefined && !top.takesFileDrops;
-  }
-</script>
-
 <script lang="ts">
   // Shared accessible modal shell. Lifts the backdrop + centred panel +
   // role/aria-modal wiring + focus trap + focus restore + Escape / backdrop
@@ -45,8 +10,9 @@
   // Closing: Escape and a backdrop click both call `onClose`. Set
   // `closeOnBackdrop={false}` (e.g. while a destructive op is in flight) to
   // require an explicit button; `closeOnEscape={false}` likewise.
-  import { onMount } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import type { Snippet } from 'svelte';
+  import { newLayerId, provideLayerHost, pushLayer } from './layer-stack.svelte';
   import { trapFocus } from './trap-focus';
 
   let {
@@ -87,28 +53,34 @@
     children: Snippet;
   } = $props();
 
-  // Register in the open-modal stack so only the topmost handles Escape — and so
-  // the window drop router knows whether the topmost one takes a file drop.
-  const id = Symbol('modal');
-  onMount(() => {
-    openStack.push({ id, takesFileDrops });
-    return () => {
-      openStack = openStack.filter((s) => s.id !== id);
-    };
-  });
-  const isTopmost = () => openStack[openStack.length - 1]?.id === id;
-
-  function onWindowKeydown(e: KeyboardEvent) {
-    // A contextual onboarding tour (ContextualTour.svelte) renders its popover
-    // above this modal but is NOT in openStack, so without this guard Escape
-    // would close the host modal out from under the tour. While the tour is up,
-    // its own window handler owns Escape (advance/dismiss the tour); the modal
-    // stays open.
-    if (document.body.hasAttribute('data-ctx-tour-active')) return;
-    if (closeOnEscape && e.key === 'Escape' && isTopmost()) {
-      onClose();
-    }
-  }
+  // One entry in the app's layer stack (layer-stack.svelte.ts): Escape reaches
+  // this modal only while it is the top layer (a popover or a nested dialog
+  // opened over it takes the key first), a contextual tour rendered among its
+  // children is hosted by it, and the window drop router asks the stack whether
+  // the topmost modal takes a file drop (`modalBlocksFileDrops`).
+  //
+  // Pushed during INITIALISATION, not in onMount: a tour among the children
+  // looks its host up in its own onMount, and a child's mount callbacks run
+  // before its parent's. Stack order still equals paint order: all modals share
+  // z-50 and stack purely by DOM order, and a modal rendered after another both
+  // initialises and paints after it (a nested confirm sits after its parent in
+  // the template; cross-component modals are ordered in +page.svelte). If a
+  // future modal is placed earlier in the DOM but opens later, Escape would
+  // close the visually-lower one — and a drop would follow the hidden one's
+  // rule — so keep new stacked modals after the ones they cover.
+  const layer = newLayerId('modal');
+  onDestroy(
+    pushLayer(
+      layer,
+      'modal',
+      () => {
+        if (closeOnEscape) onClose();
+      },
+      // Read once, as the dialog opens; `untrack` marks the one-time read.
+      { takesFileDrops: untrack(() => takesFileDrops) },
+    ),
+  );
+  provideLayerHost(layer);
 
   // A backdrop dismissal must be a deliberate click *outside* the panel: the
   // press and the release both land directly on the backdrop. We track the
@@ -132,8 +104,6 @@
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
-
 <!-- Backdrop is a mouse convenience; keyboard users close via Escape, so it
      needs no key handler. Dismissal uses mousedown+mouseup (not click) so it can
      require the press AND release to land on the backdrop. -->
@@ -146,7 +116,7 @@
   onmouseup={onBackdropMouseUp}
 >
   <div
-    use:trapFocus
+    use:trapFocus={layer}
     role="dialog"
     aria-modal="true"
     aria-label={ariaLabel}

@@ -27,6 +27,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { countPillClass } from '$lib/ui/cards/CountPill.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
   import { SvelteSet } from 'svelte/reactivity';
 
@@ -135,9 +136,20 @@
     return formatDuration($t, secs);
   }
 
+  // In the app's layer stack while open: a contextual tour underneath steps
+  // aside, and Escape — routed to the top layer only — closes this popover and
+  // refocuses the trigger (keyboard dismiss).
+  useLayer(
+    'popover',
+    () => open,
+    () => {
+      open = false;
+      trigger?.focus();
+    },
+  );
+
   // While open: keep the list fresh on spawn/exit, tick the live playtime once
-  // a second, and wire the shared dismiss behaviour (scroll/resize) plus an
-  // Escape handler that also refocuses the trigger (keyboard dismiss).
+  // a second, and wire the shared dismiss behaviour (scroll/resize).
   $effect(() => {
     if (!open) return;
 
@@ -158,14 +170,6 @@
       now = Date.now();
     }, 1000);
 
-    const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        open = false;
-        trigger?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKeydown);
     // A scroll inside the internally-scrollable list must not dismiss.
     const detach = attachPopoverDismiss({
       onDismiss: () => (open = false),
@@ -176,7 +180,6 @@
       disposed = true;
       for (const u of unlisteners) u();
       clearInterval(interval);
-      window.removeEventListener('keydown', onKeydown);
       detach();
     };
   });

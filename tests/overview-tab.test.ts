@@ -579,7 +579,7 @@ describe('OverviewTab contextual tour', () => {
 
   // In servers mode the whole client panel is class:hidden (display:none), not
   // {#if}-removed — so a tour activating in here would paint nothing, set
-  // body[data-ctx-tour-active] (swallowing every Modal's Escape), and be burned
+  // the top of the layer stack (taking every Escape), and be burned
   // unseen by the first Escape the user pressed to close something else.
   it('does not fire in servers mode, where the client panel is display:none', async () => {
     localStorage.clear();
@@ -628,11 +628,9 @@ describe('OverviewTab contextual tour', () => {
   });
 
   // The post-update changelog offer (checkWhatsNew) and this tour both fire at
-  // startup on the default tab, and the dialog it opens is z-50 against the
-  // contextual dim's z-100 — so a tour left running paints its scrim OVER the
-  // changelog the user just asked to read, and Modal routes their first Escape
-  // to the tour instead of closing the dialog. The user clicked for the
-  // changelog; the passive hint yields to it.
+  // startup on the default tab. The user clicked for the changelog; the
+  // passive hint yields to it (the host's screenOwnedElsewhere() gate) and
+  // comes back after.
   it('does not fire while the changelog dialog is open', async () => {
     localStorage.clear();
     whatsNewState.entries = [{ version: '0.23.0', added: ['x'] }] as never;

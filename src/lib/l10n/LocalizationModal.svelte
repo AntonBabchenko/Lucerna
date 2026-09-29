@@ -949,16 +949,16 @@
         </section>
       </div>
     {/if}
+    {#if coverage && coverage.namespaces.length > 0}
+      <!-- Mounted only once coverage resolved non-empty: the modal is reachable
+           from Manage → Translations for a zero-mod instance, where the tour
+           would burn its one shot teaching percentages over an empty state.
+           Inside the Modal, which hosts it in the layer stack
+           (layer-stack.svelte.ts): PrefillDialog or any other sub-dialog
+           opened over it goes on top and the tour steps aside. -->
+      <ContextualTour id="l10n" steps={L10N_STEPS} />
+    {/if}
   </Modal>
-  {#if coverage && coverage.namespaces.length > 0}
-    <!-- Mounted only once coverage resolved non-empty: the modal is reachable
-         from Manage → Translations for a zero-mod instance, where the tour
-         would burn its one shot teaching percentages over an empty state.
-         A SIBLING of </Modal>, not a child — same rule ManageInstancesModal
-         follows — so the overlay's z-index escapes the modal's stacking
-         context instead of being trapped under its own host. -->
-    <ContextualTour id="l10n" steps={L10N_STEPS} />
-  {/if}
   <!--
     Stacked AFTER the modal it covers, per Modal.svelte's mount-order == paint-
     order invariant: all modals share z-50, so the last-mounted one must also be

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { mcVersions } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
 
   // A combobox over the Minecraft version list: text input that opens a
   // filtered dropdown below it. Lives in $lib/mods because the only two
@@ -109,6 +110,19 @@
       activeIndex = -1;
     }
   }
+
+  // The open dropdown is a layer in the app's layer stack: a contextual tour
+  // underneath steps aside while it is open, and the input's Escape — which
+  // closes the list without consuming the key — reaches the router with this
+  // layer still on top, so the dialog around the combobox stays open.
+  useLayer(
+    'popover',
+    () => open,
+    () => {
+      open = false;
+      activeIndex = -1;
+    },
+  );
 
   // Click-outside collapses the dropdown without committing the
   // highlighted row. mousedown (not click) so re-clicking the input

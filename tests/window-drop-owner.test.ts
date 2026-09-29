@@ -82,7 +82,8 @@ import {
   serverImportActive,
 } from '$lib/settings/state.svelte';
 import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
-import Modal, { modalBlocksFileDrops } from '$lib/ui/Modal.svelte';
+import { modalBlocksFileDrops } from '$lib/ui/layer-stack.svelte';
+import Modal from '$lib/ui/Modal.svelte';
 import ModpacksModalUnderDialog from './fixtures/ModpacksModalUnderDialog.svelte';
 
 // The page's context on the client Add-ons tab, Resource packs showing.
@@ -215,7 +216,7 @@ describe('the server-import view owns the drop only where it can be seen', () =>
 // on Settings — opened from the Modpacks modal's own banner — went to the Modpacks view beneath.
 describe('only the topmost surface takes a drop', () => {
   // The page's context, with the live flags +page.svelte reads: the Modpacks view's own, and the
-  // dialog stack's answer to "is a dialog that takes no files on top?".
+  // layer stack's answer to "is a dialog that takes no files on top?".
   const live = (ctx: DropContext) => () => ({
     ...ctx,
     modpacksOpen: modpacksActive.value,
