@@ -90,6 +90,27 @@ describe('FileDropzone', () => {
     expect(queryByTestId('file-dropzone-overlay')).toBeNull();
   });
 
+  // Plan §5b V2 (screenshots 10, 10b): the full box was ~46 px tall — hardly a target for a whole
+  // empty list — and a refused drag's note made it grow under the pointer. It is a tall box now,
+  // and the note's line is there while empty, so the note lands in it and nothing moves.
+  it('the full box is a tall target that keeps a line for a note', async () => {
+    const { getByTestId } = render(FileDropzone, {
+      props: { target: 'client-mods', label: 'Drop', onClick: () => {} },
+    });
+    expect(getByTestId('file-dropzone').classList).toContain('min-h-32');
+    const line = getByTestId('file-dropzone-notes');
+    expect(line.classList).toContain('min-h-4');
+    expect(line.textContent?.trim()).toBe('');
+    dropPreview.value = {
+      target: 'client-mods',
+      adds: false,
+      notes: ['Only mod .jar files can be added here'],
+    };
+    await tick();
+    expect(getByTestId('file-dropzone-notes')).toBe(line);
+    expect(line.textContent).toContain('Only mod .jar files can be added here');
+  });
+
   // The strip grows into an overlay over its host while a file is dragged. The overlay is
   // decorative — the window-level listener takes the drop — so it can never swallow a pointer
   // event or reach a screen reader; the strip stays the file-picker button, by keyboard too.

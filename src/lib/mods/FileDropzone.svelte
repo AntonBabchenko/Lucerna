@@ -58,10 +58,11 @@
   }
 </script>
 
+<!-- The full box is a real target for a whole empty list (`min-h-32`), its text centred in it. -->
 <div
   class="border-2 border-dashed rounded-lg text-center transition-colors {variant === 'strip'
     ? 'px-3 py-1 text-xs'
-    : 'p-3 text-sm'}"
+    : 'flex min-h-32 flex-col items-center justify-center gap-1 p-4 text-sm'}"
   class:cursor-pointer={!disabled}
   class:border-accent={adds}
   class:bg-accent-soft={adds}
@@ -82,11 +83,15 @@
   data-variant={variant}
 >
   <span class="text-secondary">{disabled ? (disabledLabel ?? label) : label}</span>
-  <!-- The full box has no overlay: it says what a drag leaves behind itself. -->
+  <!-- The full box has no overlay: it says what a drag leaves behind itself — in a line kept even
+       while there is nothing to say, so a note lands in it and the box never grows or shifts
+       under the pointer (plan §5b V2). -->
   {#if variant === 'full'}
-    {#each notes as note}
-      <span class="block text-xs text-secondary">{note}</span>
-    {/each}
+    <span class="flex min-h-4 flex-col text-xs text-secondary" data-testid="file-dropzone-notes">
+      {#each notes as note}
+        <span>{note}</span>
+      {/each}
+    </span>
   {/if}
 </div>
 {#if variant === 'strip'}
