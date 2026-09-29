@@ -58,6 +58,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   in as Minecraft `9999.0`, the version of an unrelated library. The version
   now comes only from where a profile actually records it; when it cannot be
   told, the field stays empty for you to fill in.
+- **Mod version requirements are read correctly for Minecraft 26.** Many mods put
+  the Minecraft version in front of their own, like `26.1.2-5.1.3`. When another
+  mod's requirement named a shorter Minecraft version, like `26.1`, the dependency
+  check and the version list compared the wrong parts and could call a new enough
+  mod too old, or a too new one fine. They now compare the mod's own version when
+  the requirement names that Minecraft version. A requirement written for a
+  different Minecraft version is judged by the Minecraft version, the way the game
+  does, instead of by the mod's own number.
 
 ## [0.25.0] — 2026-09-27
 
