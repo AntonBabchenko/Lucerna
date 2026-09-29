@@ -777,6 +777,66 @@ describe('uninstall and undo', () => {
   });
 });
 
+// A row action has no busy state of its own: a double click on Remove fired two guarded calls, and
+// the second one failed or asked about a mod that was already gone.
+describe('a mod already being changed', () => {
+  const removed = ok({ token: 'tok', items: [{ sha1: 's', name: 'sodium-jar' }] });
+
+  it('a second click does nothing — one removal, one report — and the mod is free once it settles', async () => {
+    const removing = deferred<unknown>();
+    h.modsUninstall.mockReturnValueOnce(removing.promise);
+    host();
+    const first = uninstallMods(scope, [sodium]);
+    await flush();
+    expect(h.modsUninstall).toHaveBeenCalledTimes(1); // the removal is under way
+    // A double click on Remove, and Disable on the same row, while it runs: nothing, silently.
+    await expect(uninstallMods(scope, [sodium])).resolves.toBe('cancelled');
+    await expect(disableMods(scope, [sodium])).resolves.toBe('cancelled');
+    removing.resolve(removed);
+    await expect(first).resolves.toBe('applied');
+    expect(h.modsRemovalImpact).toHaveBeenCalledTimes(1);
+    expect(h.modsUninstall).toHaveBeenCalledTimes(1);
+    expect(h.modsDisable).not.toHaveBeenCalled();
+    expect(h.pushWarning).not.toHaveBeenCalled();
+    expect(h.pushActionToast).toHaveBeenCalledTimes(1); // one Undo notice
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Settled: the next request for it runs.
+    await expect(disableMods(scope, [sodium])).resolves.toBe('applied');
+    expect(h.modsDisable).toHaveBeenCalledWith('inst', 's');
+  });
+
+  it('another mod, or the same mod in another profile, is not held up', async () => {
+    const removing = deferred<unknown>();
+    h.modsUninstall.mockReturnValueOnce(removing.promise);
+    host();
+    const first = uninstallMods(scope, [sodium]);
+    await flush();
+    await expect(disableMods(scope, [{ sha1: 'x', name: 'Xaero' }])).resolves.toBe('applied');
+    await expect(disableMods({ instanceId: 'other' }, [sodium])).resolves.toBe('applied');
+    expect(h.modsDisable.mock.calls).toEqual([
+      ['inst', 'x'],
+      ['other', 's'],
+    ]);
+    removing.resolve(removed);
+    await expect(first).resolves.toBe('applied');
+  });
+
+  it('a batch leaves out a mod already being changed and does the rest', async () => {
+    const removing = deferred<unknown>();
+    h.modsUninstall.mockReturnValueOnce(removing.promise);
+    host();
+    const first = uninstallMods(scope, [sodium]);
+    await flush();
+    const xaero = { sha1: 'x', name: 'Xaero' };
+    await expect(disableMods(scope, [sodium, xaero], { bulk: true })).resolves.toBe('applied');
+    expect(h.modsRemovalImpact).toHaveBeenLastCalledWith('inst', ['x']);
+    expect(flipped(h.modsDisable)).toEqual(['x']);
+    expect(h.pushSuccess).toHaveBeenCalledWith('Disabled 1 mod', []);
+    removing.resolve(removed);
+    await expect(first).resolves.toBe('applied');
+  });
+});
+
 it('is mounted after </main> (above the pack drawer) and before the data-move host', () => {
   const src = readFileSync(resolve('src/routes/+page.svelte'), 'utf8');
   const at = src.indexOf('<ModOpsHost');

@@ -199,6 +199,28 @@ describe('createUpdateCheck', () => {
     expect(u.updateCount).toBe(1);
   });
 
+  it('a second hold click while the first is written does nothing; another project is not held up', async () => {
+    let land: (v: unknown) => void = () => {};
+    mocks.modsSetHold.mockReturnValueOnce(
+      new Promise((r) => {
+        land = r;
+      }),
+    );
+    mocks.modsSetHold.mockResolvedValue({ status: 'ok', data: null });
+    const u = make();
+    const first = u.setHold(modA, true, 'A');
+    // A double click on «Don't update»: the second click does nothing, and says nothing.
+    await expect(u.setHold(modA, true, 'A')).resolves.toBe(false);
+    await expect(u.setHold({ ...modA, sha1: 'b', project_id: 'q' }, true, 'B')).resolves.toBe(true);
+    land({ status: 'ok', data: null });
+    await expect(first).resolves.toBe(true);
+    expect(mocks.modsSetHold.mock.calls).toEqual([
+      ['i', 'modrinth', 'p', true],
+      ['i', 'modrinth', 'q', true],
+    ]);
+    expect(mocks.pushWarning).not.toHaveBeenCalled();
+  });
+
   it('holds that cannot be read are unknown (null), not "none held"', async () => {
     mocks.modsListHolds.mockResolvedValue({ status: 'error', error: 'x' });
     const u = make();

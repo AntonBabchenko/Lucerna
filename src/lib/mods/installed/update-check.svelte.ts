@@ -8,6 +8,7 @@ import {
   type ModUpdateCheck,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { createInFlight } from '$lib/mods/in-flight';
 import { type ModOpScope, modWriteReason } from '$lib/mods/mod-ops.svelte';
 import {
   checkForUpdates,
@@ -28,6 +29,9 @@ import {
 
 /** A hold is per project, never per jar (spec §5.5): it survives updates and restores. */
 export const holdKey = (source: ModSource, projectId: string): string => `${source}:${projectId}`;
+
+/** Hold writes under way, per (profile, project) — module-wide, as the writes are. */
+const holdWrites = createInFlight();
 
 // The Installed tab's side of mod updates. The check itself — one row per mod (keyed by the
 // installed sha1) and when it ran — is the app-wide persisted check (`update-check-store`), the
@@ -201,11 +205,29 @@ export function createUpdateCheck(
    * Hold a project («Не обновлять») or release it. A hold drops its pending update at once, as
    * the next stored read would; a release reads the stored check again, so an update the last
    * check found is offered once more. The hold list is then re-read, never guessed.
+   *
+   * A call for a project whose hold is still being written — a double click — does nothing and
+   * returns false, silently: the write under way reports.
    */
   async function setHold(m: InstalledMod, hold: boolean, name: string): Promise<boolean> {
     const id = getInstanceId();
     const { source, project_id: projectId } = m;
     if (!id || !source || !projectId) return false;
+    const claim = holdWrites.claim([`${id}\n${holdKey(source, projectId)}`]);
+    try {
+      return claim.free.size > 0 && (await writeHold(id, source, projectId, hold, name));
+    } finally {
+      claim.release();
+    }
+  }
+
+  async function writeHold(
+    id: string,
+    source: ModSource,
+    projectId: string,
+    hold: boolean,
+    name: string,
+  ): Promise<boolean> {
     const failed = (reason: string) => {
       pushWarning(get(t)('mods.updates.holdFailed', { name }), [reason]);
       return false;

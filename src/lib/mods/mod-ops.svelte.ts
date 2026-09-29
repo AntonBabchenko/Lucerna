@@ -23,6 +23,11 @@
  *   cancelled), but never a dialog whose chosen mutation still runs: the question waits until
  *   that dialog closes. Once the last ModOpsHost is gone, every flow still waiting for an answer
  *   settles as cancelled.
+ * - One flow per mod at a time. A row action has no busy state of its own, so a request for a mod
+ *   that another flow of the same profile is still changing — a double click on Remove, Disable on
+ *   a row whose removal runs — leaves that mod out, silently: the flow holding it reports. A
+ *   request left with nothing to do is `cancelled`. Only the mods asked for are held, from the
+ *   call until the flow settles; `enableModsUnguarded` holds none.
  * - Uninstall ends with an Undo toast (10 s, paused on hover/focus) that restores the batch from
  *   the per-instance trash by its token; once everything is back, the dependents the same removal
  *   disabled are switched on again (plan A7) — in reverse of the order they went off, providers
@@ -46,6 +51,7 @@ import {
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+import { createInFlight } from './in-flight';
 
 export type ModOpTarget = { sha1: string; name: string };
 export type ModOpScope = {
@@ -110,6 +116,8 @@ let waiting: Question | null = null;
 let hosts = 0;
 let seq = 0;
 let activeInstanceId: string | null = null;
+/** The mods a flow is changing right now, per profile (`claimed`). */
+const changing = createInFlight();
 
 const reader: OpsDialog = {
   get id() {
@@ -169,6 +177,7 @@ export function __resetModOpsForTests(): void {
   settle(cancelled());
   close(current.id);
   activeInstanceId = null;
+  changing.clear();
 }
 
 /**
@@ -391,14 +400,40 @@ function checkFailed(
   return ask({ mode: 'impact-check-failed', action, targets: [...targets], error });
 }
 
+/**
+ * Run `flow` on the targets that no other flow of `scope`'s profile is changing, holding them
+ * until it settles (the module doc: one flow per mod at a time). A target already held is left
+ * out silently, and a request left with nothing — or asking for nothing — is `cancelled`.
+ */
+async function claimed(
+  scope: ModOpScope,
+  targets: readonly ModOpTarget[],
+  flow: (free: ModOpTarget[]) => Promise<ModOpOutcome>,
+): Promise<ModOpOutcome> {
+  const keyOf = (x: ModOpTarget) => `${scope.instanceId}\n${x.sha1.toLowerCase()}`;
+  const claim = changing.claim(targets.map(keyOf));
+  try {
+    const free = targets.filter((x) => claim.free.has(keyOf(x)));
+    return free.length === 0 ? 'cancelled' : await flow(free);
+  } finally {
+    claim.release();
+  }
+}
+
 /** Disable `targets` in one instance, asking first when other enabled mods need them. */
-export async function disableMods(
+export function disableMods(
   scope: ModOpScope,
   targets: readonly ModOpTarget[],
   opts: { bulk?: boolean } = {},
 ): Promise<ModOpOutcome> {
-  if (targets.length === 0) return 'cancelled';
-  const bulk = opts.bulk === true;
+  return claimed(scope, targets, (free) => disableFlow(scope, free, opts.bulk === true));
+}
+
+async function disableFlow(
+  scope: ModOpScope,
+  targets: readonly ModOpTarget[],
+  bulk: boolean,
+): Promise<ModOpOutcome> {
   const impact = await settleCall(() =>
     commands.modsRemovalImpact(scope.instanceId, shas(targets)),
   );
@@ -423,13 +458,19 @@ export async function disableMods(
 }
 
 /** Enable `targets`, asking first when they need mods that are disabled. */
-export async function enableMods(
+export function enableMods(
   scope: ModOpScope,
   targets: readonly ModOpTarget[],
   opts: { bulk?: boolean } = {},
 ): Promise<ModOpOutcome> {
-  if (targets.length === 0) return 'cancelled';
-  const bulk = opts.bulk === true;
+  return claimed(scope, targets, (free) => enableFlow(scope, free, opts.bulk === true));
+}
+
+async function enableFlow(
+  scope: ModOpScope,
+  targets: readonly ModOpTarget[],
+  bulk: boolean,
+): Promise<ModOpOutcome> {
   // One call for all targets (plan A5): the backend unions what they need, transitively, minus
   // the targets themselves.
   const impact = await settleCall(() => commands.modsEnableImpact(scope.instanceId, shas(targets)));
@@ -506,12 +547,19 @@ async function withOrphans(
 }
 
 /** Remove `targets` into the trash (one token), then offer Undo. */
-export async function uninstallMods(
+export function uninstallMods(
   scope: ModOpScope,
   targets: readonly ModOpTarget[],
   opts: { offerOrphans?: boolean } = {},
 ): Promise<ModOpOutcome> {
-  if (targets.length === 0) return 'cancelled';
+  return claimed(scope, targets, (free) => uninstallFlow(scope, free, opts.offerOrphans === true));
+}
+
+async function uninstallFlow(
+  scope: ModOpScope,
+  targets: readonly ModOpTarget[],
+  offerOrphans: boolean,
+): Promise<ModOpOutcome> {
   const impact = await settleCall(() =>
     commands.modsRemovalImpact(scope.instanceId, shas(targets)),
   );
@@ -532,7 +580,7 @@ export async function uninstallMods(
     if (choice === 'primary') alsoDisable = inOrder(impact.data.order, dependents.map(asTarget));
   }
   try {
-    const removing = opts.offerOrphans ? await withOrphans(scope, targets, dialog) : [...targets];
+    const removing = offerOrphans ? await withOrphans(scope, targets, dialog) : [...targets];
     if (removing === null) return 'cancelled';
     const gone = new Set(shas(removing));
     return await removeNow(
