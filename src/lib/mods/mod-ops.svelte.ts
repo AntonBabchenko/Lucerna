@@ -700,12 +700,23 @@ async function restoreUninstalled(
     return;
   }
   const skipped = report.skipped.map((s) => tt(SKIP_KEY[s.reason], { name: s.name }));
+  // What came back on with the mods — said, never silent — and what could not.
+  let reenabled: string[] = [];
   let dependentLines: string[] = [];
   if (reEnable.length > 0 && skipped.length === 0) {
     // In reverse of the order they went off — the safe disable order put each before what it
     // needs — so a provider comes back first; the first failure ends the run, so nothing comes
     // back on without what it needs.
     const back = await flipAll(scope.instanceId, [...reEnable].reverse(), true, true);
+    reenabled =
+      back.done.length > 0
+        ? [
+            tt('mods.ops.restore.reenabled', {
+              count: back.done.length,
+              names: back.done.map((d) => d.name).join(', '),
+            }),
+          ]
+        : [];
     dependentLines = back.failed.map(
       (f) => `${tt('mods.ops.restore.reenableFailed', { name: f.target.name })}: ${f.message}`,
     );
@@ -713,10 +724,18 @@ async function restoreUninstalled(
     // Something did not come back: switching on what needs it would only break the next launch.
     dependentLines = stillDisabled;
   }
-  const restored = report.restored.length;
+  // The toast names what came back (plan §5b V1): one mod in its title, several counted there and
+  // listed under it — the names the backend put back (plan A6).
+  const restored = report.restored;
+  const [one] = restored;
   const title =
-    restored > 0 ? tt('mods.ops.restore.done', { count: restored }) : tt('mods.ops.restore.failed');
-  if (restored > 0 && skipped.length === 0 && dependentLines.length === 0)
-    pushSuccess(title, where);
-  else pushWarning(title, [...skipped, ...dependentLines, ...where]);
+    restored.length === 0
+      ? tt('mods.ops.restore.failed')
+      : restored.length === 1 && one !== undefined
+        ? tt('mods.ops.restore.doneOne', { name: one })
+        : tt('mods.ops.restore.done', { count: restored.length });
+  const listed = restored.length > 1 ? listLines(restored) : [];
+  if (restored.length > 0 && skipped.length === 0 && dependentLines.length === 0)
+    pushSuccess(title, [...listed, ...reenabled, ...where]);
+  else pushWarning(title, [...listed, ...skipped, ...reenabled, ...dependentLines, ...where]);
 }

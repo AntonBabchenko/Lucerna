@@ -1102,6 +1102,7 @@
         "removeMany": "{count, plural, one {Couldn't remove # mod} other {Couldn't remove # mods}}"
       },
       "restore": {
+        "doneOne": "Restored {name}",
         "done": "{count, plural, one {Restored # mod} other {Restored # mods}}",
         "failed": "Couldn't restore",
         "incomplete": "Couldn't restore everything",
@@ -1113,6 +1114,7 @@
         "modsCount": "{count, plural, one {# mod} other {# mods}}",
         "inProfile": "Profile: {profile}",
         "stillDisabled": "Still disabled: {names}",
+        "reenabled": "{count, plural, one {# dependent switched back on} other {# dependents switched back on}}: {names}",
         "reenableFailed": "Couldn't re-enable {name}"
       },
       "orphans": {

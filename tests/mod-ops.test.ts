@@ -426,7 +426,12 @@ describe("flip order: the backend's, targets included", () => {
     await expect(done).resolves.toBe('applied');
     expect(flipped(h.modsDisable)).toEqual(['z', 'd']);
     toast(0)[2].run();
-    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+    // Plan §5b V1: the toast names what came back, and which dependents came back on with it.
+    await waitFor(() =>
+      expect(h.pushSuccess).toHaveBeenCalledWith('Restored Sodium', [
+        '2 dependents switched back on: Dynamic Lights, Zoom',
+      ]),
+    );
     expect(flipped(h.modsEnable)).toEqual(['d', 'z']);
   });
 
@@ -440,7 +445,11 @@ describe("flip order: the backend's, targets included", () => {
     await expect(done).resolves.toBe('applied');
     expect(flipped(h.modsDisable)).toEqual(['c', 'a', 'b']);
     toast(0)[2].run();
-    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+    await waitFor(() =>
+      expect(h.pushSuccess).toHaveBeenCalledWith('Restored Sodium', [
+        '3 dependents switched back on: Beta, Alpha, Gamma',
+      ]),
+    );
     expect(flipped(h.modsEnable)).toEqual(['b', 'a', 'c']);
   });
 
@@ -472,7 +481,7 @@ describe("flip order: the backend's, targets included", () => {
     h.modsEnable.mockResolvedValueOnce(busyErr);
     toast(0)[2].run();
     await waitFor(() =>
-      expect(h.pushWarning).toHaveBeenCalledWith('Restored 1 mod', [
+      expect(h.pushWarning).toHaveBeenCalledWith('Restored Sodium', [
         `Couldn't re-enable Beta: ${BUSY}`,
         `Couldn't re-enable Alpha: ${BUSY}`,
         `Couldn't re-enable Gamma: ${BUSY}`,
@@ -594,8 +603,31 @@ describe('uninstall and undo', () => {
     ]);
     expect(UNDO_TTL_MS).toBe(10_000);
     action.run();
-    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored Sodium', []));
     expect(h.modsRestoreUninstalled).toHaveBeenCalledWith('inst', 'tok');
+  });
+
+  // Plan §5b V1: «Возвращено: 1» named nothing. One mod is named in the title; several are
+  // counted there and listed below it.
+  it('names what came back — one in the title, several listed under it', async () => {
+    h.modsUninstallMany.mockResolvedValue(
+      ok({
+        token: 't2',
+        items: [
+          { sha1: 's', name: 's' },
+          { sha1: 'i', name: 'i' },
+        ],
+      }),
+    );
+    h.modsRestoreUninstalled.mockResolvedValueOnce(
+      ok({ restored: ['Sodium', 'Indium'], skipped: [], expired: false }),
+    );
+    host();
+    await uninstallMods(scope, [sodium, { sha1: 'i', name: 'Indium' }]);
+    toast(0)[2].run();
+    await waitFor(() =>
+      expect(h.pushSuccess).toHaveBeenCalledWith('Restored 2 mods', ['Sodium', 'Indium']),
+    );
   });
 
   it('nothing moved (the mod was already gone): no Undo to offer', async () => {
@@ -618,9 +650,15 @@ describe('uninstall and undo', () => {
       h.modsDisable.mock.invocationCallOrder[0],
     );
     expect(toast(0)[3]).toEqual(['Also disabled: Indium']);
-    // Undo reverses the whole operation: once everything is back, the dependent comes back on.
+    // Undo reverses the whole operation: once everything is back, the dependent comes back on —
+    // and the toast says so.
     toast(0)[2].run();
     await waitFor(() => expect(h.modsEnable).toHaveBeenCalledWith('inst', 'i'));
+    await waitFor(() =>
+      expect(h.pushSuccess).toHaveBeenCalledWith('Restored Sodium', [
+        '1 dependent switched back on: Indium',
+      ]),
+    );
   });
 
   it('an Undo that could not bring everything back leaves the dependents disabled and says so', async () => {
@@ -687,7 +725,7 @@ describe('uninstall and undo', () => {
     expect(action.label).toBe('Undo');
     expect(opts).toBeUndefined(); // no TTL: it waits for the user
     action.run();
-    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', []));
+    await waitFor(() => expect(h.pushSuccess).toHaveBeenCalledWith('Restored Sodium', []));
   });
 
   it('a restore names what it skipped, and says so when the batch has expired', async () => {
@@ -746,7 +784,7 @@ describe('uninstall and undo', () => {
     await rerender({ activeInstanceId: 'other' });
     toast(0)[2].run();
     await waitFor(() =>
-      expect(h.pushSuccess).toHaveBeenCalledWith('Restored 1 mod', ['Profile: Alpha Pack']),
+      expect(h.pushSuccess).toHaveBeenCalledWith('Restored Sodium', ['Profile: Alpha Pack']),
     );
     expect(h.modsRestoreUninstalled).toHaveBeenCalledWith('inst', 'tok');
   });
