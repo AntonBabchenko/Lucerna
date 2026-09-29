@@ -123,4 +123,16 @@ describe('i18n locale parity (en vs ru)', () => {
       .map(([key]) => key);
     expect(offenders).toEqual([]);
   });
+
+  // «Сборка» is the modpack (D14), so a BUILD — of a mod, a loader, OptiFine, the launcher — is
+  // never «сборка»: «Нет сборки Forge» read as "no Forge modpack". Found by what the English says:
+  // a build that is not a pack. Search keywords are exempt, as above.
+  it('never says «сборка» for a build', () => {
+    const offenders = Object.entries(flatRu)
+      .filter(([key]) => !key.startsWith('settings.search.keywords.'))
+      .filter(([key]) => /\bbuil[dt]/i.test(flatEn[key] ?? '') && !/pack/i.test(flatEn[key] ?? ''))
+      .filter(([, value]) => typeof value === 'string' && /сборк/i.test(value))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
 });
