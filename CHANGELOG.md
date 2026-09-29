@@ -189,6 +189,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   opened from the filters of the mod or modpack browser, such as the Minecraft
   versions, went under the page switcher at the bottom, and its last entries
   were hidden there.
+- **Tooltips keep their own width.** A tooltip shown right after one near the
+  right edge of the window took the width left there and wrapped its text into
+  a narrow column.
 
 ## [0.25.0] — 2026-09-27
 
