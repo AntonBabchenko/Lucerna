@@ -21,6 +21,114 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **Removing a mod can be undone.** The notice that confirms a removal keeps an
+  undo button for ten seconds — the countdown pauses while you point at it or
+  it has the keyboard focus — and removing several mods at once is undone in
+  one step; mods the removal switched off come back on once everything is back.
+  A file whose name was taken in the meantime, or a mod installed again since,
+  is skipped and named, never overwritten.
+- **Disabling or removing a mod that others need asks first.** The launcher
+  names the mods that would stop loading and offers to switch them off too, or
+  to go ahead with just the one you picked; switching on a mod whose required
+  mods are off offers to switch them on together. When the check itself fails,
+  it says so and asks.
+- **Updates can be reviewed and held.** Updating all mods first lists every
+  pending update with its old and new version, and what's new where the
+  platform publishes it, all ticked; untick what should stay. A mod can be told
+  not to update from its menu: it shows a pin and every update leaves it out
+  until you allow updates again. After an update, the notice names the
+  dependencies it installed.
+- **The last update check is remembered** for each profile, with the time it
+  ran, so the update badges survive a restart and the Overview counts pending
+  updates right after a check.
+- **Two filters for libraries:** mods that other mods need, and libraries
+  nothing uses any more. The second stays hidden while any mod's dependencies
+  are unknown, so a library is never called unused on a guess.
+- **The mod menu shows the file in its folder and opens the mod's page** on
+  Modrinth or CurseForge, and search finds a mod by its file name or project
+  slug as well as by its name.
+
+### Changed
+
+- **One list of problems.** The Installed tab has one problems filter with two
+  levels — the game won't start, and the mod may not work — and a panel above
+  the list that names what stops the game, each with its fix and a way to fix
+  them all. A row with a problem gives its reason and one fix under its name.
+  Red means the game won't start, everywhere; the highlight that links a mod
+  to its dependencies is a thin outline instead of an amber wash, so the text
+  under it stays readable.
+- **Fixing before launch checks its own work.** The pre-launch dialog's main
+  action fixes what it can — switches disabled dependencies on, installs
+  missing ones with their own dependencies, applies a version fix that breaks
+  nothing else — then checks again and starts the game only if nothing that
+  stops it is left (if that check cannot run, the game starts as a plain
+  launch would). Otherwise the dialog stays open and says how many it fixed
+  and why the rest failed.
+- **A version conflict can be fixed from either side.** The fix looks for a
+  newer build of the mod that accepts the installed dependency and for a
+  version of the dependency the mod accepts, says whether each is an update or
+  a rollback when the version numbers tell, and names any other mod it would
+  break — such a change is never the default. The launcher asks the platforms only when you ask for a fix,
+  from the problems panel, the mod's row or the dependency tree.
+- **Installing a missing dependency brings its own dependencies**, like any
+  other install, and is remembered on the mod that needed it, so removing that
+  mod later offers to remove the dependency too when nothing else needs it.
+- **The dependency tree tells what the game needs.** Each missing dependency is
+  marked as one the game won't start without, one the platform lists but the
+  mod starts without, or one only the platform lists; a disabled one can be
+  switched on from the tree, and a version conflict offers the same fix as the
+  problems panel. Branches fold, the count is per project rather than per file,
+  the tree follows every switch on and off, and it works from the keyboard and
+  with a screen reader. The author-claim badge and its hide button are gone.
+- **The Overview shows the active profile's problems and pending updates**:
+  mods that stop the game, or may not work, lead to the Installed tab's
+  problem list, and the Mods card counts problems and updates.
+- **The Installed tab is denser.** The toolbar and filters stay on screen while
+  you scroll; the compatibility and dependency re-checks moved into a menu
+  beside them, next to opening the mods folder; the counts line, the source
+  picker and a pager with a single page are gone; a row counts its
+  dependencies and dependents in one small pill, shows the file name when you
+  point at the version, and its update badge opens what's new.
+- **Add-ons remembers Browse or Installed for each content type** until the
+  launcher closes, and the first visit to mods opens the installed list when
+  the profile has any.
+- **One drop area rule everywhere.** A thin strip sits above every list and
+  catalog and grows into a large target while a file is dragged over the
+  window, saying where the file will go — or, when it doesn't fit, what the
+  area takes instead; the full-size box appears only in an empty list and in
+  server import.
+- **The Russian interface uses one word for each thing** — profile, loader and
+  modpack no longer alternate with slang — and the sidebar's folder buttons
+  now say that they open a folder.
+
+### Fixed
+
+- **A disabled dependency is no longer reported as missing**, and fixing it
+  switches it on instead of installing a second copy. Installing a dependency
+  the profile already has, from a list that is out of date, is refused instead
+  of adding a duplicate that stops the game.
+- **The dependency tree no longer claims the loader doesn't need a
+  dependency** that the mod's own file requires.
+- **A mod's dependencies read as unknown when the platform can't tell, not as
+  none**, with the reason — offline, or when the platform doesn't know the
+  installed version — and the next visit asks again instead of keeping the
+  offline answer for the rest of the session.
+- **A modpack dropped on the Modpacks window is imported once**, instead of
+  also being installed into the Add-ons tab underneath. A server import left
+  open in the hidden servers panel no longer takes files dropped in client
+  mode, and a file dropped while another dialog is open goes nowhere and says
+  so, instead of landing in the tab behind it.
+- **A dropped file the launcher can't take is named, with the reason**, instead
+  of vanishing without a word: a file of the wrong type, a profile without a
+  mod loader, a running server, a world or modpack while the data folder is
+  unavailable, or a second modpack or server dropped at once. A file dropped on
+  the compact window is refused the same way instead of installing later,
+  unannounced.
+- **A mod change refused because a modpack update, a migration or a clone is
+  using the profile says so**, instead of suggesting that the game is running.
+
 ## [0.25.0] — 2026-09-27
 
 ### Added
