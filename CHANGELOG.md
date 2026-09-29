@@ -147,6 +147,20 @@ behaviour is worth knowing, it is stated as a property of the feature under
   two phrases strung together, an optional dependency at the wrong version is
   reported as a problem instead of as something the mod supports, and a
   version that starts with a letter no longer gets a stray "v".
+- **Keyboard focus stays in sight in the mod lists.** Moving through Browse
+  results with the keyboard could land on one hidden under the filters or the
+  page switcher that stay on screen; the list now scrolls it clear of them.
+  After a mod is removed, focus moves to the next mod in the list instead of
+  being lost.
+- **Menus fit their longest item.** A long entry, such as creating a desktop
+  shortcut in Russian, wrapped over two lines and squeezed its icon; a menu now
+  grows to fit it and stays on screen.
+- **A modpack version that already starts with a "v" is no longer shown with a
+  second one** on the Overview, among the imported modpacks and in the import
+  window, and neither is a data pack's version in the library.
+- **The drop area's dashed outline is easier to see in the light theme.**
+- **In Russian, a profile that won't launch is no longer called a modpack**,
+  and neither is a profile's folder in the messages about it.
 
 ## [0.25.0] — 2026-09-27
 
