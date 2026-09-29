@@ -24,11 +24,12 @@ import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
 import { hasSeen, MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
 import { tourState } from '$lib/onboarding/state.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
+import { __resetLayers } from '$lib/ui/layer-stack.svelte';
 
 describe('ContextualTour in a recovery session', () => {
   beforeEach(() => {
     localStorage.clear();
-    document.body.removeAttribute('data-ctx-tour-active');
+    __resetLayers();
     tourState.active = false;
     tourState.contextual = false;
     tourState.currentStep = 0;

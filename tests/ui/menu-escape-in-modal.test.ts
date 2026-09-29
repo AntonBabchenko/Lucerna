@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import MenuInModal from '../fixtures/MenuInModal.svelte';
 
 describe('Menu hosted by a Modal', () => {
-  // Control: proves the modal's window-level Escape listener is reachable in
-  // this DOM environment. Without it, the next test could pass vacuously.
+  // Control: proves the layer router's window-level Escape listener is
+  // reachable in this DOM environment. Without it, the next test could pass vacuously.
   it('Escape with no menu open closes the modal', async () => {
     const onModalClose = vi.fn();
     render(MenuInModal, { props: { onModalClose } });

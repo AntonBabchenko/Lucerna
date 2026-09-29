@@ -13,11 +13,11 @@ vi.mock('$lib/ipc/bindings', () => ({
       Promise.resolve({
         status: 'ok',
         data: {
-          effective: 'C:\Data',
+          effective: 'C:Data',
           configured: null,
           fell_back: false,
           fallback: null,
-          default_dir: 'C:\Data',
+          default_dir: 'C:Data',
           relocation: { kind: 'idle' },
         },
       }),
@@ -40,6 +40,7 @@ import {
 } from '../src/lib/onboarding/state.svelte';
 import { STEPS } from '../src/lib/onboarding/steps';
 import { serversUi } from '../src/lib/servers/servers-ui.svelte';
+import { insertTour, newLayerId } from '../src/lib/ui/layer-stack.svelte';
 
 beforeEach(() => {
   appSettingsGet.mockReset();
@@ -210,13 +211,13 @@ describe('account hint (contextual reuse of the account step)', () => {
   });
 
   test('showAccountHint fires even while a contextual tour is open (the ctx tour yields)', () => {
-    document.body.setAttribute('data-ctx-tour-active', 'true');
+    const release = insertTour(newLayerId('ctx'), null, () => {});
     try {
       showAccountHint();
       expect(tourState.active).toBe(true);
       expect(tourState.contextual).toBe(true);
     } finally {
-      document.body.removeAttribute('data-ctx-tour-active');
+      release?.();
     }
   });
 
