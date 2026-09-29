@@ -353,9 +353,9 @@
      servers panel stays mounted (display:none) in client mode, so without it a
      tour could fire — or keep running — with nothing on screen. Both halves
      matter, because the gate is REACTIVE: a mode switch while the tour is up
-     unmounts it here, and ContextualTour's teardown hands the screen back
-     (module claim + body flag together). Left active off-screen it would
-     silently swallow every modal's Escape and every later tour's mount. -->
+     unmounts it here, and ContextualTour's teardown gives its layer back.
+     Left active off-screen it would sit in the layer stack, silently taking
+     every Escape and blocking every later tour's mount. -->
 {#if visible && gateResolved && kinds.length > 0}
   <ContextualTour id="serverAddons" steps={SERVER_ADDONS_STEPS} />
 {/if}

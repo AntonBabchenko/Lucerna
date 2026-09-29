@@ -214,8 +214,8 @@
       }
       return;
     }
-    // Keys consumed while open are stopped from propagating, so an enclosing
-    // modal's `<svelte:window onkeydown>` (Escape-to-close, etc.) doesn't also
+    // Keys consumed while open are stopped from propagating, so the layer
+    // router (Escape-to-close of an enclosing modal, etc.) doesn't also
     // fire — pressing Escape should dismiss only the dropdown, matching native
     // <select>. Tab is the exception: it commits but must keep bubbling/default
     // so focus moves on to the next control.
