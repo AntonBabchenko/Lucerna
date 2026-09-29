@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 
-// The guarded mod operations (mod-ops) ask Cancel · «Only this one» · «Disable all N»: an
-// alternative between Cancel and the confirm. Both actions mutate asynchronously, so each has its
+// The guarded mod operations (mod-ops) ask Cancel · «Only this one» · a counted confirm («Disable
+// together with N dependents»): an alternative between Cancel and the confirm. Both actions mutate asynchronously, so each has its
 // own busy flag — one `busy` cannot say which button spins.
 const base = () => ({
   title: 'Disable Sodium?',

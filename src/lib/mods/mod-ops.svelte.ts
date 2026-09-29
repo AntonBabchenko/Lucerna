@@ -452,7 +452,8 @@ async function disableFlow(
   const q = ask({ mode: 'dependents-on-disable', targets: [...targets], dependents });
   const { choice } = await q.answer;
   if (choice === 'cancel') return 'cancelled';
-  // «Only this one» leaves the dependents enabled; «Disable all» takes them along.
+  // «Only this one» leaves the dependents enabled; «Disable together with N dependents» takes them
+  // along.
   const flip = choice === 'secondary' ? targets : [...dependents.map(asTarget), ...targets];
   return finish(q.id, flipInOrder(flip));
 }

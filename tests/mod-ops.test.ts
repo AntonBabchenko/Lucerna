@@ -119,13 +119,13 @@ describe('guarded disable', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('names the mods that need it; «Disable all N» disables them too', async () => {
+  it('names the mods that need it; «Disable together with N dependents» disables them too', async () => {
     h.modsRemovalImpact.mockResolvedValue(sodiumImpact);
     host();
     const done = disableMods(scope, [sodium]);
     const dialog = await screen.findByRole('dialog', { name: 'Disable Sodium?' });
     expect(within(dialog).getByText('Indium')).toBeTruthy();
-    const all = within(dialog).getByRole('button', { name: 'Disable all 2' });
+    const all = within(dialog).getByRole('button', { name: 'Disable together with 1 dependent' });
     expect(all).toHaveBtnVariant('primary'); // disabling is reversible: never .btn-danger
     expect(within(dialog).getByRole('button', { name: 'Only this one' })).toHaveBtnVariant(
       'secondary',
@@ -145,7 +145,9 @@ describe('guarded disable', () => {
     h.modsDisable.mockResolvedValueOnce(ioErr);
     host();
     const done = disableMods(scope, [sodium]);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Disable together with 1 dependent' }),
+    );
     await expect(done).resolves.toBe('failed');
     expect(h.modsDisable.mock.calls).toEqual([['inst', 'i']]);
     expect(h.pushWarning).toHaveBeenCalledWith(expect.stringContaining('2 failed'), [
@@ -189,7 +191,9 @@ describe('guarded disable', () => {
     h.modsDisable.mockResolvedValue(busyErr);
     host();
     const done = disableMods(scope, [sodium]);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Disable together with 1 dependent' }),
+    );
     await expect(done).resolves.toBe('failed');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(h.pushWarning).toHaveBeenCalledWith(expect.stringContaining('2 failed'), [BUSY]);
@@ -328,7 +332,9 @@ describe("flip order: the backend's, targets included", () => {
     h.modsEnableImpact.mockResolvedValue(ok({ requirements: listed, order: ['c', 'a', 'b', 't'] }));
     host();
     const off = disableMods(scope, [sodium]);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 4' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Disable together with 3 dependents' }),
+    );
     await expect(off).resolves.toBe('applied');
     expect(flipped(h.modsDisable)).toEqual(['c', 'a', 'b', 's']);
     const on = enableMods(scope, [{ sha1: 't', name: 'Target' }]);
@@ -345,7 +351,9 @@ describe("flip order: the backend's, targets included", () => {
     h.modsRemovalImpact.mockResolvedValue(ok({ dependents: [lights], order: ['t', 'd', 's'] }));
     host();
     const done = disableMods(scope, [sodium, { sha1: 't', name: 'Tweaks' }]);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 3' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Disable together with 1 dependent' }),
+    );
     await expect(done).resolves.toBe('applied');
     expect(flipped(h.modsDisable)).toEqual(['t', 'd', 's']);
   });
@@ -501,14 +509,16 @@ describe('one dialog at a time', () => {
     h.modsDisable.mockReturnValueOnce(running.promise);
     host();
     const first = disableMods(scope, [sodium]);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Disable together with 1 dependent' }),
+    );
     const second = enableMods(scope, [{ sha1: 'b', name: 'Beta' }]);
     await flush();
     expect(h.modsEnableImpact).toHaveBeenCalledTimes(1); // the second flow has asked by now
     // The first dialog stays, its button still spinning (the spinner's status label joins the
     // button's name); the new question waits.
     within(screen.getByRole('dialog', { name: 'Disable Sodium?' })).getByRole('button', {
-      name: /Disable all 2/,
+      name: /Disable together with 1 dependent/,
       busy: true,
     });
     expect(
@@ -577,7 +587,9 @@ describe('when the host goes away', () => {
     h.modsDisable.mockReturnValueOnce(running.promise);
     const { rerender } = render(ModOpsHostToggle, { props: { shown: true } });
     const first = disableMods(scope, [sodium]);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable all 2' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Disable together with 1 dependent' }),
+    );
     const second = enableMods(scope, [{ sha1: 'b', name: 'Beta' }]);
     await flush();
     await rerender({ shown: false });

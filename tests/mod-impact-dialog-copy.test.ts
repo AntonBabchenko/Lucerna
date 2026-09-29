@@ -135,3 +135,55 @@ describe('a check that could not run names what it was about', () => {
     }
   });
 });
+
+// Plan §5c V3 (screenshot 04b): «Отключить все 3» beside a list of two — it counted the mod being
+// switched off too — while the removal's «Удалить и отключить 3 зависимых мода» counted only the
+// dependents it lists. One rule for both dialogs: the confirm counts the dependents listed above
+// it and says what happens to them.
+describe('the confirm counts the dependents it lists, in both dialogs', () => {
+  const deps = [
+    dependent('i', 'Indium'),
+    dependent('r', 'Iris'),
+    dependent('c', 'Continuity'),
+    dependent('e', 'Entity Culling'),
+    dependent('b', 'Better Clouds'),
+  ];
+  const view = (
+    mode: 'dependents-on-disable' | 'dependents-on-remove',
+    targets: number,
+    dependents: number,
+  ): ImpactView => ({
+    mode,
+    targets: [mod('s', 'Sodium'), mod('f', 'Fabric API')].slice(0, targets),
+    dependents: deps.slice(0, dependents),
+  });
+  const confirm = () => screen.getByTestId('mod-impact-confirm').textContent?.trim();
+
+  it('never counts the mod being switched off or removed', () => {
+    const cases: [ImpactView, string][] = [
+      [view('dependents-on-disable', 1, 2), 'Disable together with 2 dependents'],
+      [view('dependents-on-disable', 2, 1), 'Disable together with 1 dependent'],
+      [view('dependents-on-remove', 1, 2), 'Remove and disable 2 dependents'],
+    ];
+    for (const [v, expected] of cases) {
+      const { unmount } = show(v);
+      expect(confirm()).toBe(expected);
+      unmount();
+    }
+  });
+
+  it('in Russian, with the case the count takes', () => {
+    locale.set('ru');
+    const cases: [ImpactView, string][] = [
+      [view('dependents-on-disable', 1, 1), 'Отключить вместе с 1 зависимым модом'],
+      [view('dependents-on-disable', 1, 2), 'Отключить вместе с 2 зависимыми модами'],
+      [view('dependents-on-disable', 1, 5), 'Отключить вместе с 5 зависимыми модами'],
+      [view('dependents-on-remove', 1, 2), 'Удалить и отключить 2 зависимых мода'],
+    ];
+    for (const [v, expected] of cases) {
+      const { unmount } = show(v);
+      expect(confirm()).toBe(expected);
+      unmount();
+    }
+  });
+});

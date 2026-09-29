@@ -1020,7 +1020,7 @@
   //
   // A toggle refreshes exactly what an install or a removal does, the graph
   // included: it is rooted at the ENABLED mods and marks the disabled ones, so a
-  // switch changes both — without a re-resolve, «Disable all» left the tree
+  // switch changes both — without a re-resolve, disabling a mod with its dependents left the tree
   // offering to enable mods that were on and the library chips counting roots
   // that were off.
   const debouncedModsChanged = debounceTrailing(() => {

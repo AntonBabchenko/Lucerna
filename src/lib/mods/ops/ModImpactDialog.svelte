@@ -49,8 +49,11 @@
 
   const confirmLabel = $derived.by(() => {
     switch (view.mode) {
+      // One rule in both: the confirm counts the dependents listed above it and says what happens
+      // to them. «Отключить все 3» beside a list of two counted the mod leaving as well (plan §5c,
+      // screenshot 04b).
       case 'dependents-on-disable':
-        return $t('mods.ops.disable.all', { count: count + view.dependents.length });
+        return $t('mods.ops.disable.withDependents', { count: view.dependents.length });
       case 'dependents-on-remove':
         return $t('mods.ops.remove.andDisable', { count: view.dependents.length });
       case 'enable-with-requirements':

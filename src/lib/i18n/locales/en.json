@@ -1071,7 +1071,7 @@
       "disable": {
         "titleOne": "Disable {name}?",
         "titleMany": "{count, plural, one {Disable # mod?} other {Disable # mods?}}",
-        "all": "Disable all {count}"
+        "withDependents": "{count, plural, one {Disable together with # dependent} other {Disable together with # dependents}}"
       },
       "remove": {
         "titleOne": "Remove {name}?",
