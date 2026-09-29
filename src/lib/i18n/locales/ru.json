@@ -19,6 +19,7 @@
     "switchToVersion": "Переключиться на эту версию",
     "installed": "Установлено",
     "restricted": "Ограничено — откройте страницу для загрузки",
+    "dropToAdd": "Отпустите, чтобы добавить в «{name}»",
     "fileFilter": {
       "modrinthModpack": "Сборка Modrinth",
       "curseforgeModpack": "Сборка CurseForge",
@@ -1242,6 +1243,7 @@
       "browse": "Поиск",
       "imported": "Установленные",
       "dropzoneLabel": "Перетащите .mrpack или .zip сюда для импорта — или нажмите для выбора файла",
+      "dropzoneDrag": "Отпустите, чтобы импортировать сборку",
       "importFromUrl": "Импорт по ссылке…"
     },
     "import": {
@@ -1291,7 +1293,7 @@
     },
     "imported": {
       "view": {
-        "emptyState": "Сборок пока нет. Перетащите .mrpack на вкладку «Поиск» или найдите сборку через поиск.",
+        "emptyState": "Сборок пока нет. Перетащите .mrpack ниже или найдите сборку через поиск.",
         "filterPlaceholder": "Фильтр сборок...",
         "allMcVersions": "Все версии MC",
         "allLoaders": "Все загрузчики",

@@ -96,6 +96,29 @@ describe('ModpacksTab', () => {
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
+  // The dropzone rule (DESIGN.md §14): a strip over the catalog, whose drag overlay covers the
+  // content below it; an empty Imported list holds the one full drop area instead.
+  it('an empty Imported list shows the full drop area; the strip and the URL import stay on Browse', async () => {
+    const overlayHost = () => {
+      let el = screen.getByTestId('file-dropzone-overlay').parentElement;
+      while (el && !el.classList.contains('relative')) el = el.parentElement;
+      return el;
+    };
+    render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+    expect(overlayHost()?.querySelector('.overflow-y-auto')).not.toBeNull();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Imported' }));
+    await waitFor(() => expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('full'));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('file-dropzone'))).toBe(
+      true,
+    );
+    expect(screen.getByTestId('modpacks-import-from-url')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+  });
+
   it('renders the Source picker (with FTB) in the sub-tab row, not the filter toolbar', async () => {
     render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
     // Source is a context switch — it lives beside the Browse|Imported tabs,

@@ -69,6 +69,9 @@
   // pagination, filter state etc. survive switching back and forth.
   let browseEverActive = $state(true);
   let importedEverActive = $state(false);
+  // No pack imported yet (the Imported list reports it): while that list shows, the strip gives
+  // way to its full drop area.
+  let importedEmpty = $state(false);
   $effect(() => {
     if (activeSub === 'browse') browseEverActive = true;
     if (activeSub === 'imported') importedEverActive = true;
@@ -319,15 +322,22 @@
     />
   </div>
 
-  <div class="px-4 pt-3" data-tour-ctx="modpacks-dropzone">
-    <FileDropzone
-      label={$t('modpacks.tab.dropzoneLabel')}
-      disabled={importDisabledReason !== null}
-      disabledLabel={importDisabledReason ?? undefined}
-      onClick={importFromFile}
-    />
-    <div class="mt-2 flex justify-end">
-      <!--
+  <!-- The strip's drag overlay covers this box — the strip and the content under it (DESIGN.md
+       §14). An empty Imported list holds the full drop area instead of the strip. -->
+  <div class="relative flex-1 min-h-0 flex flex-col">
+    <div class="px-4 pt-3" data-tour-ctx="modpacks-dropzone">
+      {#if !(activeSub === 'imported' && importedEmpty)}
+        <FileDropzone
+          variant="strip"
+          label={$t('modpacks.tab.dropzoneLabel')}
+          disabled={importDisabledReason !== null}
+          disabledLabel={importDisabledReason ?? undefined}
+          dragLabel={$t('modpacks.tab.dropzoneDrag')}
+          onClick={importFromFile}
+        />
+      {/if}
+      <div class="mt-2 flex justify-end">
+        <!--
         Disabled-reason tooltip (§5): a disabled <button> fires no pointer
         events, so the reason rides a wrapping <span>, and `describe: false`
         marks it supplementary rather than the button's accessible name. The
@@ -335,55 +345,73 @@
         reachable by keyboard — which the native `title=` this replaces never
         was. Same shape as WorldDatapacks.svelte.
       -->
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-      <span
-        class="inline-flex"
-        tabindex={importDisabledReason !== null ? 0 : undefined}
-        use:tooltip={{ text: importDisabledReason ?? '', describe: false }}
-      >
-        <button
-          type="button"
-          class="btn-ghost btn-sm inline-flex items-center gap-1.5"
-          disabled={importDisabledReason !== null}
-          onclick={openUrlDialog}
-          data-testid="modpacks-import-from-url"
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <span
+          class="inline-flex"
+          tabindex={importDisabledReason !== null ? 0 : undefined}
+          use:tooltip={{ text: importDisabledReason ?? '', describe: false }}
         >
-          <Icon name="externalLink" size={14} />
-          {$t('modpacks.tab.importFromUrl')}
-        </button>
-      </span>
+          <button
+            type="button"
+            class="btn-ghost btn-sm inline-flex items-center gap-1.5"
+            disabled={importDisabledReason !== null}
+            onclick={openUrlDialog}
+            data-testid="modpacks-import-from-url"
+          >
+            <Icon name="externalLink" size={14} />
+            {$t('modpacks.tab.importFromUrl')}
+          </button>
+        </span>
+      </div>
+    </div>
+
+    <ContextualTour id="modpacks" steps={MODPACKS_STEPS} />
+
+    <div class="flex-1 overflow-y-auto">
+      {#if error}
+        <div class="m-4 p-3 bg-danger-bg border border-danger rounded text-sm text-danger">
+          {error}
+        </div>
+      {/if}
+
+      {#if browseEverActive}
+        <div class:hidden={activeSub !== 'browse'}>
+          <ModpackBrowseView
+            onPickHit={(h, mc) => {
+              drawerHit = h;
+              drawerMcFilter = mc;
+            }}
+            onQuickInstall={quickInstall}
+            installingIds={quickInstalling}
+            quickInstallDisabledReason={importDisabledReason}
+          />
+        </div>
+      {/if}
+      {#if importedEverActive}
+        <div class:hidden={activeSub !== 'imported'}>
+          <ImportedView
+            {instances}
+            onPick={onInstanceCreated}
+            {onListChanged}
+            emptyDropzone={activeSub === 'imported' ? importedDropzone : undefined}
+            onEmptyChange={(e) => (importedEmpty = e)}
+          />
+        </div>
+      {/if}
     </div>
   </div>
-
-  <ContextualTour id="modpacks" steps={MODPACKS_STEPS} />
-
-  <div class="flex-1 overflow-y-auto">
-    {#if error}
-      <div class="m-4 p-3 bg-danger-bg border border-danger rounded text-sm text-danger">
-        {error}
-      </div>
-    {/if}
-
-    {#if browseEverActive}
-      <div class:hidden={activeSub !== 'browse'}>
-        <ModpackBrowseView
-          onPickHit={(h, mc) => {
-            drawerHit = h;
-            drawerMcFilter = mc;
-          }}
-          onQuickInstall={quickInstall}
-          installingIds={quickInstalling}
-          quickInstallDisabledReason={importDisabledReason}
-        />
-      </div>
-    {/if}
-    {#if importedEverActive}
-      <div class:hidden={activeSub !== 'imported'}>
-        <ImportedView {instances} onPick={onInstanceCreated} {onListChanged} />
-      </div>
-    {/if}
-  </div>
 </div>
+
+<!-- The empty Imported list's full drop area (DESIGN.md §14), handed over only while that list
+     shows, so the hidden list never holds a second one. -->
+{#snippet importedDropzone()}
+  <FileDropzone
+    label={$t('modpacks.tab.dropzoneLabel')}
+    disabled={importDisabledReason !== null}
+    disabledLabel={importDisabledReason ?? undefined}
+    onClick={importFromFile}
+  />
+{/snippet}
 
 {#if summary}
   <ImportPickerDialog {summary} onCancel={() => (summary = null)} onConfirm={confirmImport} />

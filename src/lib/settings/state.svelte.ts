@@ -172,9 +172,11 @@ export const droppedServer = $state<{ value: string[] | null }>({ value: null })
 // modal isn't ALSO routed into the Worlds/Mods tabs underneath.
 export const serverImportActive = $state<{ value: boolean }>({ value: false });
 
-// True while an OS file-drag is hovering an accepting tab. MainTabs'
-// drag-drop listener sets it; FileDropzone reads it to show its drag
-// highlight.
+// True while an OS file drag is over the window. Set by the three window-level
+// Tauri drag-drop listeners — +page.svelte (client Add-ons / Worlds, server
+// Add-ons), ModpacksTab (the Modpacks modal) and ServerImportView — true on
+// enter/over, false on leave/drop; read by FileDropzone for its highlight and
+// drag overlay.
 export const dragActive = $state<{ value: boolean }>({ value: false });
 
 // Bumped whenever a resource pack / shader is installed or uninstalled, so the

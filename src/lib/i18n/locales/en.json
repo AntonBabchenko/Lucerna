@@ -19,6 +19,7 @@
     "switchToVersion": "Switch to this version",
     "installed": "Installed",
     "restricted": "Restricted — open the page to download",
+    "dropToAdd": "Drop to add to “{name}”",
     "fileFilter": {
       "modrinthModpack": "Modrinth modpack",
       "curseforgeModpack": "CurseForge modpack",
@@ -1242,6 +1243,7 @@
       "browse": "Browse",
       "imported": "Imported",
       "dropzoneLabel": "Drop a .mrpack or .zip here to import — or click to browse",
+      "dropzoneDrag": "Drop to import the modpack",
       "importFromUrl": "Import from URL…"
     },
     "import": {
@@ -1291,7 +1293,7 @@
     },
     "imported": {
       "view": {
-        "emptyState": "No packs imported yet. Drop a .mrpack on the Browse tab or pick one from search.",
+        "emptyState": "No packs imported yet. Drop a .mrpack below or pick one from search.",
         "filterPlaceholder": "Filter packs...",
         "allMcVersions": "All MC versions",
         "allLoaders": "All loaders",

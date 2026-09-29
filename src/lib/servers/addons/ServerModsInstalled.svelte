@@ -1,6 +1,6 @@
 <script lang="ts">
   import { get } from 'svelte/store';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, type Snippet } from 'svelte';
   import {
     commands,
     type ModSummary,
@@ -29,7 +29,19 @@
   import ServerInstalledRow from './ServerInstalledRow.svelte';
   import { createServerInstalledData, type ServerRow } from './server-installed-data.svelte';
 
-  let { serverId, reloadToken = 0 }: { serverId: string; reloadToken?: number } = $props();
+  let {
+    serverId,
+    reloadToken = 0,
+    emptyDropzone,
+    onEmptyChange = () => {},
+  }: {
+    serverId: string;
+    reloadToken?: number;
+    /** The host's full drop area, rendered in the empty list (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
+  } = $props();
 
   // Enriched Installed list (enrich → ModSummary resolution → ServerRow[]). The
   // composable owns the list + reload-token effect and blanks on server switch.
@@ -150,6 +162,16 @@
   const isPluginCore = $derived(server !== null && pluginCapable(server.loader));
   const isRunning = $derived(server?.running ?? false);
   const canManageMods = $derived(server !== null && isModCapable && !isRunning);
+
+  // Empty is reported, never assumed: a list still loading or one that could not be read is not
+  // empty — the host keeps its strip until the list says it is empty.
+  const listEmpty = $derived(
+    !isPluginCore && !data.loading && data.rows.length === 0 && !data.error,
+  );
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
+  });
 
   // How many installed mods have a pending update, derived from the live rows so
   // a stale check for a since-removed mod never counts. Drives the "Update all"
@@ -365,7 +387,11 @@
     {#if data.loading && data.rows.length === 0}
       <LoadingPanel label={$t('mods.installed.loading')} />
     {:else if data.rows.length === 0 && !data.error}
-      <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
+      <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
+      <div class="flex flex-col gap-3" data-testid="list-empty">
+        <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
+        {@render emptyDropzone?.()}
+      </div>
     {:else if data.rows.length > 0}
       <!-- Filter toolbar: search + all/enabled/disabled(+updates) + sort. Gated
            on data.rows so an empty search still shows the controls. -->

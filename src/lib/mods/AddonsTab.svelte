@@ -350,6 +350,32 @@
   // shared content rule; for non-mod kinds it is simply "an instance is selected").
   const assetInstallDisabled = $derived(!canInstallContent(kind, instanceId, loader));
 
+  // The local-file drop area of the current kind (DESIGN.md §14): a strip above Browse and a
+  // listed Installed view, the full box inside an empty Installed list.
+  const dropzone = $derived(
+    kind === 'mod'
+      ? {
+          label: $t('mods.browse.dropzoneLabel'),
+          disabled: installDisabled,
+          disabledLabel: $t('mods.browse.dropzoneDisabled'),
+          onClick: installFromFile,
+        }
+      : {
+          label:
+            kind === 'resource_pack'
+              ? $t('addons.dropzoneResourcePack')
+              : kind === 'shader'
+                ? $t('addons.dropzoneShader')
+                : $t('addons.dropzoneDatapack'),
+          disabled: assetInstallDisabled,
+          disabledLabel: $t('addons.dropzoneDisabled'),
+          onClick: kind === 'datapack' ? installDatapacksFromPicker : installAssetsFromPicker,
+        },
+  );
+  // The Installed list of the current kind is loaded and empty (it reports so): while that list
+  // shows, the strip gives way to the list's own full drop area.
+  let installedEmpty = $state(false);
+
   // Files dropped on the Mods tab arrive via the droppedMods rune
   // (routed by MainTabs). Consume and reset so a later action isn't
   // re-triggered. Guarded to kind='mod': a jar dropped while a non-mod
@@ -706,74 +732,85 @@
     </div>
   {/if}
 
-  {#if kind === 'mod'}
-    <div class="px-3 pt-3" data-tour-ctx="addons-dropzone">
-      <FileDropzone
-        label={$t('mods.browse.dropzoneLabel')}
-        disabled={installDisabled}
-        disabledLabel={$t('mods.browse.dropzoneDisabled')}
-        onClick={installFromFile}
-      />
-    </div>
-  {/if}
-
-  {#if kind === 'resource_pack' || kind === 'shader' || kind === 'datapack'}
-    <div class="px-3 pt-3" data-tour-ctx="addons-dropzone">
-      <FileDropzone
-        label={kind === 'resource_pack'
-          ? $t('addons.dropzoneResourcePack')
-          : kind === 'shader'
-            ? $t('addons.dropzoneShader')
-            : $t('addons.dropzoneDatapack')}
-        disabled={assetInstallDisabled}
-        disabledLabel={$t('addons.dropzoneDisabled')}
-        onClick={kind === 'datapack' ? installDatapacksFromPicker : installAssetsFromPicker}
-      />
-    </div>
-  {/if}
-
-  <div class="flex-1 overflow-y-auto relative">
-    <div class:hidden={view !== 'browse'}>
-      <!-- Re-key per kind so switching content type resets the browse
+  <!-- The strip's drag overlay covers this box — the strip and the content under it (DESIGN.md
+       §14). The scroll container inside stays the sticky toolbars' context. -->
+  <div class="relative flex-1 min-h-0 flex flex-col">
+    {#if !(view === 'installed' && installedEmpty)}{@render dropzoneBox('strip')}{/if}
+    <div class="flex-1 overflow-y-auto relative">
+      <div class:hidden={view !== 'browse'}>
+        <!-- Re-key per kind so switching content type resets the browse
            filters/results instead of leaking the previous kind's state. -->
-      {#key kind}
-        <ModBrowseView
-          {kind}
-          {source}
-          {instanceId}
-          {instanceName}
-          {mcVersion}
-          {loader}
-          seedQuery={browseSeedQuery}
-          onSeedConsumed={() => (browseSeedQuery = null)}
-        />
-      {/key}
-    </div>
-    {#if installedMounted}
-      <div class:hidden={view !== 'installed'}>
-        {#if kind === 'mod'}
-          <InstalledModsView
+        {#key kind}
+          <ModBrowseView
+            {kind}
+            {source}
             {instanceId}
             {instanceName}
             {mcVersion}
             {loader}
-            {requestedFilter}
-            onFilterApplied={() => (requestedFilter = null)}
-            onBrowseFor={browseForDependency}
+            seedQuery={browseSeedQuery}
+            onSeedConsumed={() => (browseSeedQuery = null)}
           />
-        {:else if kind === 'datapack'}
-          <!-- An explicit branch, not the assets fallback: a datapack's
+        {/key}
+      </div>
+      {#if installedMounted}
+        <div class:hidden={view !== 'installed'}>
+          {#if kind === 'mod'}
+            <InstalledModsView
+              {instanceId}
+              {instanceName}
+              {mcVersion}
+              {loader}
+              {requestedFilter}
+              onFilterApplied={() => (requestedFilter = null)}
+              onBrowseFor={browseForDependency}
+              emptyDropzone={view === 'installed' ? installedDropzone : undefined}
+              onEmptyChange={(e) => (installedEmpty = e)}
+            />
+          {:else if kind === 'datapack'}
+            <!-- An explicit branch, not the assets fallback: a datapack's
                Installed view is the LIBRARY screen — per-world placements,
                cascade removal — and the assets view's commands reject the
                kind at the backend boundary anyway. -->
-          <InstalledDatapacksView {instanceId} {mcVersion} {loader} />
-        {:else}
-          <InstalledAssetsView {instanceId} {kind} {mcVersion} {loader} />
-        {/if}
-      </div>
-    {/if}
+            <InstalledDatapacksView
+              {instanceId}
+              {mcVersion}
+              {loader}
+              emptyDropzone={view === 'installed' ? installedDropzone : undefined}
+              onEmptyChange={(e) => (installedEmpty = e)}
+            />
+          {:else}
+            <InstalledAssetsView
+              {instanceId}
+              {kind}
+              {mcVersion}
+              {loader}
+              emptyDropzone={view === 'installed' ? installedDropzone : undefined}
+              onEmptyChange={(e) => (installedEmpty = e)}
+            />
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
+
+<!-- One drop area per kind, two sizes (DESIGN.md §14): the strip above Browse and a listed
+     Installed view, the full box inside an empty Installed list — handed to the list only while
+     it shows, so a hidden list never holds a second one. Both carry the tour's anchor. -->
+{#snippet dropzoneBox(variant: 'strip' | 'full')}
+  <div class={variant === 'strip' ? 'px-3 pt-3' : ''} data-tour-ctx="addons-dropzone">
+    <FileDropzone
+      {variant}
+      label={dropzone.label}
+      disabled={dropzone.disabled}
+      disabledLabel={dropzone.disabledLabel}
+      dragLabel={$t('common.dropToAdd', { name: instanceName ?? '' })}
+      onClick={dropzone.onClick}
+    />
+  </div>
+{/snippet}
+{#snippet installedDropzone()}{@render dropzoneBox('full')}{/snippet}
 
 {#if datapackPickerTarget && instanceId}
   <DatapackWorldPicker

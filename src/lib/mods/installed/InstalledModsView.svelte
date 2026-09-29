@@ -13,7 +13,7 @@
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, type Snippet, tick } from 'svelte';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { debounceTrailing } from '$lib/ui/debounce';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
@@ -82,6 +82,8 @@
     requestedFilter = null,
     onFilterApplied = () => {},
     onBrowseFor = (_q: string) => {},
+    emptyDropzone,
+    onEmptyChange = () => {},
   }: {
     instanceId: string | null;
     // Named in a restore toast once the user has switched profiles (spec §6.1).
@@ -94,10 +96,23 @@
     requestedFilter?: 'issues' | null;
     onFilterApplied?: () => void;
     onBrowseFor?: (query: string) => void;
+    /** The host's full drop area, rendered in the empty list (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
   } = $props();
 
   // --- composables (creation order matters; thunks keep cross-refs lazy) ---
   const data = createInstalledData(() => instanceId);
+  // Empty is reported, never assumed: no profile, a list still loading or a read that failed is
+  // not an empty list (fallback Q2) — the host keeps its strip until the list says it is empty.
+  const listEmpty = $derived(
+    instanceId !== null && !data.loading && data.rows.length === 0 && data.error === null,
+  );
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
+  });
   // `opScope` is a hoisted function; it only runs once an update does.
   const updates = createUpdateCheck(() => instanceId, data.refresh, opScope);
   const compat = createCompatCheck(
@@ -1026,9 +1041,14 @@
     </div>
   {:else if data.loading && data.rows.length === 0}
     <LoadingPanel label={$t('mods.installed.loading')} />
-  {:else if data.rows.length === 0}
-    <div class="text-placeholder text-sm py-8 text-center">{$t('mods.installed.empty')}</div>
-  {:else}
+  {:else if listEmpty}
+    <!-- The host's full drop area replaces its strip here (DESIGN.md §14). A list that could not
+         be read shows its error above, never «no mods». -->
+    <div class="pt-6 flex flex-col gap-3" data-testid="list-empty">
+      <p class="text-placeholder text-sm text-center">{$t('mods.installed.empty')}</p>
+      {@render emptyDropzone?.()}
+    </div>
+  {:else if data.rows.length > 0}
     <div class="border border-border-subtle rounded overflow-hidden">
       <BulkActionBar
         allSelected={selection.allSelected}

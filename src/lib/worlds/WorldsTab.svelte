@@ -95,6 +95,10 @@
 
   const sourceName = $derived(instanceName ?? '');
 
+  // The profile whose recovery lists (orphans, stranded) have been read: until then an empty world
+  // list is not known to be an empty tab.
+  let recoverableFor = $state<string | null>(null);
+
   async function reloadRecoverable(reqId: string) {
     const [o, s] = await Promise.all([
       commands.listOrphanedBackupWorlds(reqId),
@@ -103,9 +107,11 @@
     if (instanceId !== reqId) return;
     orphans = o.status === 'ok' ? o.data : [];
     stranded = s.status === 'ok' ? s.data : [];
+    recoverableFor = reqId;
   }
 
   async function reload() {
+    recoverableFor = null;
     if (!instanceId) {
       worlds = [];
       orphans = [];
@@ -173,6 +179,18 @@
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
     return key === null ? null : $t(key);
   });
+
+  // Read, with a profile, and nothing to list or recover: the list's own full drop area replaces
+  // the strip (DESIGN.md §14). Loading, a failed read or recovery lists not read yet are not empty.
+  const worldsEmpty = $derived(
+    instanceId !== null &&
+      !loading &&
+      listError === null &&
+      recoverableFor === instanceId &&
+      worlds.length === 0 &&
+      orphans.length === 0 &&
+      stranded.length === 0,
+  );
 
   // Entry-point gating for the migrate action (world-migration spec §7). The
   // same data-root key as import — a migration writes into ANOTHER instance's
@@ -260,15 +278,21 @@
   });
 </script>
 
-<div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">
-  <div data-tour-ctx="worlds-import">
-    <FileDropzone
-      label={$t('worlds.import.dropzoneLabel')}
-      disabled={!instanceId || importDisabledReason !== null}
-      disabledLabel={importDisabledReason ?? undefined}
-      onClick={() => void onImport('zip')}
-    />
-  </div>
+<!-- `relative`: the strip's drag overlay covers the whole tab; `min-h-full`: at least the panel it
+     sits in, however short the list (DESIGN.md §14). -->
+<div class="relative min-h-full p-3 flex flex-col gap-2" data-testid="worlds-tab">
+  {#if !worldsEmpty}
+    <div data-tour-ctx="worlds-import">
+      <FileDropzone
+        variant="strip"
+        label={$t('worlds.import.dropzoneLabel')}
+        disabled={!instanceId || importDisabledReason !== null}
+        disabledLabel={importDisabledReason ?? undefined}
+        dragLabel={$t('common.dropToAdd', { name: instanceName ?? '' })}
+        onClick={() => void onImport('zip')}
+      />
+    </div>
+  {/if}
   <div class="flex flex-wrap items-center gap-2">
     <span class="inline-flex" use:tooltip={{ text: importDisabledReason ?? '', describe: false }}>
       <button
@@ -297,14 +321,25 @@
     <LoadingPanel label={$t('worlds.tab.loading')} />
   {:else if listError}
     <p class="text-sm text-danger">{listError}</p>
-  {:else if worlds.length === 0 && orphans.length === 0 && stranded.length === 0}
-    <p class="text-sm text-muted">{$t('worlds.tab.empty')}</p>
+  {:else if worldsEmpty}
+    <div class="flex flex-col gap-3" data-testid="list-empty">
+      <p class="text-sm text-muted">{$t('worlds.tab.empty')}</p>
+      <div data-tour-ctx="worlds-import">
+        <FileDropzone
+          label={$t('worlds.import.dropzoneLabel')}
+          disabled={!instanceId || importDisabledReason !== null}
+          disabledLabel={importDisabledReason ?? undefined}
+          onClick={() => void onImport('zip')}
+        />
+      </div>
+    </div>
   {:else if worlds.length === 0}
     <!-- Nothing playable, but something recoverable: render no list and no
          empty-state copy. "Play Minecraft to create one" directly above
          "Interrupted restore" would be an odd thing to read when the user's
          world is sitting one click away. The recovery section below the chain
-         carries this case. -->
+         carries this case — and until the recovery lists are read, no claim
+         is made either way. -->
   {:else}
     <ul
       class="border border-border-subtle rounded divide-y divide-border-subtle"

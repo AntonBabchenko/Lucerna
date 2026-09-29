@@ -192,7 +192,12 @@
 
 {#if phase === 'pick'}
   <div class="flex flex-col gap-4 p-4">
-    <FileDropzone label={$t('servers.import.dropzone')} onClick={() => void pickZip()} />
+    <!-- The one full drop area outside an empty list: this view IS the drop target (DESIGN.md §14). -->
+    <FileDropzone
+      variant="full"
+      label={$t('servers.import.dropzone')}
+      onClick={() => void pickZip()}
+    />
 
     <div class="flex gap-2">
       <button

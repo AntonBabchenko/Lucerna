@@ -71,6 +71,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     datapacksCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     datapacksInstallFromFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     listWorldNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // The Installed-datapacks view gates its writes on the running game.
+    runningInstances: vi.fn().mockResolvedValue([]),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -78,6 +80,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     modToggle: { listen: () => Promise.resolve(() => {}) },
     modsReconciled: { listen: () => Promise.resolve(() => {}) },
     gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
+    processSpawned: { listen: () => Promise.resolve(() => {}) },
+    processExited: { listen: () => Promise.resolve(() => {}) },
   },
 }));
 
@@ -96,6 +100,14 @@ const props = {
   instanceName: 'Test',
   mcVersion: '1.20.1',
   loader: 'fabric' as const,
+};
+
+// The strip's overlay is positioned against its nearest `relative` ancestor: that must be the
+// host's content box, i.e. contain the list / catalog area under the strip.
+const overlayHost = () => {
+  let el = screen.getByTestId('file-dropzone-overlay').parentElement;
+  while (el && !el.classList.contains('relative')) el = el.parentElement;
+  return el;
 };
 
 describe('AddonsTab', () => {
@@ -264,6 +276,32 @@ describe('AddonsTab', () => {
       'true',
     );
     expect(screen.getByLabelText('Filter installed mods')).toBeTruthy();
+  });
+
+  // The dropzone rule (spec D11, DESIGN.md §14): a strip above the catalog and a listed Installed
+  // view; an empty Installed list holds the one full drop area instead.
+  it.each([
+    'Mods',
+    'Resource packs',
+    'Data packs (Beta)',
+  ])('an empty %s Installed list shows the full drop area instead of the strip', async (kindTab) => {
+    render(AddonsTab, { props });
+    await fireEvent.click(await screen.findByRole('tab', { name: kindTab }));
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    await waitFor(() => expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('full'));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('file-dropzone'))).toBe(
+      true,
+    );
+    await fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+  });
+
+  it('the strip overlays the content area below it', () => {
+    render(AddonsTab, { props });
+    expect(overlayHost()?.querySelector('.overflow-y-auto')).not.toBeNull();
   });
 
   it('offers the source picker on Browse only', async () => {
