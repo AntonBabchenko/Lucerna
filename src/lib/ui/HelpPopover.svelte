@@ -13,6 +13,7 @@
   // normal flow, so any modal correctly covers it.
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
   import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
   import { tooltip } from '$lib/ui/tooltip';
 
@@ -75,25 +76,24 @@
     }
   }
 
+  // In the app's layer stack while open (layer-stack.svelte.ts): a contextual
+  // tour running underneath steps aside instead of dimming this panel, and
+  // Escape — routed to the top layer only — closes this popover and nothing
+  // below it, then refocuses the trigger (keyboard dismiss).
+  useLayer(
+    'popover',
+    () => open,
+    () => {
+      open = false;
+      trigger?.focus();
+    },
+  );
+
   // A fixed popover does not follow the trigger when the layout shifts, so close
-  // it on scroll/resize while open (shared helper). Escape dismisses it too, but
-  // it also refocuses the trigger (keyboard dismiss), so it stays a bespoke
-  // handler rather than routing through the helper.
+  // it on scroll/resize while open (shared helper).
   $effect(() => {
     if (!open) return;
-    const onKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        open = false;
-        trigger?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKeydown);
-    const detach = attachPopoverDismiss({ onDismiss: () => (open = false) });
-    return () => {
-      window.removeEventListener('keydown', onKeydown);
-      detach();
-    };
+    return attachPopoverDismiss({ onDismiss: () => (open = false) });
   });
 </script>
 

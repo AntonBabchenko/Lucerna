@@ -26,6 +26,7 @@
 
   import { Icon } from '$lib/ui/icons';
   import type { Snippet } from 'svelte';
+  import { useLayer } from '$lib/ui/layer-stack.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { computePopoverPlacement } from './select-placement';
   import { attachPopoverDismiss } from './popover-dismiss';
@@ -166,6 +167,11 @@
     activeIndex = -1;
     trigger?.focus();
   }
+
+  // The open list is a layer in the app's layer stack: a contextual tour running
+  // underneath steps aside while it is open, and an Escape that reaches the
+  // router (focus elsewhere) closes the list, not the dialog around it.
+  useLayer('popover', () => open, closeList);
 
   function commit(i: number) {
     if (i < 0 || i >= options.length || options[i].disabled) return;
