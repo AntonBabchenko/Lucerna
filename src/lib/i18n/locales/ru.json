@@ -956,6 +956,7 @@
       "from": "от {version}",
       "upTo": "до {version} включительно",
       "joinAnd": "{a}, {b}",
+      "joinSpan": "{a}, но {b}",
       "joinOr": "{a} либо {b}"
     },
     "preflight": {

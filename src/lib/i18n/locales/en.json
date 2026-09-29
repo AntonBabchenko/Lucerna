@@ -956,6 +956,7 @@
       "from": "from {version}",
       "upTo": "up to {version}",
       "joinAnd": "{a}, {b}",
+      "joinSpan": "{a}, but {b}",
       "joinOr": "{a}, or {b}"
     },
     "preflight": {

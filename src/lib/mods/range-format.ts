@@ -17,7 +17,9 @@ import type { RangeClause, RangeDescription } from '$lib/ipc/bindings';
  */
 export function formatRange(t: Translate, d: RangeDescription): string {
   if (d.unparseable || d.alternatives.length === 0) return d.raw;
-  return d.alternatives.map((clauses) => formatAlternative(t, clauses)).reduce(joiner(t, 'or'));
+  return d.alternatives
+    .map((clauses) => formatAlternative(t, clauses))
+    .reduce((a, b) => t('mods.range.joinOr', { a, b }));
 }
 
 /** True when the range constrains nothing — never word it as a requirement. */
@@ -25,45 +27,68 @@ export function isSoftRange(d: RangeDescription): boolean {
   return d.soft;
 }
 
-function joiner(t: Translate, kind: 'and' | 'or') {
-  const key = kind === 'and' ? 'mods.range.joinAnd' : 'mods.range.joinOr';
-  return (a: string, b: string) => t(key, { a, b });
-}
-
 // One alternative. A lone bound reads as itself («0.5.11 и новее»). Bounds taken together — a
 // span, or several clauses one alternative requires at once — read as ONE range, each bound in
-// its span phrasing: «от 0.5.11, ниже 0.6». Gluing the lone phrasings with «и» doubled the
+// its span phrasing: «от 0.5.11, но ниже 0.6». Gluing the lone phrasings with «и» doubled the
 // conjunction («0.5.11 и новее и ниже 0.6», plan §5b V1).
 function formatAlternative(t: Translate, clauses: RangeClause[]): string {
   const [only] = clauses;
   if (clauses.length === 1 && only && only.kind !== 'between') return formatClause(t, only);
-  return clauses.flatMap((c) => spanParts(t, c)).reduce(joiner(t, 'and'));
+  return joinParts(
+    t,
+    clauses.flatMap((c) => spanParts(t, c)),
+  );
+}
+
+/** A part of a span, and which side of it — if either — it bounds. */
+type SpanPart = { text: string; side: 'low' | 'high' | null };
+
+// The parts of one range, in the order the mod wrote them. Next to a bound on the other side, a
+// bound limits it — «от 0.5.11, но ниже 0.6»; listed with a bare comma, the two read as two facts
+// side by side (plan §5c V3). Anything else is listed.
+function joinParts(t: Translate, parts: SpanPart[]): string {
+  const [first, ...rest] = parts;
+  if (!first) return '';
+  let text = first.text;
+  let prev = first;
+  for (const part of rest) {
+    const limits = prev.side !== null && part.side !== null && prev.side !== part.side;
+    text = t(limits ? 'mods.range.joinSpan' : 'mods.range.joinAnd', { a: text, b: part.text });
+    prev = part;
+  }
+  return text;
 }
 
 // A clause as a part of a span: a bound in its span phrasing; anything else as it reads alone.
-function spanParts(t: Translate, c: RangeClause): string[] {
+function spanParts(t: Translate, c: RangeClause): SpanPart[] {
+  const low = (text: string): SpanPart => ({ text, side: 'low' });
+  const high = (text: string): SpanPart => ({ text, side: 'high' });
   switch (c.kind) {
     case 'at_least':
-      return [t('mods.range.from', { version: c.version })];
+      return [low(t('mods.range.from', { version: c.version }))];
     case 'above':
-      return [t('mods.range.above', { version: c.version })];
+      return [low(t('mods.range.above', { version: c.version }))];
     case 'at_most':
-      return [t('mods.range.upTo', { version: c.version })];
+      return [high(t('mods.range.upTo', { version: c.version }))];
     case 'below':
-      return [t('mods.range.below', { version: c.version })];
+      return [high(t('mods.range.below', { version: c.version }))];
     case 'between':
       return [
-        c.low_inclusive
-          ? t('mods.range.from', { version: c.low })
-          : t('mods.range.above', { version: c.low }),
-        c.high_inclusive
-          ? t('mods.range.upTo', { version: c.high })
-          : t('mods.range.below', { version: c.high }),
+        low(
+          c.low_inclusive
+            ? t('mods.range.from', { version: c.low })
+            : t('mods.range.above', { version: c.low }),
+        ),
+        high(
+          c.high_inclusive
+            ? t('mods.range.upTo', { version: c.high })
+            : t('mods.range.below', { version: c.high }),
+        ),
       ];
     case 'any':
     case 'soft':
     case 'exact':
-      return [formatClause(t, c)];
+      return [{ text: formatClause(t, c), side: null }];
   }
 }
 
@@ -86,6 +111,6 @@ function formatClause(t: Translate, c: RangeClause): string {
       return t('mods.range.below', { version: c.version });
     case 'between':
       // A span always reads as one range (`formatAlternative`).
-      return spanParts(t, c).reduce(joiner(t, 'and'));
+      return joinParts(t, spanParts(t, c));
   }
 }

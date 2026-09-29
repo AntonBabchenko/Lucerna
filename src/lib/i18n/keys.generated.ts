@@ -1641,6 +1641,7 @@ export type TranslationKey =
   | 'mods.range.from'
   | 'mods.range.joinAnd'
   | 'mods.range.joinOr'
+  | 'mods.range.joinSpan'
   | 'mods.range.soft'
   | 'mods.range.upTo'
   | 'mods.source.ariaLabel'

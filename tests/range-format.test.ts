@@ -79,8 +79,8 @@ describe('formatRange', () => {
         ],
       ],
     });
-    expect(formatRange(t, d)).toBe('from 1.0, older than 2.0');
-    expect(formatRange(tRu, d)).toBe('от 1.0, ниже 2.0');
+    expect(formatRange(t, d)).toBe('from 1.0, but older than 2.0');
+    expect(formatRange(tRu, d)).toBe('от 1.0, но ниже 2.0');
   });
 
   it('names each bound’s inclusivity in the span', () => {
@@ -98,8 +98,8 @@ describe('formatRange', () => {
         ],
       ],
     });
-    expect(formatRange(t, d)).toBe('newer than 1.0, up to 2.0');
-    expect(formatRange(tRu, d)).toBe('выше 1.0, до 2.0 включительно');
+    expect(formatRange(t, d)).toBe('newer than 1.0, but up to 2.0');
+    expect(formatRange(tRu, d)).toBe('выше 1.0, но до 2.0 включительно');
   });
 
   it('joins AND terms within an alternative and OR across alternatives', () => {
@@ -120,8 +120,54 @@ describe('formatRange', () => {
       ],
     });
     // A Fabric predicate like `>=0.5.11 <0.6` (screenshot 07): one range, as a span reads.
-    expect(formatRange(t, andTerms)).toBe('from 1.0.0, older than 2.0.0');
-    expect(formatRange(tRu, andTerms)).toBe('от 1.0.0, ниже 2.0.0');
+    expect(formatRange(t, andTerms)).toBe('from 1.0.0, but older than 2.0.0');
+    expect(formatRange(tRu, andTerms)).toBe('от 1.0.0, но ниже 2.0.0');
+  });
+
+  // Plan §5c V3: «от 0.5.11, ниже 0.6» read as two facts side by side. The upper bound limits the
+  // lower one, and the copy says so: «от 0.5.11, но ниже 0.6» — "from 0.5.11, but older than 0.6".
+  it('joins the two sides of a range as a limit, not a list', () => {
+    const d = desc({
+      raw: '>=0.5.11 <0.6',
+      family: 'fabric_predicate',
+      alternatives: [
+        [
+          { kind: 'at_least', version: '0.5.11' },
+          { kind: 'below', version: '0.6' },
+        ],
+      ],
+    });
+    expect(formatRange(tRu, d)).toBe('от 0.5.11, но ниже 0.6');
+    expect(formatRange(t, d)).toBe('from 0.5.11, but older than 0.6');
+    // Whichever side the mod wrote first.
+    const upperFirst = desc({
+      raw: '<0.6 >=0.5.11',
+      family: 'fabric_predicate',
+      alternatives: [
+        [
+          { kind: 'below', version: '0.6' },
+          { kind: 'at_least', version: '0.5.11' },
+        ],
+      ],
+    });
+    expect(formatRange(tRu, upperFirst)).toBe('ниже 0.6, но от 0.5.11');
+  });
+
+  // Guard (green before and after): «но» limits one side by the other, so two bounds on the SAME
+  // side are listed, never set against each other.
+  it('lists two bounds on the same side', () => {
+    const d = desc({
+      raw: '>=1.0 >1.2',
+      family: 'fabric_predicate',
+      alternatives: [
+        [
+          { kind: 'at_least', version: '1.0' },
+          { kind: 'above', version: '1.2' },
+        ],
+      ],
+    });
+    expect(formatRange(tRu, d)).toBe('от 1.0, выше 1.2');
+    expect(formatRange(t, d)).toBe('from 1.0, newer than 1.2');
   });
 
   it('falls back to the declared string when the range cannot be decomposed', () => {
