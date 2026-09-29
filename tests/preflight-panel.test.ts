@@ -416,6 +416,37 @@ describe('PreflightPanel — what stops the game', () => {
     expect(onEnableProvider).toHaveBeenCalledWith(v);
   });
 
+  // Plan §5b V1 (03 vs 01): a jar built for another platform needs another build of ITSELF —
+  // the row offers «Choose version» (its own version list), and so does its panel row. The host
+  // says how to open that list, or that there is none (a manual jar has no platform page).
+  it('a platform mismatch offers the row’s «Choose version» — the mod’s own builds', async () => {
+    const platform: DepViolation = {
+      ...missing(3),
+      kind: 'platform_mismatch',
+      dependent_name: 'Better Third Person',
+      dep_id: 'minecraft',
+    };
+    const open = vi.fn();
+    const ownVersionOpener = vi.fn((v: DepViolation) =>
+      v.dependent_sha1 === 'sha3' ? open : null,
+    );
+    const { unmount } = render(PreflightPanel, {
+      props: { report: { violations: [platform] }, ownVersionOpener },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose version' }));
+    expect(open).toHaveBeenCalledOnce();
+    unmount();
+
+    // No platform identity to pick a build from: no button, never a dead one.
+    render(PreflightPanel, {
+      props: {
+        report: { violations: [{ ...platform, dependent_sha1: 'manual' }] },
+        ownVersionOpener,
+      },
+    });
+    expect(screen.queryByRole('button', { name: 'Choose version' })).toBeNull();
+  });
+
   it('counts only fixable rows in «Fix all», and only when a handler is given', async () => {
     const onFixAll = vi.fn();
     const platform: DepViolation = {

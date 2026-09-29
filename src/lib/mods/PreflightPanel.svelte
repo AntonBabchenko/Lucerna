@@ -26,6 +26,7 @@
     onInstallMissing = () => {},
     onEnableProvider = () => {},
     onChooseVersion = () => {},
+    ownVersionOpener = undefined,
     onFindAlternative = () => {},
     onOpenModPage = () => {},
     onJumpToDependent = undefined,
@@ -52,6 +53,10 @@
     // first when it has disabled requirements of its own).
     onEnableProvider?: (v: DepViolation) => void;
     onChooseVersion?: (v: DepViolation) => void;
+    // `platform_mismatch`: another build of the dependent ITSELF, from its own version list —
+    // the row's «Choose version» (spec §6.2). The host returns how to open that list, or null
+    // when the mod has none to pick from (a manual jar): no dead button.
+    ownVersionOpener?: (v: DepViolation) => (() => void) | null;
     onFindAlternative?: (v: DepViolation) => void;
     onOpenModPage?: (v: DepViolation) => void;
     // ↗ to the dependent's own row — only the Installed tab has a list.
@@ -288,6 +293,19 @@
                       {$t('mods.preflight.chooseVersion')}
                     </button>
                   {/if}
+                {/if}
+              {:else if v.kind === 'platform_mismatch'}
+                <!-- No automatic fix (spec §6.4): another build of THIS mod, as its row offers. -->
+                {@const openOwn = ownVersionOpener?.(v) ?? null}
+                {#if openOwn}
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs shrink-0"
+                    use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
+                    onclick={openOwn}
+                  >
+                    {$t('mods.preflight.chooseVersion')}
+                  </button>
                 {/if}
               {/if}
               {#if onJumpToDependent}

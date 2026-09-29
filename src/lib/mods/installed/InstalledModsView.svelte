@@ -654,6 +654,20 @@
     }
   }
 
+  // «Choose version» on a mod that needs another build of ITSELF (a platform mismatch, a compat
+  // warning): its own version list, in the detail modal — or null when it has no platform
+  // identity to list builds from (a manual jar). One answer for the row's line and its «What
+  // stops the game» row, so the two always offer the same.
+  function ownVersionOpener(m: Row['installed']): (() => void) | null {
+    const { source, project_id: projectId } = m;
+    if (!source || !projectId) return null;
+    return () => openDetailMod(source, projectId);
+  }
+  const ownVersionOfDependent = (v: DepViolation): (() => void) | null => {
+    const row = rowBySha.get(v.dependent_sha1);
+    return row ? ownVersionOpener(row.installed) : null;
+  };
+
   // The row's second line, from the row's one status (its level, its ranked
   // reasons and the fix the status chose) — never a second ranking.
   function problemOf(row: Row): RowProblem | null {
@@ -664,7 +678,7 @@
       depName,
       loader,
       mc: mcVersion,
-      canChooseVersion: !!(row.installed.source && row.installed.project_id),
+      canChooseVersion: ownVersionOpener(row.installed) !== null,
     });
   }
 
@@ -681,8 +695,7 @@
         return;
       case 'choose_version':
         // Another build of THIS mod: its own versions, in the detail modal.
-        if (row.installed.source && row.installed.project_id)
-          openDetailMod(row.installed.source as ModSource, row.installed.project_id);
+        ownVersionOpener(row.installed)?.();
         return;
     }
   }
@@ -1061,6 +1074,7 @@
     onFixAll={runFixAll}
     {fixAllBusy}
     onChooseVersion={onPreflightChooseVersion}
+    ownVersionOpener={ownVersionOfDependent}
     onFindAlternative={onPreflightFindAlternative}
     onOpenModPage={onPreflightOpenModPage}
     onMigrate={() => (migrationDialogOpen = true)}
