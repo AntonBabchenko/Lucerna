@@ -157,7 +157,7 @@ export function createDepGraph(
       if (isSettledGraph(r.data)) depGraphCache.set(id, r.data);
       else depGraphCache.delete(id);
     } else {
-      // Surface the failure so "Re-check deps" doesn't silently do nothing —
+      // Surface the failure so the ⋯ re-check doesn't silently do nothing —
       // the graph load failed (offline / rate-limited). InstalledModsView folds
       // `deps.error` into its aggregate error banner, so setting it here is
       // enough to tell the user the recheck failed instead of no-oping.
@@ -182,10 +182,8 @@ export function createDepGraph(
       }
     }, 150);
   }
-  function recheckDeps() {
-    reloadGraph();
-  }
-  // Invalidate the cache + reload immediately (used by bulk uninstall's onMutated).
+  // Invalidate the cache + reload immediately (bulk uninstall's onMutated, the toolbar's ⋯
+  // «Re-check compatibility and dependencies»).
   function invalidateGraph() {
     const id = getInstanceId();
     if (id) {
@@ -329,8 +327,8 @@ export function createDepGraph(
           // (a 429 rate-limit source). The entry is dropped whenever the mods
           // change — every install, removal, toggle or external change, by the
           // always-mounted page for any profile and by this view's own reloads
-          // (installDepNode -> invalidateGraph) — and by the explicit "Re-check
-          // deps" button, so a stale graph can't persist past a real change. A
+          // (installDepNode -> invalidateGraph) — and by the explicit ⋯ re-check,
+          // so a stale graph can't persist past a real change. A
           // graph the platform could not be reached for is never cached
           // (`isSettledGraph`), so it is asked for again here.
           graph = cached;
@@ -380,7 +378,6 @@ export function createDepGraph(
     installDepNode,
     reloadGraph,
     reloadGraphNow,
-    recheckDeps,
     invalidateGraph,
     dispose() {
       stopEffects?.();

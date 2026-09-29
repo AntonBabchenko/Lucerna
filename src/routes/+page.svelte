@@ -1771,6 +1771,7 @@
           {onQuickPlayWorld}
           {quickPlayDisabledReason}
           running={selectedRunning}
+          hasInstalledMods={stats.installedStats.total > 0}
         >
           {#snippet overview()}
             <OverviewTab

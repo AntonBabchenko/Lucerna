@@ -56,13 +56,19 @@
   import { openExternalHttps } from '$lib/ui/safe-open';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
+  import {
+    type AddonsView,
+    initialAddonsView,
+    rememberAddonsView,
+  } from './addons-view-memory.svelte';
 
-  type View = 'browse' | 'installed';
+  type View = AddonsView;
 
   // The content kind this Add-ons tab is currently showing. Switching it
   // re-keys the Browse view (clean filters/results) and swaps the Installed
   // sub-view between the mods view and the assets view. The default is 'mod'
-  // so the historical Mod-browser experience is unchanged.
+  // so the historical Mod-browser experience is unchanged. The sub-view is
+  // seeded below, once the props are in (spec D10).
   let kind = $state<InstanceContentKind>('mod');
   let view = $state<View>('browse');
   let source = $state<ModSource>('modrinth');
@@ -80,8 +86,8 @@
   // freshly-mounted mod browser consumes modBrowseOpenProject to open Iris.
   function openIris() {
     source = 'modrinth';
-    kind = 'mod';
-    view = 'browse';
+    selectKind('mod');
+    selectView('browse');
     modBrowseOpenProject.value = { source: 'modrinth', projectId: IRIS_MODRINTH_PROJECT_ID };
   }
 
@@ -90,8 +96,8 @@
   // consume modBrowseOpenProject to open Oculus's detail modal.
   function openOculus() {
     source = 'modrinth';
-    kind = 'mod';
-    view = 'browse';
+    selectKind('mod');
+    selectView('browse');
     modBrowseOpenProject.value = { source: 'modrinth', projectId: OCULUS_MODRINTH_PROJECT_ID };
   }
 
@@ -168,13 +174,13 @@
     })();
   });
 
-  // The datapack tab can vanish UNDER the active kind: the kind-reset effect
-  // below deliberately reads only `kind`, so switching from a 1.21 instance
-  // onto a 1.12.2 one would otherwise leave the datapack pane mounted with no
-  // tab pointing at it (the spec's §7.1 second defect). Reset to 'mod', the
-  // same default every other reset uses.
+  // The datapack tab can vanish UNDER the active kind: the kind switch reads
+  // only the user's picks, so switching from a 1.21 instance onto a 1.12.2 one
+  // would otherwise leave the datapack pane mounted with no tab pointing at it
+  // (the spec's §7.1 second defect). Switch to 'mod', the same default every
+  // other reset uses — through `selectKind`, so Mods opens on its own view.
   $effect(() => {
-    if (!supportsDatapacks && kind === 'datapack') kind = 'mod';
+    if (!supportsDatapacks && kind === 'datapack') untrack(() => selectKind('mod'));
   });
 
   const kindOptions = $derived(
@@ -203,46 +209,39 @@
   // prevents premature IPC on kind switch.
   let installedOpenedForKind = $state(new Set<ContentKind>());
 
-  // Cross-component navigation from Overview: open the Installed
-  // sub-view directly. Only applies to mods (the Overview link is
-  // "Installed mods"); we leave `kind` untouched so the mod path stays
-  // intact. Resets the rune so subsequent in-tab clicks aren't hijacked.
   // A status view requested by a deep-link (the Overview's attention item →
   // «Проблемы»). Handed to the Installed view, which applies it once.
   let requestedFilter = $state<'issues' | null>(null);
 
+  // Cross-component navigation from Overview: open the Installed
+  // sub-view directly. Only applies to mods (the Overview link is
+  // "Installed mods"); we leave `kind` untouched so the mod path stays
+  // intact. Resets the rune so subsequent in-tab clicks aren't hijacked.
+  // The view it opens is a pick like the user's own — remembered too. Only
+  // the rune is tracked: the view and kind it touches must not re-run this.
   $effect(() => {
-    if (modBrowserNav.value !== null) {
-      view = modBrowserNav.value.view;
-      if (modBrowserNav.value.view === 'installed') {
-        installedOpenedForKind = new Set([...installedOpenedForKind, kind]);
-        requestedFilter = modBrowserNav.value.filter ?? null;
-      }
-      modBrowserNav.value = null;
-    }
+    const nav = modBrowserNav.value;
+    if (nav === null) return;
+    untrack(() => {
+      selectView(nav.view);
+      if (nav.view === 'installed') requestedFilter = nav.filter ?? null;
+    });
+    modBrowserNav.value = null;
   });
 
-  // When kind changes, reset to Browse so the new kind always starts on the
-  // browse sub-tab, and clear any compat-dialog state left over from mods.
-  // `prevKind` is intentionally non-reactive (not $state) and seeded with
-  // `untrack` to read the initial kind without subscribing — this lets the
-  // guard skip the first render (which may have been pre-set to 'installed'
-  // by the modBrowserNav effect above) while still triggering on later
-  // kind changes.
-  let prevKind = untrack(() => kind);
-  $effect(() => {
-    const currentKind = kind; // subscribe to kind
-    if (currentKind !== prevKind) {
-      prevKind = currentKind;
-      view = 'browse';
-      // Clear any compat-warning dialog state — a mismatch dialog left open
-      // on Mods must not remain actionable after switching to another kind,
-      // and stale state must not reappear if the user switches back to Mods.
-      mismatchRows = [];
-      pendingCompatible = [];
-      pendingMismatched = [];
-    }
-  });
+  // A kind change restores that kind's view (addons-view-memory) and clears the compat dialog: a
+  // mismatch dialog opened on Mods must not stay actionable on another kind, and stale state must
+  // not reappear if the user switches back. Every writer of `kind` goes through here — an effect
+  // would re-run on unrelated reads and could not tell a user's switch from a deep link.
+  function selectKind(next: InstanceContentKind) {
+    if (next === kind) return;
+    kind = next;
+    view = initialAddonsView(next, hasInstalledMods);
+    if (view === 'installed') installedOpenedForKind = new Set([...installedOpenedForKind, next]);
+    mismatchRows = [];
+    pendingCompatible = [];
+    pendingMismatched = [];
+  }
 
   // Lazy-mount: Installed pane is only rendered once the user has explicitly
   // opened it for the current kind. This prevents premature IPC when switching
@@ -252,6 +251,7 @@
 
   // When the user clicks a sub-tab, arm the mount flag and switch the view.
   function selectView(v: View) {
+    rememberAddonsView(kind, v);
     view = v;
     if (v === 'installed') {
       installedOpenedForKind = new Set([...installedOpenedForKind, kind]);
@@ -278,13 +278,22 @@
     mcVersion,
     loader,
     loaderVersion = null,
+    hasInstalledMods = false,
   }: {
     instanceId: string | null;
     instanceName?: string | null;
     mcVersion: string | null;
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
     loaderVersion?: string | null;
+    /** The active profile has installed mods: a first visit to Mods opens Installed (D10). */
+    hasInstalledMods?: boolean;
   } = $props();
+
+  // Seed the sub-view once (D10). `untrack`: a later stats refresh must not yank the view.
+  untrack(() => {
+    view = initialAddonsView(kind, hasInstalledMods);
+    if (view === 'installed') installedOpenedForKind = new Set([kind]);
+  });
 
   // Shader-loader detection. The installed-mods lookup runs only while the
   // Shaders segment is active and an instance is selected (guarded inside
@@ -619,7 +628,7 @@
       active={kind}
       ariaLabel={$t('addons.kindSwitchAria')}
       testid="addons-kind-switch"
-      onChange={(id) => (kind = id as InstanceContentKind)}
+      onChange={(id) => selectKind(id as InstanceContentKind)}
     />
   </div>
 
@@ -638,7 +647,8 @@
       ariaLabel={$t('addons.subTabsLabel')}
       onChange={(id) => selectView(id as View)}
     />
-    <SourcePicker value={source} onChange={(v) => (source = v)} />
+    <!-- The catalogue to browse: nothing on Installed reads it (spec §6.7). -->
+    {#if view === 'browse'}<SourcePicker value={source} onChange={(v) => (source = v)} />{/if}
   </div>
 
   {#if kind === 'shader' && detectedShaderLoaders.length === 0}

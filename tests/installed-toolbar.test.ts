@@ -17,13 +17,12 @@ const base = () => ({
   viewFilter: 'all' as const,
   busy: false,
   checking: false,
-  graphLoading: false,
   updateCount: 1,
+  rechecking: false,
   onCheckUpdates: vi.fn(),
-  onRecheckDeps: vi.fn(),
   onUpdateAll: vi.fn(),
-  checkingCompat: false,
-  onCheckCompat: vi.fn(),
+  onRecheckAll: vi.fn(),
+  onOpenModsFolder: vi.fn(),
 });
 
 describe('InstalledToolbar view filter (single mutually-exclusive group)', () => {

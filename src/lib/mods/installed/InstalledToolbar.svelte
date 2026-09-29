@@ -4,6 +4,8 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import OverflowMenu from '$lib/ui/OverflowMenu.svelte';
+  import type { ContextMenuItem } from '$lib/ui/menu-item';
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -16,14 +18,13 @@
     viewFilter = $bindable(),
     busy,
     checking,
-    graphLoading,
     updateCount,
     checkedAtMs = null,
+    rechecking,
     onCheckUpdates,
-    onRecheckDeps,
     onUpdateAll,
-    checkingCompat,
-    onCheckCompat,
+    onRecheckAll,
+    onOpenModsFolder,
     issuesTone = 'danger',
   }: {
     counts: {
@@ -40,16 +41,16 @@
     viewFilter: ViewFilter;
     busy: boolean;
     checking: boolean;
-    graphLoading: boolean;
     updateCount: number;
     // When the persisted update check ran (unix ms), or null when none did.
     checkedAtMs?: number | null;
+    /** The compat live check, the graph reload or the pre-flight run is in flight. */
+    rechecking: boolean;
     onCheckUpdates: () => void;
-    onRecheckDeps: () => void;
     // Opens the review of the pending updates; the review runs them.
     onUpdateAll: () => void;
-    checkingCompat: boolean;
-    onCheckCompat: () => void;
+    onRecheckAll: () => void;
+    onOpenModsFolder: () => void;
     // Danger while any mod blocks the launch, amber when only warnings remain
     // (spec D6: red means "the game won't start" and nothing else).
     issuesTone?: 'danger' | 'warning';
@@ -71,6 +72,27 @@
         ? $t('mods.installed.disabledBusy')
         : '',
   );
+
+  // The rare actions (spec D7). Re-check is the compat live check + graph + pre-flight in one;
+  // «Открыть папку модов» mirrors the Overview control and reuses its key.
+  const moreItems = $derived<ContextMenuItem[]>([
+    {
+      label: $t('mods.installed.recheckAll'),
+      icon: 'refresh',
+      disabled: rechecking || counts.total === 0,
+      disabledReason: rechecking
+        ? $t('mods.installed.rechecking')
+        : $t('mods.installed.disabledNoMods'),
+      onSelect: onRecheckAll,
+      testId: 'installed-recheck-all',
+    },
+    {
+      label: $t('instance.menu.openModsFolder'),
+      icon: 'folderOpen',
+      onSelect: onOpenModsFolder,
+      testId: 'installed-open-mods-folder',
+    },
+  ]);
 
   const sortOptions = $derived([
     { value: 'name-asc', label: $t('mods.installed.sortNameAsc') },
@@ -158,23 +180,14 @@
   ]);
 </script>
 
-<div class="mb-2 space-y-2">
-  {#if counts.total > 0}
-    <div class="text-xs text-muted flex gap-3">
-      <span
-        >{$t('mods.installed.statsTotal')}
-        <span class="font-medium text-secondary">{counts.total}</span></span
-      >
-      <span
-        >{$t('mods.installed.statsEnabled')}
-        <span class="font-medium text-success">{counts.enabled}</span></span
-      >
-      <span
-        >{$t('mods.installed.statsDisabled')}
-        <span class="font-medium text-secondary">{counts.disabled}</span></span
-      >
-    </div>
-  {/if}
+<!-- Stays on screen with its chips while the list scrolls (spec §6.7): on the page background,
+     edge to edge over the view's padding, above the rows — they are positioned (accent strip,
+     dependency ring) and would otherwise paint over it. The counts line is gone: the chips
+     carry every count. -->
+<div
+  class="sticky top-0 z-10 -mx-3 mb-2 space-y-2 bg-base px-3 pt-1 pb-2"
+  data-testid="installed-toolbar"
+>
   <div class="flex flex-wrap gap-2 items-center">
     <input
       type="search"
@@ -212,35 +225,16 @@
         })}</span
       >
     {/if}
-    <span class="inline-flex" use:tooltip={{ text: checkDisabledReason, describe: false }}>
-      <BusyButton
-        busy={checkingCompat}
-        disabled={busy || counts.total === 0}
-        class="btn-secondary btn-xs"
-        onclick={onCheckCompat}
-      >
-        {checkingCompat ? $t('mods.installed.checkingCompat') : $t('mods.installed.checkCompat')}
-      </BusyButton>
-    </span>
-    <button
-      type="button"
-      class="btn-secondary btn-xs inline-flex items-center gap-1.5"
-      disabled={graphLoading}
-      onclick={onRecheckDeps}
-    >
-      {#if graphLoading}
-        <Spinner size="sm" labelPlacement="right" label={$t('mods.installed.resolvingDeps')} />
-      {:else}
-        <Icon name="refresh" class="icon-spin-hover" />
-        {$t('mods.installed.recheckDeps')}
-      {/if}
-    </button>
     {#if updateCount > 0}
       <!-- Only opens the review (D9): the review runs the updates and shows their spinner. -->
       <button type="button" class="btn-warning btn-xs" disabled={busy} onclick={onUpdateAll}>
         {$t('mods.installed.updateAll', { count: updateCount })}
       </button>
     {/if}
+    {#if rechecking}
+      <Spinner size="sm" labelPlacement="right" label={$t('mods.installed.rechecking')} />
+    {/if}
+    <OverflowMenu items={moreItems} ariaLabel={$t('mods.installed.moreActions')} />
   </div>
   {#if counts.total > 0}
     <ToggleChipGroup

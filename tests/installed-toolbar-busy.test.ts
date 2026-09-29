@@ -1,12 +1,6 @@
-// InstalledToolbar busy spinners. The toolbar is purely presentational —
-// callback props + boolean in-flight flags — so we drive each flag directly and
-// assert the matching button shows a [role="status"] spinner (from BusyButton /
-// Spinner). Each async action spins on its OWN flag and is merely disabled when
-// a sibling action runs:
-//   - "Check updates"  → own flag `checking`,      sibling-disabled by `busy`
-//   - "Check compat"   → own flag `checkingCompat`, sibling-disabled by `busy`
-//   - "Update all"     → no flag of its own: it only opens the review, which spins while the
-//                        updates run; disabled by `busy`
+// InstalledToolbar is presentational — callback props + in-flight flags. «Check for updates» spins on
+// its own flag; «Update all» only opens the review (T26); the re-check and the mods folder live in
+// the ⋯ menu (spec D7), with a labelled spinner while the re-check runs.
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import InstalledToolbar from '$lib/mods/installed/InstalledToolbar.svelte';
@@ -26,37 +20,26 @@ const base = () => ({
   viewFilter: 'all' as const,
   busy: false,
   checking: false,
-  graphLoading: false,
   updateCount: 1,
+  checkedAtMs: null as number | null,
+  rechecking: false,
   onCheckUpdates: vi.fn(),
-  onRecheckDeps: vi.fn(),
   onUpdateAll: vi.fn(),
-  checkingCompat: false,
-  onCheckCompat: vi.fn(),
+  onRecheckAll: vi.fn(),
+  onOpenModsFolder: vi.fn(),
 });
 
 const spinnerIn = (btn: HTMLElement | null) => btn?.querySelector('[role="status"]') ?? null;
+const more = () => screen.getByRole('button', { name: /more actions/i });
 
-describe('InstalledToolbar — busy spinners on async actions', () => {
-  it('Check updates shows a spinner while checking, and none at rest', () => {
-    const { rerender } = render(InstalledToolbar, { props: { ...base(), checking: false } });
+describe('InstalledToolbar', () => {
+  it('Check updates shows a spinner while checking, and none at rest', async () => {
+    const { rerender } = render(InstalledToolbar, { props: base() });
     expect(spinnerIn(screen.getByRole('button', { name: /check.*updates|checking/i }))).toBeNull();
-
-    rerender({ ...base(), checking: true });
+    await rerender({ ...base(), checking: true });
     expect(
       spinnerIn(screen.getByRole('button', { name: /check.*updates|checking/i })),
     ).not.toBeNull();
-  });
-
-  it('Check compat shows a spinner while checkingCompat, and none at rest', () => {
-    const { rerender } = render(InstalledToolbar, { props: { ...base(), checkingCompat: false } });
-    expect(spinnerIn(screen.getByRole('button', { name: /compat/i }))).toBeNull();
-
-    // When only checkingCompat is true, the compat button swaps to "Checking…"
-    // (the update-check button still reads "Check for updates"), so "Checking…"
-    // uniquely identifies the compat button here.
-    rerender({ ...base(), checkingCompat: true });
-    expect(spinnerIn(screen.getByRole('button', { name: /checking/i }))).not.toBeNull();
   });
 
   it('Update all only opens the review: it never spins, and is off while another action runs', async () => {
@@ -65,7 +48,7 @@ describe('InstalledToolbar — busy spinners on async actions', () => {
     const btn = () => screen.getByRole('button', { name: /update all/i }) as HTMLButtonElement;
     await fireEvent.click(btn());
     expect(p.onUpdateAll).toHaveBeenCalledOnce();
-    rerender({ ...base(), busy: true });
+    await rerender({ ...base(), busy: true });
     expect(btn().disabled).toBe(true);
     expect(spinnerIn(btn())).toBeNull();
   });
@@ -75,37 +58,54 @@ describe('InstalledToolbar — busy spinners on async actions', () => {
     expect(screen.getByTestId('updates-checked-at').textContent).toMatch(/checked 2d ago/);
   });
 
-  it('says nothing about a check while one runs, or when none ran', () => {
+  it('says nothing about a check while one runs, or when none ran', async () => {
     const { rerender } = render(InstalledToolbar, { props: base() });
     expect(screen.queryByTestId('updates-checked-at')).toBeNull();
-    rerender({ ...base(), checkedAtMs: Date.now(), checking: true });
+    await rerender({ ...base(), checkedAtMs: Date.now(), checking: true });
     expect(screen.queryByTestId('updates-checked-at')).toBeNull();
   });
 
-  it('a button spins only for its own action, not a sibling action', () => {
-    // While only `checking` is true, Check-updates spins but Check-compat / Update-all do not.
-    render(InstalledToolbar, { props: { ...base(), checking: true } });
-    expect(
-      spinnerIn(screen.getByRole('button', { name: /check.*updates|checking/i })),
-    ).not.toBeNull();
-    expect(spinnerIn(screen.getByRole('button', { name: /compat/i }))).toBeNull();
-    expect(spinnerIn(screen.getByRole('button', { name: /update all/i }))).toBeNull();
+  it('the ⋯ menu re-checks compatibility and dependencies, and opens the mods folder', async () => {
+    const p = base();
+    render(InstalledToolbar, { props: p });
+    await fireEvent.click(more());
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual([
+      'Re-check compatibility and dependencies',
+      'Open mods folder',
+    ]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: /re-check/i }));
+    expect(p.onRecheckAll).toHaveBeenCalledOnce();
+    await fireEvent.click(more());
+    await fireEvent.click(screen.getByRole('menuitem', { name: /open mods folder/i }));
+    expect(p.onOpenModsFolder).toHaveBeenCalledOnce();
   });
 
-  it('recheck-deps button shows a spinner while graphLoading, and none at rest', () => {
-    const { rerender, container } = render(InstalledToolbar, {
-      props: { ...base(), graphLoading: false },
-    });
-    // At rest: recheck-deps button has no spinner
-    expect(spinnerIn(screen.getByRole('button', { name: /re-check deps/i }))).toBeNull();
+  it('while the re-check runs, a labelled spinner shows and the item is off', async () => {
+    render(InstalledToolbar, { props: { ...base(), rechecking: true } });
+    expect(
+      screen.getByRole('status', { name: /checking compatibility and dependencies/i }),
+    ).toBeTruthy();
+    await fireEvent.click(more());
+    expect(
+      (screen.getByRole('menuitem', { name: /re-check/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
 
-    rerender({ ...base(), graphLoading: true });
-    // While loading: button is disabled and contains a role="status" spinner.
-    // Query via the disabled recheck button (3rd plain <button> after 2 BusyButtons).
-    const recheckBtn = container.querySelector(
-      'button[disabled]:not([aria-busy])',
-    ) as HTMLElement | null;
-    expect(recheckBtn).not.toBeNull();
-    expect(spinnerIn(recheckBtn)).not.toBeNull();
+  it('carries no compatibility / dependency buttons and no counts line', () => {
+    render(InstalledToolbar, { props: base() });
+    expect(screen.queryByRole('button', { name: /check compatibility|re-check deps/i })).toBeNull();
+    expect(screen.queryByText(/^Total:/)).toBeNull();
+  });
+
+  it('stays on screen, with its chips, while the list scrolls', () => {
+    render(InstalledToolbar, { props: base() });
+    const bar = screen.getByTestId('installed-toolbar');
+    expect(bar.className).toMatch(/\bsticky\b/);
+    expect(bar.className).toMatch(/\btop-0\b/);
+    // Above the rows: they are positioned (the accent strip, the dependency ring) and would
+    // otherwise paint over the bar as they scroll under it.
+    expect(bar.className).toMatch(/\bz-10\b/);
+    expect(bar.className).toContain('bg-base');
+    expect(bar.contains(screen.getByRole('radiogroup'))).toBe(true);
   });
 });

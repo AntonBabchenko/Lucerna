@@ -278,7 +278,10 @@ describe('Installed — library chips and search', () => {
         status: 'ok',
         data: h.graph,
       } as never);
-      await fireEvent.click(screen.getByRole('button', { name: /Re-check deps/ }));
+      await fireEvent.click(screen.getByRole('button', { name: /More actions/ }));
+      await fireEvent.click(
+        screen.getByRole('menuitem', { name: /Re-check compatibility and dependencies/ }),
+      );
       await waitFor(
         () =>
           expect(screen.getByRole('radio', { name: /Unused libraries/ }).textContent).toContain(

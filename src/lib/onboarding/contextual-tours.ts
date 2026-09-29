@@ -84,8 +84,10 @@ export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
   serverManage: '68b63f2f',
   // Moved by the datapackLibrary copy rewrite (1.13 hedge + the corrected
   // help-icon pointer). No further bump: v2 has not shipped, so its own copy
-  // fix rides inside it.
-  addons: '22268355',
+  // fix rides inside it. Moved again 2026-09-29: the source picker shows on
+  // Browse only now, so the subtabs step says so — no bump: one clause
+  // scoped, nothing new to show a user who has seen v2.
+  addons: '82c6f8b3',
   serverAddons: '5c634610',
   l10n: '49ee796e',
   overview: 'bbc47533',

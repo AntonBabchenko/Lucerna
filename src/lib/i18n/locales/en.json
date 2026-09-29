@@ -829,9 +829,6 @@
       "openSettings": "Open Settings → Integrations"
     },
     "installed": {
-      "statsTotal": "Total:",
-      "statsEnabled": "Enabled:",
-      "statsDisabled": "Disabled:",
       "filterPlaceholder": "Filter installed…",
       "filterAriaLabel": "Filter installed mods",
       "sortLabel": "Sort:",
@@ -840,9 +837,11 @@
       "sortRecent": "Recently installed",
       "sortSource": "Source",
       "checkUpdates": "Check for updates",
-      "recheckDeps": "Re-check deps",
-      "resolvingDeps": "Loading…",
       "updateAll": "Update all ({count})",
+      "moreActions": "More actions",
+      "recheckAll": "Re-check compatibility and dependencies",
+      "rechecking": "Checking compatibility and dependencies…",
+      "recheckFailed": "Couldn't re-check compatibility",
       "filterGroupAriaLabel": "Mod filter",
       "filterAll": "All ({count})",
       "filterEnabled": "Enabled ({count})",
@@ -859,8 +858,6 @@
       "reasonLoaderMismatch": "Won't load: a mod for {loader}",
       "reasonNoRelease": "May not work: no release for {loader} {mc}",
       "reasonMore": "and {count} more",
-      "checkCompat": "Check compatibility",
-      "checkingCompat": "Checking…",
       "incompatHintLoader": "This mod is for {detected}; the instance uses {loader}",
       "incompatHintNoRelease": "The mod's page lists no release for {loader} {mc}. The file may fail to load — or work fine; keep it if the game runs with it.",
       "pickInstanceFirst": "Pick an instance first.",
@@ -2351,9 +2348,9 @@
         },
         "subtabs": {
           "title": "Browse and Installed",
-          "body": "Browse searches Modrinth or CurseForge for new content; Installed lists what's already in this instance. The picker on the right switches the source. If CurseForge asks for an API key, add one in Settings, under Integrations.",
+          "body": "Browse searches Modrinth or CurseForge for new content; Installed lists what's already in this instance. On Browse, the picker on the right switches the source. If CurseForge asks for an API key, add one in Settings, under Integrations.",
           "titleBasic": "Find vs manage",
-          "bodyBasic": "Browse finds new content on Modrinth or CurseForge. Installed shows what you already have. The menu on the right switches between the two sites. If CurseForge asks for a key, you can add one in Settings, under Integrations."
+          "bodyBasic": "Browse finds new content on Modrinth or CurseForge. Installed shows what you already have. On Browse, the menu on the right switches between the two sites. If CurseForge asks for a key, you can add one in Settings, under Integrations."
         },
         "dropzone": {
           "title": "Install from a file",

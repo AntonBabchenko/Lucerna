@@ -99,8 +99,8 @@ describe('the Overview and the Installed tab over one shared scan', () => {
 
   it('re-checks loader mismatches on the manual button, not just platform verdicts', async () => {
     // `runLiveCheck` used to write only the live map, so a loader-family
-    // mismatch could never be surfaced by the button labelled
-    // "Check compatibility" — it answered "nothing found".
+    // mismatch could never be surfaced by the manual re-check (then a button
+    // labelled "Check compatibility") — it answered "nothing found".
     mocks.scanInstanceModCompat.mockResolvedValueOnce({
       status: 'ok',
       data: [entry('a', false, false)],

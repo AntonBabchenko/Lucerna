@@ -61,6 +61,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       data: { requirements: [], order: sha1s },
     })),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    openModsFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsLastUpdateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsListHolds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -186,6 +187,35 @@ describe('InstalledModsView', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
     await waitFor(() => expect(mod.commands.modsDisable).toHaveBeenCalledWith('i', 'abc'));
     expect(mod.commands.modsRemovalImpact).toHaveBeenCalledWith('i', ['abc']);
+  });
+
+  it('the ⋯ menu opens the mods folder of this profile', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /open mods folder/i }));
+    await waitFor(() => expect(mod.commands.openModsFolder).toHaveBeenCalledWith('i'));
+  });
+
+  // The re-check is a thing the user asked for: when its compatibility half fails, the spinner
+  // going away must not read as "all clear".
+  it('a re-check whose compatibility check fails says so', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    vi.mocked(mod.commands.checkInstanceModCompat).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'network', url: 'https://api.modrinth.com', details: 'offline' },
+    } as never);
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await screen.findByText('Just Enough Items');
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /re-check/i }));
+    await waitFor(() =>
+      expect(toastList().some((t) => t.title === "Couldn't re-check compatibility")).toBe(true),
+    );
   });
 
   it('shows empty state when no instance is selected', () => {

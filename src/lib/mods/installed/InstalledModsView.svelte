@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    commands,
     events,
     type DepViolation,
     type Error as IpcError,
@@ -29,7 +30,7 @@
   } from '$lib/mods/mod-ops.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
-  import { browserPrefs } from '../browser-prefs.svelte';
+  import { browserPrefs, PAGE_SIZES } from '../browser-prefs.svelte';
   import { createInstalledData, type Row } from './installed-data.svelte';
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
@@ -870,6 +871,30 @@
     }
   }
 
+  // «Перепроверить совместимость и зависимости» (⋯): the live compat check (it forces the
+  // offline scan first), a fresh graph and a fresh pre-flight. A failed graph load lands in the
+  // error banner (`deps.error`), a failed pre-flight in its panel; the compat check reports to no
+  // surface of its own, so its failure is said here — the spinner going away must not read as
+  // "all clear".
+  const rechecking = $derived(compat.checking || deps.graphLoading || preflight.loading);
+  async function recheckAll() {
+    const id = instanceId;
+    deps.invalidateGraph();
+    preflight.invalidate();
+    await compat.runLiveCheck();
+    // A check superseded by a profile switch sets no error, and this one is no longer shown.
+    if (compat.error && instanceId === id)
+      pushWarning(get(t)('mods.installed.recheckFailed'), [compat.error]);
+  }
+
+  // «Открыть папку модов» (⋯) — the Overview's control, for this profile.
+  async function openModsFolder() {
+    if (!instanceId) return;
+    const r = await commands.openModsFolder(instanceId);
+    if (r.status === 'error')
+      pushWarning(get(t)('instance.manage.openModsFolderFailed'), [formatError(r.error)]);
+  }
+
   // Bulk update: run it, then drop the checks of the jars it replaced — in the
   // profile it ran for — so their badges don't linger (the selection composable
   // runs the updates; the checks are the persisted check's).
@@ -943,14 +968,13 @@
     bind:viewFilter={filters.viewFilter}
     {busy}
     checking={updates.checking}
-    graphLoading={deps.graphLoading}
     updateCount={updates.updateCount}
     checkedAtMs={updates.checkedAtMs}
+    {rechecking}
     onCheckUpdates={updates.checkUpdates}
-    onRecheckDeps={deps.recheckDeps}
     onUpdateAll={openUpdateReview}
-    checkingCompat={compat.checking}
-    onCheckCompat={compat.runLiveCheck}
+    onRecheckAll={() => void recheckAll()}
+    onOpenModsFolder={() => void openModsFolder()}
     issuesTone={anyBlocking ? 'danger' : 'warning'}
   />
 
@@ -1068,18 +1092,26 @@
       {/each}
     </div>
 
-    <!-- Pagination footer — unified with Browse/Modpacks (Steam-style). -->
-    <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
-      <Pagination
-        page={filters.page}
-        pageCount={filters.pageCount}
-        onPage={(n) => (filters.page = n)}
-      >
-        {#snippet end()}
-          <PageSizePicker prefsKey="installedPageSize" />
-        {/snippet}
-      </Pagination>
-    </div>
+    <!-- Pagination footer — unified with Browse/Modpacks (Steam-style). One page: no pager
+         (spec §6.7). The size picker stays while a smaller page would still split the list, or
+         picking 100 would strand the user without it (plan A20 / P5-3). -->
+    {#if filters.pageCount > 1}
+      <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
+        <Pagination
+          page={filters.page}
+          pageCount={filters.pageCount}
+          onPage={(n) => (filters.page = n)}
+        >
+          {#snippet end()}
+            <PageSizePicker prefsKey="installedPageSize" />
+          {/snippet}
+        </Pagination>
+      </div>
+    {:else if filters.filtered.length > PAGE_SIZES[0]}
+      <div class="flex justify-end pt-2">
+        <PageSizePicker prefsKey="installedPageSize" />
+      </div>
+    {/if}
   {/if}
 
   {#if detail && instanceId}

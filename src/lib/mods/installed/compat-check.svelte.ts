@@ -259,13 +259,14 @@ export function createCompatCheck(
     await ensureLiveCompat(id, mc, loader);
   }
 
-  // Manual "Check compatibility" button — FULL re-check: the offline scan is
-  // re-run first, then every platform mod is queried.
+  // The manual re-check (the toolbar's ⋯ «Re-check compatibility and
+  // dependencies») — FULL re-check: the offline scan is re-run first, then every
+  // platform mod is queried. A failure lands in `error`, which the view says.
   //
   // It used to write only `live`. Both halves of `incompatibleShas` read the
   // offline scan, so a loader-family mismatch could never be surfaced by this
-  // button — pressing it on an affected instance answered "nothing found",
-  // which is worse than not offering the button at all.
+  // check — running it on an affected instance answered "nothing found",
+  // which is worse than not offering it at all.
   async function runLiveCheck() {
     const id = getInstanceId();
     const loader = getLoader();

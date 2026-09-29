@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus } from '$lib/ipc/bindings';
 import MainTabs from '$lib/layout/MainTabs.svelte';
+import { resetAddonsViewMemory } from '$lib/mods/addons-view-memory.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // Mod browser mounts ModBrowseView on activation, which fires
@@ -70,6 +71,8 @@ vi.mock('$lib/worlds/WorldsTab.svelte', () => ({
 }));
 
 beforeEach(() => markSeen('addons'));
+// The Add-ons sub-view is remembered per kind for the session: each case starts fresh.
+afterEach(() => resetAddonsViewMemory());
 
 describe('MainTabs', () => {
   it('renders the three tab labels', () => {
@@ -77,6 +80,14 @@ describe('MainTabs', () => {
     expect(getByText('Overview')).toBeTruthy();
     expect(getByText('Add-ons')).toBeTruthy();
     expect(getByText('Worlds')).toBeTruthy();
+  });
+
+  it('forwards hasInstalledMods, so the Add-ons tab opens on Installed', async () => {
+    const { getByText } = render(MainTabs, { props: { hasInstalledMods: true } });
+    await fireEvent.click(getByText('Add-ons'));
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
   });
 
   it('does not render a Modpacks tab (moved to sidebar)', () => {

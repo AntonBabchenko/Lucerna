@@ -136,7 +136,7 @@ describe('createInstanceStats', () => {
 
     it('follows the shared store without a refresh of its own', async () => {
       // The count used to be a `$state` copied out of the store, so a scan run
-      // by the Installed tab (or the manual "Check compatibility" button) moved
+      // by the Installed tab (or its manual re-check) moved
       // the chip and left the Overview showing the old number. Reading through
       // makes that drift unrepresentable.
       scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [compat(true, false)] });

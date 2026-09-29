@@ -22,6 +22,7 @@
     onQuickPlayWorld = () => {},
     quickPlayDisabledReason = null,
     running = false,
+    hasInstalledMods = false,
   }: {
     overview?: Snippet;
     instanceId?: string | null;
@@ -37,6 +38,8 @@
     onQuickPlayWorld?: (folderName: string) => void;
     quickPlayDisabledReason?: string | null;
     running?: boolean;
+    /** Forwarded to AddonsTab (sub-tab default, D10). */
+    hasInstalledMods?: boolean;
   } = $props();
 
   let active = $state<Tab>('overview');
@@ -175,7 +178,14 @@
         {@render overview()}
       {/if}
     {:else if active === 'mod_browser'}
-      <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} {loaderVersion} />
+      <AddonsTab
+        {instanceId}
+        {instanceName}
+        {mcVersion}
+        {loader}
+        {loaderVersion}
+        {hasInstalledMods}
+      />
     {:else if active === 'worlds'}
       <WorldsTab
         {instanceId}

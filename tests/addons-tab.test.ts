@@ -86,6 +86,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue
 
 import { commands } from '$lib/ipc/bindings';
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
+import { resetAddonsViewMemory } from '$lib/mods/addons-view-memory.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
 beforeEach(() => markSeen('addons'));
@@ -102,6 +103,8 @@ describe('AddonsTab', () => {
     const { droppedMods, modBrowseOpenProject } = await import('$lib/settings/state.svelte');
     droppedMods.value = null;
     modBrowseOpenProject.value = null;
+    // The sub-view is remembered per kind for the session (module state): each case starts fresh.
+    resetAddonsViewMemory();
     // Reset all mock call counts between tests so assertions about "not called"
     // are not poisoned by invocations from earlier tests.
     vi.clearAllMocks();
@@ -209,7 +212,7 @@ describe('AddonsTab', () => {
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
-  it('switching kind resets to Browse sub-view', async () => {
+  it('switching to a kind never visited lands on Browse', async () => {
     render(AddonsTab, { props });
 
     // Open the Installed sub-tab while on Mods.
@@ -220,7 +223,7 @@ describe('AddonsTab', () => {
       );
     });
 
-    // Switch to Shaders — the kind-reset effect must land on Browse.
+    // Switch to Shaders — a kind with no remembered view starts on Browse.
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
@@ -237,6 +240,37 @@ describe('AddonsTab', () => {
     // calls assetsList on mount for non-mod kinds to drive installed-state
     // badges, so that command is no longer a mount signal for the Installed view.
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
+  });
+
+  it('remembers Browse / Installed per kind, across kind switches and remounts', async () => {
+    const { unmount } = render(AddonsTab, { props });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    expect(screen.getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe('true');
+    await fireEvent.click(screen.getByRole('tab', { name: 'Mods' }));
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    unmount();
+    render(AddonsTab, { props });
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+
+  it('a first visit to a profile with mods opens Installed', () => {
+    render(AddonsTab, { props: { ...props, hasInstalledMods: true } });
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByLabelText('Filter installed mods')).toBeTruthy();
+  });
+
+  it('offers the source picker on Browse only', async () => {
+    render(AddonsTab, { props });
+    expect(screen.getByRole('combobox', { name: 'Mod source' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    expect(screen.queryByRole('combobox', { name: 'Mod source' })).toBeNull();
   });
 
   it('switching kind does not auto-mount Installed sub-view (no premature IPC)', async () => {
