@@ -65,7 +65,9 @@ pub fn parse_maven_metadata(xml: &str) -> Result<Vec<MavenEntry>> {
     Ok(out)
 }
 
-fn parse_maven_entry(entry: &str) -> Option<MavenEntry> {
+/// One maven version string -> `(mc, fv, raw)`, legacy quirk included. Also
+/// splits Forge library coordinates for the launcher-import reader.
+pub(crate) fn parse_maven_entry(entry: &str) -> Option<MavenEntry> {
     let (left, right) = entry.rsplit_once('-')?;
     if left.is_empty() || right.is_empty() {
         return None;

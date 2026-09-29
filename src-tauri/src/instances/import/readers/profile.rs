@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::error::Result;
+use crate::forge::meta::parse_maven_entry;
 use crate::instances::import::model::{scan_content, ForeignInstance};
 use crate::instances::import::readers::loader_sniff::sniff_loader_from_mods;
 use crate::instances::import::readers::raw_minecraft::{detect_mc_version_hint, is_version_like};
@@ -45,57 +46,59 @@ fn read_version_json(game_dir: &Path) -> Option<VersionJson> {
 }
 
 /// Minecraft version, in priority order: version JSON `inheritsFrom`, then
-/// `id` (when version-like), then the `versions/`-folder hint at the
-/// enclosing `.minecraft`, then `""` (the user picks in the wizard).
+/// `id` (when version-like), then a library that records the version
+/// (`mc_version_from_lib_coord`), then the `versions/`-folder hint at the
+/// enclosing `.minecraft`, then `""` (the user picks in the wizard). The
+/// profile's own evidence ranks above the hint, which is a guess about the
+/// whole `.minecraft` and may describe another profile.
 fn resolve_mc_version(minecraft_root: &Path, vj: Option<&VersionJson>) -> String {
-    if let Some(vj) = vj {
-        if let Some(inh) = vj.inherits_from.as_deref() {
-            if is_version_like(inh) {
-                return inh.to_string();
-            }
-        }
-        if let Some(id) = vj.id.as_deref() {
-            if is_version_like(id) {
-                return id.to_string();
-            }
-        }
-    }
-    detect_mc_version_hint(minecraft_root).unwrap_or_default()
+    let own = vj.and_then(|vj| {
+        [vj.inherits_from.as_deref(), vj.id.as_deref()]
+            .into_iter()
+            .flatten()
+            .find(|v| is_version_like(v))
+            .map(str::to_string)
+            .or_else(|| {
+                vj.libraries
+                    .iter()
+                    .filter_map(|lib| lib.name.as_deref())
+                    .find_map(mc_version_from_lib_coord)
+            })
+    });
+    own.or_else(|| detect_mc_version_hint(minecraft_root))
+        .unwrap_or_default()
 }
 
-/// Like `resolve_mc_version` but, when the JSON's own fields don't yield a
-/// version, mine the MC version from a loader library coordinate
-/// (`net.minecraftforge:forge:1.21.1-52.1.0` → `1.21.1`).
-fn resolve_mc_version_with_libs(minecraft_root: &Path, vj: Option<&VersionJson>) -> String {
-    let base = resolve_mc_version(minecraft_root, vj);
-    if !base.is_empty() {
-        return base;
-    }
-    if let Some(vj) = vj {
-        for lib in &vj.libraries {
-            if let Some(name) = lib.name.as_deref() {
-                if let Some(mc) = mc_version_from_lib_coord(name) {
-                    return mc;
-                }
-            }
-        }
-    }
-    String::new()
-}
-
-/// MC version embedded in a loader library coordinate
-/// (`group:artifact:<mc>-<loader>`). Returns the version-like prefix before
-/// the first `-` in the coordinate's version segment.
+/// Minecraft version from a library whose version is defined to record it:
+/// Forge's `<mc>-<build>` and Fabric's `intermediary:<mc>` (Quilt ships the
+/// same intermediary). Any other library says nothing about Minecraft —
+/// Guava's `32.1.2-jre`, NeoForge's `listenablefuture:9999.0-empty-…` —
+/// however version-like its head looks. NeoForge's own coordinate encodes
+/// MC by a rule that changed in 26.x, so it is not read here until one
+/// shared mapping exists.
 fn mc_version_from_lib_coord(coord: &str) -> Option<String> {
-    let version = coord.splitn(3, ':').nth(2)?;
-    // Only compound loader coords (`<mc>-<loader>`) carry the MC version. A
-    // plain dependency version (`com.mojang:logging:1.2.1`, no `-`) must NOT
-    // be mistaken for it, even though it is version-like.
-    if !version.contains('-') {
-        return None;
-    }
-    let head = version.split('-').next()?;
-    is_version_like(head).then(|| head.to_string())
+    let (group, artifact, version) = maven_coord(coord)?;
+    let mc = match (group, artifact) {
+        ("net.minecraftforge", "forge") => parse_maven_entry(version?)?.mc,
+        ("net.fabricmc", "intermediary") => version?.to_string(),
+        _ => return None,
+    };
+    is_version_like(&mc).then_some(mc)
+}
+
+/// Split a Maven coordinate `group:artifact:version[:classifier][@ext]`
+/// into group, artifact and the bare version — classifier and extension
+/// dropped (TLauncher lists Forge as
+/// `net.minecraftforge:forge:1.21.1-52.1.14:universal`).
+fn maven_coord(coord: &str) -> Option<(&str, &str, Option<&str>)> {
+    let mut parts = coord.split(':');
+    let group = parts.next()?;
+    let artifact = parts.next()?;
+    let version = parts
+        .next()
+        .and_then(|v| v.split('@').next())
+        .filter(|v| !v.is_empty());
+    Some((group, artifact, version))
 }
 
 /// Best-effort loader + version from a version JSON. Library coordinates
@@ -130,22 +133,24 @@ fn detect_loader(vj: &VersionJson) -> (LoaderKind, Option<String>) {
     }
 }
 
-/// Match a Maven coordinate `group:artifact:version` against known loader
-/// libraries. The Forge version is the part after the last `-` (coordinates
-/// look like `1.20.1-47.2.0`); other loaders use the version verbatim.
+/// Match a Maven coordinate against known loader libraries. Forge's version
+/// is `<mc>-<build>` (legacy `<mc>-<build>-<mc>`), split by the Forge maven
+/// grammar; a split whose `<mc>` is not a Minecraft version was not
+/// recognised, so it gives no build. Other loaders use the version verbatim.
 fn loader_from_coord(coord: &str) -> Option<(LoaderKind, Option<String>)> {
-    let mut parts = coord.splitn(3, ':');
-    let group = parts.next()?;
-    let artifact = parts.next()?;
-    let version = parts.next().map(str::to_string);
+    let (group, artifact, version) = maven_coord(coord)?;
+    let verbatim = version.map(str::to_string);
     match (group, artifact) {
-        ("net.neoforged", "neoforge") => Some((LoaderKind::NeoForge, version)),
+        ("net.neoforged", "neoforge") => Some((LoaderKind::NeoForge, verbatim)),
         ("net.minecraftforge", "forge") => {
-            let v = version.map(|v| v.rsplit('-').next().unwrap_or(&v).to_string());
-            Some((LoaderKind::Forge, v))
+            let build = version
+                .and_then(parse_maven_entry)
+                .filter(|e| is_version_like(&e.mc))
+                .map(|e| e.fv);
+            Some((LoaderKind::Forge, build))
         }
-        ("net.fabricmc", "fabric-loader") => Some((LoaderKind::Fabric, version)),
-        ("org.quiltmc", "quilt-loader") => Some((LoaderKind::Quilt, version)),
+        ("net.fabricmc", "fabric-loader") => Some((LoaderKind::Fabric, verbatim)),
+        ("org.quiltmc", "quilt-loader") => Some((LoaderKind::Quilt, verbatim)),
         _ => None,
     }
 }
@@ -274,7 +279,7 @@ impl LauncherReader for ProfileReader {
                 None
             }
         });
-        let mc_version = resolve_mc_version_with_libs(&minecraft_root, vj.as_ref());
+        let mc_version = resolve_mc_version(&minecraft_root, vj.as_ref());
         let (mut loader, loader_version) = vj
             .as_ref()
             .map(detect_loader)
@@ -422,6 +427,46 @@ mod tests {
         assert_eq!(
             detect_loader(&vj),
             (LoaderKind::NeoForge, Some("21.1.66".into()))
+        );
+    }
+
+    #[test]
+    fn loader_build_drops_maven_classifier() {
+        // TLauncher lists the loader with a classifier.
+        let forge = VersionJson {
+            libraries: vec![VersionLib {
+                name: Some("net.minecraftforge:forge:1.21.1-52.1.14:universal".into()),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            detect_loader(&forge),
+            (LoaderKind::Forge, Some("52.1.14".into()))
+        );
+        let neo = VersionJson {
+            libraries: vec![VersionLib {
+                name: Some("net.neoforged:neoforge:21.1.66:universal".into()),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            detect_loader(&neo),
+            (LoaderKind::NeoForge, Some("21.1.66".into()))
+        );
+    }
+
+    #[test]
+    fn loader_forge_build_from_legacy_quirk_coord() {
+        // 1.7.10-era Forge repeats the MC id after the build.
+        let vj = VersionJson {
+            libraries: vec![VersionLib {
+                name: Some("net.minecraftforge:forge:1.7.10-10.13.4.1614-1.7.10".into()),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            detect_loader(&vj),
+            (LoaderKind::Forge, Some("10.13.4.1614".into()))
         );
     }
 
@@ -678,6 +723,144 @@ mod tests {
             .expect("shared dir present");
         assert_eq!(shared.mc_version, "1.21.1");
         assert_eq!(shared.loader, LoaderKind::Forge);
+    }
+
+    /// `.minecraft/versions/<name>` with its own mods and a flattened version
+    /// JSON (no `inheritsFrom`, non-version id) listing `libs` in order.
+    fn flattened_profile_dir(tmp: &Path, name: &str, libs: &[&str]) -> PathBuf {
+        let game = tmp.join(".minecraft/versions").join(name);
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/a.jar"), b"x").unwrap();
+        let libraries: Vec<_> = libs
+            .iter()
+            .map(|n| serde_json::json!({ "name": n }))
+            .collect();
+        let json = serde_json::json!({ "id": name, "libraries": libraries });
+        std::fs::write(game.join(format!("{name}.json")), json.to_string()).unwrap();
+        game
+    }
+
+    #[test]
+    fn mc_version_ignores_non_loader_libraries() {
+        // A NeoForge installer's library order: nothing here records the
+        // Minecraft version, however version-like a head looks.
+        let tmp = tempfile::tempdir().unwrap();
+        let game = flattened_profile_dir(
+            tmp.path(),
+            "NeoForge 21.0.167",
+            &[
+                "com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava",
+                "com.google.guava:guava:31.1-jre",
+                "net.neoforged.fancymodloader:loader:4.0.24",
+            ],
+        );
+        assert_eq!(ProfileReader.read(&game).unwrap().mc_version, "");
+    }
+
+    #[test]
+    fn mc_version_from_forge_library_regardless_of_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let game = flattened_profile_dir(
+            tmp.path(),
+            "Forge 1.21.1",
+            &[
+                "com.google.guava:guava:32.1.2-jre",
+                "net.minecraftforge:forge:1.21.1-52.1.14:universal",
+            ],
+        );
+        assert_eq!(ProfileReader.read(&game).unwrap().mc_version, "1.21.1");
+    }
+
+    #[test]
+    fn mc_version_from_fabric_intermediary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let game = flattened_profile_dir(
+            tmp.path(),
+            "Fabric 1.21.1",
+            &[
+                "com.google.guava:guava:32.1.2-jre",
+                "net.fabricmc:intermediary:1.21.1",
+                "net.fabricmc:fabric-loader:0.16.5",
+            ],
+        );
+        let fi = ProfileReader.read(&game).unwrap();
+        assert_eq!(fi.mc_version, "1.21.1");
+        assert_eq!(fi.loader, LoaderKind::Fabric);
+        assert_eq!(fi.loader_version.as_deref(), Some("0.16.5"));
+    }
+
+    #[test]
+    fn mc_version_not_taken_from_neoforge_library() {
+        // NeoForge's own version encodes MC by a rule that changed in 26.x;
+        // not read as a Minecraft version.
+        let tmp = tempfile::tempdir().unwrap();
+        let game = flattened_profile_dir(
+            tmp.path(),
+            "NeoForge 21.0.167",
+            &["net.neoforged:neoforge:21.0.167-beta"],
+        );
+        let fi = ProfileReader.read(&game).unwrap();
+        assert_eq!(fi.mc_version, "");
+        assert_eq!(fi.loader, LoaderKind::NeoForge);
+        assert_eq!(fi.loader_version.as_deref(), Some("21.0.167-beta"));
+    }
+
+    #[test]
+    fn version_ignores_loader_suffixed_id() {
+        let vj = VersionJson {
+            id: Some("1.20.1-forge-47.2.0".into()),
+            ..Default::default()
+        };
+        assert_eq!(resolve_mc_version(Path::new("/nope"), Some(&vj)), "");
+    }
+
+    #[test]
+    fn version_prefers_own_forge_library_over_root_hint() {
+        // A vanilla 1.20.1 elsewhere in `.minecraft` says nothing about this
+        // profile, whose own Forge library records 1.21.1.
+        let tmp = tempfile::tempdir().unwrap();
+        let game = flattened_profile_dir(
+            tmp.path(),
+            "Forge 1.21.1",
+            &["net.minecraftforge:forge:1.21.1-52.1.14"],
+        );
+        std::fs::create_dir_all(tmp.path().join(".minecraft/versions/1.20.1")).unwrap();
+        assert_eq!(ProfileReader.read(&game).unwrap().mc_version, "1.21.1");
+    }
+
+    #[test]
+    fn reads_real_tlauncher_forge_profile_shape() {
+        // tlauncher.org's flattened `Forge 1.21.1` (library order as shipped):
+        // no `inheritsFrom`, no vanilla folder, loader with a classifier.
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("saves/World")).unwrap();
+        std::fs::write(mc.join("saves/World/level.dat"), b"x").unwrap();
+        std::fs::write(
+            mc.join("launcher_profiles.json"),
+            r#"{"clientToken":"x","profiles":{}}"#,
+        )
+        .unwrap();
+        let v = mc.join("versions/Forge 1.21.1");
+        std::fs::create_dir_all(&v).unwrap();
+        std::fs::write(
+            v.join("Forge 1.21.1.json"),
+            r#"{"id":"Forge 1.21.1","type":"modified","mainClass":"net.minecraftforge.bootstrap.ForgeBootstrap","libraries":[
+                {"name":"net.minecraftforge:forge:1.21.1-52.1.14:universal"},
+                {"name":"net.minecraftforge:forge:1.21.1-52.1.14:client"},
+                {"name":"net.minecraftforge:JarJarFileSystems:0.3.26"},
+                {"name":"de.oceanlabs.mcp:mcp_config:1.21.1-20240808.132146:srg2off"},
+                {"name":"com.google.guava:guava:32.1.2-jre"}]}"#,
+        )
+        .unwrap();
+        let found = ProfileReader.expand_root(&mc);
+        let shared = found
+            .iter()
+            .find(|f| f.minecraft_dir == mc)
+            .expect("shared dir present");
+        assert_eq!(shared.mc_version, "1.21.1");
+        assert_eq!(shared.loader, LoaderKind::Forge);
+        assert_eq!(shared.loader_version.as_deref(), Some("52.1.14"));
     }
 
     #[test]

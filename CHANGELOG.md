@@ -192,6 +192,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Tooltips keep their own width.** A tooltip shown right after one near the
   right edge of the window took the width left there and wrapped its text into
   a narrow column.
+- **Importing from another launcher no longer fills in a wrong Minecraft
+  version or Forge build.** The import took a version from any text that
+  looked like one: a `.minecraft` whose last played profile was Forge offered
+  `1.20.1-forge-47.2.0` as the Minecraft version, a TLauncher Forge profile
+  came in with the Forge build `52.1.14:universal`, which does not exist, so
+  the game could not start, and a profile that records no version could come
+  in as Minecraft `9999.0`, the version of an unrelated library. The version
+  now comes only from where a profile actually records it; when it cannot be
+  told, the field stays empty for you to fill in.
 
 ## [0.25.0] — 2026-09-27
 
