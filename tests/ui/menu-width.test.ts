@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ContextMenu from '$lib/ui/cards/ContextMenu.svelte';
-import OverflowMenu from '$lib/ui/OverflowMenu.svelte';
 import type { ContextMenuItem } from '$lib/ui/menu-item';
+import OverflowMenu from '$lib/ui/OverflowMenu.svelte';
 
 // Plan §5b V2 (screenshot 02): «Перепроверить совместимость и зависимости» wrapped over three lines
 // of the 230 px ⋯ menu and squeezed its icon to ~9 px — and the same fixed width wrapped every long
