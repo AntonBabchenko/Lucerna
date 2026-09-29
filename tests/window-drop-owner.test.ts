@@ -250,7 +250,7 @@ describe('only the topmost surface takes a drop', () => {
     await tick();
     expect(droppedAssets.value).toBeNull();
     expect(warnings()).toHaveLength(1);
-    expect(warnings()[0].lines).toEqual([`pack.zip: ${CLOSE_FIRST}`]);
+    expect(warnings()[0].lines).toEqual([{ names: 'pack.zip', reason: CLOSE_FIRST }]);
   });
 
   it('the Modpacks modal on top takes its drop — until a dialog opens over it', async () => {
@@ -272,7 +272,7 @@ describe('only the topmost surface takes a drop', () => {
     drag.emit({ type: 'drop', paths: ['C:/packs/b.zip'] });
     await settle();
     expect(vi.mocked(commands.modpackInspect)).toHaveBeenCalledTimes(1);
-    expect(warnings()[0].lines).toEqual([`b.zip: ${CLOSE_FIRST}`]);
+    expect(warnings()[0].lines).toEqual([{ names: 'b.zip', reason: CLOSE_FIRST }]);
   });
 });
 
