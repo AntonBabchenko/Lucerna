@@ -39,9 +39,11 @@
           ? $t('mods.ops.enable.titleOne', { name, deps })
           : $t('mods.ops.enable.titleMany', { count, deps });
       case 'impact-check-failed':
+        // A failed check lists no mods, so its title names the one it was about (or counts
+        // them): a pronoun there pointed at nothing (plan §5c, screenshot 04d).
         return view.action === 'enable'
-          ? $t('mods.ops.checkFailed.requirements', { count })
-          : $t('mods.ops.checkFailed.dependents', { count });
+          ? $t('mods.ops.checkFailed.requirements', { count, name })
+          : $t('mods.ops.checkFailed.dependents', { count, name });
     }
   });
 

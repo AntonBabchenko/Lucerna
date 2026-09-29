@@ -90,3 +90,48 @@ describe('enable: the body names who won’t load while what is disabled', () =>
     );
   });
 });
+
+// Plan §5c V3 (screenshot 04d): «Не удалось проверить, зависят ли от него другие моды» — «него» had
+// nothing to refer to: a failed check lists no mods, so the title's pronoun pointed at nothing. The
+// title names the mod it was about, or counts them.
+describe('a check that could not run names what it was about', () => {
+  const failed = (action: 'disable' | 'uninstall' | 'enable', targets: number): ImpactView => ({
+    mode: 'impact-check-failed',
+    action,
+    targets: [mod('f', 'FerriteCore'), mod('s', 'Sodium')].slice(0, targets),
+    error: 'os error 32',
+  });
+  const title = () => screen.getByRole('dialog').getAttribute('aria-labelledby') ?? '';
+  const titleText = () => document.getElementById(title())?.textContent?.trim();
+
+  it('names the one mod, and counts several', () => {
+    const { unmount } = show(failed('uninstall', 1));
+    expect(titleText()).toBe("Couldn't check whether other mods depend on FerriteCore");
+    unmount();
+    show(failed('disable', 2));
+    expect(titleText()).toBe("Couldn't check whether other mods depend on 2 mods");
+  });
+
+  it('an enable names the mod too', () => {
+    const { unmount } = show(failed('enable', 1));
+    expect(titleText()).toBe("Couldn't check whether FerriteCore needs disabled mods");
+    unmount();
+    show(failed('enable', 2));
+    expect(titleText()).toBe("Couldn't check whether 2 mods need disabled mods");
+  });
+
+  it('in Russian, with the cases the count takes', () => {
+    locale.set('ru');
+    const cases: [ImpactView, string][] = [
+      [failed('uninstall', 1), 'Не удалось проверить, зависят ли от FerriteCore другие моды'],
+      [failed('disable', 2), 'Не удалось проверить, зависят ли от 2 модов другие моды'],
+      [failed('enable', 1), 'Не удалось проверить, нужны ли моду FerriteCore отключённые моды'],
+      [failed('enable', 2), 'Не удалось проверить, нужны ли 2 модам отключённые моды'],
+    ];
+    for (const [view, expected] of cases) {
+      const { unmount } = show(view);
+      expect(titleText()).toBe(expected);
+      unmount();
+    }
+  });
+});

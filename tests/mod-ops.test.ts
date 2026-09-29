@@ -176,7 +176,7 @@ describe('guarded disable', () => {
     host();
     const done = disableMods(scope, [sodium]);
     const dialog = await screen.findByRole('dialog', {
-      name: "Couldn't check whether other mods depend on it",
+      name: "Couldn't check whether other mods depend on Sodium",
     });
     expect(h.modsDisable).not.toHaveBeenCalled();
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Disable anyway' }));

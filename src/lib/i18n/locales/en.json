@@ -1090,8 +1090,8 @@
         "together": "Enable together"
       },
       "checkFailed": {
-        "dependents": "{count, plural, =1 {Couldn't check whether other mods depend on it} other {Couldn't check whether other mods depend on them}}",
-        "requirements": "{count, plural, =1 {Couldn't check whether it needs disabled mods} other {Couldn't check whether they need disabled mods}}",
+        "dependents": "{count, plural, =1 {Couldn't check whether other mods depend on {name}} other {Couldn't check whether other mods depend on # mods}}",
+        "requirements": "{count, plural, =1 {Couldn't check whether {name} needs disabled mods} other {Couldn't check whether # mods need disabled mods}}",
         "disableAnyway": "Disable anyway",
         "removeAnyway": "Remove anyway",
         "enableAnyway": "Enable anyway"
