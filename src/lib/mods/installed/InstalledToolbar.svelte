@@ -104,13 +104,17 @@
   ]);
 
   // One mutually-exclusive filter group. All / Enabled / Disabled are always
-  // present; Updates / Issues / Needed by others / Unused libraries appear only
+  // present; Issues / Updates / Needed by others / Unused libraries appear only
   // when there is something to show (the graph views only once the dependency
   // graph has loaded). Each option carries its own tone so the chips read as
   // distinct kinds (state vs status vs graph) while behaving as a single
   // pick-one set. The count rides the chip's count badge; the label stays the
   // plain word so the accessible name matches the simple /All/ etc. patterns
   // the tests use.
+  // Issues comes first after the state chips: fifth, it sat half under the line's fade at the
+  // launcher's 820 px (plan §5d L6). Here it is in view at any width the window allows, the chips
+  // that are always there never move when it appears, and the line never scrolls by itself — the
+  // chosen chip, which it keeps in view, is All at rest.
   const filterOptions = $derived([
     {
       value: 'all',
@@ -133,18 +137,6 @@
       count: counts.disabled,
       testId: 'installed-filter-disabled',
     },
-    ...(counts.updates > 0
-      ? [
-          {
-            value: 'updates',
-            label: $t('mods.installed.filterUpdatesLabel'),
-            tone: 'warning' as const,
-            icon: 'arrowUp' as const,
-            count: counts.updates,
-            testId: 'installed-filter-updates',
-          },
-        ]
-      : []),
     // Red while a mod stops the game — on its icon and count even when not chosen (attention, not
     // selection: DESIGN.md §6) — with the ✕ every blocking reason carries; the triangle is amber's.
     ...(counts.issues > 0
@@ -157,6 +149,18 @@
             count: counts.issues,
             testId: 'installed-filter-issues',
             attention: issuesTone === 'danger',
+          },
+        ]
+      : []),
+    ...(counts.updates > 0
+      ? [
+          {
+            value: 'updates',
+            label: $t('mods.installed.filterUpdatesLabel'),
+            tone: 'warning' as const,
+            icon: 'arrowUp' as const,
+            count: counts.updates,
+            testId: 'installed-filter-updates',
           },
         ]
       : []),

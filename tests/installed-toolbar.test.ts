@@ -114,6 +114,25 @@ describe('InstalledToolbar at the launcher’s default width', () => {
     }
   });
 
+  // Plan §5d L6 (screenshot n01): at 820 px «Проблемы 7» came fifth and sat half under the line's
+  // fade. It comes right after the three chips that are always there — before Updates — so a
+  // problem is in view at the launcher's smallest width without the line scrolling by itself, and
+  // no chip that is always there moves when it appears.
+  it('puts Issues right after the state chips, before Updates', () => {
+    render(InstalledToolbar, {
+      props: { ...base(), counts: { ...base().counts, needed: 2, unusedLibraries: 1 } },
+    });
+    expect(screen.getAllByRole('radio').map((r) => r.getAttribute('data-testid'))).toEqual([
+      'installed-filter-all',
+      'installed-filter-enabled',
+      'installed-filter-disabled',
+      'installed-filter-issues',
+      'installed-filter-updates',
+      'installed-filter-needed',
+      'installed-filter-unused-libraries',
+    ]);
+  });
+
   it('shows the sort label only where the line has room, and keeps the check with its time', () => {
     render(InstalledToolbar, { props: { ...base(), checkedAtMs: Date.now() } });
     // The Select keeps its accessible name, the label's text, at every width.
