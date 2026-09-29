@@ -270,6 +270,108 @@ pub(crate) fn build_loader_versions(
     (loader_versions, raw_by_fv)
 }
 
+// ---- NeoForge version → Minecraft version -------------------------
+
+/// What a NeoForge version number says about the Minecraft version it
+/// installs onto. See [`neoforge_mc_for`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NeoForgeMc {
+    /// Mojang's id of the Minecraft release this build installs onto. Offered.
+    Minecraft(String),
+    /// A build for this Minecraft snapshot, pre-release or April Fools id.
+    /// Lucerna does not offer these: their synthetic version ids do not
+    /// round-trip through `versions::loaders::parse_synth_id`. The id is still
+    /// derived so a caller can say why nothing is offered.
+    NotOffered(String),
+    /// A version shape Lucerna does not know. Never guessed at.
+    Unrecognized,
+}
+
+/// A non-empty run of ASCII digits with no leading zero (`0` itself is fine).
+/// `21.01.5` could be read two ways, so it is not read at all.
+fn canonical_decimal(s: &str) -> Option<u32> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if s.len() > 1 && s.starts_with('0') {
+        return None;
+    }
+    s.parse().ok()
+}
+
+/// Map a NeoForge version to the Minecraft version it installs onto.
+///
+/// NeoForge documents its numbering (neoforged/Documentation,
+/// `gettingstarted/versioning.md`). The rules below were checked against
+/// `install_profile.json` in real installers:
+///
+/// - Old scheme `A.B.C`, `A` 20–21: Minecraft `1.A.B`, or `1.A` when `B` is
+///   0 (`21.0.167` → `1.21`). It ended at `21.11` (Minecraft 1.21.11).
+/// - Year-based scheme `Y.R.P.N`, `Y` ≥ 26: Minecraft `Y.R.P`, or `Y.R` when
+///   `P` is 0 (`26.2.0.59` → `26.2`, `26.1.2.112` → `26.1.2`).
+/// - The only suffix on those is `-beta`.
+/// - `Y.R.P.N-alpha.<n>+<snapshot|pre|rc>-<k>` is a build for Minecraft
+///   `Y.R[.P]-<kind>-<k>`, and `0.<id>.<n>[-beta]` for the April Fools version
+///   `<id>`. Both are `NotOffered`.
+///
+/// The bounds are tight on purpose: any other shape means NeoForge changed
+/// its numbering again, and callers must be able to say so, not guess.
+pub(crate) fn neoforge_mc_for(version: &str) -> NeoForgeMc {
+    let split = version.find(['-', '+']).unwrap_or(version.len());
+    let (core, rest) = version.split_at(split);
+    let segments: Vec<&str> = core.split('.').collect();
+
+    if let Some(id) = april_fools_id(&segments, rest) {
+        return NeoForgeMc::NotOffered(id.to_string());
+    }
+    let Some(nums) = segments
+        .iter()
+        .map(|s| canonical_decimal(s))
+        .collect::<Option<Vec<u32>>>()
+    else {
+        return NeoForgeMc::Unrecognized;
+    };
+    let (base, year_based) = match nums.as_slice() {
+        [a @ 20..=21, 0, _] => (format!("1.{a}"), false),
+        [a @ 20..=21, b, _] => (format!("1.{a}.{b}"), false),
+        [y, r, 0, _] if *y >= 26 => (format!("{y}.{r}"), true),
+        [y, r, p, _] if *y >= 26 => (format!("{y}.{r}.{p}"), true),
+        _ => return NeoForgeMc::Unrecognized,
+    };
+    if rest.is_empty() || rest == "-beta" {
+        return NeoForgeMc::Minecraft(base);
+    }
+    match prerelease_mc_suffix(rest) {
+        Some(suffix) if year_based => NeoForgeMc::NotOffered(format!("{base}-{suffix}")),
+        _ => NeoForgeMc::Unrecognized,
+    }
+}
+
+/// `0.<id>.<n>`, optionally `-beta`: NeoForge's April Fools line
+/// (`0.25w14craftmine.3-beta` → `25w14craftmine`). The id must contain a
+/// letter, so a plain numeric `0.1.2` is not taken for one.
+fn april_fools_id<'a>(segments: &[&'a str], rest: &str) -> Option<&'a str> {
+    let &[zero, id, build] = segments else {
+        return None;
+    };
+    let is_id = !id.is_empty()
+        && id.bytes().all(|b| b.is_ascii_alphanumeric())
+        && id.bytes().any(|b| b.is_ascii_alphabetic());
+    (zero == "0" && is_id && canonical_decimal(build).is_some() && matches!(rest, "" | "-beta"))
+        .then_some(id)
+}
+
+/// `-alpha.<n>+<kind>-<k>` → `<kind>-<k>`: the Minecraft pre-release a
+/// year-based alpha build is for (`-alpha.1+snapshot-1` → `snapshot-1`).
+fn prerelease_mc_suffix(rest: &str) -> Option<&str> {
+    let (alpha, meta) = rest.strip_prefix("-alpha.")?.split_once('+')?;
+    let (kind, k) = meta.split_once('-')?;
+    (canonical_decimal(alpha).is_some()
+        && matches!(kind, "snapshot" | "pre" | "rc")
+        && canonical_decimal(k).is_some())
+    .then_some(meta)
+}
+
 // ---- NeoForge maven-metadata.xml parsing -------------------------
 
 /// Parse NeoForge's `maven-metadata.xml` into `MavenEntry` records.
@@ -1033,6 +1135,87 @@ mod tests {
         assert!(versions[0].stable);
         assert_eq!(versions[1].version, "21.10.63");
         assert!(!versions[1].stable);
+    }
+
+    // ---- neoforge_mc_for -------------------------------------------------
+
+    #[test]
+    fn neoforge_mc_for_maps_both_numbering_schemes() {
+        // Checked against `install_profile.json` in real installers: the old
+        // `A.B.C` scheme, then the year-based `Y.R.P.N` one. A zero patch is
+        // omitted, as in Mojang's own ids (`1.21`, `26.2`).
+        let cases = [
+            ("20.2.59", "1.20.2"),
+            ("20.4.251", "1.20.4"),
+            ("21.0.0-beta", "1.21"),
+            ("21.0.167", "1.21"),
+            ("21.1.230", "1.21.1"),
+            ("21.11.42", "1.21.11"),
+            ("26.1.0.19-beta", "26.1"),
+            ("26.1.1.15-beta", "26.1.1"),
+            ("26.1.2.112", "26.1.2"),
+            ("26.2.0.59", "26.2"),
+            ("26.3.0.35-beta", "26.3"),
+        ];
+        for (version, mc) in cases {
+            assert_eq!(
+                neoforge_mc_for(version),
+                NeoForgeMc::Minecraft(mc.to_string()),
+                "{version}"
+            );
+        }
+    }
+
+    #[test]
+    fn neoforge_mc_for_derives_but_does_not_offer_snapshot_and_april_fools_builds() {
+        let cases = [
+            ("26.1.0.0-alpha.1+snapshot-1", "26.1-snapshot-1"),
+            ("26.1.0.0-alpha.15+pre-3", "26.1-pre-3"),
+            ("0.25w14craftmine.3-beta", "25w14craftmine"),
+        ];
+        for (version, mc) in cases {
+            assert_eq!(
+                neoforge_mc_for(version),
+                NeoForgeMc::NotOffered(mc.to_string()),
+                "{version}"
+            );
+        }
+    }
+
+    #[test]
+    fn neoforge_mc_for_never_guesses_at_an_unknown_shape() {
+        for version in [
+            // wrong segment count or era
+            "26.1.0",
+            "19.4.1",
+            "22.1.3",
+            "21.1.0.5",
+            "26.1.0.0.1",
+            "27.1",
+            // not numbers
+            "abc",
+            "",
+            "26.x.0.1",
+            "0.x",
+            "0.1.2",
+            // leading zero: two readings, so no reading
+            "21.01.5",
+            // suffixes NeoForge has never used
+            "26.4.0.0-rc.1",
+            "26.4.0.0-alpha.3.snapshot-2",
+            "26.4.0.1+build.5",
+            "26.1.0.0+snapshot-1",
+            "26.2.0.59-foo",
+            // `+` outside the year-based scheme
+            "27.1+snapshot-1",
+            "22.1.0-alpha.1+snapshot-1",
+        ] {
+            assert_eq!(
+                neoforge_mc_for(version),
+                NeoForgeMc::Unrecognized,
+                "{version:?}"
+            );
+        }
     }
 
     // ---- ensure_forge_build_exists -------------------------------------------
