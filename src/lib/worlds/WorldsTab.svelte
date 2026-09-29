@@ -285,6 +285,7 @@
     <div data-tour-ctx="worlds-import">
       <FileDropzone
         variant="strip"
+        target="client-world"
         label={$t('worlds.import.dropzoneLabel')}
         disabled={!instanceId || importDisabledReason !== null}
         disabledLabel={importDisabledReason ?? undefined}
@@ -326,6 +327,7 @@
       <p class="text-sm text-muted">{$t('worlds.tab.empty')}</p>
       <div data-tour-ctx="worlds-import">
         <FileDropzone
+          target="client-world"
           label={$t('worlds.import.dropzoneLabel')}
           disabled={!instanceId || importDisabledReason !== null}
           disabledLabel={importDisabledReason ?? undefined}

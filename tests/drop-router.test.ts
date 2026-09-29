@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { type DropContext, routeDrop } from '$lib/layout/drop-router';
 
 const base: DropContext = {
+  modpacksOpen: false,
+  serverImportOpen: false,
   mode: 'client',
   clientTab: 'mod_browser',
   addonsKind: 'mod',
@@ -80,6 +82,44 @@ describe('routeDrop', () => {
     expect(
       routeDrop(['C:/a.zip'], { ...base, mode: 'servers', serverAddonsKind: 'plugin' }),
     ).toBeNull();
+  });
+
+  // A surface on top owns the drop (DESIGN.md §14): the Modpacks modal covers everything, the
+  // server-import view its servers panel. What sits underneath takes nothing meanwhile.
+  it('the open Modpacks modal takes the drop: a .zip is a modpack, whatever sits underneath', () => {
+    expect(
+      routeDrop(['C:/pack.zip'], { ...base, addonsKind: 'resource_pack', modpacksOpen: true }),
+    ).toEqual({ target: 'modpack', path: 'C:/pack.zip' });
+    expect(
+      routeDrop(['C:/notes.txt', 'C:/pack.mrpack'], {
+        ...base,
+        mode: 'servers',
+        serverImportOpen: true,
+        modpacksOpen: true,
+      }),
+    ).toEqual({ target: 'modpack', path: 'C:/pack.mrpack' });
+  });
+
+  it('the open Modpacks modal passes nothing to the tab under it', () => {
+    expect(routeDrop(['C:/a.jar'], { ...base, modpacksOpen: true })).toBeNull();
+  });
+
+  it('servers mode: the server-import view takes the drop — one source, a .zip or a folder', () => {
+    expect(
+      routeDrop(['C:/srv', 'C:/other.zip'], {
+        ...base,
+        mode: 'servers',
+        serverAddonsKind: 'mod',
+        serverImportOpen: true,
+      }),
+    ).toEqual({ target: 'server-import', path: 'C:/srv' });
+  });
+
+  it('client mode: a server-import view left mounted in the hidden servers panel takes nothing', () => {
+    expect(routeDrop(['C:/a.jar'], { ...base, serverImportOpen: true })).toEqual({
+      target: 'client-mods',
+      paths: ['C:/a.jar'],
+    });
   });
 
   it('respects gating flags', () => {

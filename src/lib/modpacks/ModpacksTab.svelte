@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
-  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import type {
@@ -12,7 +11,7 @@
   } from '$lib/ipc/bindings';
   import type { ModpackImportRequest } from './import-request';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { droppedModpack, modpacksNav, dragActive } from '$lib/settings/state.svelte';
+  import { droppedModpack, modpacksActive, modpacksNav } from '$lib/settings/state.svelte';
   import ImportFromUrlDialog from './ImportFromUrlDialog.svelte';
   import ImportPickerDialog from './ImportPickerDialog.svelte';
   import ImportedView from './ImportedView.svelte';
@@ -86,9 +85,9 @@
     }
   });
 
-  // A modpack dropped on the Modpacks view arrives via the
-  // droppedModpack rune. Consume and reset immediately. A drag-drop
-  // import has no Browse-flow context, so clear any stale hints first.
+  // A modpack dropped on the Modpacks view arrives via the droppedModpack rune (routed by the
+  // window drop router). Consume and reset immediately. A drag-drop import has no Browse-flow
+  // context, so clear any stale hints first.
   $effect(() => {
     const v = droppedModpack.value;
     if (v !== null) {
@@ -99,28 +98,14 @@
     }
   });
 
-  // Window-level drag-drop listener scoped to this view's lifetime —
-  // Modpacks moved out of MainTabs into the sidebar, so MainTabs no
-  // longer routes .mrpack/.zip drops. The listener (re)mounts when
-  // the user opens the Modpacks view and tears down on close, so
-  // there's never more than one active.
+  // While this view is up it owns every OS file drop (DESIGN.md §14): the app's single window
+  // drop router hands it the pack and routes nothing to the tab under the modal, whose drop box
+  // stays dark. It has no listener of its own — Tauri gives every listener the same event, so a
+  // second one took the same drop again (a .zip landed here AND in the Add-ons tab underneath).
   onMount(() => {
-    const pending = getCurrentWebview().onDragDropEvent((event) => {
-      const t = (event as { payload: { type: string; paths?: string[] } }).payload.type;
-      if (t === 'enter' || t === 'over') {
-        dragActive.value = true;
-      } else if (t === 'leave') {
-        dragActive.value = false;
-      } else if (t === 'drop') {
-        dragActive.value = false;
-        const paths =
-          (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
-        const pack = paths.find((p) => /\.(mrpack|zip)$/i.test(p));
-        if (pack) droppedModpack.value = pack;
-      }
-    });
+    modpacksActive.value = true;
     return () => {
-      void pending.then((un) => un());
+      modpacksActive.value = false;
     };
   });
 
@@ -329,6 +314,7 @@
       {#if !(activeSub === 'imported' && importedEmpty)}
         <FileDropzone
           variant="strip"
+          target="modpack"
           label={$t('modpacks.tab.dropzoneLabel')}
           disabled={importDisabledReason !== null}
           disabledLabel={importDisabledReason ?? undefined}
@@ -406,6 +392,7 @@
      shows, so the hidden list never holds a second one. -->
 {#snippet importedDropzone()}
   <FileDropzone
+    target="modpack"
     label={$t('modpacks.tab.dropzoneLabel')}
     disabled={importDisabledReason !== null}
     disabledLabel={importDisabledReason ?? undefined}

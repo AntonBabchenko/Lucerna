@@ -283,6 +283,7 @@
         <div data-tour-ctx="server-addons-dropzone">
           <FileDropzone
             variant="strip"
+            target="server-content"
             label={dropzoneLabel}
             disabled={addBlockedLabel !== null}
             disabledLabel={addBlockedLabel ?? undefined}
@@ -375,6 +376,7 @@
 {#snippet installedDropzone()}
   <div data-tour-ctx="server-addons-dropzone">
     <FileDropzone
+      target="server-content"
       label={dropzoneLabel}
       disabled={addBlockedLabel !== null}
       disabledLabel={addBlockedLabel ?? undefined}

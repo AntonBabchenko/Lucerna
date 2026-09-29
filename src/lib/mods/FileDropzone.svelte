@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { dragActive } from '$lib/settings/state.svelte';
+  import type { DropTarget } from '$lib/layout/drop-router';
+  import { dropPreview } from '$lib/settings/state.svelte';
 
   // A local-file install affordance (DESIGN.md §14, the dropzone rule). Presentational: the drop
-  // itself is taken by the window-level Tauri drag-drop listeners that set `dragActive` —
-  // +page.svelte (client Add-ons and Worlds, server Add-ons), ModpacksTab (the Modpacks modal) and
-  // ServerImportView — never by this box, so a per-box listener cannot fight them. Those events
-  // are the webview's own (enter / over / leave / drop for the whole window — no nested DOM
-  // dragenter / dragleave to count): `leave` also ends a drag that left the window or was
-  // cancelled, and `drop` ends one that landed.
+  // itself is taken by the app's single window-level listener (`listenForFileDrops`), never by
+  // this box, so a per-box listener cannot fight it. That listener's router names the box a drag
+  // is headed for (`dropPreview.target`): only that box lights up — so the Add-ons strip stays dark
+  // under the open Modpacks modal, which owns every drop while it is up. `target` says which box
+  // this one is. The events are the webview's own (enter / over / leave / drop for the whole
+  // window — no nested DOM dragenter / dragleave to count): `leave` also ends a drag that left the
+  // window or was cancelled, and `drop` ends one that landed.
   //  - 'full' (default): the big dashed box — an empty list, and the server-import view.
   //  - 'strip': a thin bar above a list or catalog. While a file is dragged it also paints an
   //    overlay over its HOST's content area: the nearest positioned ancestor, so every strip host
@@ -15,6 +17,7 @@
   //    opacity-only (§12), `pointer-events: none`, `aria-hidden` — and can never swallow a drop.
   // Either way the box itself stays the button that opens the file picker (click, Enter, Space).
   let {
+    target,
     label,
     disabled = false,
     disabledLabel,
@@ -22,6 +25,8 @@
     dragLabel,
     onClick,
   }: {
+    /** Which drop box this is — the router's name for it. */
+    target: DropTarget;
     label: string;
     disabled?: boolean;
     disabledLabel?: string;
@@ -32,7 +37,7 @@
   } = $props();
 
   // A disabled box takes nothing, so it lights up for nothing.
-  const dragging = $derived(dragActive.value && !disabled);
+  const dragging = $derived(dropPreview.value?.target === target && !disabled);
 
   function activate() {
     if (!disabled) onClick();
@@ -47,7 +52,7 @@
   class:border-accent={dragging}
   class:bg-accent-soft={dragging}
   class:border-border-emphasis={!dragging}
-  class:hover:border-accent={!disabled && !dragActive.value}
+  class:hover:border-accent={!disabled && dropPreview.value === null}
   class:opacity-50={disabled}
   onclick={activate}
   onkeydown={(e) => {

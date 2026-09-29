@@ -804,6 +804,7 @@
   <div class={variant === 'strip' ? 'px-3 pt-3' : ''} data-tour-ctx="addons-dropzone">
     <FileDropzone
       {variant}
+      target={kind === 'mod' ? 'client-mods' : 'client-assets'}
       label={dropzone.label}
       disabled={dropzone.disabled}
       disabledLabel={dropzone.disabledLabel}

@@ -1,18 +1,24 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { dropPreview } from '$lib/settings/state.svelte';
 import FileDropzone from '../src/lib/mods/FileDropzone.svelte';
 
+// A drag the window drop router sends to this box (`target: 'client-mods'`, as every case below
+// renders it). Which box a drag goes to is the router's business: tests/window-drop-owner.test.ts.
+const dragHere = () => {
+  dropPreview.value = { target: 'client-mods' };
+};
+
 describe('FileDropzone', () => {
-  afterEach(async () => {
-    const { dragActive } = await import('$lib/settings/state.svelte');
-    dragActive.value = false;
+  afterEach(() => {
+    dropPreview.value = null;
   });
 
   it('renders its label and calls onClick when clicked', async () => {
     const onClick = vi.fn();
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'Drop a .jar here', onClick },
+      props: { target: 'client-mods', label: 'Drop a .jar here', onClick },
     });
     await fireEvent.click(getByTestId('file-dropzone'));
     expect(onClick).toHaveBeenCalledOnce();
@@ -22,6 +28,7 @@ describe('FileDropzone', () => {
     const onClick = vi.fn();
     const { getByTestId } = render(FileDropzone, {
       props: {
+        target: 'client-mods',
         label: 'Drop a .jar here',
         disabled: true,
         disabledLabel: 'Pick an instance first',
@@ -34,23 +41,26 @@ describe('FileDropzone', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it('reflects the dragActive rune in its highlight class', async () => {
+  it('highlights while a drag is headed for it', async () => {
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'Drop a .jar here', onClick: () => {} },
+      props: { target: 'client-mods', label: 'Drop a .jar here', onClick: () => {} },
     });
-    const { dragActive } = await import('$lib/settings/state.svelte');
     expect(getByTestId('file-dropzone').className).not.toContain('bg-accent-soft');
-    dragActive.value = true;
+    dragHere();
     await tick();
     expect(getByTestId('file-dropzone').className).toContain('bg-accent-soft');
   });
 
   it('does not show the drag highlight while disabled', async () => {
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'Drop a .jar here', disabled: true, onClick: () => {} },
+      props: {
+        target: 'client-mods',
+        label: 'Drop a .jar here',
+        disabled: true,
+        onClick: () => {},
+      },
     });
-    const { dragActive } = await import('$lib/settings/state.svelte');
-    dragActive.value = true;
+    dragHere();
     await tick();
     // A disabled dropzone stays muted even mid-drag — the highlight is
     // gated on `!disabled`.
@@ -59,7 +69,7 @@ describe('FileDropzone', () => {
 
   it('is the full box by default and paints no overlay', () => {
     const { getByTestId, queryByTestId } = render(FileDropzone, {
-      props: { label: 'Drop', onClick: () => {} },
+      props: { target: 'client-mods', label: 'Drop', onClick: () => {} },
     });
     expect(getByTestId('file-dropzone').dataset.variant).toBe('full');
     expect(queryByTestId('file-dropzone-overlay')).toBeNull();
@@ -69,10 +79,10 @@ describe('FileDropzone', () => {
   // decorative — the window-level listener takes the drop — so it can never swallow a pointer
   // event or reach a screen reader; the strip stays the file-picker button, by keyboard too.
   it('a strip paints a decorative overlay with its drag label while a file is dragged', async () => {
-    const { dragActive } = await import('$lib/settings/state.svelte');
     const onClick = vi.fn();
     const { getByTestId } = render(FileDropzone, {
       props: {
+        target: 'client-mods',
         label: 'Drop a .jar here',
         dragLabel: 'Drop to add to “Test”',
         variant: 'strip',
@@ -83,12 +93,12 @@ describe('FileDropzone', () => {
     expect(overlay.className).toContain('opacity-0');
     expect(overlay.className).toContain('pointer-events-none');
     expect(overlay.getAttribute('aria-hidden')).toBe('true');
-    dragActive.value = true;
+    dragHere();
     await tick();
     expect(overlay.className).toContain('opacity-100');
     expect(overlay.textContent).toContain('Drop to add to “Test”');
     expect(getByTestId('file-dropzone').className).toContain('bg-accent-soft');
-    dragActive.value = false;
+    dropPreview.value = null;
     await tick();
     expect(overlay.className).toContain('opacity-0');
     const strip = getByTestId('file-dropzone');
@@ -98,11 +108,16 @@ describe('FileDropzone', () => {
   });
 
   it('a disabled strip keeps its overlay hidden mid-drag', async () => {
-    const { dragActive } = await import('$lib/settings/state.svelte');
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'x', variant: 'strip', disabled: true, onClick: () => {} },
+      props: {
+        target: 'client-mods',
+        label: 'x',
+        variant: 'strip',
+        disabled: true,
+        onClick: () => {},
+      },
     });
-    dragActive.value = true;
+    dragHere();
     await tick();
     expect(getByTestId('file-dropzone-overlay').className).toContain('opacity-0');
   });
