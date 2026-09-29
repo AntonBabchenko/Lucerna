@@ -23,6 +23,11 @@ const tourCard = (id: string) =>
   document.querySelector(
     `[data-testid="contextual-tour-popover"][aria-labelledby="ctx-tour-title-${id}"]`,
   );
+const primaryButton = (): HTMLElement => {
+  const el = document.querySelector<HTMLElement>('[data-tour-primary]');
+  if (!el) throw new Error('no tour primary button on screen');
+  return el;
+};
 const anyTourPaint = () =>
   document.querySelector(
     '[data-testid="contextual-tour-popover"], [data-testid="contextual-tour-scrim"], [data-testid="contextual-tour-spotlight"]',
@@ -40,7 +45,7 @@ describe('a contextual tour steps aside for whatever opens over it', () => {
   it('an (i) opened during the tour is shown clear; Escape closes it and the tour returns on the same step', async () => {
     render(TourLayering);
     await settle();
-    await fireEvent.click(document.querySelector<HTMLElement>('[data-tour-primary]')!);
+    await fireEvent.click(primaryButton());
     await settle();
     expect(screen.getByText(/Step 2 of 2/)).toBeTruthy();
 
