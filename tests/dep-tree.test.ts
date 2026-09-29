@@ -34,8 +34,6 @@ describe('DepTree', () => {
     render(DepTree, {
       props: {
         nodes: tree,
-        hoveredKey: null,
-        onHover: () => {},
         onInstall,
         onAdd: () => {},
         onOpenDetail: () => {},
@@ -51,8 +49,6 @@ describe('DepTree', () => {
     render(DepTree, {
       props: {
         nodes: tree,
-        hoveredKey: null,
-        onHover: () => {},
         onInstall: () => {},
         onAdd: () => {},
         onOpenDetail: () => {},
@@ -67,8 +63,6 @@ describe('DepTree', () => {
     render(DepTree, {
       props: {
         nodes: tree,
-        hoveredKey: null,
-        onHover: () => {},
         onInstall: () => {},
         onAdd: () => {},
         onJump,
@@ -87,8 +81,6 @@ describe('DepTree', () => {
     render(DepTree, {
       props: {
         nodes: tree,
-        hoveredKey: null,
-        onHover: () => {},
         onInstall: () => {},
         onAdd: () => {},
         onJump,
@@ -160,8 +152,6 @@ const leaf = (pid: string, over: Partial<DepTreeNode> = {}): DepTreeNode => ({
 });
 const treeProps = (over: Record<string, unknown> = {}) => ({
   nodes: [leaf('a', { children: [leaf('b', { children: [leaf('c')] })] }), leaf('d')],
-  hoveredKey: null,
-  onHover: () => {},
   onInstall: () => {},
   onAdd: () => {},
   onOpenDetail: () => {},
@@ -182,8 +172,6 @@ describe('DepSection — headings state the relation; nothing to dismiss', () =>
       optional: [{ ...absent('PO', 'Extras'), declared: 'optional' as const }],
     },
     requiredBy: [{ name: 'Gamma', source: 'modrinth' as const, projectId: 'PG', sha1: 'g' }],
-    hoveredKey: null,
-    onHover: () => {},
     onInstall: () => {},
     onJump: () => {},
     onOpenDetail: () => {},
@@ -237,8 +225,6 @@ describe('DepSection / DepTree — dependencies the platform could not describe'
       deps_unknown,
     },
     requiredBy: [{ name: 'Gamma', source: 'modrinth' as const, projectId: 'PG', sha1: 'g' }],
-    hoveredKey: null,
-    onHover: () => {},
     onInstall: () => {},
     onJump: () => {},
     onOpenDetail: () => {},
@@ -477,10 +463,16 @@ describe('DepTree — a WAI-ARIA tree', () => {
     expect(item('E').getAttribute('tabindex')).toBe('-1');
   });
 
-  it('hover highlights but never selects', () => {
-    render(DepTree, { props: treeProps({ hoveredKey: 'modrinth:d' }) });
+  // aria-selected follows the tab stop, never the pointer (spec §6.3) — 0.25.0 selected the
+  // hovered item. Pointing marks nothing either (tests/installed-cross-highlight.test.ts).
+  it('pointing at an item never selects it', async () => {
+    render(DepTree, { props: treeProps() });
+    const row = item('D').querySelector('.tree-row') as HTMLElement;
+    await fireEvent.mouseEnter(item('D'));
+    await fireEvent.mouseEnter(row);
+    await fireEvent.mouseOver(row);
     expect(item('D').getAttribute('aria-selected')).toBe('false');
-    expect(item('D').querySelector('.tree-row')?.classList.contains('dep-highlight')).toBe(true);
+    expect(item('A').getAttribute('aria-selected')).toBe('true');
   });
 });
 

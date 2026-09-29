@@ -94,12 +94,19 @@ describe('↗ to the mod a «What stops the game» row is about', () => {
     await fireEvent.input(search(), { target: { value: 'zzz' } });
     await waitFor(() => expect(document.querySelector('[data-mod-row]')).toBeNull());
 
-    await fireEvent.click(jump);
+    // Shown = back in the list and scrolled into view; nothing marks the row beyond that.
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    try {
+      await fireEvent.click(jump);
 
-    await waitFor(() => {
-      const row = document.querySelector('[data-mod-row="modrinth:PA"]');
-      expect(row?.classList.contains('dep-highlight')).toBe(true);
-    });
+      await waitFor(() => {
+        const row = document.querySelector('[data-mod-row="modrinth:PA"]');
+        expect(row).not.toBeNull();
+        expect(scrolled.mock.contexts).toContain(row);
+      });
+    } finally {
+      scrolled.mockRestore();
+    }
     expect((search() as HTMLInputElement).value).toBe('');
     expect(h.pushInfo).not.toHaveBeenCalled();
   });
