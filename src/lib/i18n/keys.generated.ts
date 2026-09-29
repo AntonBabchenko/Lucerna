@@ -126,6 +126,7 @@ export type TranslationKey =
   | 'common.dismissWarning'
   | 'common.dismissWarningTooltip'
   | 'common.dropNotAdded'
+  | 'common.dropSkip.modal'
   | 'common.dropSkip.noInstance'
   | 'common.dropSkip.nowhere'
   | 'common.dropSkip.oneModpack'

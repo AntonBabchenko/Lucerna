@@ -22,6 +22,10 @@
   // store + OperationsBar strip), so closing mid-import is also safe: the
   // strip keeps running and the page lands the user on the new instance
   // (which takes visible effect once they close the modal themselves).
+  //
+  // Its body (ModpacksTab) takes OS file drops — the window drop router hands
+  // it a dropped pack — so the modal tells the dialog stack it does
+  // (`takesFileDrops`): only a dialog on top of it leaves its drop box out.
   let {
     open = false,
     onClose,
@@ -37,6 +41,7 @@
   <Modal
     ariaLabelledby="modpacks-modal-title"
     {onClose}
+    takesFileDrops
     panelClass="w-[92vw] h-[92vh] flex flex-col"
   >
     <header

@@ -23,6 +23,7 @@
     "dropNotAdded": "{count, plural, one {# file wasn't added} other {# files weren't added}}",
     "dropSkip": {
       "nowhere": "Files can't be added here",
+      "modal": "Close the dialog to add files",
       "noInstance": "Select an instance first",
       "onlyMods": "Only mod .jar files can be added here",
       "onlyPlugins": "Only plugin .jar files can be added here",

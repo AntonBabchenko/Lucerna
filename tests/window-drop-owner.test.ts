@@ -9,7 +9,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, within } from '@testing-library/svelte';
-import { tick } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { DropContext } from '$lib/layout/drop-router';
@@ -78,11 +78,16 @@ import {
   droppedModpack,
   droppedMods,
   droppedServer,
+  modpacksActive,
   serverImportActive,
 } from '$lib/settings/state.svelte';
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
+import Modal, { modalBlocksFileDrops } from '$lib/ui/Modal.svelte';
+import ModpacksModalUnderDialog from './fixtures/ModpacksModalUnderDialog.svelte';
 
 // The page's context on the client Add-ons tab, Resource packs showing.
 const addonsResourcePacks: DropContext = {
+  modalOnTop: false,
   modpacksOpen: false,
   serverImportOpen: false,
   dataRootFellBack: false,
@@ -114,6 +119,7 @@ afterEach(() => {
   droppedModpack.value = null;
   droppedMods.value = null;
   droppedServer.value = null;
+  for (const x of toastList()) dismiss(x.id);
 });
 
 describe('the Modpacks modal owns the drop while it is open', () => {
@@ -203,6 +209,72 @@ describe('the server-import view owns the drop only where it can be seen', () =>
   });
 });
 
+// Only the topmost surface takes a drop. Every dialog covers the whole window with its scrim, so
+// one that takes no files (Settings, Manage, a mod's details, the skin editor) leaves everything
+// under it out: the Add-ons strip used to light up behind it and take the file, and a pack dropped
+// on Settings — opened from the Modpacks modal's own banner — went to the Modpacks view beneath.
+describe('only the topmost surface takes a drop', () => {
+  // The page's context, with the live flags +page.svelte reads: the Modpacks view's own, and the
+  // dialog stack's answer to "is a dialog that takes no files on top?".
+  const live = (ctx: DropContext) => () => ({
+    ...ctx,
+    modpacksOpen: modpacksActive.value,
+    modalOnTop: modalBlocksFileDrops(),
+  });
+  const settingsBody = createRawSnippet(() => ({ render: () => '<div><p>Settings</p></div>' }));
+  const warnings = () => toastList().filter((x) => x.kind === 'warning');
+  const CLOSE_FIRST = 'Close the dialog to add files';
+
+  it('behind a dialog that takes no files the Add-ons box stays dark, and the drop says why', async () => {
+    const addons = render(FileDropzone, {
+      props: {
+        variant: 'strip',
+        target: 'client-assets',
+        label: 'Drop a resource pack .zip here',
+        dragLabel: 'Drop to add to “P”',
+        onClick: () => {},
+      },
+    });
+    render(Modal, { props: { onClose: vi.fn(), ariaLabel: 'Settings', children: settingsBody } });
+    stop = listenForFileDrops(live(addonsResourcePacks));
+    await tick();
+
+    drag.emit({ type: 'enter', paths: ['C:/packs/pack.zip'] });
+    await tick();
+    expect(within(addons.container).getByTestId('file-dropzone-overlay').className).toContain(
+      'opacity-0',
+    );
+
+    drag.emit({ type: 'drop', paths: ['C:/packs/pack.zip'] });
+    await tick();
+    expect(droppedAssets.value).toBeNull();
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0].lines).toEqual([`pack.zip: ${CLOSE_FIRST}`]);
+  });
+
+  it('the Modpacks modal on top takes its drop — until a dialog opens over it', async () => {
+    const view = render(ModpacksModalUnderDialog, { props: { dialogOnTop: false } });
+    stop = listenForFileDrops(live(addonsResourcePacks));
+    await tick();
+
+    drag.emit({ type: 'drop', paths: ['C:/packs/a.zip'] });
+    await settle();
+    expect(vi.mocked(commands.modpackInspect)).toHaveBeenCalledTimes(1);
+    expect(warnings()).toHaveLength(0);
+
+    await view.rerender({ dialogOnTop: true });
+    drag.emit({ type: 'enter', paths: ['C:/packs/b.zip'] });
+    await tick();
+    expect(within(view.container).getByTestId('file-dropzone-overlay').className).toContain(
+      'opacity-0',
+    );
+    drag.emit({ type: 'drop', paths: ['C:/packs/b.zip'] });
+    await settle();
+    expect(vi.mocked(commands.modpackInspect)).toHaveBeenCalledTimes(1);
+    expect(warnings()[0].lines).toEqual([`b.zip: ${CLOSE_FIRST}`]);
+  });
+});
+
 describe('one listener, one decision', () => {
   function sourceFiles(dir: string, acc: string[] = []): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -226,8 +298,10 @@ describe('one listener, one decision', () => {
     expect(start, 'the page mounts listenForFileDrops').toBeGreaterThan(-1);
     const call = page.slice(start, page.indexOf('}),', start));
     for (const wiring of [
+      'modalOnTop: modalBlocksFileDrops()',
       'modpacksOpen: modpacksActive.value',
       'serverImportOpen: serverImportActive.value',
+      'clientTab: clientActiveTab.value',
     ])
       expect(call.includes(wiring), wiring).toBe(true);
   });

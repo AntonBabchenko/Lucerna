@@ -90,6 +90,7 @@
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { debounceTrailing } from '$lib/ui/debounce';
+  import { modalBlocksFileDrops } from '$lib/ui/Modal.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import { SvelteMap } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
@@ -820,13 +821,15 @@
 
   // The app's single window-level drag-drop listener (DESIGN.md §14): +page owns both mode panels
   // and every surface that takes files, so it owns the window event and hands the router this
-  // context — the surfaces that own drops while they are up (the Modpacks modal, the server-import
-  // view) first. Its own synchronous onMount — a cleanup returned from the async onMount below
-  // would be ignored (see the onDestroy teardown note further down).
+  // context — whether a dialog that takes no files is on top of everything, then the surfaces that
+  // own drops while they are up (the Modpacks modal, the server-import view). Its own synchronous
+  // onMount — a cleanup returned from the async onMount below would be ignored (see the onDestroy
+  // teardown note further down).
   onMount(() =>
     listenForFileDrops(() => {
       const selectedServer = serverState.list.find((s) => s.id === serversUi.selectedServerId);
       return {
+        modalOnTop: modalBlocksFileDrops(),
         modpacksOpen: modpacksActive.value,
         serverImportOpen: serverImportActive.value,
         dataRootFellBack: dataLocation.fellBack,

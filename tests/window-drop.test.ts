@@ -40,6 +40,7 @@ import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
 
 // The page's context on the client Add-ons tab, Mods showing, a profile with a loader selected.
 const mods: DropContext = {
+  modalOnTop: false,
   modpacksOpen: false,
   serverImportOpen: false,
   dataRootFellBack: false,

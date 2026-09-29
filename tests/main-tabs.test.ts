@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus } from '$lib/ipc/bindings';
+import { planDrop } from '$lib/layout/drop-router';
 import MainTabs from '$lib/layout/MainTabs.svelte';
 import { resetAddonsViewMemory } from '$lib/mods/addons-view-memory.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
@@ -129,7 +130,7 @@ describe('MainTabs', () => {
 describe('MainTabs active-tab mirror', () => {
   afterEach(async () => {
     const s = await import('$lib/settings/state.svelte');
-    s.clientActiveTab.value = 'overview';
+    s.clientActiveTab.value = null;
   });
 
   it('publishes the active tab to clientActiveTab for the window drop router', async () => {
@@ -138,6 +139,39 @@ describe('MainTabs active-tab mirror', () => {
     expect(clientActiveTab.value).toBe('overview');
     await fireEvent.click(screen.getByRole('tab', { name: 'Worlds' }));
     expect(clientActiveTab.value).toBe('worlds');
+  });
+
+  // Compact mode unmounts the whole content column, MainTabs with it. A mirror left at
+  // 'mod_browser' routed a jar dropped on the compact window into a list nobody consumed — it
+  // installed later, on the next visit to Add-ons, with no word at all.
+  it('takes the mirror back when it goes, so a drop on the compact window reaches no hidden list', async () => {
+    const view = render(MainTabs, { props: {} });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
+    const { clientActiveTab } = await import('$lib/settings/state.svelte');
+    expect(clientActiveTab.value).toBe('mod_browser');
+
+    view.unmount();
+
+    expect(clientActiveTab.value).toBeNull();
+    const plan = planDrop(['C:/mods/a.jar'], {
+      modalOnTop: false,
+      modpacksOpen: false,
+      serverImportOpen: false,
+      dataRootFellBack: false,
+      mode: 'client',
+      clientTab: clientActiveTab.value,
+      addonsKind: 'mod',
+      canInstallMods: true,
+      instanceSelected: true,
+      serversTab: 'overview',
+      serverAddonsKind: null,
+      serverCanMutate: false,
+    });
+    expect(plan).toEqual({
+      host: null,
+      route: null,
+      skipped: [{ path: 'C:/mods/a.jar', why: 'nowhere' }],
+    });
   });
 });
 

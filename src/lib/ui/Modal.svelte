@@ -13,12 +13,23 @@
   //
   // $state so a reader outside this file can react to it: ToastHost moves the
   // toast stack out of an open modal's way. Module-level state cannot be
-  // exported directly, and nobody outside needs the ids — only the depth.
-  let openStack = $state<symbol[]>([]);
+  // exported directly, and nobody outside needs the ids — only the depth and
+  // what the topmost layer does with a file drop.
+  type Layer = { id: symbol; takesFileDrops: boolean };
+  let openStack = $state<Layer[]>([]);
 
   /** How many modals are open right now; 0 when none. Reactive. */
   export function modalDepth(): number {
     return openStack.length;
+  }
+
+  /** True while the topmost modal takes no OS file drops — then nothing does: its scrim covers
+   *  every drop box under it (DESIGN.md §14), which must neither light up behind it nor take the
+   *  files where nobody can see. False with no modal open, or when the topmost one takes drops
+   *  (the Modpacks modal). The window drop router reads it as `modalOnTop`. */
+  export function modalBlocksFileDrops(): boolean {
+    const top = openStack[openStack.length - 1];
+    return top !== undefined && !top.takesFileDrops;
   }
 </script>
 
@@ -47,6 +58,7 @@
     closeOnBackdrop = true,
     closeOnEscape = true,
     bare = false,
+    takesFileDrops = false,
     dataTestid,
     children,
   }: {
@@ -66,20 +78,25 @@
         surface inside if backdrop-click dismissal is wanted. Everything else
         (Escape stack, focus trap, role/aria) works as usual. */
     bare?: boolean;
+    /** The dialog's body takes OS file drops (the window drop router routes them to it — the
+        Modpacks modal). Any other dialog on top leaves every drop box under it out. Read once,
+        when the dialog opens. */
+    takesFileDrops?: boolean;
     /** Optional `data-testid` forwarded to the dialog panel element. */
     dataTestid?: string;
     children: Snippet;
   } = $props();
 
-  // Register in the open-modal stack so only the topmost handles Escape.
+  // Register in the open-modal stack so only the topmost handles Escape — and so
+  // the window drop router knows whether the topmost one takes a file drop.
   const id = Symbol('modal');
   onMount(() => {
-    openStack.push(id);
+    openStack.push({ id, takesFileDrops });
     return () => {
-      openStack = openStack.filter((s) => s !== id);
+      openStack = openStack.filter((s) => s.id !== id);
     };
   });
-  const isTopmost = () => openStack[openStack.length - 1] === id;
+  const isTopmost = () => openStack[openStack.length - 1]?.id === id;
 
   function onWindowKeydown(e: KeyboardEvent) {
     // A contextual onboarding tour (ContextualTour.svelte) renders its popover

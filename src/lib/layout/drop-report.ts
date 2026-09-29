@@ -9,6 +9,7 @@ import { pushWarning } from '$lib/toasts/toasts.svelte';
 // a compile error.
 const SKIP_KEY: Record<DropSkip, TranslationKey> = {
   nowhere: 'common.dropSkip.nowhere',
+  modal: 'common.dropSkip.modal',
   no_instance: 'common.dropSkip.noInstance',
   // A box that takes nothing right now: the words its own disabled strip shows.
   no_mod_loader: 'mods.browse.dropzoneDisabled',

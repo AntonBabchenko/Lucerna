@@ -6,11 +6,12 @@
   // itself is taken by the app's single window-level listener (`listenForFileDrops`), never by
   // this box, so a per-box listener cannot fight it. That listener's router names the box a drag
   // is headed for (`dropPreview.target`): only that box lights up — so the Add-ons strip stays dark
-  // under the open Modpacks modal, which owns every drop while it is up. `target` says which box
-  // this one is. The router also decides, from the dragged paths, what the drop will do here: the
-  // accent look (the promise to add) only when some of the files fit, with a note on what stays
-  // behind; a neutral look and the reason when none does. The events are the webview's own
-  // (enter / over / leave / drop for the whole window — no nested DOM dragenter / dragleave to
+  // under the open Modpacks modal, which owns every drop while it is up, and every box stays dark
+  // under a dialog that takes no files (only the topmost surface takes a drop). `target` says
+  // which box this one is. The router also decides, from the dragged paths, what the drop will do
+  // here: the accent look (the promise to add) only when some of the files fit, with a note on
+  // what stays behind; a neutral look and the reason when none does. The events are the webview's
+  // own (enter / over / leave / drop for the whole window — no nested DOM dragenter / dragleave to
   // count): `leave` also ends a drag that left the window or was cancelled, and `drop` ends one
   // that landed.
   //  - 'full' (default): the big dashed box — an empty list, and the server-import view.

@@ -143,8 +143,11 @@ export const droppedAssets = $state<{ value: { kind: ContentKind; paths: string[
 export const droppedWorld = $state<{ value: string[] | null }>({ value: null });
 
 // MainTabs' active tab, mirrored for the window drop router in +page.svelte
-// (the router must know whether the client is on Add-ons or Worlds).
-export const clientActiveTab = $state<{ value: string }>({ value: 'overview' });
+// (the router must know whether the client is on Add-ons or Worlds). Null
+// while MainTabs is not mounted — compact mode unmounts the whole content
+// column, and a tab left behind here would route a drop into a list nobody
+// consumes (same lifecycle contract as `addonsKind` below).
+export const clientActiveTab = $state<{ value: string | null }>({ value: null });
 
 // ── Servers-mode add-ons drop routing ────────────────────────────────────────
 // The content kind currently shown by the servers Add-ons tab ('mod' |

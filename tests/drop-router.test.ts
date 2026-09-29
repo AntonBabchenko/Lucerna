@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { type DropContext, routeDrop } from '$lib/layout/drop-router';
+import { type DropContext, planDrop, routeDrop } from '$lib/layout/drop-router';
 
 const base: DropContext = {
+  modalOnTop: false,
   modpacksOpen: false,
   serverImportOpen: false,
   dataRootFellBack: false,
@@ -114,6 +115,31 @@ describe('routeDrop', () => {
         serverImportOpen: true,
       }),
     ).toEqual({ target: 'server-import', path: 'C:/srv' });
+  });
+
+  // Only the topmost surface takes a drop. A dialog that takes no files — Settings, Manage, a mod's
+  // details, the skin editor, a confirm — covers the whole window under its scrim, the Modpacks
+  // modal and the server-import view included: no box under it lights up or takes the files, and
+  // the drop says what to do instead of adding them where nobody can see.
+  it('a dialog on top that takes no files leaves every box under it out, and says why', () => {
+    const closeFirst = (path: string) => ({
+      host: null,
+      route: null,
+      skipped: [{ path, why: 'modal' }],
+    });
+    expect(planDrop(['C:/a.jar'], { ...base, modalOnTop: true })).toEqual(closeFirst('C:/a.jar'));
+    // Settings opened from the Modpacks modal's CurseForge-key banner sits on top of it.
+    expect(planDrop(['C:/pack.zip'], { ...base, modpacksOpen: true, modalOnTop: true })).toEqual(
+      closeFirst('C:/pack.zip'),
+    );
+    expect(
+      planDrop(['C:/srv'], {
+        ...base,
+        mode: 'servers',
+        serverImportOpen: true,
+        modalOnTop: true,
+      }),
+    ).toEqual(closeFirst('C:/srv'));
   });
 
   it('client mode: a server-import view left mounted in the hidden servers panel takes nothing', () => {

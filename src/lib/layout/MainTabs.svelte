@@ -74,9 +74,16 @@
   });
 
   // Mirror the active tab for the window-level drop router in +page.svelte
-  // (it routes drops by whether the client sits on Add-ons or Worlds).
+  // (it routes drops by whether the client sits on Add-ons or Worlds), and take
+  // it back when MainTabs goes: compact mode unmounts the whole content column,
+  // and a mirror left at 'mod_browser' routed a jar dropped on the compact
+  // window into a list nobody consumed — it installed on the next visit to
+  // Add-ons, unannounced. With no tab showing, the drop is refused and says so.
   $effect(() => {
     clientActiveTab.value = active;
+    return () => {
+      clientActiveTab.value = null;
+    };
   });
 </script>
 

@@ -10,10 +10,14 @@ import type { InstanceContentKind } from '$lib/mods/content-kind';
 import type { ServerAddonsKind } from '$lib/settings/state.svelte';
 
 export type DropContext = {
-  // A surface on top owns every drop while it is up (DESIGN.md §14): the
-  // Modpacks modal covers the whole window; the server-import view covers its
-  // servers panel — which stays mounted, hidden, in client mode, so there it
-  // owns nothing.
+  // Only the topmost surface takes a drop (DESIGN.md §14). A dialog that takes
+  // no files — Settings, Manage, a mod's details, the skin editor, a confirm —
+  // covers the whole window under its scrim, the surfaces below included: while
+  // one is on top nothing takes a drop (`modalBlocksFileDrops()`, Modal.svelte).
+  modalOnTop: boolean;
+  // A surface on top owns every drop while it is up: the Modpacks modal covers
+  // the whole window; the server-import view covers its servers panel — which
+  // stays mounted, hidden, in client mode, so there it owns nothing.
   modpacksOpen: boolean;
   serverImportOpen: boolean;
   // The configured data folder is unavailable and the launcher runs on a
@@ -23,8 +27,9 @@ export type DropContext = {
   mode: 'client' | 'servers';
   // Tab ids arrive as plain strings on purpose: the router predates the
   // ServerTab union change and must not import either tab union — callers
-  // pass their real union values.
-  clientTab: string;
+  // pass their real union values. `clientTab` is null while MainTabs is not
+  // mounted (compact mode unmounts the whole content column).
+  clientTab: string | null;
   addonsKind: ContentKind;
   canInstallMods: boolean;
   instanceSelected: boolean;
@@ -62,6 +67,8 @@ export type DropRoute =
 export type DropSkip =
   // Nothing on screen takes files.
   | 'nowhere'
+  // A dialog that takes no files is on top of whatever would.
+  | 'modal'
   // The box is there but takes nothing right now.
   | 'no_instance'
   | 'no_mod_loader'
@@ -88,9 +95,11 @@ export type DropPlan = {
   skipped: { path: string; why: DropSkip }[];
 };
 
-/** Which drop box takes a drop in `ctx`, or null when nothing on screen takes files. A surface on
- *  top comes first; under it, the mode's active tab (and kind) decides. */
+/** Which drop box takes a drop in `ctx`, or null when nothing on screen takes files. Only the
+ *  topmost surface can: a dialog that takes no files leaves everything under it out; a surface
+ *  that owns drops comes next; under it, the mode's active tab (and kind) decides. */
 export function dropHost(ctx: DropContext): DropHost | null {
+  if (ctx.modalOnTop) return null;
   if (ctx.modpacksOpen) return { target: 'modpack' };
   if (ctx.mode === 'servers') {
     if (ctx.serverImportOpen) return { target: 'server-import' };
@@ -156,7 +165,8 @@ function acceptOf(host: DropHost): { takes: (path: string) => boolean; other: Dr
 export function planDrop(paths: string[], ctx: DropContext): DropPlan {
   const host = dropHost(ctx);
   const skip = (list: string[], why: DropSkip) => list.map((path) => ({ path, why }));
-  if (host === null) return { host, route: null, skipped: skip(paths, 'nowhere') };
+  if (host === null)
+    return { host, route: null, skipped: skip(paths, ctx.modalOnTop ? 'modal' : 'nowhere') };
   const block = blockOf(host, ctx);
   if (block !== null) return { host, route: null, skipped: skip(paths, block) };
   const accept = acceptOf(host);
