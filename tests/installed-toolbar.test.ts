@@ -94,6 +94,38 @@ describe('InstalledToolbar view filter (single mutually-exclusive group)', () =>
   });
 });
 
+// Plan §5c V3 (screenshots n01, n01e): at the launcher's default 820 px the sticky toolbar took
+// four lines (163 px) — the chips alone two — and left the rows ~170 px of an 820×520 window. The
+// chips keep to one line that scrolls sideways (the rule: tests/scroll-row.test.ts), and the
+// controls pack tighter: the sort keeps its visible label only where the line has room for it, and
+// the update check never parts from its «checked …». Only a browser lays this out: these pin the
+// structure the re-render measures.
+describe('InstalledToolbar at the launcher’s default width', () => {
+  it('keeps the chips to one line that scrolls sideways, keyboard included', () => {
+    render(InstalledToolbar, { props: base() });
+    const group = screen.getByRole('radiogroup');
+    const line = screen.getByTestId('installed-filter-row');
+    expect(line.contains(group)).toBe(true);
+    expect(line.classList).toContain('scroll-row');
+    expect(group.className).not.toMatch(/\bflex-wrap\b/);
+    for (const chip of screen.getAllByRole('radio')) {
+      expect(chip.classList).toContain('shrink-0');
+      expect(chip.classList).toContain('whitespace-nowrap');
+    }
+  });
+
+  it('shows the sort label only where the line has room, and keeps the check with its time', () => {
+    render(InstalledToolbar, { props: { ...base(), checkedAtMs: Date.now() } });
+    // The Select keeps its accessible name, the label's text, at every width.
+    expect(screen.getByRole('combobox', { name: 'Sort:' })).toBeTruthy();
+    expect(screen.getByText('Sort:').className).toMatch(/max-\[1100px\]:hidden/);
+    const check = screen.getByRole('button', { name: /Check for updates/ });
+    const unit = screen.getByTestId('updates-checked-at').parentElement;
+    expect(unit?.contains(check)).toBe(true);
+    expect(unit?.className).toMatch(/\bwhitespace-nowrap\b/);
+  });
+});
+
 // Plan §5b V2 (screenshot 01f): Tab could land on a row under the sticky toolbar. The toolbar
 // reserves its own height in the Add-ons scroll container (the rule: tests/sticky-edge.test.ts).
 describe('InstalledToolbar keeps focus clear of itself', () => {

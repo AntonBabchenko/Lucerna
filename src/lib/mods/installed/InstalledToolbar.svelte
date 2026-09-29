@@ -9,6 +9,7 @@
   import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import { scrollRow } from '$lib/ui/scroll-row';
   import { stickyEdge } from '$lib/ui/sticky-edge';
   import type { SortBy, ViewFilter } from './installed-filters.svelte';
 
@@ -190,9 +191,13 @@
      carry every count. It reserves its height in the scroll container, so a focused row never
      hides under it (`stickyEdge`, WCAG 2.4.11), and shows its bottom edge while it is stuck —
      rows cut under it read as scrolled, not broken. The edge is there at rest, transparent, so
-     it appearing moves nothing. -->
+     it appearing moves nothing.
+     Compact in a narrow window (plan §5c V3: four lines, 163 px, at the default 820 px): the chips
+     keep to one line that scrolls sideways, and the controls pack tighter — the sort drops its
+     visible label at 1100 px and narrower (the Select keeps it as its name, and its value reads as a sort),
+     and the update check never parts from its «checked …». -->
 <div
-  class="sticky top-0 z-10 -mx-3 mb-2 space-y-2 border-b border-transparent bg-base px-3 pt-1 pb-2 data-[stuck]:border-border-subtle"
+  class="sticky top-0 z-10 -mx-3 mb-2 flex flex-col gap-2 border-b border-transparent bg-base px-3 pt-1 pb-2 data-[stuck]:border-border-subtle"
   data-testid="installed-toolbar"
   use:stickyEdge
 >
@@ -201,11 +206,11 @@
       type="search"
       placeholder={$t('mods.installed.filterPlaceholder')}
       aria-label={$t('mods.installed.filterAriaLabel')}
-      class="flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
+      class="min-w-40 flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
       bind:value={filter}
     />
     <div class="text-xs text-secondary inline-flex items-center gap-1">
-      {$t('mods.installed.sortLabel')}
+      <span class="max-[1100px]:hidden">{$t('mods.installed.sortLabel')}</span>
       <Select
         class="text-xs"
         ariaLabel={$t('mods.installed.sortLabel')}
@@ -214,28 +219,35 @@
         onChange={(v) => (sortBy = String(v) as SortBy)}
       />
     </div>
-    <span class="inline-flex" use:tooltip={{ text: checkDisabledReason, describe: false }}>
-      <BusyButton
-        busy={checking}
-        disabled={busy || counts.total === 0}
-        class="btn-secondary btn-xs"
-        onclick={onCheckUpdates}
-      >
-        <Icon name="refresh" class="icon-spin-hover" />
-        {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
-      </BusyButton>
+    <span class="inline-flex items-center gap-2 whitespace-nowrap">
+      <span class="inline-flex" use:tooltip={{ text: checkDisabledReason, describe: false }}>
+        <BusyButton
+          busy={checking}
+          disabled={busy || counts.total === 0}
+          class="btn-secondary btn-xs"
+          onclick={onCheckUpdates}
+        >
+          <Icon name="refresh" class="icon-spin-hover" />
+          {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
+        </BusyButton>
+      </span>
+      {#if checkedAtMs !== null && !checking}
+        <!-- A clock a moment behind the check still says "just now", never "−3s ago". -->
+        <span class="text-xs text-muted" data-testid="updates-checked-at"
+          >{$t('mods.updates.checkedAt', {
+            when: relativeTime($t, checkedAtMs, Math.max(now, checkedAtMs)),
+          })}</span
+        >
+      {/if}
     </span>
-    {#if checkedAtMs !== null && !checking}
-      <!-- A clock a moment behind the check still says "just now", never "−3s ago". -->
-      <span class="text-xs text-muted" data-testid="updates-checked-at"
-        >{$t('mods.updates.checkedAt', {
-          when: relativeTime($t, checkedAtMs, Math.max(now, checkedAtMs)),
-        })}</span
-      >
-    {/if}
     {#if updateCount > 0}
       <!-- Only opens the review (D9): the review runs the updates and shows their spinner. -->
-      <button type="button" class="btn-warning btn-xs" disabled={busy} onclick={onUpdateAll}>
+      <button
+        type="button"
+        class="btn-warning btn-xs whitespace-nowrap"
+        disabled={busy}
+        onclick={onUpdateAll}
+      >
         {$t('mods.installed.updateAll', { count: updateCount })}
       </button>
     {/if}
@@ -245,11 +257,22 @@
     <OverflowMenu items={moreItems} ariaLabel={$t('mods.installed.moreActions')} />
   </div>
   {#if counts.total > 0}
-    <ToggleChipGroup
-      options={filterOptions}
-      value={viewFilter}
-      onChange={(v) => (viewFilter = v as ViewFilter)}
-      ariaLabel={$t('mods.installed.filterGroupAriaLabel')}
-    />
+    <!-- One line that scrolls sideways (`scrollRow`, DESIGN.md §6): a fade on the side that has
+         more, a focused chip scrolled clear of it, the chosen one kept in view. `py-1 px-1` is
+         room for the focus ring, which the scrolling box would clip; the negative margins give
+         that room back, so the line sits where the chips did. -->
+    <div
+      class="scroll-row -mx-1 -my-1 px-1 py-1"
+      data-testid="installed-filter-row"
+      use:scrollRow={{ keepInView: '[aria-checked="true"]' }}
+    >
+      <ToggleChipGroup
+        wrap={false}
+        options={filterOptions}
+        value={viewFilter}
+        onChange={(v) => (viewFilter = v as ViewFilter)}
+        ariaLabel={$t('mods.installed.filterGroupAriaLabel')}
+      />
+    </div>
   {/if}
 </div>

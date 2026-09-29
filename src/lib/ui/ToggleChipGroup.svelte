@@ -26,11 +26,15 @@
     value,
     onChange,
     ariaLabel,
+    wrap = true,
   }: {
     options: Option[];
     value: string;
     onChange: (v: string) => void;
     ariaLabel: string;
+    /** False: one line whose chips never shrink or break — for a host that scrolls it sideways
+     *  (`use:scrollRow`, DESIGN.md §6). */
+    wrap?: boolean;
   } = $props();
 
   let btnEls = $state<(HTMLButtonElement | null)[]>([]);
@@ -54,7 +58,7 @@
   role="radiogroup"
   aria-label={ariaLabel}
   onkeydown={onKeydown}
-  class="inline-flex flex-wrap items-center gap-2"
+  class="inline-flex items-center gap-2 {wrap ? 'flex-wrap' : 'shrink-0 flex-nowrap'}"
 >
   {#each options as option, i (option.value)}
     {@const active = value === option.value}
@@ -66,7 +70,7 @@
       aria-checked={active}
       tabindex={active || (i === 0 && !options.some((o) => o.value === value)) ? 0 : -1}
       data-testid={option.testId}
-      class={toggleChipClass(active, option.tone)}
+      class="{toggleChipClass(active, option.tone)}{wrap ? '' : ' shrink-0 whitespace-nowrap'}"
       onclick={() => onChange(option.value)}
     >
       {#if option.icon}<Icon name={option.icon} size={14} class={tint} />{/if}

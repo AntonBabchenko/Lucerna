@@ -567,6 +567,45 @@ body[data-tour-active] .tour-overlay {
   @apply w-28;
 }
 
+/* A line that scrolls sideways instead of wrapping (DESIGN.md §6; `use:scrollRow` in
+   src/lib/ui/scroll-row.ts): the Installed toolbar's filter chips. A thin scrollbar where the
+   platform shows one, and a fade on each side that has more (`data-more-start` / `data-more-end`,
+   set by the action) — the affordance where the scrollbar hides at rest (macOS, GTK overlay
+   scrollbars). The fades are sticky overlays inside the line, in the page colour the toolbar sits
+   on, so they never cover the scrollbar; they take no pointer, so a click lands on the chip under
+   them. Opacity only (§12). */
+.scroll-row {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.scroll-row::before,
+.scroll-row::after {
+  content: '';
+  position: sticky;
+  z-index: 1;
+  flex: none;
+  width: 2rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.scroll-row::before {
+  left: 0;
+  margin-right: -2rem;
+  background: linear-gradient(to right, rgb(var(--bg-base)), transparent);
+}
+.scroll-row::after {
+  right: 0;
+  margin-left: -2rem;
+  background: linear-gradient(to left, rgb(var(--bg-base)), transparent);
+}
+.scroll-row[data-more-start]::before,
+.scroll-row[data-more-end]::after {
+  opacity: 1;
+}
+
 /* Amber wash behind a CardShell passed `highlighted` — today the installed
    version in a modpack's version list (ModpackVersionList).
    --warning-text is an RGB triple (no rgb() wrapper), so we construct the
