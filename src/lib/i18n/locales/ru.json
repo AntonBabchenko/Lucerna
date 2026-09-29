@@ -985,7 +985,7 @@
       "dependentGone": "{name} больше не установлен",
       "chooseVersion": "Выбрать версию",
       "fixPlan": "Исправить…",
-      "planLooking": "Подбираю исправление…",
+      "planLooking": "Подбор исправления…",
       "planUpdateDependent": "Обновить {dependent} до {version}",
       "planUpgradeDep": "Обновить {dep} до {version}",
       "planDowngradeDep": "Откатить {dep} до {version}",

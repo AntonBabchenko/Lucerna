@@ -7,6 +7,7 @@
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
 import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
 import type { PlanState } from '$lib/mods/violation-view';
@@ -540,6 +541,21 @@ describe('PreflightPanel — the planner', () => {
     });
     expect(screen.getByRole('status', { name: 'Looking for a fix…' })).toBeTruthy();
     expect(screen.queryByText('Fix…')).toBeNull();
+  });
+
+  // Plan §5c V3: «Подбираю исправление…» spoke in the first person, which no other status line
+  // does. It says what is going on, impersonally, like the English.
+  it('says so impersonally in Russian', () => {
+    locale.set('ru');
+    try {
+      const v = outOfRange();
+      render(PreflightPanel, {
+        props: { report: { violations: [v] }, plans: plansOf(v, { status: 'loading' }) },
+      });
+      expect(screen.getByRole('status', { name: 'Подбор исправления…' })).toBeTruthy();
+    } finally {
+      locale.set('en');
+    }
   });
 
   it('offers both sides once ready — the dependent first — and applies the one clicked', async () => {
