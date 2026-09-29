@@ -289,10 +289,16 @@ pub(crate) fn version_dirs(root: &Path, flavor: ForgeFlavor) -> Result<Vec<Strin
 
 /// Step 2b: root jars whose manifest names a pre-1.17 Forge server main.
 fn forge_root_jars(root: &Path) -> Vec<String> {
-    root_jar_names(root)
-        .into_iter()
-        .filter(|name| is_forge_server_jar(&root.join(name)))
-        .collect()
+    match root_jar_names(root) {
+        Ok(names) => names
+            .into_iter()
+            .filter(|name| is_forge_server_jar(&root.join(name)))
+            .collect(),
+        // An unlistable server folder: nothing in it can be named here.
+        // `detect` reports the loader as unknown from the same listing, and
+        // the launch reports that no launch file could be found or read.
+        Err(Unreadable) => Vec::new(),
+    }
 }
 
 /// `true` for a jar whose manifest `Main-Class` is a pre-1.17 Forge server
@@ -353,9 +359,15 @@ pub(crate) fn root_jar_versions(root: &Path, file: &str) -> (Answer, Option<Stri
     };
     let from_jar =
         declared.or_else(|| forge_raw_in_file_name(file).and_then(|raw| split_forge_raw(&raw)));
-    let mut mcs: BTreeSet<String> = from_jar.iter().map(|(mc, _)| mc.clone()).collect();
-    mcs.extend(vanilla_jar_mcs(root, file));
-    (Answer::of(mcs), from_jar.map(|(_, build)| build))
+    let build = from_jar.as_ref().map(|(_, build)| build.clone());
+    let mut mcs: BTreeSet<String> = from_jar.into_iter().map(|(mc, _)| mc).collect();
+    match vanilla_jar_mcs(root, file) {
+        Ok(vanilla) => mcs.extend(vanilla),
+        // The vanilla jars could not be listed, so a disagreement cannot be
+        // ruled out.
+        Err(Unreadable) => return (Answer::CannotTell, build),
+    }
+    (Answer::of(mcs), build)
 }
 
 /// The Forge coordinate's version in a Forge `version.json`
@@ -385,7 +397,7 @@ fn forge_raw_in_file_name(file: &str) -> Option<String> {
 /// MC of the vanilla jar a legacy Forge jar runs: the `minecraft_server.<mc>.jar`
 /// its own `Class-Path` names (1.7.10, 1.12.2), else every such jar in the root
 /// (1.16.5 does not list it).
-fn vanilla_jar_mcs(root: &Path, file: &str) -> BTreeSet<String> {
+fn vanilla_jar_mcs(root: &Path, file: &str) -> Result<BTreeSet<String>, Unreadable> {
     let class_path = match read_jar_text(&root.join(file), "META-INF/MANIFEST.MF") {
         Ok(Some(manifest)) => manifest_attr(&manifest, "Class-Path").unwrap_or_default(),
         Ok(None) => String::new(),
@@ -397,17 +409,18 @@ fn vanilla_jar_mcs(root: &Path, file: &str) -> BTreeSet<String> {
         .filter_map(vanilla_jar_mc)
         .collect();
     if !named.is_empty() {
-        return named;
+        return Ok(named);
     }
     vanilla_root_jar_mcs(root)
 }
 
-/// MC of every root `minecraft_server.<mc>.jar`.
-pub(crate) fn vanilla_root_jar_mcs(root: &Path) -> BTreeSet<String> {
-    root_jar_names(root)
+/// MC of every root `minecraft_server.<mc>.jar`; `Err` when the folder could
+/// not be listed.
+pub(crate) fn vanilla_root_jar_mcs(root: &Path) -> Result<BTreeSet<String>, Unreadable> {
+    Ok(root_jar_names(root)?
         .iter()
         .filter_map(|name| vanilla_jar_mc(name))
-        .collect()
+        .collect())
 }
 
 /// `<mc>` of `minecraft_server.<mc>.jar`, when it is a Minecraft version id.
@@ -442,8 +455,15 @@ pub(crate) struct FabricVersions {
 pub(crate) fn fabric_family_versions(root: &Path, kind: FabricKind) -> FabricVersions {
     let mut mcs = BTreeSet::new();
     let mut loaders = BTreeSet::new();
-    if kind == FabricKind::Fabric {
-        bundled_launcher_versions(root, &mut mcs, &mut loaders);
+    if kind == FabricKind::Fabric
+        && bundled_launcher_versions(root, &mut mcs, &mut loaders).is_err()
+    {
+        // The server folder could not be listed: a launcher we cannot see
+        // might name other versions, so nothing can be told.
+        return FabricVersions {
+            mc: Answer::CannotTell,
+            loader: Answer::CannotTell,
+        };
     }
     launch_jar_versions(root, kind, &mut mcs, &mut loaders);
     FabricVersions {
@@ -459,8 +479,8 @@ fn bundled_launcher_versions(
     root: &Path,
     mcs: &mut BTreeSet<String>,
     loaders: &mut BTreeSet<String>,
-) {
-    for name in root_jar_names(root) {
+) -> Result<(), Unreadable> {
+    for name in root_jar_names(root)? {
         let props = match read_jar_text(&root.join(&name), "install.properties") {
             Ok(Some(text)) => text,
             Ok(None) => continue,
@@ -477,6 +497,7 @@ fn bundled_launcher_versions(
             }
         }
     }
+    Ok(())
 }
 
 /// The installer-style launch jar's `Class-Path`, matched by path and never
@@ -501,19 +522,17 @@ fn launch_jar_versions(
         ),
     };
     let loader_prefix = format!("{}/", loader_rel(kind));
-    let mut launch_jar_present = false;
+    // Set only for a launch jar whose manifest reads: an unreadable one runs
+    // nothing, so the vanilla jar it would run says nothing either.
+    let mut launch_jar_readable = false;
     for jar in jars {
-        let path = root.join(jar);
-        if !path.is_file() {
-            continue;
-        }
-        launch_jar_present = true;
-        let manifest = match read_jar_text(&path, "META-INF/MANIFEST.MF") {
+        let manifest = match read_jar_text(&root.join(jar), "META-INF/MANIFEST.MF") {
             Ok(Some(manifest)) => manifest,
             Ok(None) => continue,
-            // Unreadable: the JVM could not start it either.
+            // Absent, or unreadable: the JVM could not start it either.
             Err(Unreadable) => continue,
         };
+        launch_jar_readable = true;
         let Some(class_path) = manifest_attr(&manifest, "Class-Path") else {
             continue;
         };
@@ -528,7 +547,7 @@ fn launch_jar_versions(
             }
         }
     }
-    if launch_jar_present {
+    if launch_jar_readable {
         mcs.extend(vanilla_id(root, props_file));
     }
 }
@@ -635,21 +654,28 @@ fn read_jar_text(jar: &Path, entry: &str) -> Result<Option<String>, Unreadable> 
     Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
 }
 
-/// Names of the regular `*.jar` files directly in `dir`.
-fn root_jar_names(dir: &Path) -> Vec<String> {
+/// Names of the regular `*.jar` files directly in `dir`, sorted: empty when
+/// `dir` does not exist, `Err` when it could not be listed.
+pub(crate) fn root_jar_names(dir: &Path) -> Result<Vec<String>, Unreadable> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
-        // A server folder that cannot be listed holds nothing launchable.
-        Err(_) => return Vec::new(),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err(Unreadable),
     };
-    let mut names: Vec<String> = entries
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
-        .filter(|name| name.to_ascii_lowercase().ends_with(".jar"))
-        .collect();
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|_| Unreadable)?;
+        if !entry.file_type().map_err(|_| Unreadable)?.is_file() {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            if name.to_ascii_lowercase().ends_with(".jar") {
+                names.push(name.to_string());
+            }
+        }
+    }
     names.sort();
-    names
+    Ok(names)
 }
 
 /// Sub-folder names of `dir`, sorted: empty when `dir` does not exist,

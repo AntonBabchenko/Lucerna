@@ -90,11 +90,11 @@ pub fn detect(root: &Path) -> Detected {
         // An old vanilla server keeps the version in its jar's name
         // (`minecraft_server.1.12.2.jar`); several such jars cannot be told
         // apart, and then a log from an earlier run cannot either.
-        let named = || {
-            answer_or_logs(
-                Answer::of(installed_loader::vanilla_root_jar_mcs(root)),
-                root,
-            )
+        let named = || match installed_loader::vanilla_root_jar_mcs(root) {
+            Ok(mcs) => answer_or_logs(Answer::of(mcs), root),
+            // The folder could not be listed: which jar is there, and so
+            // which version, cannot be told.
+            Err(_) => None,
         };
         return Detected {
             loader: Some(ServerCore::Vanilla),
@@ -147,14 +147,17 @@ pub fn can_launch_as_is(root: &Path, loader: ServerCore) -> bool {
 
 /// Forge or NeoForge, when its `libraries/` folder holds a version or (Forge)
 /// a pre-1.17 Forge server jar sits in the root. `None` when there is no
-/// trace of it — or an unknown loader when that folder exists but cannot be
+/// trace of it — or an unknown loader when a folder that would hold one (its
+/// `libraries/` folder, or for Forge the server folder itself) cannot be
 /// listed, since then it cannot be told apart from any other.
 fn detect_forge_family(root: &Path, flavor: ForgeFlavor) -> Option<Detected> {
     let install = installed_loader::resolve_forge_family(root, flavor, ArgsOs::current());
     let dirs = installed_loader::version_dirs(root, flavor);
     let has_dirs = matches!(&dirs, Ok(names) if !names.is_empty());
     if install == ForgeInstall::Absent && !has_dirs {
-        return dirs.is_err().then(|| unknown_loader(root));
+        let unlistable = dirs.is_err()
+            || (flavor == ForgeFlavor::Forge && installed_loader::root_jar_names(root).is_err());
+        return unlistable.then(|| unknown_loader(root));
     }
     let core = match flavor {
         ForgeFlavor::Forge => ServerCore::Forge,
@@ -502,28 +505,56 @@ mod tests {
 
     #[test]
     fn detects_neoforge_and_mc_from_libraries() {
+        // Installers write both OS args files; with both present the live
+        // install resolves on every CI OS (not the one-folder fallback).
         let d = tempdir().unwrap();
-        touch(
-            &d.path()
-                .join("libraries/net/neoforged/neoforge/20.4.237/win_args.txt"),
-        );
+        for f in ["win_args.txt", "unix_args.txt"] {
+            touch(
+                &d.path()
+                    .join(format!("libraries/net/neoforged/neoforge/20.4.237/{f}")),
+            );
+        }
         let r = detect(d.path());
         assert_eq!(r.loader, Some(ServerCore::NeoForge));
         assert_eq!(r.loader_version.as_deref(), Some("20.4.237"));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
+        assert!(can_launch_as_is(d.path(), ServerCore::NeoForge));
     }
 
     #[test]
     fn detects_forge_split_version() {
         let d = tempdir().unwrap();
-        touch(
-            &d.path()
-                .join("libraries/net/minecraftforge/forge/1.20.1-47.2.0/win_args.txt"),
-        );
+        forge_args_dir(d.path(), "1.20.1-47.2.0");
         let r = detect(d.path());
         assert_eq!(r.loader, Some(ServerCore::Forge));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.1"));
         assert_eq!(r.loader_version.as_deref(), Some("47.2.0"));
+        assert!(can_launch_as_is(d.path(), ServerCore::Forge));
+    }
+
+    #[test]
+    fn a_corrupt_fabric_launch_jar_does_not_vouch_for_its_vanilla_jar() {
+        use crate::servers_runtime::installed_loader::test_jars::jar;
+        let d = tempdir().unwrap();
+        // Truncated download: not a readable jar.
+        fs::write(
+            d.path().join("fabric-server-launch.jar"),
+            b"PK\x03\x04trunc",
+        )
+        .unwrap();
+        jar(
+            &d.path().join("server.jar"),
+            &[("version.json", r#"{"id":"1.21.1"}"#)],
+        );
+        touch(
+            &d.path()
+                .join("libraries/net/fabricmc/intermediary/1.20.4/x.jar"),
+        );
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Fabric));
+        // Only the version folder speaks; the vanilla jar a broken launcher
+        // would run says nothing.
+        assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
     }
 
     #[test]
