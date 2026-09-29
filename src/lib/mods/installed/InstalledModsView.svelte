@@ -885,6 +885,7 @@
   async function uninstall(row: Row) {
     if (!instanceId) return;
     const target = [{ sha1: row.installed.sha1, name: rowDisplayName(row) }];
+    const index = pagedIndexOf((r) => r.installed.sha1 === row.installed.sha1);
     data.error = null;
     shellBusy = true;
     try {
@@ -892,10 +893,40 @@
         await data.refresh();
         deps.reloadGraph();
         preflight.invalidate();
+        await refocusAfterRemoval(index);
       }
     } finally {
       shellBusy = false;
     }
+  }
+  // The bulk bar's Remove: the removed rows' place is where the first of them was.
+  async function bulkUninstall(): Promise<void> {
+    const index = pagedIndexOf((r) => selection.selected.has(r.installed.sha1));
+    await selection.requestBulkUninstall();
+    await refocusAfterRemoval(index);
+  }
+
+  // After a removal the control that had focus is gone with its row — the row's Remove, a dialog
+  // that returned focus to it, the bulk bar's Remove that left with the selection — and focus fell
+  // to <body> (plan §5b V2). It goes to the row now in that place: the next one, else the one
+  // before it, else the list — never pulled from wherever the user went meanwhile, and not at all
+  // after a cancel (focus came back to the control that asked).
+  let listEl = $state<HTMLElement | null>(null);
+  let emptyListEl = $state<HTMLElement | null>(null);
+  const pagedIndexOf = (hit: (r: Row) => boolean): number =>
+    Math.max(0, filters.paged.findIndex(hit));
+  async function refocusAfterRemoval(index: number): Promise<void> {
+    await tick();
+    if (typeof document === 'undefined') return;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active.isConnected) return;
+    const rows = listEl ? [...listEl.querySelectorAll<HTMLElement>('[data-mod-row]')] : [];
+    const row = rows[Math.min(index, rows.length - 1)];
+    // A row's first control (its checkbox), else the list's own first (select all), else the
+    // empty list, which says there is nothing left.
+    const into = (el: HTMLElement | null | undefined) =>
+      el?.querySelector<HTMLElement>('input, button') ?? null;
+    (into(row) ?? into(listEl) ?? emptyListEl)?.focus();
   }
 
   // «Перепроверить совместимость и зависимости» (⋯): the live compat check (it forces the
@@ -1095,13 +1126,19 @@
     <LoadingPanel label={$t('mods.installed.loading')} />
   {:else if listEmpty}
     <!-- The host's full drop area replaces its strip here (DESIGN.md §14). A list that could not
-         be read shows its error above, never «no mods». -->
-    <div class="pt-6 flex flex-col gap-3" data-testid="list-empty">
+         be read shows its error above, never «no mods». Focus lands here after the last removal
+         (`refocusAfterRemoval`): a parking place that reads the message, not a control. -->
+    <div
+      bind:this={emptyListEl}
+      tabindex="-1"
+      class="pt-6 flex flex-col gap-3 outline-none"
+      data-testid="list-empty"
+    >
       <p class="text-placeholder text-sm text-center">{$t('mods.installed.empty')}</p>
       {@render emptyDropzone?.()}
     </div>
   {:else if data.rows.length > 0}
-    <div class="border border-border-subtle rounded overflow-hidden">
+    <div bind:this={listEl} class="border border-border-subtle rounded overflow-hidden">
       <BulkActionBar
         allSelected={selection.allSelected}
         selectedCount={selection.selected.size}
@@ -1113,7 +1150,7 @@
         onEnable={() => selection.bulkSetEnabled(true)}
         onDisable={() => selection.bulkSetEnabled(false)}
         onUpdate={bulkUpdate}
-        onUninstall={selection.requestBulkUninstall}
+        onUninstall={() => void bulkUninstall()}
         onClear={selection.clear}
       />
       {#each filters.paged as row (row.installed.sha1)}

@@ -184,6 +184,65 @@ describe('InstalledModsView', () => {
     );
   });
 
+  // Plan §5b V2: the focused Remove button left with its row and focus fell to <body>. It goes to
+  // the row now in that place — the next one — else the one before it, else the empty list.
+  describe('focus after a removal', () => {
+    const jei = {
+      filename: 'jei.jar',
+      sha1: 'abc',
+      source: 'modrinth',
+      project_id: 'p',
+      version_id: 'v',
+      name: 'Just Enough Items',
+      version_number: '15.0',
+      installed_at: '2026-05-18T00:00:00Z',
+      enabled: true,
+    };
+    const mystery = {
+      filename: 'mystery.jar',
+      sha1: 'def',
+      source: null,
+      project_id: null,
+      version_id: null,
+      name: 'mystery.jar',
+      version_number: null,
+      installed_at: '2026-05-18T00:00:00Z',
+      enabled: false,
+    };
+    /** Lists `before`, then — the re-read after the removal — `after`; removes `index`. */
+    async function removeAt(before: unknown[], after: unknown[], index: number) {
+      const mod = await import('$lib/ipc/bindings');
+      vi.mocked(mod.commands.modsListInstalled)
+        .mockResolvedValueOnce({ status: 'ok', data: before } as never)
+        .mockResolvedValueOnce({ status: 'ok', data: after } as never);
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await waitFor(() => expect(screen.getAllByRole('group')).toHaveLength(before.length));
+      const remove = screen.getAllByRole('button', { name: 'Remove' })[index] as HTMLElement;
+      remove.focus();
+      await fireEvent.click(remove);
+      await waitFor(() => expect(screen.queryAllByRole('group')).toHaveLength(after.length));
+    }
+
+    it('goes to the next row', async () => {
+      await removeAt([jei, mystery], [mystery], 0);
+      const row = screen.getByRole('group', { name: 'mystery.jar' });
+      await waitFor(() => expect(row.contains(document.activeElement)).toBe(true));
+    });
+
+    it('goes to the row before when the last one went', async () => {
+      await removeAt([jei, mystery], [jei], 1);
+      const row = screen.getByRole('group', { name: 'Just Enough Items' });
+      await waitFor(() => expect(row.contains(document.activeElement)).toBe(true));
+    });
+
+    it('goes to the empty list when no row is left', async () => {
+      await removeAt([jei], [], 0);
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('list-empty')));
+    });
+  });
+
   it('asks what depends on a mod before disabling it', async () => {
     const mod = await import('$lib/ipc/bindings');
     render(InstalledModsView, {
