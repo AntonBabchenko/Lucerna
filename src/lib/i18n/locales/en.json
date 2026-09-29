@@ -2246,15 +2246,15 @@
       "addons": {
         "kindSwitch": {
           "title": "What you're adding",
-          "body": "This row switches what you're adding: mods, resource packs, shaders, or data packs (Beta), which appear on Minecraft 1.13 or newer. Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader.",
+          "body": "This row switches what you're adding: mods, resource packs, shaders, or data packs (Beta), which appear on Minecraft 1.13 or newer. Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader. The (i) at the end of the row explains the kind you picked and when you need it.",
           "titleBasic": "Pick what to add",
-          "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, or shaders. Data packs join the row on Minecraft 1.13 and newer. Shaders also need a shader loader, and Lucerna will point you to one if it's missing."
+          "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, or shaders. Data packs join the row on Minecraft 1.13 and newer. Shaders also need a shader loader, and Lucerna will point you to one if it's missing. The (i) at the end of the row explains what you picked."
         },
         "datapackLibrary": {
           "title": "Data packs live in worlds",
-          "body": "Data packs join the row on Minecraft 1.13 or newer. Installing one puts it into this instance's library first. From the library you place it into any of your worlds, and an update reaches every world that uses the pack. Pick Data packs, then Installed, and the question mark there has the full story.",
+          "body": "Data packs join the row on Minecraft 1.13 or newer. Installing one puts it into this instance's library first. From the library you place it into any of your worlds, and an update reaches every world that uses the pack. Pick Data packs, and the (i) at the end of this row has the full story.",
           "titleBasic": "Data packs live in worlds",
-          "bodyBasic": "A data pack changes the game's rules and content, like recipes or loot. It joins this row on Minecraft 1.13 and newer. Installing one puts it in this instance's library; from there you add it to the worlds you choose. Pick Data packs, then Installed, to read more."
+          "bodyBasic": "A data pack changes the game's rules and content, like recipes or loot. It joins this row on Minecraft 1.13 and newer. Installing one puts it in this instance's library; from there you add it to the worlds you choose. Pick Data packs, then the (i) at the end of this row, to read more."
         },
         "subtabs": {
           "title": "Browse and Installed",
@@ -2334,10 +2334,51 @@
       "p1Basic": "Data packs change parts of the game itself, like recipes, loot, and achievements. The game reads them on its own from Minecraft 1.13 on.",
       "p2": "Unlike a mod, a data pack is not code. It needs no mod loader, and it lives in a world rather than in the instance: each world enables or disables its packs on its own.",
       "p2Basic": "A data pack is not a mod: it needs no mod system, and it belongs to a world, not to the whole instance. Every world picks its own packs.",
+      "choose": "Pick a data pack when you want to change rules, recipes, loot, or world generation without a mod loader, for example on a vanilla server. A data pack can't add genuinely new blocks or mobs; only mods can.",
+      "chooseBasic": "A data pack is the way to change the game's rules without mods. New blocks and mobs come only from mods.",
       "p3": "In an instance, installing a pack puts it into that instance's library. From the library you place it into worlds; updating a pack updates every world that uses it, and removing it can sweep it from all of them. On a server, packs live in the server's world and are changed while the server is stopped. Vanilla Tweaks, the pack builder, is available right in the library.",
       "p3Basic": "In an instance, a pack you install goes into a library first. From there you add it to the worlds you choose; updates reach every world that uses it. On a server, packs sit in the server's world and are changed while the server is off. Vanilla Tweaks, a pack builder, sits in the library too.",
       "p4": "Data packs are marked Beta: the feature is complete and guarded, but newer than the rest of the launcher, and details may still change.",
       "p4Basic": "The Beta tag means this part of the launcher is newer than the rest, so small things about it may still change."
+    },
+    "modConcept": {
+      "triggerAriaLabel": "What are mods?",
+      "triggerTitle": "What are mods?",
+      "closeAriaLabel": "Close help",
+      "p1": "Mods are code that changes the game itself: they add blocks, items, mobs, dimensions, and mechanics, or improve the interface and performance.",
+      "p1Basic": "Mods change the game itself: they add new blocks, items, mobs, and mechanics.",
+      "p2": "A mod needs a mod loader (Fabric, Forge, NeoForge, or Quilt) and has to be built for the same loader and the same Minecraft version as the instance. Mods for different loaders don't mix, and many need other mods as dependencies.",
+      "p2Basic": "Mods need a loader (Fabric, Forge, NeoForge, or Quilt). A mod has to match this instance's loader and Minecraft version.",
+      "p3": "Mods install into the instance and work in all of its worlds. To play on a server, mods that add content usually have to be on the server and in every player's game; client-side ones (interface, minimaps, performance) are needed only by you.",
+      "p3Basic": "A mod goes into the instance and works in all of its worlds. To play with mods on a server, most of them have to be installed there too.",
+      "p4": "Pick a mod when the content or mechanic you want isn't in the game. If you only want a different look, a resource pack is enough; recipes, loot, and rules can often be changed with a data pack, no loader needed.",
+      "p4Basic": "Pick a mod when you want something new in the game. For different textures only, use a resource pack; for different recipes or loot, a data pack."
+    },
+    "resourcePackConcept": {
+      "triggerAriaLabel": "What are resource packs?",
+      "triggerTitle": "What are resource packs?",
+      "closeAriaLabel": "Close help",
+      "p1": "Resource packs change how the game looks and sounds: block and item textures, models, sounds, music, fonts, and text. They don't affect how the game plays.",
+      "p1Basic": "Resource packs change the game's look and sound: textures, sounds, fonts. The game itself stays the same.",
+      "p2": "No loader needed: resource packs work in plain Minecraft and alongside mods. The game marks a pack made for another version as incompatible, but you can still turn it on; some textures may not apply.",
+      "p2Basic": "No loader needed: resource packs work in any instance.",
+      "p3": "An installed pack goes into the instance; you turn it on and order it in the game itself, under Options → Resource Packs. Packs higher in the list override the ones below. Servers don't need them, and a server may offer its own pack when you join.",
+      "p3Basic": "After installing, turn the pack on in the game: Options → Resource Packs. It doesn't need to go on a server.",
+      "p4": "Pick a resource pack when you like the game but want it to look or sound different. Light, shadows, and reflections need shaders, and only mods add new items.",
+      "p4Basic": "Pick a resource pack for a different look. Nicer light and shadows come from shaders."
+    },
+    "shaderConcept": {
+      "triggerAriaLabel": "What are shaders?",
+      "triggerTitle": "What are shaders?",
+      "closeAriaLabel": "Close help",
+      "p1": "Shaders change the lighting and the picture: soft shadows, sun rays, water reflections, clouds, and sky. Gameplay stays the same.",
+      "p1Basic": "Shaders make the picture prettier: light, shadows, water, sky. The game itself stays the same.",
+      "p2": "Shaders need a shader loader: Iris, Oculus, or OptiFine. Which one fits depends on the mod loader and the Minecraft version; if a suitable one is missing, Lucerna points to it right on this tab.",
+      "p2Basic": "Shaders need a separate mod: Iris, Oculus, or OptiFine. If it's missing, Lucerna suggests which one to install.",
+      "p3": "A shader pack installs into the instance and is picked in the game: Options → Video Settings → Shader Packs (Iris, Oculus) or Shaders (OptiFine). Shaders are heavy on the graphics card; on a weak computer the frame rate can drop several times over. Servers don't need them.",
+      "p3Basic": "You pick a shader in the game, under Options → Video Settings, in the shaders section. Shaders put a heavy load on the graphics card.",
+      "p4": "Pick shaders for the visuals if your computer can handle them. If you only want different textures, a resource pack is much lighter.",
+      "p4Basic": "Pick shaders for a prettier picture, if your computer can handle them."
     },
     "l10nConcept": {
       "triggerAriaLabel": "How do mod translations work?",
@@ -2354,7 +2395,7 @@
     },
     "chooser": {
       "title": "How much detail would you like?",
-      "body": "Show the tour and the (?) explanations in plain language, or with the technical details. Change this anytime in Settings, under Help.",
+      "body": "Show the tour and the (i) explanations in plain language, or with the technical details. Change this anytime in Settings, under Help.",
       "basicLabel": "Basic",
       "basicHint": "Simple and clear",
       "advancedLabel": "Advanced",
@@ -2790,7 +2831,7 @@
       "tips": {
         "title": "Explanations",
         "levelLabel": "Detail level",
-        "levelDescription": "How much detail the tour and the (?) explanations give. Hover tooltips elsewhere in the app are not affected.",
+        "levelDescription": "How much detail the tour and the (i) explanations give. Hover tooltips elsewhere in the app are not affected.",
         "basic": "Basic",
         "advanced": "Advanced",
         "hintBasic": "simple and clear",

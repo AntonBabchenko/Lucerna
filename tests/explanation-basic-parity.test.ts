@@ -25,7 +25,11 @@ const adaptiveBases: string[] = [
   // its base key here so a missing `*Basic` sibling is caught.
   'onboarding.instanceConcept.body',
   'onboarding.modpackInstance.body',
-  ...['p1', 'p2', 'p3', 'p4'].map((p) => `onboarding.datapackConcept.${p}`),
+  ...['p1', 'p2', 'choose', 'p3', 'p4'].map((p) => `onboarding.datapackConcept.${p}`),
+  // The Add-ons kind row's explainers (AddonKindConceptHelp) — one per kind.
+  ...['modConcept', 'resourcePackConcept', 'shaderConcept'].flatMap((ns) =>
+    ['p1', 'p2', 'p3', 'p4'].map((p) => `onboarding.${ns}.${p}`),
+  ),
   ...['p1', 'p2', 'p3', 'p4'].map((p) => `onboarding.l10nConcept.${p}`),
 ];
 

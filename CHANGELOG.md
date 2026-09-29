@@ -21,6 +21,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **The Add-ons tab explains what each kind of add-on is.** An (i) at the end
+  of the row that switches between mods, resource packs, shaders and data
+  packs explains the kind you are looking at: what it is, what it needs to
+  work, where it takes effect, and when another kind fits better. The data
+  pack explanation moved up into the same row, so it is there while you
+  browse too, and it now says when a data pack is the better choice over a
+  mod.
+
 ### Fixed
 
 - **Updating a mod no longer installs a second copy of a library you already

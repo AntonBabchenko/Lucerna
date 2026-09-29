@@ -55,6 +55,7 @@
   import { debounceTrailing } from '$lib/ui/debounce';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import AddonKindConceptHelp from '$lib/onboarding/AddonKindConceptHelp.svelte';
   import { ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
 
   type View = 'browse' | 'installed';
@@ -605,22 +606,31 @@
 <div class="flex flex-col h-full">
   <!-- Content-kind switch: Mods · Resource packs · Shaders · Data packs. Underline tabs (the
        app-wide TabBar style) so it reads as the primary scope above the
-       Browse/Installed sub-tab row, not a clashing boxed segmented control. -->
-  <div class="px-3 pt-1" data-tour-ctx="addons-kind-switch">
-    <TabBar
-      tabs={kindOptions.map((o) => ({
-        id: o.value,
-        label: o.label,
-        icon: o.icon,
-        // Rainbow-hover the Shaders icon only, gated by the same preference as
-        // the sidebar Browse-modpacks icon. Empty string = no effect.
-        iconClass: o.value === 'shader' && rainbowFx.enabled ? 'icon-rainbow-hover' : '',
-      }))}
-      active={kind}
-      ariaLabel={$t('addons.kindSwitchAria')}
-      testid="addons-kind-switch"
-      onChange={(id) => (kind = id as InstanceContentKind)}
-    />
+       Browse/Installed sub-tab row, not a clashing boxed segmented control.
+       The (i) at its end explains the ACTIVE kind; it sits inside the tour
+       anchor so the kindSwitch step's spotlight covers it. TabBar draws its
+       own bottom rule and takes no slot, so the (i) cell repeats that rule
+       (same default border colour) to keep one unbroken line under the row. -->
+  <div class="px-3 pt-1 flex" data-tour-ctx="addons-kind-switch">
+    <div class="flex-1 min-w-0">
+      <TabBar
+        tabs={kindOptions.map((o) => ({
+          id: o.value,
+          label: o.label,
+          icon: o.icon,
+          // Rainbow-hover the Shaders icon only, gated by the same preference as
+          // the sidebar Browse-modpacks icon. Empty string = no effect.
+          iconClass: o.value === 'shader' && rainbowFx.enabled ? 'icon-rainbow-hover' : '',
+        }))}
+        active={kind}
+        ariaLabel={$t('addons.kindSwitchAria')}
+        testid="addons-kind-switch"
+        onChange={(id) => (kind = id as InstanceContentKind)}
+      />
+    </div>
+    <div class="shrink-0 flex items-center border-b pl-1">
+      <AddonKindConceptHelp {kind} />
+    </div>
   </div>
 
   <!-- Sub-tab row. Underline style — matches the Modpacks tab's
