@@ -4258,6 +4258,7 @@
       "pickZip": "Choose .zip",
       "pickFolder": "Choose folder",
       "dropzone": "Drop a server .zip or folder here, or click to choose",
+      "dropzoneDrag": "Drop to import the server",
       "inspecting": "Reading the server…",
       "detected": "Detected from the import — adjust if needed.",
       "willPreserve": "Ready to run as-is (offline)",

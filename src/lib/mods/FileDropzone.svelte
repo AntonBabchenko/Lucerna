@@ -35,7 +35,8 @@
     disabled?: boolean;
     disabledLabel?: string;
     variant?: 'strip' | 'full';
-    /** The overlay's text while a file is dragged (strip only); defaults to `label`. */
+    /** What the box says while a drag it takes is over it — the strip's overlay, the full box's
+     *  own line (plan §5c V3: the empty list kept «drag here» under the drag); defaults to `label`. */
     dragLabel?: string;
     onClick: () => void;
   } = $props();
@@ -82,7 +83,14 @@
   data-testid="file-dropzone"
   data-variant={variant}
 >
-  <span class="text-secondary">{disabled ? (disabledLabel ?? label) : label}</span>
+  <!-- While files it takes are over it, the full box says what the drop will do, in the overlay's
+       accent (a strip leaves that to its overlay, which covers it); a drag it takes nothing from
+       leaves it its own label, and the reason goes on the note line. -->
+  {#if adds && variant === 'full'}
+    <span class="text-accent">{dragLabel ?? label}</span>
+  {:else}
+    <span class="text-secondary">{disabled ? (disabledLabel ?? label) : label}</span>
+  {/if}
   <!-- The full box has no overlay: it says what a drag leaves behind itself — in a line kept even
        while there is nothing to say, so a note lands in it and the box never grows or shifts
        under the pointer (plan §5b V2). -->

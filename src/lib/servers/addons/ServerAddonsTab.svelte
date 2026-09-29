@@ -388,6 +388,7 @@
       label={dropzoneLabel}
       disabled={addBlockedLabel !== null}
       disabledLabel={addBlockedLabel ?? undefined}
+      dragLabel={$t('common.dropToAdd', { name: server?.name ?? '' })}
       onClick={() => void pickAndInstall()}
     />
   </div>

@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fireEvent, render } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -156,5 +158,70 @@ describe('FileDropzone', () => {
     dragHere();
     await tick();
     expect(getByTestId('file-dropzone-overlay').className).toContain('opacity-0');
+  });
+});
+
+// Plan §5c V3 (screenshots 10a, 10d): over the EMPTY list an accepted drag lit the full box up but
+// left it saying «Перетащите…», while the strip's overlay over a listed one said «Отпустите, чтобы
+// добавить…». The full box's label follows the drag the way the overlay does: the drop label while
+// files it takes are over it, its own label again once the drag leaves — and when none fits, its
+// own label, with the reason on its note line.
+describe('the full box says what a drop will do', () => {
+  afterEach(() => {
+    dropPreview.value = null;
+  });
+  const props = {
+    target: 'client-mods' as const,
+    label: 'Drop a .jar here',
+    dragLabel: 'Drop to add to “Test”',
+    onClick: () => {},
+  };
+
+  it('shows the drop label while a drag it takes is over it', async () => {
+    const { getByTestId } = render(FileDropzone, { props });
+    const zone = getByTestId('file-dropzone');
+    expect(zone.textContent).toContain('Drop a .jar here');
+    dragHere();
+    await tick();
+    expect(zone.textContent).toContain('Drop to add to “Test”');
+    expect(zone.textContent).not.toContain('Drop a .jar here');
+    dropPreview.value = null;
+    await tick();
+    expect(zone.textContent).toContain('Drop a .jar here');
+  });
+
+  // Guard (green before and after): a drag that adds nothing promises nothing.
+  it('keeps its own label, and says why, for a drag it takes nothing from', async () => {
+    const { getByTestId } = render(FileDropzone, { props });
+    dropPreview.value = {
+      target: 'client-mods',
+      adds: false,
+      notes: ['Only mod .jar files can be added here'],
+    };
+    await tick();
+    const zone = getByTestId('file-dropzone');
+    expect(zone.textContent).toContain('Drop a .jar here');
+    expect(zone.textContent).not.toContain('Drop to add');
+    expect(zone.textContent).toContain('Only mod .jar files can be added here');
+  });
+
+  // Every full box in the app — each empty list, and the server import — is given one, so none of
+  // them keeps «drag here» under a drag it is about to take.
+  it('every full box in the app is given a drop label', () => {
+    const sources = (dir: string, acc: string[] = []): string[] => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) sources(full, acc);
+        else if (entry.name.endsWith('.svelte')) acc.push(full);
+      }
+      return acc;
+    };
+    const unlabelled = sources('src').flatMap((file) =>
+      [...readFileSync(file, 'utf8').matchAll(/<FileDropzone\b[\s\S]*?\/>/g)]
+        .map((m) => m[0])
+        .filter((tag) => !tag.includes('variant="strip"') && !tag.includes('dragLabel='))
+        .map(() => file),
+    );
+    expect(unlabelled).toEqual([]);
   });
 });

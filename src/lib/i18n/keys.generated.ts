@@ -2396,6 +2396,7 @@ export type TranslationKey =
   | 'servers.import.back'
   | 'servers.import.detected'
   | 'servers.import.dropzone'
+  | 'servers.import.dropzoneDrag'
   | 'servers.import.import'
   | 'servers.import.importing'
   | 'servers.import.inspecting'

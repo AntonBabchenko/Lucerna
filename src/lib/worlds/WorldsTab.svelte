@@ -331,6 +331,7 @@
           label={$t('worlds.import.dropzoneLabel')}
           disabled={!instanceId || importDisabledReason !== null}
           disabledLabel={importDisabledReason ?? undefined}
+          dragLabel={$t('common.dropToAdd', { name: instanceName ?? '' })}
           onClick={() => void onImport('zip')}
         />
       </div>

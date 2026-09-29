@@ -396,6 +396,7 @@
     label={$t('modpacks.tab.dropzoneLabel')}
     disabled={importDisabledReason !== null}
     disabledLabel={importDisabledReason ?? undefined}
+    dragLabel={$t('modpacks.tab.dropzoneDrag')}
     onClick={importFromFile}
   />
 {/snippet}

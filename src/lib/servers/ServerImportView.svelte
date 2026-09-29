@@ -168,6 +168,7 @@
       variant="full"
       target="server-import"
       label={$t('servers.import.dropzone')}
+      dragLabel={$t('servers.import.dropzoneDrag')}
       onClick={() => void pickZip()}
     />
 
