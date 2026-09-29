@@ -896,11 +896,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Apply a Minecraft-version-change mod migration the user has already
 	 *  reviewed via `mods_plan_mc_migration` and settled into `selections`.
 	 * 
-	 *  Never calls `mods_update_one`: that command resolves `target`'s ENTIRE
-	 *  required-dependency set fresh via `ModPlatform::resolve_deps` and installs
-	 *  it unpruned against whatever is already on disk — the exact anti-pattern
-	 *  that manufactures a duplicate-modId FML crash on a version-change
-	 *  migration (BiomesOPlenty mandatorily requiring `terrablender` +
+	 *  Never calls `mods_update_one`: that command resolves `target`'s required
+	 *  dependencies afresh via `ModPlatform::resolve_deps`, and an apply must
+	 *  install exactly what the reviewed plan showed — the plan resolved every
+	 *  replacement's dependencies once, across all rows, and the user settled
+	 *  each jar it touches (BiomesOPlenty mandatorily requires `terrablender` +
 	 *  `glitchcore`; see the `mods::migration` module doc). This command drives
 	 *  [`crate::mods::install::update_one`] with an EMPTY required-deps list —
 	 *  the plan already resolved and pruned what each replacement needs — and
@@ -940,11 +940,16 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Apply one mod update: resolve `target`'s required dependencies,
 	 *  pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
-	 *  its required deps, and preserve the old mod's enabled state. Emits
-	 *  `mod-install-progress` during downloads, `mod-uninstalled` for the
-	 *  old jar, `mod-installed` per landed mod, and `mod-install-failed`
-	 *  on error. Optional dependencies are intentionally not installed —
-	 *  see the spec ("Dependencies on update").
+	 *  the dependencies the instance does not already have, and preserve the old
+	 *  mod's enabled state. Emits `mod-install-progress` during downloads,
+	 *  `mod-uninstalled` for the old jar, `mod-installed` per landed mod, and
+	 *  `mod-install-failed` on error. Optional dependencies are intentionally not
+	 *  installed — see the spec ("Dependencies on update").
+	 * 
+	 *  "Already has" is the install path's rule (`deps::prune_update_deps`): the
+	 *  dependency's project is installed at any version, enabled or not, or an
+	 *  enabled jar of the same file name is. Such a library is left as it is — no
+	 *  second copy, no re-install over its record, a disabled one stays disabled.
 	 * 
 	 *  `target` is re-resolved through `find_version` — the same gate, the same
 	 *  typed `ModVersionNotForInstance` and the same `allow_off_platform` consent
@@ -954,7 +959,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  there leaves the mod uninstalled (own spec — 2026-09-20 design, §8-A).
 	 * 
 	 *  After the swap the new row inherits the outgoing row's `requires` edges
-	 *  plus whatever this update pulled in (`orphans::requires_edges`).
+	 *  plus whatever this update resolved that was not installed before
+	 *  (`orphans::requires_edges`).
 	 * 
 	 *  Under the shared maintenance claim for the whole update, as
 	 *  `mods_install_with_deps`.
