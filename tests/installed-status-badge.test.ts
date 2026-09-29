@@ -336,3 +336,68 @@ describe('problem line', () => {
     expect(onRevealProblems).toHaveBeenCalledOnce();
   });
 });
+
+// The row's context menu (spec D13, §6.8): the file on disk, the project's page and the hold, all
+// reachable by keyboard (Shift+F10 / the menu key) — the removal stays last (DESIGN.md §8).
+describe('installed row menu', () => {
+  beforeAll(() => locale.set('en'));
+  const items = () => screen.getAllByRole('menuitem').map((m) => m.textContent?.trim());
+
+  it('offers page, folder and hold for a platform mod; removal stays last', async () => {
+    const onRevealFile = vi.fn();
+    const onOpenProjectPage = vi.fn();
+    render(InstalledModRow, {
+      props: {
+        ...base(),
+        installed: installed(true),
+        onRevealFile,
+        onOpenProjectPage,
+        hold: { held: false, onToggle: vi.fn() },
+      },
+    });
+    await fireEvent.contextMenu(screen.getByTestId('card-list-row'));
+    expect(items()).toEqual([
+      'Disable',
+      'Details',
+      'Open mod page',
+      'Show in folder',
+      "Don't update",
+      'Remove',
+    ]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Show in folder' }));
+    expect(onRevealFile).toHaveBeenCalledOnce();
+    await fireEvent.contextMenu(screen.getByTestId('card-list-row'));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Open mod page' }));
+    expect(onOpenProjectPage).toHaveBeenCalledOnce();
+  });
+
+  it('a held mod offers to allow updates again', async () => {
+    const onToggle = vi.fn();
+    render(InstalledModRow, {
+      props: { ...base(), installed: installed(true), hold: { held: true, onToggle } },
+    });
+    await fireEvent.contextMenu(screen.getByTestId('card-list-row'));
+    expect(items()).not.toContain("Don't update");
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Allow updates' }));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it('a manual jar offers its folder but neither a page nor a hold', async () => {
+    const manual = { ...installed(true), source: null, project_id: null, version_id: null };
+    render(InstalledModRow, {
+      props: {
+        ...base(),
+        summary: null,
+        installed: manual as never,
+        onRevealFile: vi.fn(),
+        onOpenProjectPage: null,
+        hold: null,
+      },
+    });
+    await fireEvent.contextMenu(screen.getByTestId('manual-mod-row'));
+    expect(items()).toContain('Show in folder');
+    expect(items()).not.toContain('Open mod page');
+    expect(items()).not.toContain("Don't update");
+    expect(items().at(-1)).toBe('Remove');
+  });
+});

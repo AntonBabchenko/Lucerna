@@ -910,6 +910,46 @@
       pushWarning(get(t)('instance.manage.openModsFolderFailed'), [formatError(r.error)]);
   }
 
+  // The row menu (spec §6.8). «Показать в папке»: the jar as it is on disk (`.disabled` too),
+  // selected in the file manager — also the keyboard path to the file name the version's tooltip
+  // shows on hover. A failure says why; it never fails silently.
+  async function revealFile(m: Row['installed']) {
+    const id = instanceId;
+    if (!id) return;
+    let reason: string | null = null;
+    try {
+      const r = await commands.modsRevealFile(id, m.sha1);
+      if (r.status === 'error') reason = formatError(r.error);
+    } catch (e) {
+      reason = e instanceof Error ? e.message : String(e);
+    }
+    if (reason !== null) pushWarning(get(t)('mods.card.revealFailed'), [reason]);
+  }
+  // «Открыть страницу мода»: only where the page is known — a CurseForge page needs its slug,
+  // Modrinth takes the project id too. No slug, no page: never a guessed URL (pack-managed
+  // sources have no mod page of their own).
+  function projectPageOpener(row: Row): (() => void) | null {
+    const { source, project_id: projectId } = row.installed;
+    if (source !== 'modrinth' && source !== 'curseforge') return null;
+    const slugOrId = row.summary?.slug ?? (source === 'modrinth' ? projectId : null);
+    if (!slugOrId) return null;
+    return () => void openExternalHttps(modProjectUrl(source, slugOrId));
+  }
+  // A modpack's own mods are never checked for updates — the pack owns their versions.
+  const isPackMod = (row: Row): boolean =>
+    !!data.packSummary && data.packSummary.mod_shas.includes(row.installed.sha1);
+  // «Не обновлять» / «Разрешить обновления»: a hold is per project, so a hand-dropped jar has none
+  // (nothing to update from), and a hold state that could not be read offers no control (T26:
+  // "not read" is not "not held"). On a modpack's own mod a new hold would promise nothing; one
+  // already set can still be released. `setHold` says itself why a change was refused.
+  function holdControl(row: Row): { held: boolean; onToggle: () => void } | null {
+    const m = row.installed;
+    if (!m.source || !m.project_id || updates.holds === null) return null;
+    const held = updates.isHeld(m);
+    if (!held && isPackMod(row)) return null;
+    return { held, onToggle: () => void updates.setHold(m, !held, rowDisplayName(row)) };
+  }
+
   // Bulk update: run it, then drop the checks of the jars it replaced — in the
   // profile it ran for — so their badges don't linger (the selection composable
   // runs the updates; the checks are the persisted check's).
@@ -1108,6 +1148,9 @@
             const first = violationsBySha.get(row.installed.sha1)?.[0];
             if (first) void revealInPanel(first);
           }}
+          onRevealFile={() => void revealFile(row.installed)}
+          onOpenProjectPage={projectPageOpener(row)}
+          hold={holdControl(row)}
         />
       {/each}
     </div>

@@ -62,6 +62,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     })),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     openModsFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // The row menu: the jar on disk and the hold.
+    modsRevealFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsSetHold: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsLastUpdateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsListHolds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -135,6 +138,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));
+
+// The row menu's «Open mod page» leaves through the https-only opener.
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 import { __resetUpdateCheckStoreForTests } from '$lib/mods/update-check-store.svelte';
@@ -450,5 +456,76 @@ describe('InstalledModsView', () => {
     // The re-fetched list is what renders — proves `r = r2` was consumed.
     expect(screen.getByText('bundled-after-backfill.jar')).toBeTruthy();
     expect(screen.queryByText('bundled.jar')).toBeNull();
+  });
+
+  // The row menu (spec D13, §6.8) — «Show in folder» is also the keyboard path to the file name
+  // the version's tooltip shows on hover.
+  describe('row menu', () => {
+    const openMenu = async (name: string, testid = 'card-list-row') => {
+      const row = await screen.findByRole('group', { name });
+      await fireEvent.contextMenu(row.querySelector(`[data-testid="${testid}"]`) as HTMLElement);
+    };
+    const items = () => screen.getAllByRole('menuitem').map((m) => m.textContent?.trim());
+
+    it('Show in folder reveals the jar on disk', async () => {
+      const mod = await import('$lib/ipc/bindings');
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await openMenu('Just Enough Items');
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Show in folder' }));
+      await waitFor(() => expect(mod.commands.modsRevealFile).toHaveBeenCalledWith('i', 'abc'));
+    });
+
+    it('Open mod page opens the project’s page; a hand-dropped jar has neither page nor hold', async () => {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await openMenu('Just Enough Items');
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Open mod page' }));
+      await waitFor(() => expect(openUrl).toHaveBeenCalledWith('https://modrinth.com/mod/jei'));
+      await openMenu('mystery.jar', 'manual-mod-row');
+      expect(items()).toContain('Show in folder');
+      expect(items()).not.toContain('Open mod page');
+      expect(items()).not.toContain("Don't update");
+    });
+
+    it('Don’t update holds the project, and the menu then offers to allow updates', async () => {
+      const mod = await import('$lib/ipc/bindings');
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await openMenu('Just Enough Items');
+      vi.mocked(mod.commands.modsListHolds).mockResolvedValueOnce({
+        status: 'ok',
+        data: [{ source: 'modrinth', project_id: 'p' }],
+      });
+      await fireEvent.click(screen.getByRole('menuitem', { name: "Don't update" }));
+      await waitFor(() =>
+        expect(mod.commands.modsSetHold).toHaveBeenCalledWith('i', 'modrinth', 'p', true),
+      );
+      await waitFor(() => expect(screen.getByTestId('mod-held-pin')).toBeTruthy());
+      await openMenu('Just Enough Items');
+      expect(items()).toContain('Allow updates');
+      expect(items()).not.toContain("Don't update");
+    });
+
+    // A modpack's own mods are never offered updates — the pack owns their versions — so a hold
+    // there would promise nothing.
+    it('a modpack’s own mod offers no «Don’t update»', async () => {
+      const mod = await import('$lib/ipc/bindings');
+      vi.mocked(mod.commands.modsPackOriginSummary).mockResolvedValueOnce({
+        status: 'ok',
+        data: { project_name: 'Cool Pack', mod_shas: ['abc'] },
+      });
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await screen.findByText('Cool Pack');
+      await openMenu('Just Enough Items');
+      expect(items()).toContain('Show in folder');
+      expect(items()).not.toContain("Don't update");
+    });
   });
 });

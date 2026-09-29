@@ -43,6 +43,9 @@
     installedLabel = null,
     actionsBlockedReason = null,
     relation,
+    onRevealFile = null,
+    onOpenProjectPage = null,
+    hold = null,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -85,6 +88,13 @@
     /** Installed list rows: the relation pill, rendered between the badges and the actions (spec
      *  §6.7). Pass it only when there is something to render — an empty slot still takes a gap. */
     relation?: Snippet;
+    /** Installed rows: show the jar in the OS file manager (row menu) — the keyboard path to the
+     *  file name the version's tooltip shows on hover. */
+    onRevealFile?: (() => void) | null;
+    /** Mods with a known project page only: open it in the browser (row menu). */
+    onOpenProjectPage?: (() => void) | null;
+    /** Mods whose hold state is known and can matter: «Не обновлять» / «Разрешить обновления». */
+    hold?: { held: boolean; onToggle: () => void } | null;
   } = $props();
 
   const blocked = $derived(actionsBlockedReason !== null);
@@ -180,6 +190,24 @@
         ...blockedMenu,
       });
     if (summary) out.push({ label: $t('mods.card.details'), icon: 'info', onSelect: onOpenDetail });
+    // Per-row conventions (DESIGN.md §8): an item that mirrors a control reuses its key («Открыть
+    // страницу мода» is the pre-flight panel's); looking is never blocked, changing is; the
+    // destructive item stays last, behind a separator.
+    if (onOpenProjectPage)
+      out.push({
+        label: $t('mods.preflight.openModPage'),
+        icon: 'externalLink',
+        onSelect: onOpenProjectPage,
+      });
+    if (onRevealFile)
+      out.push({ label: $t('mods.card.revealFile'), icon: 'folderOpen', onSelect: onRevealFile });
+    if (hold)
+      out.push({
+        label: hold.held ? $t('mods.updates.unhold') : $t('mods.updates.hold'),
+        icon: 'pin',
+        onSelect: hold.onToggle,
+        ...blockedMenu,
+      });
     out.push({
       label: $t('mods.card.uninstall'),
       icon: 'trash',

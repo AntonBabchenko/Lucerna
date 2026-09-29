@@ -776,6 +776,8 @@
       "fromModpackTitle": "Из сборки: {name}",
       "byAuthorDownloads": "{author} · {downloads, number} скач.",
       "details": "Подробнее",
+      "revealFile": "Показать в папке",
+      "revealFailed": "Не удалось показать файл",
       "menuAriaLabel": "Действия для {name}"
     },
     "detail": {
@@ -1111,6 +1113,8 @@
       "changelogFor": "Что нового: {name}",
       "installedDeps": "+ установлено: {names}",
       "heldTooltip": "Обновления для этого мода не предлагаются",
+      "hold": "Не обновлять",
+      "unhold": "Разрешить обновления",
       "holdFailed": "Не удалось изменить обновления для {name}",
       "updateFailed": "Не удалось обновить {name}",
       "badgeChangelogAria": "v{from} → v{to}, что нового"

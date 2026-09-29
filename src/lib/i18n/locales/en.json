@@ -776,6 +776,8 @@
       "fromModpackTitle": "From modpack: {name}",
       "byAuthorDownloads": "by {author} · {downloads, number} dl",
       "details": "Details",
+      "revealFile": "Show in folder",
+      "revealFailed": "Couldn't show the file",
       "menuAriaLabel": "Actions for {name}"
     },
     "detail": {
@@ -1111,6 +1113,8 @@
       "changelogFor": "Changelog: {name}",
       "installedDeps": "+ installed: {names}",
       "heldTooltip": "Updates for this mod are not offered",
+      "hold": "Don't update",
+      "unhold": "Allow updates",
       "holdFailed": "Couldn't change updates for {name}",
       "updateFailed": "Couldn't update {name}",
       "badgeChangelogAria": "v{from} → v{to}, changelog"

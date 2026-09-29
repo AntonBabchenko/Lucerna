@@ -49,6 +49,9 @@
     onJump,
     onProblemFix = () => {},
     onRevealProblems = () => {},
+    onRevealFile = null,
+    onOpenProjectPage = null,
+    hold = null,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod;
@@ -94,6 +97,11 @@
     onProblemFix?: (fix: RowFix) => void;
     // «and N more»: reveal this mod's rows in the «What stops the game» panel.
     onRevealProblems?: () => void;
+    // The row menu (spec §6.8), straight to ModCard: the jar on disk, the project page (null =
+    // none known), the hold (null = no hold control here).
+    onRevealFile?: (() => void) | null;
+    onOpenProjectPage?: (() => void) | null;
+    hold?: { held: boolean; onToggle: () => void } | null;
   } = $props();
 
   // One pill summarises both directions of the dependency relation (spec D12): ⛓ what this mod
@@ -241,6 +249,9 @@
       {selected}
       {onSelectChange}
       relation={relationLoading || hasRelation ? relationPill : undefined}
+      {onRevealFile}
+      {onOpenProjectPage}
+      {hold}
     />
     <!-- The second line is there only for a problem (spec D12): what used to sit here — the
          changelog chip and the dependency chip — is the update badge and the relation pill in
