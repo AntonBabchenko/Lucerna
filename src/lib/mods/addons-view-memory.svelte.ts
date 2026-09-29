@@ -12,12 +12,16 @@ export function rememberAddonsView(kind: InstanceContentKind, view: AddonsView):
 }
 
 /** The kind's remembered view; else, on a first visit, Installed for mods when the active profile
- *  has any; else Browse. */
+ *  has any — or while that is not known yet (`null`: the count lands a moment after a start or a
+ *  profile switch; Installed then shows what is there, an empty list its full drop area); else
+ *  Browse. */
 export function initialAddonsView(
   kind: InstanceContentKind,
-  hasInstalledMods: boolean,
+  hasInstalledMods: boolean | null,
 ): AddonsView {
-  return remembered.get(kind) ?? (kind === 'mod' && hasInstalledMods ? 'installed' : 'browse');
+  return (
+    remembered.get(kind) ?? (kind === 'mod' && hasInstalledMods !== false ? 'installed' : 'browse')
+  );
 }
 
 /** Tests only. */

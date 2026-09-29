@@ -278,6 +278,19 @@ describe('AddonsTab', () => {
     expect(screen.getByLabelText('Filter installed mods')).toBeTruthy();
   });
 
+  // Before the profile's mods are counted (a start, a profile switch) the answer is not "none":
+  // Installed shows what is there — and here, with nothing, the list's full drop area.
+  it('a first visit before the mods are counted opens Installed, whose empty list holds the drop area', async () => {
+    render(AddonsTab, { props: { ...props, hasInstalledMods: null } });
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    await waitFor(() => expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('full'));
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('file-dropzone'))).toBe(
+      true,
+    );
+  });
+
   // The dropzone rule (spec D11, DESIGN.md §14): a strip above the catalog and a listed Installed
   // view; an empty Installed list holds the one full drop area instead.
   it.each([

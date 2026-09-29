@@ -38,8 +38,8 @@
     onQuickPlayWorld?: (folderName: string) => void;
     quickPlayDisabledReason?: string | null;
     running?: boolean;
-    /** Forwarded to AddonsTab (sub-tab default, D10). */
-    hasInstalledMods?: boolean;
+    /** Forwarded to AddonsTab (sub-tab default, D10); null = not counted yet. */
+    hasInstalledMods?: boolean | null;
   } = $props();
 
   let active = $state<Tab>('overview');

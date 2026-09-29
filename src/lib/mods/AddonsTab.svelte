@@ -285,8 +285,10 @@
     mcVersion: string | null;
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
     loaderVersion?: string | null;
-    /** The active profile has installed mods: a first visit to Mods opens Installed (D10). */
-    hasInstalledMods?: boolean;
+    /** The active profile has installed mods: a first visit to Mods opens Installed (D10). `null`
+     *  = not counted yet, which opens Installed too: it shows what is there — an empty list its
+     *  full drop area — where Browse would guess "none". */
+    hasInstalledMods?: boolean | null;
   } = $props();
 
   // Seed the sub-view once (D10). `untrack`: a later stats refresh must not yank the view.

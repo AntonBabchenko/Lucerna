@@ -95,6 +95,25 @@ describe('createInstanceStats', () => {
       await s.refreshInstalledStats('i2');
       expect(s.installedStats).toEqual({ total: 0, enabled: 0, disabled: 0 });
     });
+
+    // The Add-ons tab opens on Installed for a profile with mods (spec D10). Its zeros are no
+    // answer until a read for THAT profile has landed: before the first one, while another
+    // profile's count is still held, and after a failed read, the answer is "not known".
+    it('says whether a profile has mods only from that profile’s own read', async () => {
+      const s = createInstanceStats();
+      expect(s.hasInstalledMods(null)).toBe(false);
+      expect(s.hasInstalledMods('i1')).toBeNull();
+      modsListInstalled.mockResolvedValueOnce({ status: 'ok', data: [mod(false)] });
+      await s.refreshInstalledStats('i1');
+      expect(s.hasInstalledMods('i1')).toBe(true);
+      expect(s.hasInstalledMods('i2')).toBeNull();
+      modsListInstalled.mockResolvedValueOnce({ status: 'ok', data: [] });
+      await s.refreshInstalledStats('i2');
+      expect(s.hasInstalledMods('i2')).toBe(false);
+      modsListInstalled.mockResolvedValueOnce({ status: 'error', error: { kind: 'x' } });
+      await s.refreshInstalledStats('i2');
+      expect(s.hasInstalledMods('i2')).toBeNull();
+    });
   });
 
   describe('refreshIncompatible', () => {

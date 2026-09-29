@@ -37,6 +37,9 @@ const EMPTY_PLAYTIME: PlaytimeStats = {
 
 export function createInstanceStats() {
   let installedStats = $state<InstalledStats>({ ...EMPTY_INSTALLED });
+  // The profile whose listing `installedStats` holds: null until a read has landed, and after a
+  // failed one — its zeros are then a reset, not an answer.
+  let installedFor = $state<string | null>(null);
   let playtime = $state<PlaytimeStats>({ ...EMPTY_PLAYTIME });
   let packMissingMods = $state<MissingModStatus[]>([]);
 
@@ -75,6 +78,7 @@ export function createInstanceStats() {
   async function refreshInstalledStats(id: string | null) {
     if (!id) {
       installedStats = { ...EMPTY_INSTALLED };
+      installedFor = null;
       return;
     }
     const seq = ++statsSeq;
@@ -85,11 +89,13 @@ export function createInstanceStats() {
     // Mirrors `refreshPlaytime`, which has always done this.
     if (r.status !== 'ok') {
       installedStats = { ...EMPTY_INSTALLED };
+      installedFor = null;
       return;
     }
     const total = r.data.length;
     const enabled = r.data.filter((m) => m.enabled).length;
     installedStats = { total, enabled, disabled: total - enabled };
+    installedFor = id;
   }
 
   // Make sure the app-wide compatibility scan is current for `id`. Commits
@@ -171,6 +177,14 @@ export function createInstanceStats() {
   return {
     get installedStats() {
       return installedStats;
+    },
+    /** Whether profile `id` has installed mods (the Add-ons tab's first view, spec D10) — null
+     *  while that is not known: no read has landed yet, the count held is another profile's
+     *  (a switch still reading), or the read failed. No profile has none. A call site reading it
+     *  in a template stays reactive: it reads `$state` at call time. */
+    hasInstalledMods(id: string | null): boolean | null {
+      if (id === null) return false;
+      return installedFor === id ? installedStats.total > 0 : null;
     },
     // Every mod compat flags, with the reason its Installed row reads — read
     // straight off the SHARED stores at call time (offline scan + keyed live
