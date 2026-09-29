@@ -12,7 +12,7 @@ import {
 import { formatError } from '$lib/ipc/format-error';
 import { modWriteReason } from '$lib/mods/mod-ops.svelte';
 import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
-import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { depGraphCache } from '../dep-graph-cache';
 import type { Row } from './installed-data.svelte';
 import { modKey, rowDisplayName } from './row-utils';
@@ -261,7 +261,12 @@ export function createDepGraph(
       { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
       [],
     );
-    if (res.status === 'error') {
+    if (res.status === 'error' && res.error.kind === 'mods_already_installed') {
+      // «Already installed» is no failed install: there is nothing to add, and a warning would
+      // call a satisfied dependency a failure. Said the way the panel's «Install» says it; the
+      // re-read below shows the project installed.
+      pushInfo(formatError(res.error));
+    } else if (res.status === 'error') {
       // A refused install says the profile is busy — never that the game runs (plan A9).
       pushWarning(get(t)('mods.browse.toastInstallFailed'), [modWriteReason(res.error)]);
     } else {

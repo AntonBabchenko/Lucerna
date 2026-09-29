@@ -7,8 +7,14 @@ const mocks = vi.hoisted(() => ({
   modsInstallWithDeps: vi.fn(),
 }));
 vi.mock('$lib/ipc/bindings', () => ({ commands: mocks }));
-vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e) }));
-vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess: vi.fn(), pushWarning: vi.fn() }));
+vi.mock('$lib/ipc/format-error', () => ({
+  formatError: (e: unknown) => `formatted ${JSON.stringify(e)}`,
+}));
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushInfo: vi.fn(),
+  pushSuccess: vi.fn(),
+  pushWarning: vi.fn(),
+}));
 vi.mock('$lib/i18n', () => ({ t: { subscribe: () => () => {} } }));
 vi.mock('svelte/store', () => ({ get: () => (k: string) => k }));
 vi.mock('$lib/mods/dep-graph-cache', () => ({ depGraphCache: new Map() }));
@@ -457,5 +463,36 @@ describe('createDepGraph', () => {
     expect(toasts.pushSuccess).toHaveBeenCalledWith('mods.browse.toastInstalledMod', [
       'mods.updates.installedDeps',
     ]);
+  });
+
+  // An install refused as «already installed» is no failure: like the panel's «Install», the tree
+  // says so and reads the mods again — never a warning.
+  it('a tree install of a project the profile already lists says so, warns of nothing and re-reads', async () => {
+    const toasts = await import('$lib/toasts/toasts.svelte');
+    vi.mocked(toasts.pushWarning).mockClear();
+    mocks.modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [{ source: 'modrinth', project_id: 'PL', version_id: 'vl' }],
+    });
+    const already = { kind: 'mods_already_installed', name: 'Lib' };
+    mocks.modsInstallWithDeps.mockResolvedValue({ status: 'error', error: already });
+    const refresh = vi.fn(async () => {});
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      { ...ctx, refresh },
+    );
+    await d.installDepNode({
+      source: 'modrinth',
+      project_id: 'PL',
+      name: 'Lib',
+      installed: false,
+      declared: 'required',
+      cycle: false,
+      children: [],
+    } as unknown as DepTreeNode);
+    expect(toasts.pushInfo).toHaveBeenCalledWith(`formatted ${JSON.stringify(already)}`);
+    expect(toasts.pushWarning).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalled();
   });
 });
