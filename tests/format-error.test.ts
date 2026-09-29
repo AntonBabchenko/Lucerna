@@ -41,6 +41,29 @@ describe('formatError', () => {
     expect(msg).toBe('NeoForge does not support Minecraft 1.20.1');
   });
 
+  it('says Lucerna does not install NeoForge builds for a snapshot', () => {
+    const msg = formatError({
+      kind: 'loader_builds_not_offered',
+      loader: 'neoforge',
+      mc_version: '26.1-snapshot-1',
+    });
+    expect(msg).toBe(
+      'Lucerna does not install NeoForge builds for Minecraft snapshots such as 26.1-snapshot-1',
+    );
+  });
+
+  it('says the NeoForge list could not be read, not that the version is unsupported', () => {
+    const msg = formatError({
+      kind: 'loader_versions_unreadable',
+      loader: 'neoforge',
+      mc_version: '26.4',
+    });
+    expect(msg).toBe(
+      'Lucerna could not read the NeoForge version list for Minecraft 26.4: it has version numbers Lucerna does not recognise',
+    );
+    expect(msg).not.toMatch(/does not support/);
+  });
+
   it('names both sides of a build that is not for this instance', () => {
     const msg = formatError({
       kind: 'mod_version_not_for_instance',
@@ -271,6 +294,16 @@ describe('formatError', () => {
       skin_library: { kind: 'skin_library', details: 'entry not found' },
       unknown_version: { kind: 'unknown_version', id: '1.21' },
       loader_unavailable: { kind: 'loader_unavailable', loader: 'fabric', mc_version: '1.21' },
+      loader_builds_not_offered: {
+        kind: 'loader_builds_not_offered',
+        loader: 'neoforge',
+        mc_version: '26.1-snapshot-1',
+      },
+      loader_versions_unreadable: {
+        kind: 'loader_versions_unreadable',
+        loader: 'neoforge',
+        mc_version: '26.4',
+      },
       unsupported_platform: { kind: 'unsupported_platform', os: 'plan9', arch: 'sparc' },
       io: { kind: 'io', path: 'p', details: 'd' },
       last_instance: { kind: 'last_instance' },

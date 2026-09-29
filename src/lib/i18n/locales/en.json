@@ -2424,6 +2424,8 @@
     "unknownVersion": "Version {id} not found in manifest",
     "unsupportedPlatform": "Unsupported platform: {os}/{arch}",
     "loaderUnavailable": "{loader} does not support Minecraft {mcVersion}",
+    "loaderBuildsNotOffered": "Lucerna does not install {loader} builds for Minecraft snapshots such as {mcVersion}",
+    "loaderVersionsUnreadable": "Lucerna could not read the {loader} version list for Minecraft {mcVersion}: it has version numbers Lucerna does not recognise",
     "lastInstance": "Cannot delete the last instance — at least one must remain",
     "noVersionSelected": "Pick a Minecraft version first",
     "instanceNotFound": "Instance {id} not found",
