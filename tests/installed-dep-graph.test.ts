@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   modsDependencyGraph: vi.fn(),
   modsVersions: vi.fn(),
   modsInstallWithDeps: vi.fn(),
+  modsInstallDependency: vi.fn(),
 }));
 vi.mock('$lib/ipc/bindings', () => ({ commands: mocks }));
 vi.mock('$lib/ipc/format-error', () => ({
@@ -430,7 +431,7 @@ describe('createDepGraph', () => {
       cycle: false,
       children: [],
     } as unknown as DepTreeNode;
-    await d.installDepNode(node);
+    await d.installDepNode(node, null);
     expect(toasts.pushWarning).toHaveBeenCalledWith('mods.browse.toastInstallFailed', [
       'mods.ops.busy',
     ]);
@@ -451,15 +452,50 @@ describe('createDepGraph', () => {
       () => [],
       ctx,
     );
-    await d.installDepNode({
-      source: 'modrinth',
-      project_id: 'PL',
-      name: 'Lib',
-      installed: false,
-      declared: 'required',
-      cycle: false,
-      children: [],
-    } as unknown as DepTreeNode);
+    await d.installDepNode(
+      {
+        source: 'modrinth',
+        project_id: 'PL',
+        name: 'Lib',
+        installed: false,
+        declared: 'required',
+        cycle: false,
+        children: [],
+      } as unknown as DepTreeNode,
+      null,
+    );
+    expect(toasts.pushSuccess).toHaveBeenCalledWith('mods.browse.toastInstalledMod', [
+      'mods.updates.installedDeps',
+    ]);
+  });
+
+  // The tree knows which mod declared a dependency (spec §5.6): installing it FOR that mod goes
+  // through the dependency path, which records the edge on the dependent (so removing the mod can
+  // offer its orphans) and refuses a project the profile already lists — a stale graph must never
+  // drop a second jar into the pack. The backend picks the build; the tree asks for no versions.
+  it('a tree install under an installed dependent goes through the dependency path, for that dependent', async () => {
+    const toasts = await import('$lib/toasts/toasts.svelte');
+    vi.mocked(toasts.pushSuccess).mockClear();
+    mocks.modsVersions.mockClear();
+    mocks.modsInstallWithDeps.mockClear();
+    mocks.modsInstallDependency.mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'Lib', installed_dependencies: ['Api'], details: [] },
+    });
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      ctx,
+    );
+    await d.installDepNode(libNode(), 'dependent-sha');
+    expect(mocks.modsInstallDependency).toHaveBeenCalledWith(
+      'i',
+      'dependent-sha',
+      'modrinth',
+      'PL',
+    );
+    expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
+    expect(mocks.modsVersions).not.toHaveBeenCalled();
     expect(toasts.pushSuccess).toHaveBeenCalledWith('mods.browse.toastInstalledMod', [
       'mods.updates.installedDeps',
     ]);
@@ -470,29 +506,56 @@ describe('createDepGraph', () => {
   it('a tree install of a project the profile already lists says so, warns of nothing and re-reads', async () => {
     const toasts = await import('$lib/toasts/toasts.svelte');
     vi.mocked(toasts.pushWarning).mockClear();
-    mocks.modsVersions.mockResolvedValue({
-      status: 'ok',
-      data: [{ source: 'modrinth', project_id: 'PL', version_id: 'vl' }],
-    });
     const already = { kind: 'mods_already_installed', name: 'Lib' };
-    mocks.modsInstallWithDeps.mockResolvedValue({ status: 'error', error: already });
+    mocks.modsInstallDependency.mockResolvedValue({ status: 'error', error: already });
     const refresh = vi.fn(async () => {});
     const d = createDepGraph(
       () => 'i',
       () => [],
       { ...ctx, refresh },
     );
-    await d.installDepNode({
-      source: 'modrinth',
-      project_id: 'PL',
-      name: 'Lib',
-      installed: false,
-      declared: 'required',
-      cycle: false,
-      children: [],
-    } as unknown as DepTreeNode);
+    await d.installDepNode(libNode(), 'dependent-sha');
     expect(toasts.pushInfo).toHaveBeenCalledWith(`formatted ${JSON.stringify(already)}`);
     expect(toasts.pushWarning).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalled();
   });
+
+  // Under an absent parent nothing installed declared the node: there is no dependent to record
+  // an edge on, so it stays the plain install of the newest build for the profile.
+  it('a node with no installed dependent keeps the plain install', async () => {
+    mocks.modsInstallDependency.mockClear();
+    mocks.modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [{ source: 'modrinth', project_id: 'PL', version_id: 'vl' }],
+    });
+    mocks.modsInstallWithDeps.mockResolvedValue({
+      status: 'ok',
+      data: { primary_name: 'Lib', installed_dependencies: [], details: [] },
+    });
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      ctx,
+    );
+    await d.installDepNode(libNode(), null);
+    expect(mocks.modsVersions).toHaveBeenCalledWith('modrinth', 'PL', '1.20.1', 'fabric');
+    expect(mocks.modsInstallWithDeps).toHaveBeenCalledWith(
+      'i',
+      { source: 'modrinth', project_id: 'PL', version_id: 'vl' },
+      [],
+      false,
+    );
+    expect(mocks.modsInstallDependency).not.toHaveBeenCalled();
+  });
 });
+
+const libNode = (): DepTreeNode =>
+  ({
+    source: 'modrinth',
+    project_id: 'PL',
+    name: 'Lib',
+    installed: false,
+    declared: 'required',
+    cycle: false,
+    children: [],
+  }) as unknown as DepTreeNode;

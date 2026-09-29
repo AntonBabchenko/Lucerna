@@ -87,7 +87,9 @@
     // available + supported source).
     onShowChangelog: () => void;
     onSelectChange: (checked: boolean) => void;
-    onInstallDep: (node: DepTreeNode) => void;
+    // A dependency's Install / Add in the tree, with the mod that declared it (null under an
+    // absent parent).
+    onInstallDep: (node: DepTreeNode, dependentSha1: string | null) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
     onProblemFix?: (fix: RowFix) => void;
     // «and N more»: reveal this mod's rows in the «What stops the game» panel.

@@ -61,8 +61,10 @@
     installingKeys?: Set<string>;
     hoveredKey: string | null;
     onHover: (key: string | null) => void;
-    onInstall: (node: DepTreeNode) => void;
-    onAdd: (node: DepTreeNode) => void;
+    // Both name this level's `dependentSha1`: the install records the edge on the mod that
+    // declared the node (spec §5.6) — none under an absent parent.
+    onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
+    onAdd: (node: DepTreeNode, dependentSha1: string | null) => void;
     // Jump to an installed dependency's own row in the list.
     onJump?: (node: DepTreeNode) => void;
     // Open the mod's info modal for any node (installed or not).
@@ -312,7 +314,8 @@
               class="btn-icon btn-icon-sm"
               aria-label={label}
               tabindex={tab}
-              onclick={() => (n.declared === 'required' ? onInstall(n) : onAdd(n))}
+              onclick={() =>
+                n.declared === 'required' ? onInstall(n, dependentSha1) : onAdd(n, dependentSha1)}
             >
               <Icon name="download" size={12} />
             </BusyButton>

@@ -22,7 +22,8 @@
     requiredBy: RequiredByEntry[];
     hoveredKey: string | null;
     onHover: (k: string | null) => void;
-    onInstall: (node: DepTreeNode) => void;
+    // The node and the mod that declared it (null under an absent parent) — see DepTree.
+    onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
     onOpenDetail: (source: ModSource, projectId: string) => void;
     outOfRangeKeys?: Set<string>;

@@ -11,7 +11,7 @@ import {
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { modWriteReason } from '$lib/mods/mod-ops.svelte';
-import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
+import { installDependency, installModWithDeps } from '$lib/tasks/adapters/mod-install';
 import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { depGraphCache } from '../dep-graph-cache';
 import type { Row } from './installed-data.svelte';
@@ -238,29 +238,48 @@ export function createDepGraph(
     return true;
   }
 
-  async function installDepNode(node: DepTreeNode) {
-    const id = getInstanceId();
+  // The newest build the platform lists for this profile, with its own dependencies. Null =
+  // nothing to install: no profile version to ask for (as before — silent), or no build, said in
+  // `error` like every other failure of this view.
+  async function installPlain(id: string, node: DepTreeNode) {
     const mc = ctx.getMcVersion();
     const loader = ctx.getLoader();
-    if (!id || !mc || !loader) return;
-    busy = true;
-    error = null;
+    if (!mc || !loader) return null;
     const vr = await commands.modsVersions(node.source, node.project_id, mc, loader);
     if (vr.status === 'error' || vr.data.length === 0) {
       error =
         vr.status === 'error'
           ? formatError(vr.error)
           : get(t)('mods.installed.installDepFailed', { name: node.name });
-      busy = false;
-      return;
+      return null;
     }
     const primary = vr.data[0];
-    const res = await installModWithDeps(
+    return installModWithDeps(
       id,
       node.name,
       { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
       [],
     );
+  }
+
+  // The tree's Install / Add. `dependentSha1` is the enabled jar that declared the node (the row's
+  // own mod, or an installed parent — DepTree passes its level's): the install goes through the
+  // dependency path (spec §5.6), which records the edge on that mod, so removing it can offer what
+  // came in for it, and refuses a project the profile already lists — a stale graph can never add
+  // a second jar. Under an absent parent nothing installed declared the node: a plain install.
+  async function installDepNode(node: DepTreeNode, dependentSha1: string | null) {
+    const id = getInstanceId();
+    if (!id) return;
+    busy = true;
+    error = null;
+    const res = dependentSha1
+      ? await installDependency(id, node.name, dependentSha1, node.source, node.project_id)
+      : await installPlain(id, node);
+    // Nothing to install (see `installPlain`).
+    if (res === null) {
+      busy = false;
+      return;
+    }
     if (res.status === 'error' && res.error.kind === 'mods_already_installed') {
       // «Already installed» is no failed install: there is nothing to add, and a warning would
       // call a satisfied dependency a failure. Said the way the panel's «Install» says it; the

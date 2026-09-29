@@ -44,7 +44,7 @@ describe('DepTree', () => {
     expect(screen.getByText('Architectury')).toBeTruthy();
     const install = screen.getByRole('button', { name: /install architectury/i });
     await fireEvent.click(install);
-    expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'arch' }));
+    expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'arch' }), null);
   });
 
   it('does not render an Install action for satisfied nodes', () => {
@@ -99,6 +99,52 @@ describe('DepTree', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Show Night in the list' }));
     expect(onJump).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'night' }));
     expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+});
+
+// The install path records the edge on the mod that declared the dependency (spec §5.6), so every
+// Install and Add says which mod that is: the row's own at the top, an installed parent below it,
+// and none under an absent parent — nothing installed declared what sits there.
+describe('DepTree — an Install names the mod that declared the dependency', () => {
+  it('names the level dependent at the top, the installed parent below, none under an absent one', async () => {
+    const onInstall = vi.fn();
+    const onAdd = vi.fn();
+    const nodes: DepTreeNode[] = [
+      leaf('night', { name: 'Night', children: [leaf('lib', { name: 'Lib', installed: false })] }),
+      leaf('arch', {
+        name: 'Arch',
+        installed: false,
+        children: [leaf('sub', { name: 'Sub', installed: false })],
+      }),
+      leaf('extra', { name: 'Extra', installed: false, declared: 'optional' }),
+    ];
+    const ctx: DepTreeCtx = {
+      ...EMPTY_TREE_CTX,
+      enabledShaOf: (k) => (k === 'modrinth:night' ? 'night-sha' : null),
+    };
+    render(DepTree, {
+      props: { ...treeProps({ nodes, onInstall, onAdd, ctx }), dependentSha1: 'row-sha' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Install Arch' }));
+    expect(onInstall).toHaveBeenLastCalledWith(
+      expect.objectContaining({ project_id: 'arch' }),
+      'row-sha',
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Install Lib' }));
+    expect(onInstall).toHaveBeenLastCalledWith(
+      expect.objectContaining({ project_id: 'lib' }),
+      'night-sha',
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Install Sub' }));
+    expect(onInstall).toHaveBeenLastCalledWith(
+      expect.objectContaining({ project_id: 'sub' }),
+      null,
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Add Extra' }));
+    expect(onAdd).toHaveBeenLastCalledWith(
+      expect.objectContaining({ project_id: 'extra' }),
+      'row-sha',
+    );
   });
 });
 
