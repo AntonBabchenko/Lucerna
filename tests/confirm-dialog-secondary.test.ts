@@ -58,6 +58,23 @@ describe('ConfirmDialog — optional secondary action', () => {
     expect(props.onCancel).not.toHaveBeenCalled();
   });
 
+  // Plan §5b V2 (screenshot 04): in the 440 px panel «Удалить и отключить 3 зависимых мода» broke
+  // after «3» and «Только этот» after «Только». Three buttons get a wider panel, and no label
+  // breaks inside itself — when the buttons do not fit on one line, whole buttons wrap instead.
+  it('three buttons get the wide panel, and no label breaks mid-phrase', () => {
+    render(ConfirmDialog, { props: withSecondary() });
+    expect(screen.getByRole('dialog').className).toContain('w-[560px]');
+    for (const name of ['Cancel', 'Only this one', 'Disable all 2'])
+      expect(btn(name).className).toContain('whitespace-nowrap');
+    expect(btn('Cancel').parentElement?.className).toContain('flex-wrap');
+  });
+
+  // Guard: every two-button caller keeps the panel it was designed in.
+  it('two buttons keep the standard panel', () => {
+    render(ConfirmDialog, { props: base() });
+    expect(screen.getByRole('dialog').className).toContain('w-[440px]');
+  });
+
   it('parks focus on the dialog body when the pressed action turns busy (DESIGN.md §8)', async () => {
     const props = withSecondary();
     const { rerender } = render(ConfirmDialog, { props });

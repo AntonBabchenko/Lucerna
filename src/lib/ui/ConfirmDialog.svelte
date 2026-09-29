@@ -27,6 +27,11 @@
 
     `confirmDisabled` turns the confirm off without a spinner — a confirm over a subset the user
     picks (the update review) has nothing to run while nothing is picked.
+
+    No button label breaks inside itself (plan §5b V2: «Удалить и отключить 3 / зависимых мода»):
+    the labels never wrap, and when the buttons do not fit on one line the footer wraps whole
+    buttons instead. Three buttons get a wider panel by default, so they sit on one line in RU and
+    EN alike.
   */
   import type { Snippet } from 'svelte';
   import Modal from './Modal.svelte';
@@ -46,7 +51,7 @@
     confirmDisabled = false,
     error = null,
     confirmTestid,
-    panelClass = 'w-[440px] p-5 flex flex-col gap-3',
+    panelClass,
     secondaryLabel,
     secondaryBusy = false,
     secondaryTestid,
@@ -74,6 +79,7 @@
     confirmDisabled?: boolean;
     error?: string | null;
     confirmTestid?: string;
+    /** Defaults to the standard 440 px panel, 560 px when the secondary action shows. */
     panelClass?: string;
     /** Already-localized alternative between Cancel and the confirm; rendered only together with
      *  `onSecondary`. Always `.btn-secondary` — it is never the headline action. */
@@ -94,10 +100,19 @@
     bodyText == null ? [] : Array.isArray(bodyText) ? bodyText : [bodyText],
   );
 
-  const confirmClass = $derived(`${variant === 'danger' ? 'btn-danger' : 'btn-primary'} btn-sm`);
+  const confirmClass = $derived(
+    `${variant === 'danger' ? 'btn-danger' : 'btn-primary'} btn-sm whitespace-nowrap`,
+  );
   const resolvedCancel = $derived(cancelLabel ?? $t('common.cancel'));
   const anyBusy = $derived(busy || secondaryBusy);
   const showSecondary = $derived(secondaryLabel !== undefined && onSecondary !== undefined);
+  // Three buttons need the room: in 440 px the longest RU confirm alone takes most of the line.
+  const resolvedPanel = $derived(
+    panelClass ??
+      (showSecondary
+        ? 'w-[560px] max-w-full p-5 flex flex-col gap-3'
+        : 'w-[440px] p-5 flex flex-col gap-3'),
+  );
 
   // DESIGN.md §8: a focused button that turns disabled drops focus to <body>, and Tab then walks
   // the page behind the dialog. On the rising edge of either busy flag, when focus has left the
@@ -124,7 +139,7 @@
   onClose={onCancel}
   closeOnBackdrop={!anyBusy}
   closeOnEscape={!anyBusy}
-  {panelClass}
+  panelClass={resolvedPanel}
 >
   <DialogTitle id={titleId} size={titleSize}>{title}</DialogTitle>
 
@@ -142,8 +157,14 @@
     <p class="text-xs text-danger">{error}</p>
   {/if}
 
-  <div class="flex justify-end gap-2 mt-2">
-    <button type="button" class="btn-secondary btn-sm" disabled={anyBusy} onclick={onCancel}>
+  <!-- Whole buttons wrap, never a label (see the header comment). -->
+  <div class="flex flex-wrap justify-end gap-2 mt-2">
+    <button
+      type="button"
+      class="btn-secondary btn-sm whitespace-nowrap"
+      disabled={anyBusy}
+      onclick={onCancel}
+    >
       {resolvedCancel}
     </button>
     {#if showSecondary}
@@ -151,7 +172,7 @@
         busy={secondaryBusy}
         disabled={busy}
         type="button"
-        class="btn-secondary btn-sm"
+        class="btn-secondary btn-sm whitespace-nowrap"
         data-testid={secondaryTestid}
         onclick={onSecondary}
       >
