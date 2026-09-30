@@ -196,6 +196,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A list opened by the window's right edge stays inside the window.** In a
   narrow window, the list of sort orders for installed mods and the list of
   Minecraft versions in the mod browser opened partly past the edge.
+- **The page switcher fits the launcher's default window.** Under a long list
+  of mods or modpacks, the choice of how many to show on a page sat past the
+  window's right edge. In a narrow window the buttons for the first, previous,
+  next and last page now show only their arrows, with their names in a
+  tooltip.
 
 ## [0.25.0] — 2026-09-27
 
