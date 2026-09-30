@@ -228,14 +228,18 @@ version=\"3.20\"
     assert!(report.violations[0].installed_version.is_none());
 }
 
-/// Disabled mods must not be scanned — their declared dependencies should
-/// be ignored and their provided ids should not enter the provider index.
+/// A disabled mod never declares requirements: the loader never reads a
+/// `.jar.disabled`, so nothing it requires can stop the launch.
+///
+/// The pre-flight does read the jar — so a requirement only a disabled mod
+/// could meet is reported as `RequiredDisabled` rather than plain "missing" —
+/// but never reads its declarations as requirements, and a disabled jar still
+/// satisfies nothing (its ids never enter the provider index).
 ///
 /// A disabled mod jar lives on disk as `<name>.jar.disabled`. The registry
 /// reconciler reads the `.disabled` extension and records `enabled: false`.
-/// The pre-flight skips all mods where `enabled == false`.
 #[tokio::test]
-async fn disabled_mods_not_scanned() {
+async fn disabled_mods_never_declare_requirements() {
     let td = TempDir::new().unwrap();
     let root = td.path();
 
@@ -283,7 +287,7 @@ version=\"3.20\"
         .unwrap();
     assert!(
         report.violations.is_empty(),
-        "disabled mods must not be scanned: {:?}",
+        "a disabled mod's requirements must never be judged: {:?}",
         report.violations
     );
 }

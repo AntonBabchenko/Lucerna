@@ -84,4 +84,43 @@ describe('StatusMessage', () => {
     expect(region.textContent).toContain('Saved');
     expect(region.querySelector('p')?.className).toContain('text-success');
   });
+
+  // A message and the lines that explain it («Fixed 0 of 2» and why) are ONE announcement: the
+  // lines sit inside the same atomic region, under the message — and never without it.
+  it('carries detail lines inside the region, under the message', () => {
+    render(StatusMessage, {
+      props: { message: 'Fixed 0 of 2', tone: 'info', details: ['Busy', 'Offline'] },
+    });
+    const region = screen.getByRole('status');
+    expect(region.querySelector('p')?.textContent?.trim()).toBe('Fixed 0 of 2');
+    const lines = [...region.querySelectorAll('li')].map((li) => li.textContent?.trim());
+    expect(lines).toEqual(['Busy', 'Offline']);
+  });
+
+  // Plan §5d L4 (the Play gate's «Fixed N of M»): a reason with the mods it stopped says them on a
+  // line of their own, above the reason — never «Moonlight Lib: Не удалось…», a capital after a
+  // colon.
+  it('puts the names a reason stopped on a line of their own, above the reason', () => {
+    render(StatusMessage, {
+      props: {
+        message: 'Fixed 3 of 5',
+        tone: 'info',
+        details: [{ names: 'Moonlight Lib', reason: 'Не удалось связаться с сервером.' }],
+      },
+    });
+    const item = screen.getByRole('status').querySelector('li') as HTMLElement;
+    const [names, reason] = [...item.children] as HTMLElement[];
+    expect(names?.textContent).toBe('Moonlight Lib');
+    expect(reason?.textContent).toBe('Не удалось связаться с сервером.');
+    expect(names?.classList).toContain('block');
+    expect(reason?.classList).toContain('block');
+    expect(item.textContent?.trim()).toBe('Moonlight Lib Не удалось связаться с сервером.');
+  });
+
+  it('shows no detail lines without a message — an idle region stays empty', () => {
+    render(StatusMessage, { props: { message: null, tone: 'info', details: ['Busy'] } });
+    const region = screen.getByRole('status');
+    expect(region.textContent?.trim()).toBe('');
+    expect(region.classList.contains('absolute')).toBe(true);
+  });
 });

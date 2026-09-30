@@ -9,7 +9,7 @@ describe('cardStatusStyle', () => {
     ['update', { accent: 'warning', badge: 'warning', dim: false }],
     ['from-pack', { accent: 'info', badge: 'info', dim: false }],
     ['cross-platform', { accent: 'none', badge: 'neutral', dim: false }],
-    ['incompatible', { accent: 'danger', badge: 'danger', dim: false }],
+    ['incompatible', { accent: 'warning', badge: 'warning', dim: false }],
     ['missing-deps', { accent: 'danger', badge: 'danger', dim: false }],
     ['distribution-disabled', { accent: 'warning', badge: 'warning', dim: false }],
     ['modified', { accent: 'warning', badge: 'warning', dim: false }],

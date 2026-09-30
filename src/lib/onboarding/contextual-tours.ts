@@ -37,7 +37,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   worlds: 'v4', // bumped 2026-08-12 — the row now opens the Backups | Datapacks dialog
   servers: 'v2', // bumped 2026-07-10 — the modal became the servers mode; steps re-anchored
   serverManage: 'v3', // bumped 2026-07-31 — step 1 re-anchored to the sidebar Start/Stop
-  addons: 'v2', // bumped 2026-08-12 — 4th kind (datapacks) + new library step; subtabs copy corrected. NOT bumped 2026-09-29 for the (i)-pointer copy (see STEPS_FINGERPRINT)
+  addons: 'v2', // bumped 2026-08-12 — 4th kind (datapacks) + new library step; subtabs copy corrected. NOT bumped 2026-09-29 for the (i)-pointer copy or the Browse-only subtabs clause (see STEPS_FINGERPRINT)
   serverAddons: 'v1', // added 2026-08-12 — server Add-ons tab: kinds + drag-and-drop install
   l10n: 'v1', // added 2026-08-12 — mod-localization surface: coverage, find-string, actions
   overview: 'v1', // added 2026-08-12 — points at the localization row on the instance Overview
@@ -85,12 +85,14 @@ export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
   // Moved by the datapackLibrary copy rewrite (1.13 hedge + the corrected
   // help-icon pointer). No further bump: v2 has not shipped, so its own copy
   // fix rides inside it.
-  // Moved again 2026-09-29: the data pack explainer left the Installed toolbar
-  // for the kind row, so kindSwitch now points at the (i) there and
-  // datapackLibrary stops sending users to Installed. NOT bumped (maintainer
-  // decision): a pointer-only copy fix; new users get it, existing users learn
-  // of the (i) from the changelog.
-  addons: 'f1bfdd22',
+  // Moved again 2026-09-29, by two copy-only changes, neither bumped: the data
+  // pack explainer left the Installed toolbar for the kind row, so kindSwitch now
+  // points at the (i) there and datapackLibrary stops sending users to Installed
+  // (maintainer decision: a pointer-only copy fix; new users get it, existing
+  // users learn of the (i) from the changelog); and the source picker shows on
+  // Browse only now, so the subtabs step says so (one clause scoped, nothing new
+  // to show a user who has seen v2).
+  addons: '2f654ce8',
   serverAddons: '5c634610',
   l10n: '49ee796e',
   overview: 'bbc47533',

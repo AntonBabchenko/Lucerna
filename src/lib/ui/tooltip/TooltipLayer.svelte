@@ -16,8 +16,11 @@
   const reduced =
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // After the bubble renders with its text, measure it and finalize position.
+  // After the bubble renders with its text — at the window's origin, where the controller puts
+  // each new showing so nothing narrows it — measure it and finalize position. Once per showing
+  // (`shown`): one that takes over from a visible tooltip changes nothing else this reads.
   $effect(() => {
+    void tooltipState.shown;
     if (tooltipState.visible && bubble) {
       positionTooltip({ width: bubble.offsetWidth, height: bubble.offsetHeight });
     }

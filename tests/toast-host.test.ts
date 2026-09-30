@@ -39,6 +39,29 @@ describe('ToastHost', () => {
     expect(getByLabelText('Dismiss notification')).toBeTruthy();
   });
 
+  // Plan §5d L4: a batch report's reason says whom it stopped on a line of its own, above the
+  // reason — «Moonlight Lib: Не удалось…» put a capital after a colon.
+  it('puts the names a reason stopped on a line of their own, above the reason', () => {
+    pushWarning('Fixed 0 of 2', [
+      { names: 'Moonlight Lib, ImmediatelyFast', reason: 'Не удалось связаться с сервером.' },
+      'In the profile «Alpha»',
+    ]);
+    const { getByText } = render(ToastHost);
+    const names = getByText('Moonlight Lib, ImmediatelyFast');
+    const reason = getByText('Не удалось связаться с сервером.');
+    const item = names.parentElement as HTMLElement;
+    expect(item.tagName).toBe('LI');
+    expect(reason.parentElement).toBe(item);
+    expect(names.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(names.classList).toContain('block');
+    expect(reason.classList).toContain('block');
+    // No colon between them, and read as two phrases, not one run-on.
+    expect(item.textContent?.trim()).toBe(
+      'Moonlight Lib, ImmediatelyFast Не удалось связаться с сервером.',
+    );
+    expect(getByText('In the profile «Alpha»').tagName).toBe('LI');
+  });
+
   it('clicking the dismiss button removes the warning toast', async () => {
     pushWarning('failed');
     const { getByLabelText, queryByText } = render(ToastHost);

@@ -12,27 +12,39 @@ const mocks = vi.hoisted(() => ({
   modsEnable: vi.fn(),
   modsDisable: vi.fn(),
   modsUninstall: vi.fn(),
+  modsUninstallMany: vi.fn(),
   modsFindOrphans: vi.fn(),
+  modsRemovalImpact: vi.fn(),
+  modsEnableImpact: vi.fn(),
   pushSuccess: vi.fn(),
   pushWarning: vi.fn(),
+  pushActionToast: vi.fn(),
 }));
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsEnable: mocks.modsEnable,
     modsDisable: mocks.modsDisable,
     modsUninstall: mocks.modsUninstall,
+    modsUninstallMany: mocks.modsUninstallMany,
     modsFindOrphans: mocks.modsFindOrphans,
+    modsRemovalImpact: mocks.modsRemovalImpact,
+    modsEnableImpact: mocks.modsEnableImpact,
   },
 }));
 vi.mock('$lib/toasts/toasts.svelte', () => ({
   pushSuccess: mocks.pushSuccess,
   pushWarning: mocks.pushWarning,
+  pushActionToast: mocks.pushActionToast,
 }));
 
 import type { Row } from '$lib/mods/installed/installed-data.svelte';
 import { createInstalledSelection } from '$lib/mods/installed/installed-selection.svelte';
 
-const BUSY = 'An operation is already in progress, or the game is running.';
+// A mod write takes the SHARED claim, so the refusal means a long operation holds
+// the profile — never that the game runs (plan A9): mod-ops' own copy, not the
+// shared `instance_busy` text.
+const BUSY =
+  'Another operation — such as a modpack update, a migration or a clone — is using this profile. Try again once it finishes.';
 
 const row = (sha1: string, enabled: boolean): Row => ({
   summary: null,
@@ -68,7 +80,18 @@ function selectionOver(rows: Row[]) {
 
 describe('bulk mod actions refused while the instance is held', () => {
   beforeAll(() => locale.set('en'));
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Nothing depends on anything: the safe flip order names just the targets.
+    mocks.modsRemovalImpact.mockImplementation(async (_i: string, sha1s: string[]) => ({
+      status: 'ok',
+      data: { dependents: [], order: sha1s },
+    }));
+    mocks.modsEnableImpact.mockImplementation(async (_i: string, sha1s: string[]) => ({
+      status: 'ok',
+      data: { requirements: [], order: sha1s },
+    }));
+  });
 
   it('a bulk disable names the busy reason once, not just a failure count', async () => {
     mocks.modsDisable.mockResolvedValue(busy);
@@ -76,7 +99,9 @@ describe('bulk mod actions refused while the instance is held', () => {
 
     await s.bulkSetEnabled(false);
 
-    expect(mocks.modsDisable).toHaveBeenCalledTimes(3);
+    // The flip follows the backend's safe order, so the first refusal ends it: the
+    // two mods after it are never tried, and count as failed for the same reason.
+    expect(mocks.modsDisable).toHaveBeenCalledTimes(1);
     expect(mocks.pushSuccess).not.toHaveBeenCalled();
     expect(mocks.pushWarning).toHaveBeenCalledTimes(1);
     const [title, lines] = mocks.pushWarning.mock.calls[0] as [string, string[]];
@@ -84,25 +109,21 @@ describe('bulk mod actions refused while the instance is held', () => {
     expect(lines).toEqual([BUSY]);
   });
 
-  it('a bulk uninstall names the busy reason alongside a different failure', async () => {
+  // A bulk removal is now ONE command (one token, all-or-nothing on the backend), so a refusal
+  // is one reason, reported once — and there is nothing to undo.
+  it('a refused bulk removal names the busy reason and offers no Undo', async () => {
     mocks.modsFindOrphans.mockResolvedValue({ status: 'ok', data: [] });
-    mocks.modsUninstall
-      .mockResolvedValueOnce(busy)
-      .mockResolvedValueOnce({
-        status: 'error',
-        error: { kind: 'mods_not_found', source: 'installed' },
-      })
-      .mockResolvedValueOnce(busy);
+    mocks.modsUninstallMany.mockResolvedValue(busy);
     const s = selectionOver([row('a', true), row('b', true), row('c', true)]);
 
     await s.requestBulkUninstall();
-    await s.confirmBulkUninstall([]);
 
+    expect(mocks.modsUninstallMany).toHaveBeenCalledTimes(1);
     expect(mocks.pushWarning).toHaveBeenCalledTimes(1);
-    const [, lines] = mocks.pushWarning.mock.calls[0] as [string, string[]];
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe(BUSY);
-    expect(lines[1]).not.toBe(BUSY);
+    const [title, lines] = mocks.pushWarning.mock.calls[0] as [string, string[]];
+    expect(title).toBe("Couldn't remove 3 mods");
+    expect(lines).toEqual([BUSY]);
+    expect(mocks.pushActionToast).not.toHaveBeenCalled();
   });
 
   it('a fully successful bulk enable still reports success with no warning', async () => {

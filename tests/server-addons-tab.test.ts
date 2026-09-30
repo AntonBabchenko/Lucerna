@@ -15,7 +15,15 @@ vi.mock('$lib/servers/datapacks/ServerDatapackBrowser.svelte', () => ({
 vi.mock('$lib/servers/datapacks/ServerDatapacksInstalled.svelte', () => ({
   default: stubComponent(),
 }));
-vi.mock('$lib/servers/addons/ServerModsInstalled.svelte', () => ({ default: stubComponent() }));
+// Keeps what the host hands it (Svelte 5 calls a component as `(anchor, props)`; the props object
+// reads live), so a test can see the drop area it is given and report an empty list back.
+const modsPane = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }));
+vi.mock('$lib/servers/addons/ServerModsInstalled.svelte', () => ({
+  default: function stubModsInstalled(_anchor: unknown, props: Record<string, unknown>) {
+    modsPane.props = props;
+    return {};
+  },
+}));
 vi.mock('$lib/servers/addons/ServerPluginsInstalled.svelte', () => ({ default: stubComponent() }));
 
 // A minimal no-op Svelte 5 component for child stubs (Svelte 5 mounts a
@@ -215,6 +223,30 @@ describe('ServerAddonsTab', () => {
         'true',
       ),
     );
+  });
+
+  // The dropzone rule (DESIGN.md §14): a strip whose drag overlay covers the panes below it; an
+  // empty Installed list holds the one full drop area — handed over only while it shows.
+  it('hands its Installed pane the full drop area and hides the strip while that list is empty', async () => {
+    const overlayHost = () => {
+      let el = screen.getByTestId('file-dropzone-overlay').parentElement;
+      while (el && !el.classList.contains('relative')) el = el.parentElement;
+      return el;
+    };
+    await seed([makeServer('a', false, 'fabric')]);
+    render(ServerAddonsTab, { serverId: 'a', visible: true });
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+    expect(overlayHost()?.contains(screen.getByTestId('file-dropzone'))).toBe(true);
+    expect(overlayHost()?.contains(screen.getByTestId('server-addons-kind-switch'))).toBe(false);
+    expect(modsPane.props?.emptyDropzone).toBeUndefined();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    expect(modsPane.props?.emptyDropzone).toBeTypeOf('function');
+    (modsPane.props?.onEmptyChange as (e: boolean) => void)(true);
+    await tick();
+    expect(screen.queryByTestId('file-dropzone')).toBeNull();
+    (modsPane.props?.onEmptyChange as (e: boolean) => void)(false);
+    await tick();
+    expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
   it('a dropped payload for the active kind installs and clears the rune', async () => {

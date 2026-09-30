@@ -15,7 +15,9 @@
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
+  import { displayVersion } from '$lib/format/version';
   import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
+  import { disableMods } from '$lib/mods/mod-ops.svelte';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
@@ -211,16 +213,16 @@
     };
   });
 
-  // One-click disable for an inert wrong-loader jar listed in the C5 section:
-  // same primitive as the Installed tab's toggle, then a silent refresh so the
-  // row flips to the "disabled" note.
-  async function disableInert(sha1: string) {
-    const r = await commands.modsDisable(inst.id, sha1);
-    if (r.status === 'error') {
-      pushWarning(formatError(r.error));
-      return;
-    }
-    await load(true);
+  // One-click disable for an inert wrong-loader jar listed in the C5 section — through the
+  // guarded path every mod toggle takes (spec §6.1): mods that need it are named before anything
+  // changes, and a failure is toasted there. Then a silent refresh so the row flips to the
+  // "disabled" note.
+  async function disableInert(rec: InstalledMod) {
+    const outcome = await disableMods(
+      { instanceId: inst.id, profileName: inst.name, nameOf: (sha1) => nameMap.get(sha1) },
+      [{ sha1: rec.sha1, name: nameMap.get(rec.sha1) ?? rec.name }],
+    );
+    if (outcome !== 'cancelled') await load(true);
   }
 
   async function load(silent = false) {
@@ -430,7 +432,9 @@
         {inst.mrpack_name}
       </h3>
       <div class="text-xs text-muted truncate flex items-center gap-2">
-        <span class="truncate">v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}</span>
+        <span class="truncate"
+          >{displayVersion(inst.mrpack_version ?? '')} · {formatBadge(inst.mrpack_source)}</span
+        >
         {#if inst.mrpack_project_id}
           <!-- Not gated on an available update: reaching an OLDER version while
                already up to date is the whole point of this affordance. -->
@@ -764,7 +768,7 @@
                 <button
                   type="button"
                   class="btn-tertiary text-xs flex-shrink-0"
-                  onclick={() => void disableInert(rec.sha1)}
+                  onclick={() => void disableInert(rec)}
                   >{$t('modpacks.imported.detail.inertDisable')}</button
                 >
               {:else if rec}

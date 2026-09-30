@@ -37,6 +37,15 @@ describe('ImportedCard', () => {
     expect(getByText(/v5\.9\.0/)).toBeTruthy();
   });
 
+  // Plan §5b V2: a version with its own «v» is not given a second one (displayVersion).
+  it('never doubles the «v» of a version that has its own', () => {
+    const { container } = render(ImportedCard, {
+      props: { inst: { ...baseInst, mrpack_version: 'v5.9.0' }, onClick: () => {} },
+    });
+    expect(container.textContent).toContain('Fabulously Optimized v5.9.0');
+    expect(container.textContent).not.toContain('vv');
+  });
+
   it('renders instance name as sub-line', () => {
     const { getByText } = render(ImportedCard, {
       props: { inst: baseInst, onClick: () => {} },

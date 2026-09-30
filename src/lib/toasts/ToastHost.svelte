@@ -111,8 +111,18 @@
           {#each t.lines as line}
             <!-- break-words (overflow-wrap) so long detail lines wrap to the
                  next line instead of being clipped to a single ellipsised row;
-                 also breaks unbreakable strings like file paths / URLs. -->
-            <li class="break-words">{line}</li>
+                 also breaks unbreakable strings like file paths / URLs.
+                 A reason of a batch report says whom it stopped on a line of
+                 its own, above it — never «Sodium: Не удалось…», a capital after
+                 a colon (`reasonLines`, plan §5d L4). -->
+            <li class="break-words">
+              {#if typeof line === 'string'}
+                {line}
+              {:else}
+                <span class="block font-medium">{line.names}</span>
+                <span class="block">{line.reason}</span>
+              {/if}
+            </li>
           {/each}
         </ul>
       {/if}

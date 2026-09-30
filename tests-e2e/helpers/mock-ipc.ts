@@ -197,7 +197,7 @@ export type MockState = {
    * `scan_instance_mod_compat` result — the shared offline compat scan
    * (ModLocalCompat[]). An entry with `platform_mismatch: true` makes the
    * Installed tab count that mod incompatible, which is what surfaces the
-   * "Fix incompatible mods" migration button. Defaults to empty.
+   * panel's "Fix incompatible (N)" migration button. Defaults to empty.
    */
   compat_scan?: unknown[];
   /**
@@ -385,8 +385,8 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         modpack_status: () => null,
 
         // Mod-compatibility scan + MC-version migration. The scan feeds the
-        // Installed tab's incompatible count (and thus the "Fix incompatible
-        // mods" button); the plan/apply drive the migration dialog. Apply's
+        // Installed tab's incompatible count (and thus the panel's "Fix
+        // incompatible (N)" button); the plan/apply drive the migration dialog. Apply's
         // args land in __mockIpcCalls so a spec can assert the settled payload.
         scan_instance_mod_compat: () => m.compat_scan,
         mods_plan_mc_migration: () => m.migration_plan,
@@ -485,6 +485,11 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
 
         // Mod cache size (Settings panel).
         mods_cache_size_bytes: () => 0,
+
+        // Mod updates: never checked, nothing held. The holds need their own
+        // empty list — the catch-all null would read as an ok-null list.
+        mods_last_update_check: () => null,
+        mods_list_holds: () => [],
 
         // Data-root location (Settings → Storage). `open` is the
         // plugin:dialog|open directory picker — the prefix stripper below

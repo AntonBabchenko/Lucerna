@@ -6,7 +6,7 @@
 /// Result of comparing two version strings. `Unknown` when a confident
 /// numeric comparison is impossible (a qualifier in a decisive position).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Cmp {
+pub(crate) enum Cmp {
     Less,
     Equal,
     Greater,
@@ -105,7 +105,7 @@ fn compare_tokens(a: &str, b: &str) -> Cmp {
 /// the whole strings are compared, so the first differing number decides — as
 /// in the loader: across lines the Minecraft part, and two hotfix ids by their
 /// hotfix (a mod's own `26.1.12-5` looks exactly like one).
-fn compare_numeric(a: &str, b: &str) -> Cmp {
+pub(crate) fn compare_numeric(a: &str, b: &str) -> Cmp {
     if let (Some(x), Some(y)) = (split_mc_prefix(a), split_mc_prefix(b)) {
         if x.line == y.line && (x.bare_line || y.bare_line) {
             return compare_tokens(x.mod_version, y.mod_version);

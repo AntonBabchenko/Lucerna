@@ -3,6 +3,7 @@ import {
   __resetLayers,
   insertTour,
   isTopmost,
+  modalBlocksFileDrops,
   modalDepth,
   newLayerId,
   onLayersChange,
@@ -130,6 +131,47 @@ describe('tourAbove', () => {
     insertTour(newLayerId('t'), null, noop);
     expect(tourAbove(m)).toBe(false);
     expect(tourAbove(newLayerId('gone'))).toBe(false);
+  });
+});
+
+// The window drop router's `modalOnTop` (DESIGN.md §8, §14): the topmost MODAL decides; a
+// popover or a tour neither blocks a drop nor frees one.
+describe('modalBlocksFileDrops', () => {
+  it('is false with no modal, whatever popover or tour is up', () => {
+    expect(modalBlocksFileDrops()).toBe(false);
+    insertTour(newLayerId('page-tour'), null, noop);
+    pushLayer(newLayerId('menu'), 'popover', noop);
+    expect(modalBlocksFileDrops()).toBe(false);
+  });
+
+  it('follows the topmost modal: a plain dialog blocks, the Modpacks modal takes the drop', () => {
+    const releaseSettings = pushLayer(newLayerId('settings'), 'modal', noop);
+    expect(modalBlocksFileDrops()).toBe(true);
+    releaseSettings();
+    pushLayer(newLayerId('modpacks'), 'modal', noop, { takesFileDrops: true });
+    expect(modalBlocksFileDrops()).toBe(false);
+    const releaseDetails = pushLayer(newLayerId('pack-details'), 'modal', noop);
+    expect(modalBlocksFileDrops()).toBe(true);
+    releaseDetails();
+    expect(modalBlocksFileDrops()).toBe(false);
+  });
+
+  it('a tour or a popover over a plain dialog leaves the drop blocked', () => {
+    const manage = newLayerId('manage');
+    pushLayer(manage, 'modal', noop);
+    insertTour(newLayerId('manage-tour'), manage, noop);
+    expect(modalBlocksFileDrops()).toBe(true);
+    pushLayer(newLayerId('select'), 'popover', noop);
+    expect(modalBlocksFileDrops()).toBe(true);
+  });
+
+  it('a tour or a popover over the Modpacks modal leaves it taking the drop', () => {
+    const modpacks = newLayerId('modpacks');
+    pushLayer(modpacks, 'modal', noop, { takesFileDrops: true });
+    insertTour(newLayerId('modpacks-tour'), modpacks, noop);
+    expect(modalBlocksFileDrops()).toBe(false);
+    pushLayer(newLayerId('sort'), 'popover', noop);
+    expect(modalBlocksFileDrops()).toBe(false);
   });
 });
 

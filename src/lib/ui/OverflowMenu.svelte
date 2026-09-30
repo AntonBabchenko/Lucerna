@@ -8,7 +8,8 @@
   // Left-click overflow menu. A trigger button (⋯) opens a position:fixed menu
   // listing ContextMenuItems; the shared Menu owns the surface, keyboard nav, and
   // scroll/resize close. This wrapper only owns the trigger + placement (anchors
-  // the menu's right edge under the trigger so it grows leftward) + focus return.
+  // the menu's right edge under the trigger so it grows leftward — `align="end"`
+  // keeps that edge when a long item widens the menu past WIDTH) + focus return.
   let { items, ariaLabel }: { items: ContextMenuItem[]; ariaLabel: string } = $props();
 
   const WIDTH = 230;
@@ -61,5 +62,14 @@
 </button>
 
 {#if open}
-  <Menu {items} {ariaLabel} {top} {left} width={WIDTH} onClose={close} {openedByKeyboard} />
+  <Menu
+    {items}
+    {ariaLabel}
+    {top}
+    {left}
+    width={WIDTH}
+    align="end"
+    onClose={close}
+    {openedByKeyboard}
+  />
 {/if}

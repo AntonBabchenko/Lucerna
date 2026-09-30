@@ -58,7 +58,7 @@
 // the commands' own `Result` types is what actually makes them wireable into
 // the 13 real call sites without restructuring any of them.)
 
-import type { ModVersion_Deserialize, VersionRef } from '$lib/ipc/bindings';
+import type { ModSource, ModVersion_Deserialize, VersionRef } from '$lib/ipc/bindings';
 import { commands, events } from '$lib/ipc/bindings';
 import { finish, start, upsertProgress } from '../registry.svelte';
 import type { TaskProgress } from '../types';
@@ -124,6 +124,37 @@ export async function installModWithDeps(
   optionalDeps: VersionRef[],
   opts: InstallOpts = {},
 ): ReturnType<typeof commands.modsInstallWithDeps> {
+  return runInstallTask(instanceId, name, () =>
+    commands.modsInstallWithDeps(instanceId, primary, optionalDeps, opts.allowOffPlatform === true),
+  );
+}
+
+/** Install a dependency FOR the installed mod that declared it, as a `mod-install` task (spec
+ *  2026-09-28 §5.6). Same shape and EXACT same return type as `commands.modsInstallDependency`
+ *  (plus the `name` display title). The backend picks the newest build for the profile, brings its
+ *  own required dependencies, records what it installed on the dependent's `requires` (so removing
+ *  the dependent can offer them as orphans), and refuses a project the profile already lists
+ *  (`mods_already_installed`) — a stale caller can never add a second jar of it. */
+export async function installDependency(
+  instanceId: string,
+  name: string,
+  dependentSha1: string,
+  source: ModSource,
+  projectId: string,
+): ReturnType<typeof commands.modsInstallDependency> {
+  return runInstallTask(instanceId, name, () =>
+    commands.modsInstallDependency(instanceId, dependentSha1, source, projectId),
+  );
+}
+
+/** One install call as a `mod-install` task: registered before the call, its progress fed from
+ *  the instance's ticks, finished before the result is returned or a bridge error rethrown — so the
+ *  task always reaches a terminal state and the caller sees exactly what the command returned. */
+async function runInstallTask(
+  instanceId: string,
+  name: string,
+  call: () => ReturnType<typeof commands.modsInstallWithDeps>,
+): ReturnType<typeof commands.modsInstallWithDeps> {
   const id = `mod-install-${crypto.randomUUID()}`;
   start({
     id,
@@ -136,14 +167,7 @@ export async function installModWithDeps(
   });
 
   try {
-    const r = await withModInstallProgress(id, instanceId, () =>
-      commands.modsInstallWithDeps(
-        instanceId,
-        primary,
-        optionalDeps,
-        opts.allowOffPlatform === true,
-      ),
-    );
+    const r = await withModInstallProgress(id, instanceId, call);
     if (r.status === 'ok') {
       // `InstallSummary.details` is the same `TaskDetail[]` shape the
       // registry's report modal already renders for pack-import/pack-update
@@ -161,8 +185,8 @@ export async function installModWithDeps(
     return r;
   } catch (e) {
     // A real thrown Error (bridge failure) — land the task in a terminal
-    // state, then rethrow unchanged so this call behaves exactly like
-    // `commands.modsInstallWithDeps` would have.
+    // state, then rethrow unchanged so this call behaves exactly like the
+    // command it wraps would have.
     finish(id, { state: 'failed' });
     throw e;
   }

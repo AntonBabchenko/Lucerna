@@ -11,31 +11,39 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
-  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, type Snippet, tick } from 'svelte';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { debounceTrailing } from '$lib/ui/debounce';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
   import ChangelogModal from '../ChangelogModal.svelte';
   import ModDetailModal from '../ModDetailModal.svelte';
   import CompatWarningDialog from '../CompatWarningDialog.svelte';
-  import OrphanUninstallDialog from '../OrphanUninstallDialog.svelte';
+  import {
+    disableMods,
+    enableMods,
+    type ModOpScope,
+    type ModOpTarget,
+    modWriteReason,
+    uninstallMods,
+  } from '$lib/mods/mod-ops.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
-  import { browserPrefs } from '../browser-prefs.svelte';
+  import { browserPrefs, PAGE_SIZES } from '../browser-prefs.svelte';
   import { createInstalledData, type Row } from './installed-data.svelte';
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph } from './dep-graph.svelte';
   import {
     createPreflight,
+    hasBlocking,
     installMissing,
+    planVersionFix,
     remediatePickedVersion,
-    remediateViolation,
-    toOverlayKeys,
     violationKey,
   } from '$lib/mods/preflight.svelte';
+  import { depDisplayName, type PlanSide, type PlanState } from '$lib/mods/violation-view';
   import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
   import MigrationPlanDialog from '../MigrationPlanDialog.svelte';
   import { modProjectUrl } from '$lib/mods/project-url';
@@ -46,62 +54,148 @@
     type OffPlatformRow,
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
+  import { depNameOf, depProjectOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
+  import { type DepTreeCtx, edgeConflict } from '$lib/mods/dep-node-state';
+  import { countFixed, fixAll } from '$lib/mods/fix-all';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
+  import UpdateReviewDialog from './UpdateReviewDialog.svelte';
+  import { buildReviewItems, depsLines, type UpdateReviewItem } from './update-review';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
-  import { compatKindOf, createCompatCheck } from './compat-check.svelte';
-  import { displayLoader } from '$lib/instances/loader-display';
+  import { createCompatCheck } from './compat-check.svelte';
+  import { isProblem, type ModStatus, statusOf } from './mod-status';
+  import { type RowFix, type RowProblem, rowProblemOf } from './row-problem';
   import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
   import InstalledModRow from './InstalledModRow.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
+  import { stickyEdge } from '$lib/ui/sticky-edge';
 
   let {
     instanceId,
+    instanceName = null,
     mcVersion,
     loader,
-    loaderVersion = null,
     requestedFilter = null,
     onFilterApplied = () => {},
     onBrowseFor = (_q: string) => {},
+    emptyDropzone,
+    onEmptyChange = () => {},
   }: {
     instanceId: string | null;
+    // Named in a restore toast once the user has switched profiles (spec §6.1).
+    instanceName?: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
-    // Needed to interpolate a platform-loader-axis mismatch hint ("needs loader
-    // version X, this profile runs Y"); optional because callers that never hit
-    // that hint (tests, other embeddings) should not have to supply it.
-    loaderVersion?: string | null;
-    // A status view asked for by a deep-link (Overview → "N incompatible
-    // mods"). Applied once, then cleared by the parent so an in-tab click is
-    // never hijacked afterwards.
-    requestedFilter?: 'incompatible' | null;
+    // A status view asked for by a deep-link (the Overview's attention item →
+    // «Проблемы», the one problem view). Applied once, then cleared by the
+    // parent so an in-tab click is never hijacked afterwards.
+    requestedFilter?: 'issues' | null;
     onFilterApplied?: () => void;
     onBrowseFor?: (query: string) => void;
+    /** The host's full drop area, rendered in the empty list (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
   } = $props();
 
   // --- composables (creation order matters; thunks keep cross-refs lazy) ---
   const data = createInstalledData(() => instanceId);
-  const updates = createUpdateCheck(() => instanceId, data.refresh);
+  // Empty is reported, never assumed: no profile, a list still loading or a read that failed is
+  // not an empty list (fallback Q2) — the host keeps its strip until the list says it is empty.
+  const listEmpty = $derived(
+    instanceId !== null && !data.loading && data.rows.length === 0 && data.error === null,
+  );
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
+  });
+  // `opScope` is a hoisted function; it only runs once an update does.
+  const updates = createUpdateCheck(() => instanceId, data.refresh, opScope);
   const compat = createCompatCheck(
     () => instanceId,
     () => mcVersion,
     () => loader,
   );
   // Declared before `filters` because `hasIssue` reads it: the pre-flight is the
-  // ONLY source of "this mod is a problem". The graph reports what the platform
-  // was told; only the pre-flight reads the descriptor the loader enforces. A
-  // mod appears here iff it is the dependent in a violation.
+  // ONLY source of "this mod stops the game". The graph reports what the
+  // platform was told; only the pre-flight reads the descriptor the loader
+  // enforces. A mod is blocking iff it is the dependent in a violation.
   const preflight = createPreflight(() => instanceId);
-  const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
-  const preflightShas = $derived(
-    new Set((preflight.report?.violations ?? []).map((v) => v.dependent_sha1)),
+  // Blocking = the gate's predicate (`hasBlocking`), one predicate for the
+  // issues chip, the row line and the «What stops the game» panel (plan A17):
+  // while a self-completing pack still has files to download, its violations
+  // are advisory and nothing here says the game won't start. Grouped by
+  // dependent, in report order.
+  const blockingViolations = $derived(
+    preflight.report && hasBlocking(preflight.report) ? preflight.report.violations : [],
   );
+  const violationsBySha = $derived.by(() => {
+    const m = new Map<string, DepViolation[]>();
+    for (const v of blockingViolations) {
+      m.set(v.dependent_sha1, [...(m.get(v.dependent_sha1) ?? []), v]);
+    }
+    return m;
+  });
   // Enabled mods on a Vanilla instance are dead weight (spec D9) — drives
   // the instance-level banner above the list.
   const enabledModsCount = $derived(data.rows.filter((r) => r.installed.enabled).length);
+
+  // Display names by sha1 (rowDisplayName) — every guarded operation names mods this way, and
+  // captures instance + profile when it starts (spec §6.1 "Instance binding").
+  const nameBySha = $derived(
+    new Map<string, string>(data.rows.map((r) => [r.installed.sha1, rowDisplayName(r)])),
+  );
+  function opScope(id: string): ModOpScope {
+    return { instanceId: id, profileName: instanceName, nameOf: (sha1) => nameBySha.get(sha1) };
+  }
+
+  const rowBySha = $derived(new Map<string, Row>(data.rows.map((r) => [r.installed.sha1, r])));
+  // The compat hint behind a warning — only for a mod compat counts as
+  // incompatible, the membership the old «Несовместимые» chip counted.
+  const compatHintOf = (sha1: string) =>
+    compat.incompatibleShas.has(sha1) ? compat.hintFor(sha1) : null;
+  // One status per row (mod-status.ts); the «Проблемы» chip is blocking ∪
+  // warning. A hold never changes a problem level; it only hides an update.
+  const statusBySha = $derived(
+    new Map<string, ModStatus>(
+      data.rows.map((r) => [
+        r.installed.sha1,
+        statusOf({
+          enabled: r.installed.enabled,
+          violations: violationsBySha.get(r.installed.sha1) ?? [],
+          compat: compatHintOf(r.installed.sha1),
+          update: updates.updateChecks.get(r.installed.sha1)?.state ?? null,
+          held: updates.isHeld(r.installed),
+        }),
+      ]),
+    ),
+  );
+  // The chip turns red only while a row IS red — the same statuses it counts.
+  const anyBlocking = $derived([...statusBySha.values()].some((s) => s.level === 'blocking'));
+  // The backend roots the dependency graph at the ENABLED mods only, and after a
+  // toggle the list is re-read before the re-resolved graph lands — so for that
+  // moment the graph is stale. What the rows can tell is taken from the rows:
+  // - a mod switched off since requires nothing at load time: only roots that
+  //   are enabled NOW count (`requiredByCount`);
+  // - a mod switched on since has no root yet, so what it requires is unknown:
+  //   the graph views are no fact until the graph knows every enabled platform
+  //   mod (`graphCoversEnabled`) — a library it needs could read as unused;
+  // - a root whose installed version the platform could not describe (offline,
+  //   rate-limited, an unidentified version) requires something unknown: while
+  //   one is enabled no library is unused (`enabledDepsUnknown`). «Нужны другим»
+  //   stays — every edge it counts is real, so its count is a lower bound.
+  const requiredByCount = (r: Row | undefined): number =>
+    (deps.requiredBy.get(r?.installed.project_id ?? '') ?? []).filter(
+      (e) => rowBySha.get(e.sha1)?.installed.enabled === true,
+    ).length;
+  const graphCoversEnabled = (): boolean =>
+    deps.graph !== null &&
+    data.rows.every(
+      ({ installed: m }) => !m.enabled || !m.source || !m.project_id || deps.rootBySha.has(m.sha1),
+    );
 
   const filters = createInstalledFilters(
     () => data.rows,
@@ -111,17 +205,39 @@
       enabled: r.installed.enabled,
       sortKey: r.installed.installed_at,
       source: r.installed.source,
+      searchTerms: [r.installed.filename, r.summary?.slug ?? null],
     }),
     {
       isUpdatable: (id) => updates.updatableShas.has(id),
-      hasIssue: (id) => preflightShas.has(id),
-      isIncompatible: (id) => compat.incompatibleShas.has(id),
+      hasIssue: (id) => isProblem(statusBySha.get(id)),
+      // Enabled, like the graph's own "installed": a switched-off jar satisfies nobody.
+      isNeeded: (id) => {
+        const r = rowBySha.get(id);
+        return !!r && r.installed.enabled && requiredByCount(r) > 0;
+      },
+      // `library === true` only: `null` (a source that cannot tell) is never a library. And
+      // "required by nothing" only while every enabled mod's requirements are known.
+      isUnusedLibrary: (id) => {
+        const r = rowBySha.get(id);
+        return (
+          !!r &&
+          r.installed.enabled &&
+          r.summary?.library === true &&
+          !enabledDepsUnknown &&
+          requiredByCount(r) === 0
+        );
+      },
+      // `deps` is created below; these thunks only run once counts are read.
+      graphReady: graphCoversEnabled,
     },
-    // The list renders before its rows arrive, so a status count of 0 during
-    // the initial load is "not known yet", not "none". `refresh()` sets
-    // `loading` synchronously before its first await, so this is already true
-    // when the filters' auto-reset effect first runs on mount.
-    () => !data.loading,
+    // A status count of 0 is "not known yet" until the rows AND the pre-flight
+    // have answered (a report or an error — either settles it). `refresh()`
+    // sets `loading` synchronously before its first await and the pre-flight
+    // starts without a report, so this is false when the filters' auto-reset
+    // effect first runs on mount. The compat half is not waited for: its scan is
+    // shared with the Overview, where the deep-link comes from, so it has
+    // already answered for this profile by then.
+    () => !data.loading && (preflight.report !== null || preflight.error !== null),
   );
   const deps = createDepGraph(
     () => instanceId,
@@ -135,20 +251,30 @@
       getPageSize: () => filters.pageSize,
     },
   );
+  // An enabled mod whose dependencies the graph could not learn (see above); a root switched
+  // off since requires nothing at load time.
+  const enabledDepsUnknown = $derived(
+    (deps.graph?.roots ?? []).some(
+      (r) => !!r.deps_unknown && rowBySha.get(r.sha1)?.installed.enabled === true,
+    ),
+  );
   const selection = createInstalledSelection(
     () => filters.filtered,
     () => instanceId,
     data.refresh,
     () => updates.updateChecks,
     deps.invalidateGraph,
+    opScope,
   );
 
   // Per-row pre-flight remediation state, keyed by violationKey. `busy` shows a
-  // spinner on the row; `deadEnd` flips it to the no-satisfying affordances
-  // (open mod page / find alternative). The picker + find-alternative dialogs
-  // are driven by the *Violation holders below.
+  // spinner on the row; `deadEnd` flips it to the no-fix affordances (open mod
+  // page / find alternative); `plans` holds the version planner's answer for a
+  // conflict (spec §6.5). The picker + find-alternative dialogs are driven by
+  // the *Violation holders below.
   let preflightBusy = $state(new SvelteSet<string>());
   let preflightDeadEnd = $state(new SvelteSet<string>());
+  const plans = new SvelteMap<string, PlanState>();
   let pickerViolation = $state<DepViolation | null>(null);
   let findAltViolation = $state<DepViolation | null>(null);
 
@@ -170,47 +296,60 @@
     return true;
   }
 
-  // Human names for the missing dependencies in the current report, keyed by
-  // dep_id. Resolved once per report through the platform metadata of the mod
-  // that declared each dependency; anything unresolved simply stays absent and
-  // the panel falls back to the raw loader id.
-  //
-  // Installed-tab only. The launch gate renders the same panel without this
-  // map, because resolving costs a network round and nothing may sit between
-  // the user and the Play button.
-  let depNames = $state(new SvelteMap<string, string>());
-
+  // Human names for the dependencies in the current report live in one module
+  // store (dep-names.svelte.ts), keyed by instance + (dependent, dep id) and
+  // readable by every surface. This tab may spend a network round on them; the
+  // store asks only for names it does not have, reads itself untracked (its
+  // answers never re-run this effect) and never throws. Anything unresolved
+  // stays absent and the panel falls back to the raw loader id.
   $effect(() => {
     const report = preflight.report;
     const id = instanceId;
     if (!report || !id) return;
-    const queries = report.violations
-      .filter((v) => v.kind === 'missing_required')
-      .map((v) => ({ dependent_sha1: v.dependent_sha1, dep_id: v.dep_id }));
-    if (queries.length === 0) return;
-    // untrack so writing `depNames` below cannot re-trigger this effect.
-    untrack(() => {
-      void commands
-        .modsResolveDepNames(id, queries)
-        .then((res) => {
-          if (res.status !== 'ok' || instanceId !== id) return;
-          const next = new SvelteMap<string, string>();
-          for (const r of res.data) next.set(r.dep_id, r.name);
-          depNames = next;
-        })
-        .catch(() => {
-          // Deliberately silent, and it satisfies the four fallback questions:
-          // it resolves to the RESTRICTIVE answer (no overlay → the raw loader
-          // id, never a guessed name); what the user sees — an id — honestly
-          // describes what we know; and it is enrichment, not a recovery path,
-          // so there is no failed operation whose own result goes unchecked.
-          // The one thing it cannot do is tell "nothing resolved" from "the
-          // call never landed", and it does not need to: both mean we have no
-          // name to show. The Result envelope already carries command errors;
-          // this only stops a transport-level rejection escaping an $effect.
-        });
-    });
+    void resolveDepNames(id, report);
   });
+  // A dependency's display name, by the rule every surface shares (`depDisplayName`): the
+  // provider's own name as the report gives it — the disabled jar to switch back on, or the
+  // enabled one a range points at — else the dependent-scoped store (spec §5.3), else the raw
+  // loader id. The Play gate names the same report the same way (plan §5b V1).
+  function depName(v: DepViolation): string {
+    return depDisplayName(v, depNameOf(instanceId, v.dependent_sha1, v.dep_id));
+  }
+
+  // What the dependency trees need to say what the loader does (spec §6.3). The FULL report, not
+  // the blocking subset: "without it the game won't start" stays true while a pack is still
+  // completing itself. A tree knows a dependency by its project only, so its «Enable» looks the
+  // disabled jar up by (source, project id) and takes the row's own guarded path. A version
+  // mismatch belongs to the node's own dependent (`edgeConflict`, per edge — never another mod's
+  // range on the same project), and its «Fix…» asks about that conflict — only a BLOCKING one:
+  // the planner's offers show in the «What stops the game» row, which lists nothing else.
+  const shaByKey = (enabled: boolean) =>
+    new Map<string, string>(
+      data.rows
+        .filter((r) => r.installed.enabled === enabled)
+        .map((r) => [
+          modKey(r.installed.source, r.installed.project_id, r.installed.sha1),
+          r.installed.sha1,
+        ]),
+    );
+  const enabledShaByKey = $derived(shaByKey(true));
+  const disabledShaByKey = $derived(shaByKey(false));
+  const treeCtx: DepTreeCtx = {
+    get report() {
+      return preflight.report;
+    },
+    projectOf: (sha1, depId) => depProjectOf(instanceId, sha1, depId),
+    enabledShaOf: (key) => enabledShaByKey.get(key) ?? null,
+    onEnable: (node) => {
+      const sha1 = disabledShaByKey.get(`${node.source}:${node.project_id}`);
+      // Switched on or removed since the graph was built: nothing is off to switch on, and
+      // that change is already re-resolving the graph.
+      if (!sha1) return;
+      void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
+    },
+    conflictOf: (node, dependentSha1) => edgeConflict(blockingViolations, node, dependentSha1),
+    onPlan: (v) => fixVersion(v),
+  };
 
   // Reset per-row remediation state on instance switch. The keys are dep-based
   // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
@@ -219,9 +358,21 @@
     void instanceId;
     preflightBusy.clear();
     preflightDeadEnd.clear();
+    plans.clear();
     pickerViolation = null;
     findAltViolation = null;
     offPlatformPrompt = null;
+    updateReview = null;
+  });
+
+  // A plan answers for the mods it read, and so does a dead end. Once the
+  // pre-flight reads the folder again — any install, toggle or removal, here or
+  // elsewhere — neither may still hold: a switch that "breaks nothing" may break
+  // a mod added since (D8). So both go, and the row's «Fix…» asks again.
+  $effect(() => {
+    void preflight.report;
+    plans.clear();
+    preflightDeadEnd.clear();
   });
 
   async function refreshAfterRemediate(): Promise<void> {
@@ -230,35 +381,66 @@
     await data.refresh();
   }
 
-  // Smart one-click update: install the newest version that satisfies the dep
-  // range AND the instance MC/loader. On a no-satisfying dead-end the row flips
-  // to the open-page / find-alternative affordances instead of a useless retry.
-  const onPreflightUpdate = async (v: DepViolation): Promise<void> => {
-    if (!instanceId || !mcVersion || !loader) return;
+  // «Fix…» on a version conflict (spec §6.5) — from the panel row, the row's
+  // own line or the dependency tree: ask the two-sided planner, the network
+  // only on this click. Its offers show in the panel row. An answer is not
+  // asked for again until the mods change (the effect above clears it).
+  async function planFix(v: DepViolation): Promise<void> {
+    const id = instanceId;
     const key = violationKey(v);
+    if (!id) return;
+    const from = typeof document === 'undefined' ? null : document.activeElement;
+    const asked = plans.get(key)?.status;
+    // Answered already — offers, or the dead end: take the user there.
+    if (asked === 'ready' || preflightDeadEnd.has(key)) return handFocusToPanelRow(key, from);
+    // One look at a time, and none while a fix of this row is being applied.
+    if (asked === 'loading' || preflightBusy.has(key)) return;
+    const report = preflight.report;
+    plans.set(key, { status: 'loading' });
+    const answer = await planVersionFix(id, v);
+    // Another profile now, or mods that changed while it was being made (the
+    // effect above has already dropped its spinner): the row asks again.
+    if (instanceId !== id || preflight.report !== report) return;
+    if (answer.status === 'dead_end') {
+      plans.delete(key);
+      preflightDeadEnd.add(key);
+    } else {
+      plans.set(key, answer);
+    }
+    await handFocusToPanelRow(key, from);
+  }
+
+  // «Fix…» away from the panel — the mod's own line, the dependency tree: the
+  // offers show in the panel row, so ask, and bring that row into view.
+  function fixVersion(v: DepViolation): void {
+    void planFix(v);
+    void revealInPanel(v);
+  }
+
+  // Apply the side the user clicked, through the existing switch flows: the new
+  // build downloads before the old jar goes, an off-platform build is asked
+  // about, a toast says what happened, and the pre-flight runs again — only it
+  // says whether the row is gone.
+  async function applyPlan(v: DepViolation, side: PlanSide): Promise<void> {
+    const id = instanceId;
+    const key = violationKey(v);
+    const st = plans.get(key);
+    if (!id || st?.status !== 'ready' || preflightBusy.has(key)) return;
+    const { update_dependent: dependent, change_provider: provider } = st.plan;
     preflightBusy.add(key);
-    // finally clears the busy key even if an IPC call throws (bridge teardown),
-    // so a row can never get stuck showing a spinner.
     try {
-      const result = await remediateViolation(instanceId, v, mcVersion, loader);
-      if (result.ok) {
-        preflightDeadEnd.delete(key);
-        pushSuccess(
-          get(t)('mods.preflight.installedVersion', {
-            dep: depNames.get(v.dep_id) ?? v.dep_id,
-            version: result.installedVersion ?? '',
-          }),
-        );
-        await refreshAfterRemediate();
-      } else if (result.reason === 'no-satisfying') {
-        preflightDeadEnd.add(key);
-      } else {
-        pushWarning(get(t)('mods.browse.toastInstallFailed'));
+      if (side === 'dependent' && dependent) {
+        const name = nameBySha.get(v.dependent_sha1) ?? v.dependent_name;
+        await runVersionInstall(id, name, v.dependent_sha1, dependent.version, {});
+      } else if (side === 'provider' && provider) {
+        await runPickedInstall(id, v, provider.version, {});
       }
     } finally {
+      // Spent either way: a switch changed the mods, and a failed one may have.
+      plans.delete(key);
       preflightBusy.delete(key);
     }
-  };
+  }
 
   // Open the dependency's version list so the user can install any version
   // (including a downgrade) — routed in place via remediatePickedVersion.
@@ -312,7 +494,7 @@
       pickerViolation = null;
       pushSuccess(
         get(t)('mods.preflight.installedVersion', {
-          dep: depNames.get(v.dep_id) ?? v.dep_id,
+          dep: depName(v),
           version: r.installedVersion ?? '',
         }),
       );
@@ -329,28 +511,45 @@
     ) {
       return;
     }
-    pushWarning(get(t)('mods.browse.toastInstallFailed'));
+    pushWarning(get(t)('mods.browse.toastInstallFailed'), r.error ? [modWriteReason(r.error)] : []);
   }
 
   // One-click install of a missing required dependency from the pre-flight
-  // panel. Resolves the dep by its loader mod-id and installs it; on success
-  // the panel + graph refresh. When the dep can't be auto-resolved the helper
-  // returns an open_search outcome — hand the query up to the Add-ons shell so
-  // it switches to Browse with the search pre-filled.
+  // panel or the row. Resolves the dep by its loader mod-id and installs it; on
+  // success the panel + graph refresh. A dep the backend cannot resolve with
+  // confidence (`open_search`) — or an install a manual pick may get past —
+  // hands the query up to the Add-ons shell, which switches to Browse with the
+  // search pre-filled. Two failures are no miss, and a search would lie about
+  // them: a project the profile already lists (the search invites the second
+  // copy that stops the game — say so and re-read the report instead), and a
+  // busy profile (nothing can install until it is free).
   const onInstallMissingDep = async (v: DepViolation): Promise<void> => {
     if (!instanceId) return;
     const outcome = await installMissing(instanceId, v.dependent_sha1, v.dep_id);
     if (outcome.kind === 'installed') {
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: outcome.name }));
-      preflight.invalidate();
-      deps.invalidateGraph();
-      await data.refresh();
-    } else {
-      pushWarning(
-        get(t)('mods.preflight.installSearchFallback', { dep: depNames.get(v.dep_id) ?? v.dep_id }),
+      // Its own required dependencies come along: said, never installed silently (D9).
+      const tt = get(t);
+      pushSuccess(
+        tt('mods.browse.toastInstalledMod', { name: outcome.name }),
+        depsLines(tt, [outcome.summary]),
       );
-      onBrowseFor(outcome.query);
+      await refreshAfterRemediate();
+      return;
     }
+    if (outcome.kind === 'failed' && outcome.error.kind === 'mods_already_installed') {
+      pushInfo(formatError(outcome.error));
+      await refreshAfterRemediate();
+      return;
+    }
+    if (outcome.kind === 'failed' && outcome.error.kind === 'instance_busy') {
+      pushWarning(get(t)('mods.browse.toastInstallFailedWithMod', { name: depName(v) }), [
+        modWriteReason(outcome.error),
+      ]);
+      return;
+    }
+    const why = outcome.kind === 'failed' ? [modWriteReason(outcome.error)] : [];
+    pushWarning(get(t)('mods.preflight.installSearchFallback', { dep: depName(v) }), why);
+    onBrowseFor(outcome.kind === 'open_search' ? outcome.query : v.dep_id);
   };
 
   // A find-alternative install resolves the original violation (the alternative
@@ -362,30 +561,144 @@
     await refreshAfterRemediate();
   };
 
-  // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
-  // for interpolation, which the composable does not own).
-  function compatTitle(sha1: string): string | null {
-    const h = compat.hintFor(sha1);
-    if (!h) return null;
-    if (h.key === 'loader')
-      return get(t)('mods.installed.incompatHintLoader', {
-        detected: h.detected,
-        loader: loader ? displayLoader(loader) : '',
-      });
-    if (h.key === 'platformMc')
-      return get(t)('mods.installed.incompatHintPlatformMc', {
-        declared: h.declared,
-        mc: mcVersion ?? '',
-      });
-    if (h.key === 'platformLoader')
-      return get(t)('mods.installed.incompatHintPlatformLoader', {
-        declared: h.declared,
-        loaderVersion: loaderVersion ?? '',
-      });
-    return get(t)('mods.installed.incompatHintNoRelease', {
-      loader: loader ? displayLoader(loader) : '',
-      mc: mcVersion ?? '',
+  // `required_disabled` → switch the provider back on through mod-ops (guarded:
+  // it asks when the provider has disabled requirements of its own). The
+  // modToggle event re-runs the pre-flight. `depName` is the provider's own name, as the
+  // report gives it.
+  function enableProvider(v: DepViolation): Promise<void> {
+    const sha1 = v.provider_sha1;
+    if (!sha1) return Promise.resolve();
+    return setEnabled([{ sha1, name: depName(v) }], true);
+  }
+
+  // A «What stops the game» row by its key — matched by value, not by a
+  // selector: a key is data (a sha1 and a mod id).
+  const panelRow = (key: string): HTMLElement | undefined =>
+    [...document.querySelectorAll<HTMLElement>('[data-violation-key]')].find(
+      (el) => el.dataset.violationKey === key,
+    );
+
+  // Bring a violation's panel row into view: the row line's «and N more», and
+  // its «Fix…» — the planner's offers show in that row.
+  async function revealInPanel(v: DepViolation): Promise<void> {
+    await tick();
+    if (typeof document === 'undefined') return;
+    panelRow(violationKey(v))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }
+
+  // The planner's answer lands in the panel row; focus follows it when the user
+  // is still where they asked from (the row's or the tree's «Fix…») or lost it
+  // with the panel's own button, which the spinner replaced — never pulled from
+  // wherever they went meanwhile.
+  async function handFocusToPanelRow(key: string, from: Element | null): Promise<void> {
+    await tick();
+    if (typeof document === 'undefined') return;
+    const active = document.activeElement;
+    if (active !== from && active !== null && active !== document.body) return;
+    panelRow(key)?.querySelector<HTMLElement>('button')?.focus();
+  }
+
+  // ↗ from a panel row. A search or a chip that hides the dependent is cleared
+  // for the view that holds it: the problem view while it is a problem (it is,
+  // while the report is current), else every mod. A report that predates a
+  // removal names a mod no view holds — say so, and change no filter for
+  // nothing (clearing them would show nothing anyway).
+  async function jumpToDependent(v: DepViolation): Promise<void> {
+    const sha1 = v.dependent_sha1;
+    if (await deps.jumpToSha1(sha1)) return;
+    const gone = () => pushInfo(get(t)('mods.preflight.dependentGone', { name: v.dependent_name }));
+    if (!rowBySha.has(sha1)) {
+      gone();
+      return;
+    }
+    filters.filter = '';
+    filters.viewFilter = isProblem(statusBySha.get(sha1)) ? 'issues' : 'all';
+    await tick();
+    // Removed in the meantime (the list re-read while the view changed).
+    if (!(await deps.jumpToSha1(sha1))) gone();
+  }
+
+  // «Fix all (N)»: the Play gate's repair (fix-all.ts), then a FRESH pre-flight
+  // — only it says which rows are gone — and one toast «Fixed N of M», with why
+  // the steps that failed failed when rows are left. The profile it ran for is
+  // captured and named when the user has moved on.
+  let fixAllBusy = $state(false);
+  async function runFixAll(): Promise<void> {
+    const id = instanceId;
+    const name = instanceName;
+    const report = preflight.report;
+    if (!id || !report || fixAllBusy) return;
+    fixAllBusy = true;
+    try {
+      const { attempted, reasons } = await fixAll(id, report);
+      const after = await preflight.check(id);
+      deps.invalidateGraph();
+      await data.refresh();
+      const where =
+        instanceId !== id && name ? [get(t)('mods.ops.restore.inProfile', { profile: name })] : [];
+      if (after.status !== 'ok') {
+        pushWarning(get(t)('mods.preflight.checkFailed'), [formatError(after.error), ...where]);
+        return;
+      }
+      const fixed = countFixed(attempted, after.data);
+      const title = get(t)('mods.preflight.gateFixed', { fixed, total: attempted.length });
+      if (fixed === attempted.length) pushSuccess(title, where);
+      else pushWarning(title, [...reasons, ...where]);
+    } catch (e) {
+      // The bridge failed on the re-check (the repair's own steps never throw):
+      // what is left is unknown until the next pre-flight.
+      pushWarning(get(t)('mods.preflight.checkFailed'), [
+        e instanceof Error ? e.message : String(e),
+      ]);
+    } finally {
+      fixAllBusy = false;
+    }
+  }
+
+  // «Choose version» on a mod that needs another build of ITSELF (a platform mismatch, a compat
+  // warning): its own version list, in the detail modal — or null when it has no platform
+  // identity to list builds from (a manual jar). One answer for the row's line and its «What
+  // stops the game» row, so the two always offer the same.
+  function ownVersionOpener(m: Row['installed']): (() => void) | null {
+    const { source, project_id: projectId } = m;
+    if (!source || !projectId) return null;
+    return () => openDetailMod(source, projectId);
+  }
+  const ownVersionOfDependent = (v: DepViolation): (() => void) | null => {
+    const row = rowBySha.get(v.dependent_sha1);
+    return row ? ownVersionOpener(row.installed) : null;
+  };
+
+  // The row's second line, from the row's one status (its level, its ranked
+  // reasons and the fix the status chose) — never a second ranking.
+  function problemOf(row: Row): RowProblem | null {
+    const status = statusBySha.get(row.installed.sha1);
+    if (!status) return null;
+    return rowProblemOf(status, {
+      t: $t,
+      depName,
+      loader,
+      mc: mcVersion,
+      canChooseVersion: ownVersionOpener(row.installed) !== null,
     });
+  }
+
+  function onRowFix(row: Row, fix: RowFix): void {
+    switch (fix.kind) {
+      case 'enable':
+        void enableProvider(fix.violation);
+        return;
+      case 'install':
+        void onInstallMissingDep(fix.violation);
+        return;
+      case 'plan':
+        fixVersion(fix.violation);
+        return;
+      case 'choose_version':
+        // Another build of THIS mod: its own versions, in the detail modal.
+        ownVersionOpener(row.installed)?.();
+        return;
+    }
   }
 
   // Independent per-instance page size, persisted under its own key.
@@ -420,8 +733,8 @@
   // and bulk bar stay clickable mid-IPC (the monolith gated them via `busy`).
   let shellBusy = $state(false);
 
-  const busy = $derived(shellBusy || selection.busy || deps.busy || updates.busy);
-  const error = $derived(data.error ?? deps.error ?? updates.error ?? selection.error);
+  const busy = $derived(shellBusy || fixAllBusy || selection.busy || deps.busy || updates.busy);
+  const error = $derived(data.error ?? deps.error ?? updates.error);
 
   // Detail modal can target ANY mod by (source, project_id): the row's own mod,
   // an installed dependency, or a not-yet-installed dependency. Install resolves
@@ -460,6 +773,19 @@
       base: version_id,
     };
   }
+
+  // The review before «Update all» (spec D9, §6.6): every pending update, all
+  // ticked. Bound to the profile it opened for — a profile switch closes it.
+  let updateReview = $state<UpdateReviewItem[] | null>(null);
+  function openUpdateReview() {
+    const items = buildReviewItems(data.rows, updates.updateChecks);
+    if (items.length > 0) updateReview = items;
+  }
+  async function runUpdateReview(sha1s: string[]) {
+    await updates.updateSelected(sha1s);
+    updateReview = null;
+  }
+
   // The installed build of the project the detail modal shows: its version id
   // AND its bytes. `enrich` leaves `version_id` null for exactly the mods whose
   // platform tags disagree with the instance, and those are recognised by sha1.
@@ -524,46 +850,156 @@
       ) {
         return;
       }
-      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(res.error)]);
+      // A refused switch says the profile is busy — never that the game runs (plan A9).
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [modWriteReason(res.error)]);
     } else {
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name }));
+      // A switch is an update: what the new build brought in is said, never silent (D9).
+      const tt = get(t);
+      pushSuccess(tt('mods.browse.toastInstalledMod', { name }), depsLines(tt, [res.data]));
     }
     deps.invalidateGraph();
     preflight.invalidate();
     await data.refresh();
   }
 
-  async function toggle(m: Row['installed']) {
+  // Enable, disable and removal go through the guarded path (mod-ops): the mods that need this
+  // one, or the disabled mods it needs, are asked about first; failures are toasted there.
+  async function setEnabled(targets: ModOpTarget[], enable: boolean): Promise<void> {
     if (!instanceId) return;
     data.error = null;
     shellBusy = true;
-    const result = m.enabled
-      ? await commands.modsDisable(instanceId, m.sha1)
-      : await commands.modsEnable(instanceId, m.sha1);
-    if (result.status === 'error') data.error = formatError(result.error);
-    else await data.refresh();
-    shellBusy = false;
-  }
-  async function uninstall(m: Row['installed']) {
-    if (!instanceId) return;
-    data.error = null;
-    shellBusy = true;
-    const result = await commands.modsUninstall(instanceId, m.sha1);
-    if (result.status === 'error') data.error = formatError(result.error);
-    else {
-      await data.refresh();
-      deps.reloadGraph();
-      preflight.invalidate();
+    try {
+      const scope = opScope(instanceId);
+      const outcome = enable ? await enableMods(scope, targets) : await disableMods(scope, targets);
+      if (outcome !== 'cancelled') await data.refresh();
+    } finally {
+      shellBusy = false;
     }
-    shellBusy = false;
+  }
+  function toggle(row: Row): Promise<void> {
+    return setEnabled(
+      [{ sha1: row.installed.sha1, name: rowDisplayName(row) }],
+      !row.installed.enabled,
+    );
+  }
+  async function uninstall(row: Row) {
+    if (!instanceId) return;
+    const target = [{ sha1: row.installed.sha1, name: rowDisplayName(row) }];
+    const index = pagedIndexOf((r) => r.installed.sha1 === row.installed.sha1);
+    data.error = null;
+    shellBusy = true;
+    try {
+      if ((await uninstallMods(opScope(instanceId), target)) !== 'cancelled') {
+        await data.refresh();
+        deps.reloadGraph();
+        preflight.invalidate();
+        await refocusAfterRemoval(index);
+      }
+    } finally {
+      shellBusy = false;
+    }
+  }
+  // The bulk bar's Remove: the removed rows' place is where the first of them was.
+  async function bulkUninstall(): Promise<void> {
+    const index = pagedIndexOf((r) => selection.selected.has(r.installed.sha1));
+    await selection.requestBulkUninstall();
+    await refocusAfterRemoval(index);
   }
 
-  // Bulk update: apply, then clear the now-stale update-check state so badges
-  // don't linger (the selection composable owns the update IPC but not the
-  // update-check cache, which lives in the update-check composable).
+  // After a removal the control that had focus is gone with its row — the row's Remove, a dialog
+  // that returned focus to it, the bulk bar's Remove that left with the selection — and focus fell
+  // to <body> (plan §5b V2). It goes to the row now in that place: the next one, else the one
+  // before it, else the list — never pulled from wherever the user went meanwhile, and not at all
+  // after a cancel (focus came back to the control that asked).
+  let listEl = $state<HTMLElement | null>(null);
+  let emptyListEl = $state<HTMLElement | null>(null);
+  const pagedIndexOf = (hit: (r: Row) => boolean): number =>
+    Math.max(0, filters.paged.findIndex(hit));
+  async function refocusAfterRemoval(index: number): Promise<void> {
+    await tick();
+    if (typeof document === 'undefined') return;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active.isConnected) return;
+    const rows = listEl ? [...listEl.querySelectorAll<HTMLElement>('[data-mod-row]')] : [];
+    const row = rows[Math.min(index, rows.length - 1)];
+    // A row's first control (its checkbox), else the list's own first (select all), else the
+    // empty list, which says there is nothing left.
+    const into = (el: HTMLElement | null | undefined) =>
+      el?.querySelector<HTMLElement>('input, button') ?? null;
+    (into(row) ?? into(listEl) ?? emptyListEl)?.focus();
+  }
+
+  // «Перепроверить совместимость и зависимости» (⋯): the live compat check (it forces the
+  // offline scan first), a fresh graph and a fresh pre-flight. A failed graph load lands in the
+  // error banner (`deps.error`), a failed pre-flight in its panel; the compat check reports to no
+  // surface of its own, so its failure is said here — the spinner going away must not read as
+  // "all clear".
+  const rechecking = $derived(compat.checking || deps.graphLoading || preflight.loading);
+  async function recheckAll() {
+    const id = instanceId;
+    deps.invalidateGraph();
+    preflight.invalidate();
+    await compat.runLiveCheck();
+    // A check superseded by a profile switch sets no error, and this one is no longer shown.
+    if (compat.error && instanceId === id)
+      pushWarning(get(t)('mods.installed.recheckFailed'), [compat.error]);
+  }
+
+  // «Открыть папку модов» (⋯) — the Overview's control, for this profile.
+  async function openModsFolder() {
+    if (!instanceId) return;
+    const r = await commands.openModsFolder(instanceId);
+    if (r.status === 'error')
+      pushWarning(get(t)('instance.manage.openModsFolderFailed'), [formatError(r.error)]);
+  }
+
+  // The row menu (spec §6.8). «Показать в папке»: the jar as it is on disk (`.disabled` too),
+  // selected in the file manager — also the keyboard path to the file name the version's tooltip
+  // shows on hover. A failure says why; it never fails silently.
+  async function revealFile(m: Row['installed']) {
+    const id = instanceId;
+    if (!id) return;
+    let reason: string | null = null;
+    try {
+      const r = await commands.modsRevealFile(id, m.sha1);
+      if (r.status === 'error') reason = formatError(r.error);
+    } catch (e) {
+      reason = e instanceof Error ? e.message : String(e);
+    }
+    if (reason !== null) pushWarning(get(t)('mods.card.revealFailed'), [reason]);
+  }
+  // «Открыть страницу мода»: only where the page is known — a CurseForge page needs its slug,
+  // Modrinth takes the project id too. No slug, no page: never a guessed URL (pack-managed
+  // sources have no mod page of their own).
+  function projectPageOpener(row: Row): (() => void) | null {
+    const { source, project_id: projectId } = row.installed;
+    if (source !== 'modrinth' && source !== 'curseforge') return null;
+    const slugOrId = row.summary?.slug ?? (source === 'modrinth' ? projectId : null);
+    if (!slugOrId) return null;
+    return () => void openExternalHttps(modProjectUrl(source, slugOrId));
+  }
+  // A modpack's own mods are never checked for updates — the pack owns their versions.
+  const isPackMod = (row: Row): boolean =>
+    !!data.packSummary && data.packSummary.mod_shas.includes(row.installed.sha1);
+  // «Не обновлять» / «Разрешить обновления»: a hold is per project, so a hand-dropped jar has none
+  // (nothing to update from), and a hold state that could not be read offers no control (T26:
+  // "not read" is not "not held"). On a modpack's own mod a new hold would promise nothing; one
+  // already set can still be released. `setHold` says itself why a change was refused.
+  function holdControl(row: Row): { held: boolean; onToggle: () => void } | null {
+    const m = row.installed;
+    if (!m.source || !m.project_id || updates.holds === null) return null;
+    const held = updates.isHeld(m);
+    if (!held && isPackMod(row)) return null;
+    return { held, onToggle: () => void updates.setHold(m, !held, rowDisplayName(row)) };
+  }
+
+  // Bulk update: run it, then drop the checks of the jars it replaced — in the
+  // profile it ran for — so their badges don't linger (the selection composable
+  // runs the updates; the checks are the persisted check's).
   async function bulkUpdate() {
-    await selection.bulkUpdate();
-    updates.clearChecks();
+    const id = instanceId;
+    const updated = await selection.bulkUpdate();
+    updates.forget(updated, id);
   }
 
   // Event listeners (belt-and-suspenders; also call refresh directly). The
@@ -581,14 +1017,15 @@
   // was born here and is now the shared helper). Handlers are debounced: a
   // with-deps install emits one event per jar, and each un-coalesced event
   // used to trigger a full refresh + preflight resolve + compat scan.
-  const debouncedSetChanged = debounceTrailing(() => {
+  //
+  // A toggle refreshes exactly what an install or a removal does, the graph
+  // included: it is rooted at the ENABLED mods and marks the disabled ones, so a
+  // switch changes both — without a re-resolve, disabling a mod with its dependents left the tree
+  // offering to enable mods that were on and the library chips counting roots
+  // that were off.
+  const debouncedModsChanged = debounceTrailing(() => {
     void data.refresh();
     deps.reloadGraph();
-    preflight.invalidate();
-    void compat.runOfflineScan({ force: true });
-  }, 150);
-  const debouncedToggle = debounceTrailing(() => {
-    void data.refresh();
     preflight.invalidate();
     void compat.runOfflineScan({ force: true });
   }, 150);
@@ -603,14 +1040,13 @@
     void compat.runOfflineScan({ force: true });
   }, 150);
   listenUntilDestroyed([
-    events.modInstalled.listen(debouncedSetChanged.call),
-    events.modUninstalled.listen(debouncedSetChanged.call),
-    events.modToggle.listen(debouncedToggle.call),
+    events.modInstalled.listen(debouncedModsChanged.call),
+    events.modUninstalled.listen(debouncedModsChanged.call),
+    events.modToggle.listen(debouncedModsChanged.call),
     events.modsReconciled.listen(debouncedExternalChange.call),
   ]);
   onDestroy(() => {
-    debouncedSetChanged.cancel();
-    debouncedToggle.cancel();
+    debouncedModsChanged.cancel();
     debouncedExternalChange.cancel();
     data.dispose();
     filters.dispose();
@@ -630,13 +1066,14 @@
     bind:viewFilter={filters.viewFilter}
     {busy}
     checking={updates.checking}
-    graphLoading={deps.graphLoading}
     updateCount={updates.updateCount}
+    checkedAtMs={updates.checkedAtMs}
+    {rechecking}
     onCheckUpdates={updates.checkUpdates}
-    onRecheckDeps={deps.recheckDeps}
-    onUpdateAll={updates.updateAll}
-    checkingCompat={compat.checking}
-    onCheckCompat={compat.runLiveCheck}
+    onUpdateAll={openUpdateReview}
+    onRecheckAll={() => void recheckAll()}
+    onOpenModsFolder={() => void openModsFolder()}
+    issuesTone={anyBlocking ? 'danger' : 'warning'}
   />
 
   {#if error}
@@ -662,16 +1099,23 @@
 
   <PreflightPanel
     report={preflight.report}
-    onUpdate={onPreflightUpdate}
+    {instanceId}
     onInstallMissing={onInstallMissingDep}
+    onEnableProvider={enableProvider}
+    onJumpToDependent={jumpToDependent}
+    onFixAll={runFixAll}
+    {fixAllBusy}
     onChooseVersion={onPreflightChooseVersion}
+    ownVersionOpener={ownVersionOfDependent}
     onFindAlternative={onPreflightFindAlternative}
     onOpenModPage={onPreflightOpenModPage}
     onMigrate={() => (migrationDialogOpen = true)}
     migrateCount={compat.incompatibleCount}
-    {depNames}
     busyKeys={preflightBusy}
     deadEndKeys={preflightDeadEnd}
+    {plans}
+    onPlan={planFix}
+    onApplyPlan={applyPlan}
   />
 
   {#if !instanceId}
@@ -680,10 +1124,21 @@
     </div>
   {:else if data.loading && data.rows.length === 0}
     <LoadingPanel label={$t('mods.installed.loading')} />
-  {:else if data.rows.length === 0}
-    <div class="text-placeholder text-sm py-8 text-center">{$t('mods.installed.empty')}</div>
-  {:else}
-    <div class="border border-border-subtle rounded overflow-hidden">
+  {:else if listEmpty}
+    <!-- The host's full drop area replaces its strip here (DESIGN.md §14). A list that could not
+         be read shows its error above, never «no mods». Focus lands here after the last removal
+         (`refocusAfterRemoval`): a parking place that reads the message, not a control. -->
+    <div
+      bind:this={emptyListEl}
+      tabindex="-1"
+      class="pt-6 flex flex-col gap-3 outline-none"
+      data-testid="list-empty"
+    >
+      <p class="text-placeholder text-sm text-center">{$t('mods.installed.empty')}</p>
+      {@render emptyDropzone?.()}
+    </div>
+  {:else if data.rows.length > 0}
+    <div bind:this={listEl} class="border border-border-subtle rounded overflow-hidden">
       <BulkActionBar
         allSelected={selection.allSelected}
         selectedCount={selection.selected.size}
@@ -695,7 +1150,7 @@
         onEnable={() => selection.bulkSetEnabled(true)}
         onDisable={() => selection.bulkSetEnabled(false)}
         onUpdate={bulkUpdate}
-        onUninstall={selection.requestBulkUninstall}
+        onUninstall={() => void bulkUninstall()}
         onClear={selection.clear}
       />
       {#each filters.paged as row (row.installed.sha1)}
@@ -710,53 +1165,65 @@
           {root}
           requiredBy={reqBy}
           depTotal={counts.total}
-          hasPreflightIssue={preflightShas.has(row.installed.sha1)}
+          problem={problemOf(row)}
           expanded={deps.expanded.has(row.installed.sha1)}
           graphLoading={deps.graphLoading}
-          hoveredKey={deps.hoveredKey}
           updateState={updates.updateChecks.get(row.installed.sha1)?.state ?? null}
+          held={updates.isHeld(row.installed)}
           checking={updates.checking}
           packChip={data.packSummary && data.packSummary.mod_shas.includes(row.installed.sha1)
             ? data.packSummary.project_name
             : null}
-          incompatibleTitle={compat.incompatibleShas.has(row.installed.sha1)
-            ? compatTitle(row.installed.sha1)
-            : null}
-          incompatKind={compat.incompatibleShas.has(row.installed.sha1)
-            ? compatKindOf(compat.hintFor(row.installed.sha1))
-            : null}
           selected={selection.selected.has(row.installed.sha1)}
-          {outOfRangeKeys}
+          {treeCtx}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
-          onHover={(k) => (deps.hoveredKey = k)}
           onOpenDetail={() => {
             if (row.installed.source && row.installed.project_id)
               openDetailMod(row.installed.source as ModSource, row.installed.project_id);
           }}
           onOpenDetailMod={openDetailMod}
-          onToggle={() => toggle(row.installed)}
-          onUninstall={() => uninstall(row.installed)}
-          onUpdate={() => updates.updateOne(row.installed)}
+          onToggle={() => toggle(row)}
+          onUninstall={() => uninstall(row)}
+          onUpdate={() => updates.updateOne(row.installed, rowDisplayName(row))}
           onShowChangelog={() => openChangelog(row)}
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={deps.jumpToMod}
+          onProblemFix={(fix) => onRowFix(row, fix)}
+          onRevealProblems={() => {
+            const first = violationsBySha.get(row.installed.sha1)?.[0];
+            if (first) void revealInPanel(first);
+          }}
+          onRevealFile={() => void revealFile(row.installed)}
+          onOpenProjectPage={projectPageOpener(row)}
+          hold={holdControl(row)}
         />
       {/each}
     </div>
 
-    <!-- Pagination footer — unified with Browse/Modpacks (Steam-style). -->
-    <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
-      <Pagination
-        page={filters.page}
-        pageCount={filters.pageCount}
-        onPage={(n) => (filters.page = n)}
+    <!-- Pagination footer — unified with Browse/Modpacks (Steam-style). One page: no pager
+         (spec §6.7). The size picker stays while a smaller page would still split the list, or
+         picking 100 would strand the user without it (plan A20 / P5-3). -->
+    {#if filters.pageCount > 1}
+      <div
+        class="sticky bottom-0 z-10 bg-base border-t border-border-subtle"
+        use:stickyEdge={'bottom'}
       >
-        {#snippet end()}
-          <PageSizePicker prefsKey="installedPageSize" />
-        {/snippet}
-      </Pagination>
-    </div>
+        <Pagination
+          page={filters.page}
+          pageCount={filters.pageCount}
+          onPage={(n) => (filters.page = n)}
+        >
+          {#snippet end()}
+            <PageSizePicker prefsKey="installedPageSize" />
+          {/snippet}
+        </Pagination>
+      </div>
+    {:else if filters.filtered.length > PAGE_SIZES[0]}
+      <div class="flex justify-end pt-2">
+        <PageSizePicker prefsKey="installedPageSize" />
+      </div>
+    {/if}
   {/if}
 
   {#if detail && instanceId}
@@ -783,6 +1250,15 @@
     />
   {/if}
 
+  {#if updateReview}
+    <UpdateReviewDialog
+      items={updateReview}
+      busy={updates.busy}
+      onCancel={() => (updateReview = null)}
+      onConfirm={(shas) => void runUpdateReview(shas)}
+    />
+  {/if}
+
   {#if pickerViolation && pickerViolation.provider_project && instanceId}
     {@const pp = pickerViolation.provider_project}
     <ModDetailModal
@@ -802,7 +1278,7 @@
 
   {#if findAltViolation && instanceId && mcVersion && loader}
     <FindAlternativeDialog
-      modName={depNames.get(findAltViolation.dep_id) ?? findAltViolation.dep_id}
+      modName={depName(findAltViolation)}
       {mcVersion}
       {loader}
       {instanceId}
@@ -838,15 +1314,6 @@
         preflight.invalidate();
         void compat.runOfflineScan({ force: true });
       }}
-    />
-  {/if}
-
-  {#if selection.uninstallPrompt}
-    <OrphanUninstallDialog
-      removingNames={selection.uninstallPrompt.names}
-      orphans={selection.uninstallPrompt.orphans}
-      onCancel={selection.cancelUninstall}
-      onConfirm={selection.confirmBulkUninstall}
     />
   {/if}
 </div>

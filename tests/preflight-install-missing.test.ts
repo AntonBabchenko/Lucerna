@@ -4,8 +4,14 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: { modsInstallMissingRequired: vi.fn() },
 }));
 
-import { commands } from '$lib/ipc/bindings';
+import { commands, type InstallSummary } from '$lib/ipc/bindings';
 import { installMissing } from '$lib/mods/preflight.svelte';
+
+const summary = (name: string): InstallSummary => ({
+  primary_name: name,
+  installed_dependencies: [],
+  details: [],
+});
 
 describe('installMissing', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -13,10 +19,10 @@ describe('installMissing', () => {
   it('returns installed outcome on success', async () => {
     vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({
       status: 'ok',
-      data: { kind: 'installed', name: 'Balm' },
+      data: { kind: 'installed', name: 'Balm', summary: summary('Balm') },
     });
     const r = await installMissing('inst-1', 'sha-waystones', 'balm');
-    expect(r).toEqual({ kind: 'installed', name: 'Balm' });
+    expect(r).toEqual({ kind: 'installed', name: 'Balm', summary: summary('Balm') });
     expect(commands.modsInstallMissingRequired).toHaveBeenCalledWith(
       'inst-1',
       'sha-waystones',
@@ -33,13 +39,14 @@ describe('installMissing', () => {
     expect(r).toEqual({ kind: 'open_search', query: 'balm' });
   });
 
-  it('maps an IPC error to an open_search fallback (never throws)', async () => {
-    vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({
-      status: 'error',
-      error: { kind: 'mods_network', url: 'x', details: 'y' },
-    });
+  // An error is not a miss. Turned into `open_search`, «already installed» read as "couldn't find
+  // it — search", and a search invites the second copy that stops the game. Typed, the caller can
+  // tell them apart (tests/installed-install-missing.test.ts).
+  it('hands an IPC error back typed, never as a miss (never throws)', async () => {
+    const error = { kind: 'mods_already_installed' as const, name: 'Balm' };
+    vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({ status: 'error', error });
     const r = await installMissing('inst-1', 'sha-waystones', 'balm');
-    expect(r).toEqual({ kind: 'open_search', query: 'balm' });
+    expect(r).toEqual({ kind: 'failed', error });
   });
 
   // The sha1 of the mod that DECLARED the dependency is what lets the backend
@@ -49,7 +56,11 @@ describe('installMissing', () => {
   it('passes the requiring mod through so the backend can read its declared deps', async () => {
     vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({
       status: 'ok',
-      data: { kind: 'installed', name: 'Forge Config API Port' },
+      data: {
+        kind: 'installed',
+        name: 'Forge Config API Port',
+        summary: summary('Forge Config API Port'),
+      },
     });
     await installMissing('inst-1', 'sha-opac', 'forgeconfigapiport');
     expect(commands.modsInstallMissingRequired).toHaveBeenCalledWith(

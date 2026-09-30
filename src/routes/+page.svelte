@@ -34,10 +34,9 @@
   import { initSidebarButtons } from '$lib/layout/sidebar-buttons.svelte';
   import { appSettings, loadAppSettings } from '$lib/settings/app-settings.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
-  import { routeDrop } from '$lib/layout/drop-router';
+  import { listenForFileDrops } from '$lib/layout/window-drop';
   import { type NavStatusKind } from '$lib/layout/nav-status';
   import { canInstallMods } from '$lib/mods/install-eligibility';
-  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import { classifyExit } from '$lib/overview/exit-status';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
@@ -68,7 +67,11 @@
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import OptimiseDialog from '$lib/mods/OptimiseDialog.svelte';
   import { preflightCache } from '$lib/mods/preflight-cache';
-  import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
+  import { depGraphCache } from '$lib/mods/dep-graph-cache';
+  import { createPreflight, decideLaunch, hasBlocking } from '$lib/mods/preflight.svelte';
+  import { problemCounts } from '$lib/mods/installed/mod-status';
+  import { repairForLaunch } from '$lib/mods/fix-all';
+  import type { ReasonLine } from '$lib/format/reason-lines';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import type { AppFile, PreflightReport, QuickPlay } from '$lib/ipc/bindings';
@@ -88,18 +91,15 @@
   import { get } from 'svelte/store';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { debounceTrailing } from '$lib/ui/debounce';
+  import { modalBlocksFileDrops } from '$lib/ui/layer-stack.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import { SvelteMap } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
   import {
     addonsKind,
     clientActiveTab,
-    dragActive,
-    droppedAssets,
-    droppedMods,
-    droppedServerContent,
-    droppedWorld,
     modBrowserNav,
+    modpacksActive,
     modpacksNav,
     serverAddonsKind,
     serverImportActive,
@@ -119,6 +119,7 @@
   import { fallbackMessage } from '$lib/settings/fallback-message';
   import { startupDialAllowed } from '$lib/settings/startup-network';
   import DataMoveHost from '$lib/settings/DataMoveHost.svelte';
+  import ModOpsHost from '$lib/mods/ops/ModOpsHost.svelte';
   import CloseConfirmHost from '$lib/close/CloseConfirmHost.svelte';
   import { nativeCloseLabels } from '$lib/close/close-copy';
   import { trayLabels, trayRefusalKey } from '$lib/tray/tray-copy';
@@ -268,6 +269,22 @@
   // drives its refreshers from the activeInstance effect, the mod
   // install/uninstall/toggle listeners, and the processExited handler.
   const stats = createInstanceStats();
+  // The active profile's dependency pre-flight (offline, cache-seeded). One
+  // owner on the page: the Overview reads its report and the Play gate runs its
+  // FRESH check through it, so the two never show different verdicts.
+  const pagePreflight = createPreflight(() => activeInstance?.id ?? null);
+  onDestroy(() => pagePreflight.dispose());
+  // One problem model on the Overview (spec §6.2): each mod at the level its
+  // Installed row gets (`statusOf`), from the page pre-flight's blocking rows —
+  // the gate's predicate — and compat's reasons. `modsProblemCount` is null
+  // until the pre-flight has answered: "—", never a reassuring 0.
+  const modProblems = $derived.by(() => {
+    const r = pagePreflight.report;
+    return problemCounts(r && hasBlocking(r) ? r.violations : [], stats.compatHints);
+  });
+  const modsProblemCount = $derived(
+    pagePreflight.report === null ? null : modProblems.blocking + modProblems.warning,
+  );
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
@@ -493,6 +510,11 @@
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
   let gateReport = $state<PreflightReport | null>(null);
   let gateBusy = $state(false);
+  // «Fixed N of M» after a repair that left rows behind, with why the steps
+  // that failed failed; null until one did.
+  let gateFixed = $state<{ fixed: number; total: number; reasons: readonly ReasonLine[] } | null>(
+    null,
+  );
   // The launch the gate interrupted, so its three buttons resume the RIGHT one.
   // Play, Quick Play and Quick Join all reach the gate, so this can no longer be
   // the single `doLaunch` constant it used to be. Plain state, not `$state`: it
@@ -582,6 +604,7 @@
         void stats.refreshInstalledStats(newId);
         void stats.refreshPackStatus(newId);
         void stats.refreshPlaytime(newId);
+        void stats.refreshUpdateCount(newId);
       }
     });
   });
@@ -799,31 +822,20 @@
   // Svelte actually uses the returned disposer for cleanup.
   onMount(() => observeCompactContent());
 
-  // The app's single window-level drag-drop listener (moved out of MainTabs
-  // when servers mode grew a drop target): +page owns both mode panels, so
-  // it owns the window event and routes to the mode-appropriate rune. Its own
-  // synchronous onMount — a cleanup returned from the async onMount below
-  // would be ignored (see the onDestroy teardown note further down).
-  onMount(() => {
-    const pendingDrop = getCurrentWebview().onDragDropEvent((event) => {
-      if (serverImportActive.value) {
-        dragActive.value = false;
-        return;
-      }
-      const payload = (event as { payload: { type: string; paths?: string[] } }).payload;
-      const t = payload.type;
-      if (t === 'enter' || t === 'over') {
-        dragActive.value = true;
-        return;
-      }
-      if (t === 'leave') {
-        dragActive.value = false;
-        return;
-      }
-      if (t !== 'drop') return;
-      dragActive.value = false;
+  // The app's single window-level drag-drop listener (DESIGN.md §14): +page owns both mode panels
+  // and every surface that takes files, so it owns the window event and hands the router this
+  // context — whether a dialog that takes no files is on top of everything, then the surfaces that
+  // own drops while they are up (the Modpacks modal, the server-import view). Its own synchronous
+  // onMount — a cleanup returned from the async onMount below would be ignored (see the onDestroy
+  // teardown note further down).
+  onMount(() =>
+    listenForFileDrops(() => {
       const selectedServer = serverState.list.find((s) => s.id === serversUi.selectedServerId);
-      const route = routeDrop(payload.paths ?? [], {
+      return {
+        modalOnTop: modalBlocksFileDrops(),
+        modpacksOpen: modpacksActive.value,
+        serverImportOpen: serverImportActive.value,
+        dataRootFellBack: dataLocation.fellBack,
         mode: serversUi.mode,
         clientTab: clientActiveTab.value,
         addonsKind: addonsKind.value,
@@ -832,30 +844,27 @@
         serversTab: serversUi.activeTab,
         serverAddonsKind: serverAddonsKind.value,
         serverCanMutate: selectedServer !== undefined && !selectedServer.running,
-      });
-      if (route === null) return;
-      if (route.target === 'client-world') droppedWorld.value = route.paths;
-      else if (route.target === 'client-mods') droppedMods.value = route.paths;
-      else if (route.target === 'client-assets')
-        droppedAssets.value = { kind: route.kind, paths: route.paths };
-      else droppedServerContent.value = { kind: route.kind, paths: route.paths };
-    });
-    return () => {
-      void pendingDrop.then((un) => un());
-    };
-  });
+      };
+    }),
+  );
 
   // Overview-stat refreshes for the mod events registered in onMount below.
   // Trailing-debounced so a multi-jar install burst collapses to one refresh.
   // `force` is required: the compat scan keys on (instance, mc, loader), which
   // a mod change does not alter, so an unforced refresh is deduplicated away
   // and the count never moves.
+  // Each also re-runs the page pre-flight: its report feeds the Overview, and a
+  // pre-flight is not a listing call (the no-relist pin below still holds).
   const debouncedModSetStats = debounceTrailing(() => {
+    pagePreflight.invalidate();
     void stats.refreshInstalledStats(activeInstance?.id ?? null);
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
     void stats.refreshPackStatus(activeInstance?.id ?? null);
+    // An update or a removal changes which jars the persisted check still lists.
+    void stats.refreshUpdateCount(activeInstance?.id ?? null);
   }, 150);
   const debouncedModToggleStats = debounceTrailing(() => {
+    pagePreflight.invalidate();
     void stats.refreshInstalledStats(activeInstance?.id ?? null);
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
   }, 150);
@@ -877,6 +886,7 @@
   // change, re-arms the marker and re-emits, for as long as the writer runs.
   // `tests/external-change-no-relist.test.ts` pins this.
   const debouncedExternalChangeStats = debounceTrailing(() => {
+    pagePreflight.invalidate();
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
   }, 150);
   onDestroy(() => {
@@ -992,20 +1002,41 @@
         trayQuitRefusedUnlisten = u;
       });
 
-    events.modInstalled.listen(debouncedModSetStats.call).then((u) => {
-      modInstalledUnlisten = u;
-    });
-    events.modUninstalled.listen(debouncedModSetStats.call).then((u) => {
-      modUninstalledUnlisten = u;
-    });
-    events.modToggle.listen(debouncedModToggleStats.call).then((u) => {
-      modToggleUnlisten = u;
-    });
+    // The dependency graph cache is per-instance, and this page is the one
+    // listener mounted all session: every mod event drops the changed
+    // instance's graph, so an Installed view opened later never seeds from a
+    // graph built before a change made elsewhere — the Play gate's repair, a
+    // pack update, a switch while the Add-ons tab was closed.
+    events.modInstalled
+      .listen(({ payload }) => {
+        depGraphCache.delete(payload.instance_id);
+        debouncedModSetStats.call();
+      })
+      .then((u) => {
+        modInstalledUnlisten = u;
+      });
+    events.modUninstalled
+      .listen(({ payload }) => {
+        depGraphCache.delete(payload.instance_id);
+        debouncedModSetStats.call();
+      })
+      .then((u) => {
+        modUninstalledUnlisten = u;
+      });
+    events.modToggle
+      .listen(({ payload }) => {
+        depGraphCache.delete(payload.instance_id);
+        debouncedModToggleStats.call();
+      })
+      .then((u) => {
+        modToggleUnlisten = u;
+      });
     events.modsReconciled
       .listen(({ payload }) => {
         // The pre-flight cache is per-instance, so evicting the key that changed
         // is always right — even for an instance that is not on screen.
         preflightCache.delete(payload.instance_id);
+        depGraphCache.delete(payload.instance_id);
         // The compat scan, in contrast, is ONE shared store holding ONE
         // instance's verdicts. Scanning a background instance into it would
         // replace what the Overview is currently displaying with another
@@ -1269,7 +1300,9 @@
   // for the advisory RAM / account warnings.
   async function startLaunch(run: () => Promise<void>, onAbort?: () => void) {
     if (!activeInstance) return;
-    const decision = decideLaunch(await commands.instanceDependencyPreflight(activeInstance.id));
+    // A FRESH pre-flight, never the cached report: through the page's own, so
+    // the Overview shows the same verdict the gate acts on.
+    const decision = decideLaunch(await pagePreflight.check(activeInstance.id));
     // Recorded BEFORE the gate branch, not after: `gate` is the outcome that
     // most conclusively proves the check ran, so returning early without
     // clearing the flag would leave "couldn't check dependencies" on screen
@@ -1278,6 +1311,7 @@
     if (decision.kind === 'gate') {
       gateReport = decision.report;
       gatePending = { run, onAbort };
+      gateFixed = null;
       return;
     }
     await gateLaunch(run, onAbort);
@@ -1306,25 +1340,51 @@
     const pending = gatePending;
     gateReport = null;
     gatePending = null;
+    gateFixed = null;
     if (pending) await gateLaunch(pending.run, pending.onAbort);
   }
 
-  async function onGateUpdateLaunch() {
-    if (!activeInstance || !gateReport) return;
+  // «Fix and launch» (spec D5): fix everything fixable, re-run the pre-flight,
+  // launch only when it is clean. A partial repair keeps the dialog on the rows
+  // that remain, with «Fixed N of M». A re-check that cannot run launches like
+  // any unchecked Play, flagged as unchecked.
+  async function onGateFixAndLaunch() {
+    const inst = activeInstance;
+    const report = gateReport;
+    if (!inst || !report || gateBusy) return;
     gateBusy = true;
-    const loader = activeInstance.loader;
-    const mc = activeInstance.mc_version;
-    const updated = await remediateAll(activeInstance.id, gateReport, mc, loader);
-    gateBusy = false;
-    if (updated === 0) {
-      // Nothing was fixed (offline, no compatible version, etc.) — keep the gate
-      // dialog open so the user can choose "Launch anyway" or "Cancel" explicitly.
-      pushWarning(get(t)('mods.preflight.updateFailed'));
+    let outcome: Awaited<ReturnType<typeof repairForLaunch>> | null = null;
+    try {
+      outcome = await repairForLaunch(inst.id, report, () => pagePreflight.check(inst.id));
+    } catch (e) {
+      // The bridge failed on the re-check: part of the repair may have
+      // happened, and nothing says what is left. Nothing is launched; the dialog
+      // stays so the user decides.
+      pushWarning(get(t)('mods.preflight.gateFixFailed'), [
+        e instanceof Error ? e.message : String(e),
+      ]);
+    } finally {
+      gateBusy = false;
+    }
+    if (outcome === null) return;
+    const pending = gatePending;
+    if (activeInstance?.id !== inst.id) {
+      // The profile changed under the dialog: never launch a different one.
+      gateReport = null;
+      gatePending = null;
+      gateFixed = null;
+      pending?.onAbort?.();
       return;
     }
-    const pending = gatePending;
+    if (outcome.kind === 'stay') {
+      gateReport = outcome.report;
+      gateFixed = { fixed: outcome.fixed, total: outcome.total, reasons: outcome.reasons };
+      return;
+    }
+    preflightUnknown = !outcome.checked;
     gateReport = null;
     gatePending = null;
+    gateFixed = null;
     if (pending) await gateLaunch(pending.run, pending.onAbort);
   }
 
@@ -1332,6 +1392,7 @@
     const pending = gatePending;
     gateReport = null;
     gatePending = null;
+    gateFixed = null;
     // Backing out of the dependency gate must run the caller's cleanup, exactly
     // as backing out of the RAM/account gate does. Quick Join sets its busy flag
     // synchronously before either gate; without this it would stay disabled.
@@ -1689,13 +1750,18 @@
           {onQuickPlayWorld}
           {quickPlayDisabledReason}
           running={selectedRunning}
+          hasInstalledMods={stats.hasInstalledMods(activeInstance?.id ?? null)}
         >
           {#snippet overview()}
             <OverviewTab
               {activeInstance}
               installedStats={stats.installedStats}
               playtime={stats.playtime}
-              incompatibleCount={stats.incompatibleCount}
+              incompatibleCount={modProblems.warning}
+              blockingModsCount={modProblems.blocking}
+              problemCount={modsProblemCount}
+              modsCheckError={pagePreflight.error}
+              updateCount={stats.updateCount}
               missingModsCount={stats.unresolvedMissing.length}
               running={selectedRunning}
               {installing}
@@ -1903,8 +1969,10 @@
   {#if gateReport}
     <PreflightGateDialog
       report={gateReport}
+      instanceId={activeInstance?.id ?? null}
       busy={gateBusy}
-      onUpdateLaunch={onGateUpdateLaunch}
+      fixed={gateFixed}
+      onFixAndLaunch={onGateFixAndLaunch}
       onLaunchAnyway={onGateLaunchAnyway}
       onCancel={onGateCancel}
     />
@@ -1991,6 +2059,10 @@
     msSigningIn = false;
   }}
 />
+<!-- Guarded mod operations (dependents / requirements / unneeded-libraries questions). After
+     </main> so it paints above the imported-pack drawer that can ask (modals stack by DOM order);
+     before the data-move and close hosts, which must stay on top of everything. -->
+<ModOpsHost activeInstanceId={activeInstance?.id ?? null} />
 <!-- Near the end on purpose. Modals share one z-index and stack by DOM order (Modal.svelte), and
      the data-folder move is started from SettingsModal: its blocking dialog has to paint above
      everything already open. Self-gating like WhatsNewModal — it renders nothing until a move

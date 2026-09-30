@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Capture each listener callback at module-eval time via vi.hoisted so
 // the vi.mock factory (which is itself hoisted) can write through to
@@ -47,8 +47,26 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsUninstall: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { token: 'tok', items: [{ sha1: 'abc', name: 'Just Enough Items' }] },
+    }),
+    // Nothing here depends on anything: the safe flip order names just the targets.
+    modsRemovalImpact: vi.fn(async (_i: string, sha1s: string[]) => ({
+      status: 'ok',
+      data: { dependents: [], order: sha1s },
+    })),
+    modsEnableImpact: vi.fn(async (_i: string, sha1s: string[]) => ({
+      status: 'ok',
+      data: { requirements: [], order: sha1s },
+    })),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    openModsFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // The row menu: the jar on disk and the hold.
+    modsRevealFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsSetHold: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsLastUpdateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsListHolds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
@@ -121,7 +139,16 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+// The row menu's «Open mod page» leaves through the https-only opener.
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
+
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
+import { __resetUpdateCheckStoreForTests } from '$lib/mods/update-check-store.svelte';
+import { toastList } from '$lib/toasts/toasts.svelte';
+
+// The persisted update check is held once per profile for the whole app; a check one case runs
+// must not seed the next case's rows.
+beforeEach(() => __resetUpdateCheckStoreForTests());
 
 describe('InstalledModsView', () => {
   it('renders rows with Disable button when enabled and Enable when disabled', async () => {
@@ -137,17 +164,123 @@ describe('InstalledModsView', () => {
     expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy();
   });
 
-  it('calls modsUninstall when Uninstall clicked', async () => {
+  it('asks what depends on a mod before removing it, then offers Undo', async () => {
     const mod = await import('$lib/ipc/bindings');
     render(InstalledModsView, {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     await new Promise((r) => setTimeout(r, 0));
-    const buttons = screen.getAllByRole('button', { name: 'Remove' });
-    const firstButton = buttons[0];
-    if (!firstButton) throw new Error('expected at least one Uninstall button');
-    await fireEvent.click(firstButton);
-    expect(mod.commands.modsUninstall).toHaveBeenCalledWith('i', 'abc');
+    const first = screen.getAllByRole('button', { name: 'Remove' })[0];
+    if (!first) throw new Error('expected at least one Remove button');
+    await fireEvent.click(first);
+    await waitFor(() => expect(mod.commands.modsUninstall).toHaveBeenCalledWith('i', 'abc'));
+    expect(mod.commands.modsRemovalImpact).toHaveBeenCalledWith('i', ['abc']);
+    await waitFor(() =>
+      expect(
+        toastList().some(
+          (x) => x.title === 'Removed Just Enough Items' && x.action?.label === 'Undo',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  // Plan §5b V2: the focused Remove button left with its row and focus fell to <body>. It goes to
+  // the row now in that place — the next one — else the one before it, else the empty list.
+  describe('focus after a removal', () => {
+    const jei = {
+      filename: 'jei.jar',
+      sha1: 'abc',
+      source: 'modrinth',
+      project_id: 'p',
+      version_id: 'v',
+      name: 'Just Enough Items',
+      version_number: '15.0',
+      installed_at: '2026-05-18T00:00:00Z',
+      enabled: true,
+    };
+    const mystery = {
+      filename: 'mystery.jar',
+      sha1: 'def',
+      source: null,
+      project_id: null,
+      version_id: null,
+      name: 'mystery.jar',
+      version_number: null,
+      installed_at: '2026-05-18T00:00:00Z',
+      enabled: false,
+    };
+    /** Lists `before`, then — the re-read after the removal — `after`; removes `index`. */
+    async function removeAt(before: unknown[], after: unknown[], index: number) {
+      const mod = await import('$lib/ipc/bindings');
+      vi.mocked(mod.commands.modsListInstalled)
+        .mockResolvedValueOnce({ status: 'ok', data: before } as never)
+        .mockResolvedValueOnce({ status: 'ok', data: after } as never);
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await waitFor(() => expect(screen.getAllByRole('group')).toHaveLength(before.length));
+      const remove = screen.getAllByRole('button', { name: 'Remove' })[index] as HTMLElement;
+      remove.focus();
+      await fireEvent.click(remove);
+      await waitFor(() => expect(screen.queryAllByRole('group')).toHaveLength(after.length));
+    }
+
+    it('goes to the next row', async () => {
+      await removeAt([jei, mystery], [mystery], 0);
+      const row = screen.getByRole('group', { name: 'mystery.jar' });
+      await waitFor(() => expect(row.contains(document.activeElement)).toBe(true));
+    });
+
+    it('goes to the row before when the last one went', async () => {
+      await removeAt([jei, mystery], [jei], 1);
+      const row = screen.getByRole('group', { name: 'Just Enough Items' });
+      await waitFor(() => expect(row.contains(document.activeElement)).toBe(true));
+    });
+
+    it('goes to the empty list when no row is left', async () => {
+      await removeAt([jei], [], 0);
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('list-empty')));
+    });
+  });
+
+  it('asks what depends on a mod before disabling it', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    await fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
+    await waitFor(() => expect(mod.commands.modsDisable).toHaveBeenCalledWith('i', 'abc'));
+    expect(mod.commands.modsRemovalImpact).toHaveBeenCalledWith('i', ['abc']);
+  });
+
+  it('the ⋯ menu opens the mods folder of this profile', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /open mods folder/i }));
+    await waitFor(() => expect(mod.commands.openModsFolder).toHaveBeenCalledWith('i'));
+  });
+
+  // The re-check is a thing the user asked for: when its compatibility half fails, the spinner
+  // going away must not read as "all clear".
+  it('a re-check whose compatibility check fails says so', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    vi.mocked(mod.commands.checkInstanceModCompat).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'network', url: 'https://api.modrinth.com', details: 'offline' },
+    } as never);
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await screen.findByText('Just Enough Items');
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /re-check/i }));
+    await waitFor(() =>
+      expect(toastList().some((t) => t.title === "Couldn't re-check compatibility")).toBe(true),
+    );
   });
 
   it('shows empty state when no instance is selected', () => {
@@ -207,6 +340,59 @@ describe('InstalledModsView', () => {
     expect(updateArrow?.parentElement?.textContent).toContain('v16.0');
     expect(screen.getByRole('button', { name: 'Update' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Update all (1)' })).toBeTruthy();
+  });
+
+  it('Update all opens a review, and only the ticked mods update', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const target = {
+      source: 'modrinth',
+      project_id: 'p',
+      version_id: 'v2',
+      name: 'Just Enough Items',
+      version_number: '16.0',
+      mc_versions: ['1.20.1'],
+      loaders: ['fabric'],
+      primary_file: {
+        filename: 'jei-16.jar',
+        url: 'https://example/jei-16.jar',
+        sha1: 'ffff',
+        size: 1,
+        distribution_allowed: true,
+      },
+      deps: [],
+      published_at: null,
+    };
+    const result = {
+      sha1: 'abc',
+      name: 'Just Enough Items',
+      source: 'modrinth',
+      project_id: 'p',
+      current_version_id: 'v',
+      current_version_number: '15.0',
+      state: { kind: 'update_available', target },
+    };
+    (mod.commands.modsLastUpdateCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { checked_at_secs: 1, results: [result] },
+    });
+    (mod.commands.modsUpdateOne as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { primary_name: 'Just Enough Items', installed_dependencies: [], details: [] },
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Update all (1)' }));
+    expect(
+      (screen.getByRole('checkbox', { name: 'Just Enough Items' }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(mod.commands.modsUpdateOne).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Update 1' }));
+    await waitFor(() =>
+      expect(mod.commands.modsUpdateOne).toHaveBeenCalledWith('i', 'abc', target, false),
+    );
+    // The run closes the review.
+    await waitFor(() => expect(screen.queryByTestId('update-review-list')).toBeNull());
   });
 
   it('marks a modpack-origin mod with a pack chip', async () => {
@@ -329,5 +515,76 @@ describe('InstalledModsView', () => {
     // The re-fetched list is what renders — proves `r = r2` was consumed.
     expect(screen.getByText('bundled-after-backfill.jar')).toBeTruthy();
     expect(screen.queryByText('bundled.jar')).toBeNull();
+  });
+
+  // The row menu (spec D13, §6.8) — «Show in folder» is also the keyboard path to the file name
+  // the version's tooltip shows on hover.
+  describe('row menu', () => {
+    const openMenu = async (name: string, testid = 'card-list-row') => {
+      const row = await screen.findByRole('group', { name });
+      await fireEvent.contextMenu(row.querySelector(`[data-testid="${testid}"]`) as HTMLElement);
+    };
+    const items = () => screen.getAllByRole('menuitem').map((m) => m.textContent?.trim());
+
+    it('Show in folder reveals the jar on disk', async () => {
+      const mod = await import('$lib/ipc/bindings');
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await openMenu('Just Enough Items');
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Show in folder' }));
+      await waitFor(() => expect(mod.commands.modsRevealFile).toHaveBeenCalledWith('i', 'abc'));
+    });
+
+    it('Open mod page opens the project’s page; a hand-dropped jar has neither page nor hold', async () => {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await openMenu('Just Enough Items');
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Open mod page' }));
+      await waitFor(() => expect(openUrl).toHaveBeenCalledWith('https://modrinth.com/mod/jei'));
+      await openMenu('mystery.jar', 'manual-mod-row');
+      expect(items()).toContain('Show in folder');
+      expect(items()).not.toContain('Open mod page');
+      expect(items()).not.toContain("Don't update");
+    });
+
+    it('Don’t update holds the project, and the menu then offers to allow updates', async () => {
+      const mod = await import('$lib/ipc/bindings');
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await openMenu('Just Enough Items');
+      vi.mocked(mod.commands.modsListHolds).mockResolvedValueOnce({
+        status: 'ok',
+        data: [{ source: 'modrinth', project_id: 'p' }],
+      });
+      await fireEvent.click(screen.getByRole('menuitem', { name: "Don't update" }));
+      await waitFor(() =>
+        expect(mod.commands.modsSetHold).toHaveBeenCalledWith('i', 'modrinth', 'p', true),
+      );
+      await waitFor(() => expect(screen.getByTestId('mod-held-pin')).toBeTruthy());
+      await openMenu('Just Enough Items');
+      expect(items()).toContain('Allow updates');
+      expect(items()).not.toContain("Don't update");
+    });
+
+    // A modpack's own mods are never offered updates — the pack owns their versions — so a hold
+    // there would promise nothing.
+    it('a modpack’s own mod offers no «Don’t update»', async () => {
+      const mod = await import('$lib/ipc/bindings');
+      vi.mocked(mod.commands.modsPackOriginSummary).mockResolvedValueOnce({
+        status: 'ok',
+        data: { project_name: 'Cool Pack', mod_shas: ['abc'] },
+      });
+      render(InstalledModsView, {
+        props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      });
+      await screen.findByText('Cool Pack');
+      await openMenu('Just Enough Items');
+      expect(items()).toContain('Show in folder');
+      expect(items()).not.toContain("Don't update");
+    });
   });
 });
