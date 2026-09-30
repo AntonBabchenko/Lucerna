@@ -56,6 +56,36 @@ afterEach(() => {
 });
 
 describe('ModpackCard', () => {
+  // Plan §5b V2 (carried from V1): a pack whose version already carries its «v» read «vv2.1.0».
+  // A «v» goes only before a version that starts with a digit (displayVersion).
+  it('never doubles the «v» of a version that has its own', async () => {
+    vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
+      okData([
+        {
+          instance_id: 'i1',
+          status: {
+            kind: 'update_available',
+            entry: {
+              id: 'v64',
+              name: 'ATM9 v0.2.64',
+              version_number: 'v0.2.64',
+              game_versions: ['1.20.1'],
+              loaders: ['forge'],
+              date_published: '',
+            },
+          },
+        },
+      ]),
+    );
+    await modpackUpdates.sweep(['i1'], { force: true });
+    const { container, getByTestId } = render(ModpackCard, {
+      props: { instance: { ...modrinthInst, mrpack_version: 'v0.2.60' }, onOpenPack: () => {} },
+    });
+    expect(container.textContent).toContain('v0.2.60');
+    expect(getByTestId('modpack-update-available').textContent?.trim()).toBe('Update: v0.2.64');
+    expect(container.textContent).not.toContain('vv');
+  });
+
   it('renders pack name, version and source', () => {
     const { getByText } = render(ModpackCard, {
       props: { instance: modrinthInst, onOpenPack: () => {} },

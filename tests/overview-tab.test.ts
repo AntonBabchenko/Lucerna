@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
 import { whatsNewState } from '$lib/changelog/whats-new.svelte';
+import { locale } from '$lib/i18n';
 import { hasSeen, markSeen, OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
 import { tourState } from '$lib/onboarding/state.svelte';
 import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
@@ -122,13 +123,15 @@ describe('OverviewTab', () => {
     expect(getByTestId('overview-attention-incompatible')).toBeTruthy();
   });
 
-  it('routes the incompatible attention action to onNavInstalled', async () => {
+  it('routes the incompatible attention action to the Installed issues view', async () => {
     const onNavInstalled = vi.fn();
     const { getByTestId } = render(OverviewTab, {
       props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 1, onNavInstalled },
     });
     await fireEvent.click(getByTestId('overview-attention-incompatible'));
     expect(onNavInstalled).toHaveBeenCalledOnce();
+    // Incompatibility is part of the one problem view (spec §6.2).
+    expect(onNavInstalled).toHaveBeenCalledWith('issues');
   });
 
   it('renders the Modpack card only for pack instances', () => {
@@ -360,6 +363,69 @@ describe('OverviewTab', () => {
     });
     expect(getByTestId('overview-localization').textContent).toContain('de_de');
     expect(getByTestId('overview-localization').textContent).not.toContain('ru_ru');
+  });
+});
+
+// Plan §5b V1 (screenshot 11, pre-existing F11): the header said «Ready to play» right above
+// «5 mods will stop the game from starting». The pill follows the page pre-flight the attention
+// item reads: blocking → not ready; not answered yet (`problemCount` null, "—") → no claim.
+describe('OverviewTab readiness pill', () => {
+  const pill = () => screen.getByTestId('overview-status-pill');
+
+  it('is not «Ready to play» while mods stop the game', () => {
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, blockingModsCount: 5, problemCount: 5 },
+    });
+    expect(pill().getAttribute('data-status')).toBe('mods_blocking');
+    expect(screen.getByTestId('overview-attention-mods_blocking')).toBeTruthy();
+  });
+
+  it('claims nothing about readiness before the pre-flight has answered', () => {
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, problemCount: null },
+    });
+    expect(pill().getAttribute('data-status')).toBe('mods_unknown');
+  });
+
+  // Plan §5b V2 (carried from V1): a pre-flight that could not run is not one that has not run
+  // yet — the pill's tooltip says it failed, and why.
+  it('says the mods could not be checked, and why, when the pre-flight failed', () => {
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        problemCount: null,
+        modsCheckError: 'instance.json is unreadable',
+      },
+    });
+    expect(pill().getAttribute('data-status')).toBe('mods_unknown');
+    revealTooltip(pill());
+    expect(tooltipState.text).toContain('instance.json is unreadable');
+    hideTooltip();
+  });
+
+  it('is ready once the pre-flight found nothing that stops the game', () => {
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 1, problemCount: 1 },
+    });
+    expect(pill().getAttribute('data-status')).toBe('ready');
+  });
+});
+
+// Plan §5b V1: a profile is «профиль» in Russian — «сборка» is a modpack.
+describe('OverviewTab — a dependency check that could not run', () => {
+  it('names the profile, in Russian too', () => {
+    locale.set('ru');
+    try {
+      render(OverviewTab, {
+        props: { ...baseProps, activeInstance: fabricInst, preflightUnknown: true },
+      });
+      expect(screen.getByTestId('overview-attention-preflight_unknown').textContent).toContain(
+        'Не удалось проверить зависимости этого профиля',
+      );
+    } finally {
+      locale.set('en');
+    }
   });
 });
 
@@ -598,5 +664,71 @@ describe('OverviewTab contextual tour', () => {
     await tick();
     await tick();
     expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
+  });
+});
+
+describe('OverviewTab — mods problems', () => {
+  it('names mods that stop the game and routes to the Issues view', async () => {
+    const onNavInstalled = vi.fn();
+    const { getByTestId, queryByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        blockingModsCount: 1,
+        incompatibleCount: 2,
+        onNavInstalled,
+      },
+    });
+    // ONE mods item: what stops the game — the «may not work» count is not repeated.
+    expect(queryByTestId('overview-attention-incompatible')).toBeNull();
+    expect(getByTestId('overview-attention-mods_blocking').textContent).toContain(
+      '1 mod will stop the game from starting',
+    );
+    await fireEvent.click(getByTestId('overview-attention-mods_blocking'));
+    expect(onNavInstalled).toHaveBeenCalledWith('issues');
+  });
+
+  it('says «may not work» when nothing blocks', () => {
+    const { getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 3 },
+    });
+    expect(getByTestId('overview-attention-incompatible').textContent).toContain(
+      '3 mods may not work',
+    );
+  });
+
+  it('adds problems and updates to the Mods card, "—" for what is not known', () => {
+    const { unmount } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        problemCount: 3,
+        blockingModsCount: 1,
+        updateCount: 2,
+      },
+    });
+    const zone = screen.getByTestId('overview-mods-health');
+    expect(zone.textContent).toMatch(/Problems:\s*3/);
+    expect(zone.textContent).toMatch(/Updates:\s*2/);
+    unmount();
+    render(OverviewTab, { props: { ...baseProps, activeInstance: fabricInst } });
+    const unknown = screen.getByTestId('overview-mods-health');
+    expect(unknown.textContent).toMatch(/Problems:\s*—/);
+    expect(unknown.textContent).toMatch(/Updates:\s*—/);
+  });
+
+  it('the health row opens Installed on Issues only when there are problems', async () => {
+    const onNavInstalled = vi.fn();
+    const { unmount } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, problemCount: 2, onNavInstalled },
+    });
+    await fireEvent.click(screen.getByTestId('overview-mods-health'));
+    expect(onNavInstalled).toHaveBeenLastCalledWith('issues');
+    unmount();
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, problemCount: 0, onNavInstalled },
+    });
+    await fireEvent.click(screen.getByTestId('overview-mods-health'));
+    expect(onNavInstalled).toHaveBeenLastCalledWith(undefined);
   });
 });

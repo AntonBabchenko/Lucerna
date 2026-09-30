@@ -1,6 +1,8 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import InstanceHeader from '$lib/overview/InstanceHeader.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 const inst = {
   id: 'i1',
@@ -28,7 +30,7 @@ const inst = {
 describe('InstanceHeader', () => {
   it('renders the instance name and the derived avatar letter', () => {
     const { getByText, getByTestId } = render(InstanceHeader, {
-      props: { instance: inst, running: false, installing: false },
+      props: { instance: inst, running: false, installing: false, blockingMods: 0 },
     });
     expect(getByText('Skyblock')).toBeTruthy();
     // trim(): the avatar button also contains the decorative hover-overlay
@@ -38,7 +40,7 @@ describe('InstanceHeader', () => {
 
   it('renders MC version, loader and memory badges', () => {
     const { getByText } = render(InstanceHeader, {
-      props: { instance: inst, running: false, installing: false },
+      props: { instance: inst, running: false, installing: false, blockingMods: 0 },
     });
     expect(getByText(/1\.21\.1/)).toBeTruthy();
     expect(getByText(/Fabric/)).toBeTruthy();
@@ -47,21 +49,69 @@ describe('InstanceHeader', () => {
 
   it('shows the ready pill when installed and idle', () => {
     const { getByTestId } = render(InstanceHeader, {
-      props: { instance: inst, running: false, installing: false },
+      props: { instance: inst, running: false, installing: false, blockingMods: 0 },
     });
     expect(getByTestId('overview-status-pill').getAttribute('data-status')).toBe('ready');
   });
 
   it('shows the running pill when the game is up', () => {
     const { getByTestId } = render(InstanceHeader, {
-      props: { instance: inst, running: true, installing: false },
+      props: { instance: inst, running: true, installing: false, blockingMods: 0 },
     });
     expect(getByTestId('overview-status-pill').getAttribute('data-status')).toBe('running');
   });
 
+  // Plan §5b V1 (screenshot 11): never «Ready to play» beside the attention item that says mods
+  // stop the game — the pill says so too, and its tooltip is that item's own sentence.
+  it('says the game won’t start while mods block it, in the attention item’s words', () => {
+    const { getByTestId } = render(InstanceHeader, {
+      props: { instance: inst, running: false, installing: false, blockingMods: 5 },
+    });
+    const pill = getByTestId('overview-status-pill');
+    expect(pill.getAttribute('data-status')).toBe('mods_blocking');
+    expect(pill.textContent).toContain("The game won't start");
+    expect(pill.textContent).not.toContain('Ready to play');
+    revealTooltip(pill);
+    expect(tooltipState.text).toBe('5 mods will stop the game from starting');
+    hideTooltip();
+  });
+
+  it('claims no readiness until the pre-flight has answered', () => {
+    const { getByTestId } = render(InstanceHeader, {
+      props: { instance: inst, running: false, installing: false, blockingMods: null },
+    });
+    const pill = getByTestId('overview-status-pill');
+    expect(pill.getAttribute('data-status')).toBe('mods_unknown');
+    expect(pill.textContent).not.toContain('Ready to play');
+    revealTooltip(pill);
+    expect(tooltipState.text).toBe("Files are installed; the mods haven't been checked yet.");
+    hideTooltip();
+  });
+
+  // Plan §5b V2 (carried from V1): a pre-flight that FAILED left the pill looking merely
+  // unchecked. It says the check could not run, and why.
+  it('says the mods could not be checked, and why, when the check failed', () => {
+    const { getByTestId } = render(InstanceHeader, {
+      props: {
+        instance: inst,
+        running: false,
+        installing: false,
+        blockingMods: null,
+        modsCheckError: 'instance.json is unreadable',
+      },
+    });
+    const pill = getByTestId('overview-status-pill');
+    expect(pill.getAttribute('data-status')).toBe('mods_unknown');
+    revealTooltip(pill);
+    expect(tooltipState.text).toBe(
+      "Files are installed; the mods couldn't be checked: instance.json is unreadable",
+    );
+    hideTooltip();
+  });
+
   it('does not show the attention-restore triangle by default', () => {
     const { queryByTestId } = render(InstanceHeader, {
-      props: { instance: inst, running: false, installing: false },
+      props: { instance: inst, running: false, installing: false, blockingMods: 0 },
     });
     expect(queryByTestId('overview-attention-restore')).toBeNull();
   });
@@ -72,6 +122,7 @@ describe('InstanceHeader', () => {
         instance: inst,
         running: false,
         installing: false,
+        blockingMods: 0,
         attentionCollapsed: true,
         attentionCount: 0,
       },
@@ -85,6 +136,7 @@ describe('InstanceHeader', () => {
         instance: inst,
         running: false,
         installing: false,
+        blockingMods: 0,
         attentionCollapsed: true,
         attentionCount: 2,
       },
@@ -99,6 +151,7 @@ describe('InstanceHeader', () => {
         instance: inst,
         running: false,
         installing: false,
+        blockingMods: 0,
         attentionCollapsed: true,
         attentionCount: 1,
         onShowAttention,

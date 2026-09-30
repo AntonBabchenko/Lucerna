@@ -178,6 +178,21 @@ describe('formatSize (ImportPickerDialog internal)', () => {
 });
 
 // ── Category grouping tests ───────────────────────────────────────────────
+// Plan §5b V2: a pack version with its own «v» is not given a second one (displayVersion).
+describe('ImportPickerDialog header', () => {
+  it('never doubles the «v» of a version that has its own', () => {
+    const { container } = render(ImportPickerDialog, {
+      props: {
+        summary: { ...baseSummary, version: 'v2.0' },
+        onCancel: () => {},
+        onConfirm: () => {},
+      },
+    });
+    expect(container.querySelector('header')?.textContent).toContain('v2.0 ·');
+    expect(container.textContent).not.toContain('vv');
+  });
+});
+
 describe('ImportPickerDialog category groups', () => {
   it('renders a Mods group with <details open>', () => {
     const { container } = render(ImportPickerDialog, {

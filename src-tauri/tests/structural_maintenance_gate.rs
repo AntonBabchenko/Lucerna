@@ -255,7 +255,15 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "commands/mods.rs",
         "mods_install_missing_required",
         SHARED_WRITE_GATE,
-        "resolves, downloads and installs one dependency jar",
+        "resolves a dependency, downloads and commits it with its required closure, and \
+         writes the dependent's edges",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_install_dependency",
+        SHARED_WRITE_GATE,
+        "downloads and commits a dependency with its required closure into mods/ and the \
+         registry, and writes the dependent's edges",
     ),
     (
         "commands/mods.rs",
@@ -279,7 +287,25 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "commands/mods.rs",
         "mods_uninstall",
         SHARED_WRITE_GATE,
-        "removes a jar from mods/ and its registry row",
+        "moves a jar from mods/ into the instance's trash and drops its registry row",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_uninstall_many",
+        SHARED_WRITE_GATE,
+        "moves several jars from mods/ into one trash entry and drops their registry rows",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_restore_uninstalled",
+        SHARED_WRITE_GATE,
+        "moves trashed jars back into mods/ and re-adds their registry rows",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_set_hold",
+        SHARED_WRITE_GATE,
+        "read-modify-writes the instance's holds sidecar",
     ),
     (
         "commands/modpack_cmds.rs",
@@ -498,7 +524,18 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
     (
         "commands/mods.rs",
         "mods_check_updates",
-        "network query over the installed list (reconcile only); updates nothing",
+        "network query over the installed list (reconcile only); persists its answer to \
+         lucerna/update-check.json, launcher metadata no claimer reads",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_list_holds",
+        "reads the holds sidecar",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_last_update_check",
+        "reads the stored check, the installed list (reconcile only) and the holds sidecar",
     ),
     (
         "commands/mods.rs",
@@ -536,7 +573,9 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
     (
         "commands/mods.rs",
         "mods_find_orphans",
-        "reads the registry's dependency edges (reconcile only)",
+        "reads the registry's dependency edges and the jars' declarations to keep only \
+         libraries nothing that stays needs — reconcile, display-name backfill and the \
+         app-dir jar-scan cache only; the removal itself is gated",
     ),
     (
         "commands/mods.rs",
@@ -552,6 +591,25 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
         "commands/mods.rs",
         "instance_dependency_preflight",
         "reads jars and the registry — reconcile and display-name backfill only",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_removal_impact",
+        "reads jars and the registry to predict what a removal breaks — reconcile, display-name \
+         backfill and the app-dir jar-scan cache only; the removal itself is gated",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_enable_impact",
+        "reads jars and the registry to predict what an enable needs — reconcile, display-name \
+         backfill and the app-dir jar-scan cache only; the enable itself is gated",
+    ),
+    (
+        "commands/mods.rs",
+        "mods_plan_version_fix",
+        "reads jars and the registry (reconcile, display-name backfill and the app-dir jar-scan \
+         cache only) and downloads candidate builds into the app-dir download cache, never the \
+         instance; the chosen fix is a gated update or install",
     ),
     // commands/modpack_cmds.rs
     (

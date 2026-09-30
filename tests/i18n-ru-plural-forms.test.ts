@@ -272,3 +272,29 @@ describe('settings.storage.dataLocation — leftover counts', () => {
     expect(intro(3)).toBe('Lucerna could not remove 3 items from the old folder "D:\\Old":');
   });
 });
+
+// The restore toast says how many dependents came back on with the mods, and which (plan §5b V1,
+// «Возвращено: 1» named nothing) — «зависимый мод» agreeing with the count, verb included.
+const REENABLED_FORMS: ReadonlyArray<[count: number, text: string]> = [
+  [1, 'Снова включён 1 зависимый мод'],
+  [2, 'Снова включены 2 зависимых мода'],
+  [5, 'Снова включены 5 зависимых модов'],
+  [11, 'Снова включены 11 зависимых модов'], // 11-14 take the genitive plural
+  [21, 'Снова включён 21 зависимый мод'],
+];
+
+describe('mods.ops.restore.reenabled', () => {
+  it.each(REENABLED_FORMS)('agrees in Russian at %i', (count, text) => {
+    locale.set('ru');
+    expect(get(t)('mods.ops.restore.reenabled', { count, names: 'Indium' })).toBe(
+      `${text}: Indium`,
+    );
+  });
+
+  it('keeps the English singular/plural pair', () => {
+    locale.set('en');
+    const line = (count: number) => get(t)('mods.ops.restore.reenabled', { count, names: 'A' });
+    expect(line(1)).toBe('1 dependent switched back on: A');
+    expect(line(2)).toBe('2 dependents switched back on: A');
+  });
+});

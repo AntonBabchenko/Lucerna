@@ -27,6 +27,20 @@ describe('AttentionPanel', () => {
     expect(getByTestId('overview-attention-integrity').textContent).toContain('2');
   });
 
+  it('marks the mods-that-stop-the-game row with a red icon', () => {
+    const { getByTestId } = render(AttentionPanel, {
+      props: {
+        items: [{ kind: 'mods_blocking', count: 2 }] as AttentionItem[],
+        onAction: () => {},
+        onDismiss: () => {},
+      },
+    });
+    const row = getByTestId('overview-attention-mods_blocking');
+    expect(row.textContent).toContain('2 mods will stop the game from starting');
+    // Red on the icon only: red TEXT on the amber panel misses AA in the dark theme.
+    expect(row.querySelector('.text-danger')).not.toBeNull();
+  });
+
   it('renders a modpack_update row', () => {
     const { getByTestId } = render(AttentionPanel, {
       props: {

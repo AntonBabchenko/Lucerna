@@ -244,23 +244,24 @@ describe('ServerSidebarSection', () => {
       expect(screen.queryByTestId('sidebar-server-addons-folder')).toBeNull();
     });
 
-    it('shows a Mods button for a mod-loader server and opens its mods folder', async () => {
+    // The button opens a folder and says so, like the client sidebar's «Папка модов» (P5-4).
+    it('shows a Mods folder button for a mod-loader server and opens its mods folder', async () => {
       await load([makeServer('a', false, 'fabric')]);
       serversUi.selectServer('a');
       render(ServerSidebarSection);
       const btn = screen.getByTestId('sidebar-server-addons-folder');
-      expect(btn.textContent).toContain('Mods');
+      expect(btn.textContent?.trim()).toBe('Mods folder');
       await fireEvent.click(btn);
       expect(serverOpenModsFolder).toHaveBeenCalledWith('a');
       expect(serverOpenPluginsFolder).not.toHaveBeenCalled();
     });
 
-    it('shows a Plugins button for a plugin (Paper/Purpur) server and opens its plugins folder', async () => {
+    it('shows a Plugins folder button for a plugin (Paper/Purpur) server and opens its plugins folder', async () => {
       await load([makeServer('a', true, 'paper')]);
       serversUi.selectServer('a');
       render(ServerSidebarSection);
       const btn = screen.getByTestId('sidebar-server-addons-folder');
-      expect(btn.textContent).toContain('Plugins');
+      expect(btn.textContent?.trim()).toBe('Plugins folder');
       await fireEvent.click(btn);
       expect(serverOpenPluginsFolder).toHaveBeenCalledWith('a');
       expect(serverOpenModsFolder).not.toHaveBeenCalled();

@@ -35,14 +35,9 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue(nu
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: vi.fn(),
 }));
-// ModpacksTab registers a window-level drag-drop listener on mount
-// (modpacks moved out of MainTabs into the sidebar). Stub the webview
-// API so the listener registration is a no-op in jsdom.
-vi.mock('@tauri-apps/api/webview', () => ({
-  getCurrentWebview: () => ({
-    onDragDropEvent: () => Promise.resolve(() => {}),
-  }),
-}));
+
+// ModpacksTab has no drag-drop listener of its own: the page's single window listener routes
+// drops to it (tests/window-drop-owner.test.ts), so there is no webview API to stub here.
 
 import { commands } from '$lib/ipc/bindings';
 import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
@@ -94,6 +89,29 @@ describe('ModpacksTab', () => {
   it('renders the FileDropzone affordance', () => {
     render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
+  });
+
+  // The dropzone rule (DESIGN.md §14): a strip over the catalog, whose drag overlay covers the
+  // content below it; an empty Imported list holds the one full drop area instead.
+  it('an empty Imported list shows the full drop area; the strip and the URL import stay on Browse', async () => {
+    const overlayHost = () => {
+      let el = screen.getByTestId('file-dropzone-overlay').parentElement;
+      while (el && !el.classList.contains('relative')) el = el.parentElement;
+      return el;
+    };
+    render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+    expect(overlayHost()?.querySelector('.overflow-y-auto')).not.toBeNull();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Imported' }));
+    await waitFor(() => expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('full'));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('file-dropzone'))).toBe(
+      true,
+    );
+    expect(screen.getByTestId('modpacks-import-from-url')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
   });
 
   it('renders the Source picker (with FTB) in the sub-tab row, not the filter toolbar', async () => {

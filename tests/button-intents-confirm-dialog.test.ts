@@ -35,4 +35,13 @@ describe('ConfirmDialog — confirm/cancel intents', () => {
     expect(cancel).toHaveBtnVariant('secondary');
     expect(cancel).toHaveBtnSize('sm');
   });
+
+  it('the optional secondary action is btn-secondary btn-sm — never a second headline', () => {
+    render(ConfirmDialog, {
+      props: { ...base, secondaryLabel: 'Only this one', onSecondary: () => {} },
+    });
+    const secondary = screen.getByRole('button', { name: /only this one/i });
+    expect(secondary).toHaveBtnVariant('secondary');
+    expect(secondary).toHaveBtnSize('sm');
+  });
 });

@@ -2,13 +2,19 @@
 //! installed mod's parsed manifest and an index of available providers,
 //! returns the required-dependency violations the loader would hit.
 //!
-//! The module also exposes `dependency_preflight_for_root` — the testable
-//! core of the `instance_dependency_preflight` Tauri command — along with
-//! the `ViolationKind`, `DepViolation`, and `PreflightReport` IPC types.
+//! The module also exposes [`parse_instance`] — one read of every registry
+//! row, after which [`ParsedInstance::resolve`] answers for any enabled set —
+//! and `dependency_preflight_for_root`, the testable core of the
+//! `instance_dependency_preflight` Tauri command, along with the
+//! `ViolationKind`, `DepViolation`, and `PreflightReport` IPC types.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::mods::local::{DepSide, DependencyKind, ManifestDeps};
+use crate::instances::schema::LoaderKind;
+use crate::mods::local::{
+    DeclaredDep, DepSide, DependencyKind, DescriptorEra, ManifestDeps, ProvidedMod,
+};
+use crate::mods::platform::{InstalledMod, ModSource};
 use crate::mods::version_range::{satisfies, Satisfaction};
 
 /// One installed mod joined with its parsed manifest.
@@ -21,7 +27,7 @@ pub struct ParsedMod {
 
 /// Canonical id form for provider matching: lowercase, `-` → `_`. Mod ecosystems
 /// use the two interchangeably (`fabric-api` vs `fabric_api`).
-fn canon_id(id: &str) -> String {
+pub(crate) fn canon_id(id: &str) -> String {
     id.trim().to_ascii_lowercase().replace('-', "_")
 }
 
@@ -177,6 +183,79 @@ pub enum Violation {
         installed: String,
         family: crate::mods::version_range::RangeFamily,
     },
+    /// A requirement nothing ENABLED provides but a DISABLED row does (own id,
+    /// Jar-in-Jar id or umbrella alias). Disabled jars still satisfy nothing;
+    /// this names the absence truthfully so the fix is "enable", not an install
+    /// that would put a duplicate next to the switched-off jar.
+    RequiredDisabled {
+        dependent_sha1: String,
+        dependent_name: String,
+        dep_id: String,
+        /// Registry digest of the first such disabled row, in registry order.
+        provider_sha1: String,
+    },
+}
+
+impl Violation {
+    fn parts(&self) -> (&str, &str, &str) {
+        match self {
+            Self::MissingRequired {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+            }
+            | Self::VersionOutOfRange {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::OptionalOutOfRange {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::IncompatibleInstalled {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::PlatformMismatch {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            }
+            | Self::RequiredDisabled {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                ..
+            } => (
+                dependent_sha1.as_str(),
+                dependent_name.as_str(),
+                dep_id.as_str(),
+            ),
+        }
+    }
+
+    /// Registry digest of the mod that declared the dependency.
+    pub fn dependent_sha1(&self) -> &str {
+        self.parts().0
+    }
+
+    /// Display name of the mod that declared the dependency.
+    pub fn dependent_name(&self) -> &str {
+        self.parts().1
+    }
+
+    /// The dependency id the violation is about (`"minecraft"` or the loader's
+    /// canonical id for a platform mismatch).
+    pub fn dep_id(&self) -> &str {
+        self.parts().2
+    }
 }
 
 /// Where a descriptor sits in the order this instance's loader reads files.
@@ -275,6 +354,29 @@ pub(crate) fn effective_rank(
     Some(rank)
 }
 
+/// The declarations of one jar that this instance's loader enforces — the ONE
+/// admission test, shared by [`resolve`] and the version-fix planner so they can
+/// never disagree about what a jar requires (audit A-F4):
+///
+/// - side first, matching `ModSorter.java:275` — a SERVER-only dep is invisible
+///   to every check on the client we launch;
+/// - only from a descriptor the loader opens for THIS jar ([`effective_rank`],
+///   shadowing included): a Forge instance never loads `fabric.mod.json`, and a
+///   1.12.2 one never loads `mods.toml`. Anything else is a declaration the
+///   loader cannot enforce, so it is not a launch-readiness problem;
+/// - never `Discouraged`: the loader only logs a warning and carries on.
+pub(crate) fn active_deps_for(
+    manifest: &ManifestDeps,
+    loader: LoaderKind,
+    era: DescriptorEra,
+) -> impl Iterator<Item = &DeclaredDep> {
+    manifest.deps.iter().filter(move |dep| {
+        dep.side != DepSide::Server
+            && effective_rank(dep.source, &manifest.sources_present, loader, era).is_some()
+            && dep.kind != DependencyKind::Discouraged
+    })
+}
+
 /// The launcher launches a client; a SERVER-only dep is not enforced.
 pub fn resolve(
     mods: &[ParsedMod],
@@ -286,23 +388,7 @@ pub fn resolve(
 ) -> Vec<Violation> {
     let mut out = Vec::new();
     for m in mods {
-        for dep in &m.manifest.deps {
-            // Side is filtered BEFORE the kind, matching `ModSorter.java:275`
-            // — a side-filtered dep is invisible to every check.
-            if dep.side == DepSide::Server {
-                continue;
-            }
-            // Only enforce deps from the descriptor the instance's loader opens:
-            // a Forge instance never loads fabric.mod.json, and a 1.12.2 one
-            // never loads mods.toml. Anything else is a declaration the loader
-            // cannot enforce, so it is not a launch-readiness problem.
-            if effective_rank(dep.source, &m.manifest.sources_present, loader, era).is_none() {
-                continue;
-            }
-            // The loader only logs a warning for `discouraged` and carries on.
-            if dep.kind == DependencyKind::Discouraged {
-                continue;
-            }
+        for dep in active_deps_for(&m.manifest, loader, era) {
             if !index.is_provided(&dep.dep_id) {
                 // Absent: only a requirement is a problem. An optional or an
                 // incompatible declaration is satisfied by absence.
@@ -428,6 +514,9 @@ pub enum ViolationKind {
     /// The jar was built for a Minecraft or loader version this instance does
     /// not provide.
     PlatformMismatch,
+    /// A required dependency no enabled mod provides, that a disabled mod does.
+    /// `provider_sha1` names that disabled jar.
+    RequiredDisabled,
 }
 
 /// One resolved dependency violation, enriched with enough context for the
@@ -440,15 +529,16 @@ pub struct DepViolation {
     pub dependent_name: String,
     /// Mod-id of the missing / out-of-range dependency.
     pub dep_id: String,
-    /// `MissingRequired` or `VersionOutOfRange`.
+    /// What the loader would object to — see [`ViolationKind`].
     pub kind: ViolationKind,
-    /// The version that is actually installed (`None` for `MissingRequired`).
+    /// The version that is actually installed (`None` for `MissingRequired`
+    /// and `RequiredDisabled`: nothing enabled provides it).
     pub installed_version: Option<String>,
     /// The version range the dependent declared (empty string for
-    /// `MissingRequired`), verbatim from the jar. Kept for remediation
-    /// (`mods_filter_satisfying` evaluates it) and for the log line — the UI
-    /// renders `needed_desc` instead, because raw Maven bracket notation is
-    /// unreadable.
+    /// `MissingRequired` and `RequiredDisabled`), verbatim from the jar. Kept
+    /// for remediation (`mods_filter_satisfying` evaluates it) and for the log
+    /// line — the UI renders `needed_desc` instead, because raw Maven bracket
+    /// notation is unreadable.
     pub needed: String,
     /// `needed`, decomposed into displayable clauses. The UI formats these
     /// through i18n and only falls back to the raw string when
@@ -457,15 +547,24 @@ pub struct DepViolation {
     /// Platform project reference for the provider, if we could link it.
     /// Powers a "View on Modrinth / CurseForge" link in the UI.
     pub provider_project: Option<crate::mods::platform::DepProjectRef>,
-    /// SHA-1 of the installed jar that currently provides `dep_id`.
-    /// Present only for `VersionOutOfRange` violations where the provider
-    /// is a tracked installed mod. Used by the UI to route "Обновить"
-    /// through `mods_update_one` (remove-old + install-new) instead of a
-    /// bare `mods_install_with_deps` that would leave duplicate jars.
+    /// SHA-1 of the jar that provides `dep_id`. For the range kinds: the
+    /// ENABLED provider, so the UI routes "Обновить" through `mods_update_one`
+    /// (remove-old + install-new) instead of a bare `mods_install_with_deps`
+    /// that would leave duplicate jars. For `RequiredDisabled`: the DISABLED jar
+    /// to switch back on. `None` otherwise.
     pub provider_sha1: Option<String>,
+    /// The registry name of the row `provider_sha1` names — what the registry
+    /// calls that mod, as `dependent_name` is what it calls the dependent — so
+    /// a surface with no installed list of its own (the Play gate on a cold
+    /// start) names the provider as a mod, never by its loader id. `None`
+    /// exactly when `provider_sha1` is. `#[serde(default)]` so specta emits it
+    /// optional.
+    #[serde(default)]
+    pub provider_name: Option<String>,
     /// Range grammar for `needed` (Maven / Fabric / Quilt). `None` for
-    /// `MissingRequired` (no range to interpret). Lets the UI pick a version
-    /// that actually satisfies `needed` via `mods_filter_satisfying`.
+    /// `MissingRequired` and `RequiredDisabled` (no range to interpret). Lets
+    /// the UI pick a version that actually satisfies `needed` via
+    /// `mods_filter_satisfying`.
     pub family: Option<crate::mods::version_range::RangeFamily>,
 }
 
@@ -482,6 +581,83 @@ pub struct PreflightReport {
     /// existing `PreflightReport` literal in the frontend stops type-checking.
     #[serde(default)]
     pub pack_completion: Option<crate::mods::pack_completion::PackCompletion>,
+    /// Registry digests of ENABLED mods whose jar was missing from disk or would
+    /// not parse: their dependencies were not judged, so their silence is not "no
+    /// problem". `#[serde(default)]` for the same reason as `pack_completion`.
+    #[serde(default)]
+    pub unjudged: Vec<String>,
+}
+
+/// A mod that loses something it needs when others leave the enabled set.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ImpactedMod {
+    pub sha1: String,
+    pub name: String,
+    /// Display names (registry names — the project title for platform mods) of
+    /// the leaving mods — targets, or other dependents — that provided what it
+    /// loses.
+    pub needs: Vec<String>,
+}
+
+/// What removing or disabling a set of mods breaks (`mods_removal_impact`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct RemovalImpact {
+    /// Enabled mods, other than the leaving ones, that gain a violation: those
+    /// the targets' leaving breaks and, to a fixed point, those that break once
+    /// the earlier ones are off too. With all of them off as well, no enabled mod
+    /// has gained a violation. Empty means nothing the pre-flight can read loses
+    /// anything it needs.
+    ///
+    /// In a safe disable order among themselves: a mod comes before any listed
+    /// mod it needs — one whose jar answers a requirement the loader enforces
+    /// on it — save inside a cycle, which no order keeps whole: it is broken at
+    /// its earliest mod. Of the mods free to go next, the earliest in wave order
+    /// (what breaks directly first), each wave in registry order, goes first.
+    /// Switched off together with the targets, they follow `order`: a target
+    /// may need one of them.
+    pub dependents: Vec<ImpactedMod>,
+    /// The targets and every mod in `dependents`, as registry digests, each
+    /// once, in ONE SAFE DISABLE ORDER: switched off one by one as listed, a
+    /// mod goes off before any of them it needs, so a run that stops early
+    /// leaves none of them on without one it needs — save inside a cycle,
+    /// broken at its earliest mod. Of the mods free to go next, the earliest
+    /// goes first — the dependents as listed, then the targets in registry
+    /// order — so where no target needs a dependent, this is `dependents`,
+    /// then the targets. Filtered to any subset — the targets alone, for "only
+    /// these" — it is still a safe order for that subset.
+    pub order: Vec<String>,
+}
+
+/// A disabled mod that must be switched on together with the ones being enabled.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DisabledRequirement {
+    pub sha1: String,
+    pub name: String,
+}
+
+/// What enabling a set of mods needs switched on with them (`mods_enable_impact`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct EnableImpact {
+    /// Disabled mods the targets need, transitively, each once, never a target
+    /// itself.
+    ///
+    /// In a safe enable order among themselves: a mod comes after any listed
+    /// mod it needs — one whose jar answers a requirement the loader enforces
+    /// on it — save inside a cycle, which no order keeps whole: it is broken at
+    /// its earliest mod. Of the mods free to go next, the one found first goes
+    /// first. Switched on together with the targets, they follow `order`: one
+    /// of them may need a target.
+    pub requirements: Vec<DisabledRequirement>,
+    /// The targets and every mod in `requirements`, as registry digests, each
+    /// once, in ONE SAFE ENABLE ORDER: switched on one by one as listed, a mod
+    /// comes on after any of them it needs, so a run that stops early leaves
+    /// none of them on without one it needs — save inside a cycle, broken at
+    /// its earliest mod. Of the mods free to go next, the earliest goes first —
+    /// the requirements as listed, then the targets in registry order — so
+    /// where no requirement needs a target, this is `requirements`, then the
+    /// targets. Filtered to any subset — the targets alone, for "only these" —
+    /// it is still a safe order for that subset.
+    pub order: Vec<String>,
 }
 
 /// Map a `ModSource` + `project_id` to a `DepProjectRef` for the
@@ -542,6 +718,7 @@ fn enrich(
             ),
             provider_project: None,
             provider_sha1: None,
+            provider_name: None,
             family: None,
         },
         Violation::VersionOutOfRange {
@@ -598,6 +775,30 @@ fn enrich(
             provider_owner,
             provider_sha1_map,
         ),
+        Violation::RequiredDisabled {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            provider_sha1,
+        } => DepViolation {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            kind: ViolationKind::RequiredDisabled,
+            installed_version: None,
+            needed: String::new(),
+            // As for `MissingRequired`: nothing enabled provides it, so there is
+            // no range to read against.
+            needed_desc: crate::mods::range_describe::describe(
+                "",
+                crate::mods::version_range::RangeFamily::Maven,
+            ),
+            // No platform link: the fix is switching this jar back on, by digest.
+            provider_project: None,
+            provider_sha1: Some(provider_sha1),
+            provider_name: None,
+            family: None,
+        },
         Violation::PlatformMismatch {
             dependent_sha1,
             dependent_name,
@@ -617,6 +818,7 @@ fn enrich(
             // "provider" to update, the instance itself is the wrong platform.
             provider_project: None,
             provider_sha1: None,
+            provider_name: None,
             family: Some(family),
         },
     }
@@ -649,6 +851,7 @@ fn ranged(
         needed,
         provider_project: provider_owner.get(&key).cloned(),
         provider_sha1: provider_sha1_map.get(&key).cloned(),
+        provider_name: None,
         family: Some(family),
         dep_id,
     }
@@ -744,28 +947,784 @@ async fn scan_jar(bytes: Vec<u8>, want_legacy: bool) -> Option<JarScan> {
     }
 }
 
-/// The testable core of the `instance_dependency_preflight` Tauri command.
-/// Accepts a resolved `instance_root` path so integration tests can call it
-/// without a `tauri::AppHandle`.
+/// A jar that is not installed — a candidate build in the download cache — read
+/// the way [`parse_instance`] reads an installed one.
+#[derive(Debug, Clone)]
+pub struct LooseJar {
+    /// Legacy-era `@Mod` requirements already merged into `deps`.
+    pub manifest: ManifestDeps,
+    pub jij_provided: Vec<ProvidedMod>,
+}
+
+/// `None` is "could not tell" (an unreadable zip), exactly as for an installed
+/// jar — never "declares nothing".
+pub(crate) async fn scan_loose_jar(bytes: Vec<u8>, era: DescriptorEra) -> Option<LooseJar> {
+    let scan = scan_jar(bytes, era == DescriptorEra::Legacy).await?;
+    let mut manifest = scan.manifest;
+    manifest.deps.extend(scan.legacy_deps);
+    Some(LooseJar {
+        manifest,
+        jij_provided: scan.jij_provided,
+    })
+}
+
+/// The version `jar` would answer `dep_id` with, under the index's own version
+/// authority ([`ProviderIndex::build`]). `None`: it does not provide the id, or
+/// names no readable version — the pre-flight skips the range check then too.
+pub(crate) fn provided_version(
+    jar: &LooseJar,
+    dep_id: &str,
+    loader: LoaderKind,
+    era: DescriptorEra,
+) -> Option<String> {
+    let one = [ParsedMod {
+        sha1: String::new(),
+        name: String::new(),
+        manifest: jar.manifest.clone(),
+    }];
+    let jij: Vec<(String, Option<String>)> = jar
+        .jij_provided
+        .iter()
+        .map(|p| (p.mod_id.clone(), p.version.clone()))
+        .collect();
+    ProviderIndex::build(&one, &jij, loader, era)
+        .get(dep_id)
+        .cloned()
+        .flatten()
+}
+
+/// One registry row joined with what its jar says, kept PER ROW — its own
+/// Jar-in-Jar providers included — so a resolution over any subset of the
+/// instance ("without these", "with this one switched on") comes from one parse.
+/// An ownerless JIJ list would keep a leaving jar's embedded libraries alive
+/// (audit A-F1).
+#[derive(Debug, Clone)]
+pub struct ParsedRow {
+    /// Registry digest and name; the manifest has the legacy-era `@Mod`
+    /// requirements merged into `deps`.
+    pub parsed: ParsedMod,
+    /// Jar-in-Jar providers: an embedded library answers only for an id
+    /// nothing top-level claims, and only while its host is switched on.
+    pub jij_provided: Vec<ProvidedMod>,
+    /// The registry's flag. A disabled row is parsed in full, but its
+    /// declarations are never READ AS requirements unless the row enters the
+    /// counterfactual enabled set a caller hands [`ParsedInstance::resolve`]
+    /// (e.g. [`ParsedInstance::enable_impact`]). Outside that set it only
+    /// answers what it would provide (`RequiredDisabled`).
+    pub enabled: bool,
+    pub source: Option<ModSource>,
+    pub project_id: Option<String>,
+    pub version_id: Option<String>,
+    pub version_number: Option<String>,
+}
+
+/// Every registry row the pre-flight could read, in registry order — the order
+/// every "first provider wins" tie has always been broken in — plus the context
+/// a resolution needs. Built once by [`parse_instance`]; everything after is pure.
+#[derive(Debug, Clone)]
+pub struct ParsedInstance {
+    pub rows: Vec<ParsedRow>,
+    /// Rows whose jar was missing from disk or would not parse — the two places
+    /// the scan cannot tell what a jar says. Never guessed into `rows`.
+    pub unreadable: Vec<InstalledMod>,
+    pub loader: LoaderKind,
+    pub era: DescriptorEra,
+    pub mc: String,
+    pub loader_version: Option<String>,
+}
+
+impl ParsedInstance {
+    /// The rows the registry has switched on.
+    pub fn registry_enabled(&self) -> HashSet<String> {
+        self.rows
+            .iter()
+            .filter(|r| r.enabled)
+            .map(|r| r.parsed.sha1.clone())
+            .collect()
+    }
+
+    /// The rows in `enabled`, in registry order.
+    fn active<'a>(
+        &'a self,
+        enabled: &'a HashSet<String>,
+    ) -> impl Iterator<Item = &'a ParsedRow> + 'a {
+        self.rows
+            .iter()
+            .filter(move |r| enabled.contains(&r.parsed.sha1))
+    }
+
+    /// The violations the loader would hit with exactly `enabled` switched on.
+    /// With the registry's enabled set this is the pre-flight; with any other set
+    /// it is the counterfactual the impact checks ask for. The index — JIJ
+    /// included — is rebuilt from `enabled` alone, and rows outside it never emit.
+    pub fn resolve(&self, enabled: &HashSet<String>) -> Vec<Violation> {
+        let mods: Vec<ParsedMod> = self.active(enabled).map(|r| r.parsed.clone()).collect();
+        // Jar-in-Jar providers, so an embedded lib is not falsely flagged as a
+        // missing dependency — but only those whose host is in `enabled`.
+        let jij: Vec<(String, Option<String>)> = self
+            .active(enabled)
+            .flat_map(|r| {
+                r.jij_provided
+                    .iter()
+                    .map(|p| (p.mod_id.clone(), p.version.clone()))
+            })
+            .collect();
+        let index = ProviderIndex::build(&mods, &jij, self.loader, self.era);
+        // The module-level resolver, not this method.
+        self::resolve(
+            &mods,
+            &index,
+            self.loader,
+            self.era,
+            &self.mc,
+            self.loader_version.as_deref(),
+        )
+        .into_iter()
+        .map(|v| self.explain_absence(v, enabled))
+        .collect()
+    }
+
+    /// A `MissingRequired` whose id a readable row OUTSIDE `enabled` provides
+    /// becomes `RequiredDisabled`, naming the first such row in registry order.
+    /// An unreadable jar is not in `rows`, so it can never be claimed as the
+    /// provider (§9): that absence stays `MissingRequired`, today's answer.
+    fn explain_absence(&self, v: Violation, enabled: &HashSet<String>) -> Violation {
+        match v {
+            Violation::MissingRequired {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+            } => match self
+                .rows
+                .iter()
+                .find(|r| !enabled.contains(&r.parsed.sha1) && row_provides(r, &dep_id))
+            {
+                Some(p) => Violation::RequiredDisabled {
+                    dependent_sha1,
+                    dependent_name,
+                    dep_id,
+                    provider_sha1: p.parsed.sha1.clone(),
+                },
+                None => Violation::MissingRequired {
+                    dependent_sha1,
+                    dependent_name,
+                    dep_id,
+                },
+            },
+            other => other,
+        }
+    }
+
+    /// Enabled rows the scan could not read — exactly the two skip sites (jar
+    /// missing from disk, zip that would not parse). A disabled row is never
+    /// judged, so it is never "unjudged" either.
+    pub fn unjudged(&self) -> Vec<String> {
+        self.unreadable
+            .iter()
+            .filter(|m| m.enabled)
+            .map(|m| m.sha1.clone())
+            .collect()
+    }
+
+    /// The parsed row with this registry digest.
+    pub(crate) fn row(&self, sha1: &str) -> Option<&ParsedRow> {
+        self.rows.iter().find(|r| r.parsed.sha1 == sha1)
+    }
+
+    /// `ModsNotFound` — the answer `mods_enable` gives for the same digest —
+    /// when the registry does not list one of `targets` (gone since the caller
+    /// read it), readable or not: an impact of a mod that is not there would be
+    /// a guess, never "nothing".
+    fn refuse_unlisted(&self, targets: &HashSet<String>) -> crate::error::Result<()> {
+        let listed =
+            |t: &String| self.row(t).is_some() || self.unreadable.iter().any(|m| &m.sha1 == t);
+        if targets.iter().all(listed) {
+            Ok(())
+        } else {
+            Err(crate::error::Error::ModsNotFound {
+                platform: "installed".into(),
+            })
+        }
+    }
+
+    /// Every enabled mod, other than `targets`, that breaks when `targets` leave
+    /// the enabled set — removed or disabled alike (spec §5.1) — and, to a fixed
+    /// point, every mod that breaks once THOSE are switched off too: the dialog
+    /// offers to switch all of them off, and nothing left on may be broken by
+    /// it. A mod breaks when it gains a violation the registry's enabled set
+    /// does not have. Each names the leaving mods — targets, or dependents of an
+    /// earlier wave — that provided what it lost.
+    ///
+    /// Order: the dependents are safe to switch off one by one as listed, among
+    /// themselves. A mod comes before any listed mod it needs
+    /// ([`Self::flip_order`]) — save inside a cycle, which no order keeps whole
+    /// and which is broken at its earliest mod. Of the mods free to go next, the
+    /// earliest in today's order goes first: wave by wave — what breaks
+    /// directly, then what breaks once that is off too — each wave in registry
+    /// order, each mod once, in the wave it breaks in. `order` places the
+    /// targets among them ([`Self::with_targets`]) — a target may need a
+    /// dependent, and targets may need each other — so a run that switches off
+    /// `order`, or any part of it, and stops early leaves none of them on
+    /// without one it needs, save inside a cycle.
+    ///
+    /// Monotone: once broken, a mod stays counted, even where a later wave takes
+    /// away the provider whose version broke it (an optional or incompatible
+    /// declaration, which absence satisfies) — the restrictive answer.
+    ///
+    /// Errors when an ENABLED target's jar could not be read: what it provides
+    /// is unknown, so "nothing depends on it" would be a guess. A disabled
+    /// target satisfies nothing today, so its leaving is known to break nothing.
+    /// Errors, too, when the registry does not list a target.
+    pub fn removal_impact(&self, targets: &HashSet<String>) -> crate::error::Result<RemovalImpact> {
+        if let Some(m) = self
+            .unreadable
+            .iter()
+            .find(|m| m.enabled && targets.contains(&m.sha1))
+        {
+            return Err(crate::error::Error::io(
+                m.filename.clone(),
+                "the jar could not be read, so what depends on it is unknown",
+            ));
+        }
+        self.refuse_unlisted(targets)?;
+        let enabled = self.registry_enabled();
+        let before = self.resolve(&enabled);
+        // The targets and every dependent found so far — all of them off.
+        let mut gone: HashSet<String> = targets.clone();
+        let mut dependents: Vec<ImpactedMod> = Vec::new();
+        // Each wave adds at least one row not yet in `gone` (`newly_broken` never
+        // names one that is), or it is empty and the loop ends. Every row it names
+        // is a registry row, so the rows bound the fixed point.
+        loop {
+            let wave = self.newly_broken(&enabled, &gone, &before);
+            if wave.is_empty() {
+                break;
+            }
+            gone.extend(wave.iter().map(|d| d.sha1.clone()));
+            dependents.extend(wave);
+        }
+        let sha1s: Vec<&str> = dependents.iter().map(|d| d.sha1.as_str()).collect();
+        let at = self.flip_order(&sha1s, Flip::Off);
+        let dependents = reordered(dependents, &at);
+        let listed: Vec<&str> = dependents.iter().map(|d| d.sha1.as_str()).collect();
+        let order = self.with_targets(&listed, targets, Flip::Off);
+        Ok(RemovalImpact { dependents, order })
+    }
+
+    /// The one order to switch `listed` — dependents or requirements, already in
+    /// a safe order among themselves — and `targets` together, as registry
+    /// digests ([`Self::flip_order`]). Today's order is `listed`, then the
+    /// targets in registry order (the readable rows, then the unreadable ones):
+    /// where no need puts a target ahead of a listed mod, `listed` keeps its
+    /// order and the targets follow, ordered among themselves where they need
+    /// each other. Every target is named, readable or not: the caller switches
+    /// exactly what this names.
+    fn with_targets(&self, listed: &[&str], targets: &HashSet<String>, flip: Flip) -> Vec<String> {
+        let in_registry_order = self
+            .rows
+            .iter()
+            .map(|r| r.parsed.sha1.as_str())
+            .chain(self.unreadable.iter().map(|m| m.sha1.as_str()))
+            .filter(|s| targets.contains(*s));
+        let all: Vec<&str> = listed.iter().copied().chain(in_registry_order).collect();
+        let at = self.flip_order(&all, flip);
+        reordered(all, &at).into_iter().map(String::from).collect()
+    }
+
+    /// The order to switch `sha1s` — registry digests, in today's order — one by
+    /// one, as indices into them ([`safe_flip_order`]): switching off, a mod goes
+    /// before any of them it needs; switching on, after.
+    ///
+    /// A mod NEEDS another when the other's jar answers one of its REQUIRED
+    /// declarations the loader enforces: the admission test of [`resolve`]
+    /// ([`active_deps_for`]) against the provider test of `explain_absence`
+    /// ([`row_provides`] — own ids, embedded libraries, aliases). Static: it reads
+    /// the two jars and nothing else, so a third provider that could cover for
+    /// the other does not undo the need. Optional and incompatible declarations
+    /// are satisfied by absence and never order a flip — counted, a library's
+    /// optional integration with a mod that requires it would read as a cycle.
+    /// A digest with no parsed row — a jar that could not be read — needs
+    /// nothing and answers nothing, so no need orders it.
+    fn flip_order(&self, sha1s: &[&str], flip: Flip) -> Vec<usize> {
+        let rows: Vec<Option<&ParsedRow>> = sha1s.iter().map(|s| self.row(s)).collect();
+        // Once per mod, not once per pair.
+        let provides: Vec<HashSet<String>> = rows
+            .iter()
+            .map(|&r| r.map(provided_ids).unwrap_or_default())
+            .collect();
+        let requires: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|&r| {
+                r.map(|r| {
+                    active_deps_for(&r.parsed.manifest, self.loader, self.era)
+                        .filter(|d| d.kind.is_required())
+                        .map(|d| d.dep_id.as_str())
+                        .collect::<Vec<&str>>()
+                })
+                .unwrap_or_default()
+            })
+            .collect();
+        let needs = |x: usize, y: usize| requires[x].iter().any(|d| ids_provide(&provides[y], d));
+        safe_flip_order(sha1s.len(), |a, b| match flip {
+            Flip::Off => needs(a, b),
+            Flip::On => needs(b, a),
+        })
+    }
+
+    /// One wave of [`Self::removal_impact`]: the rows of `enabled` outside
+    /// `gone` that gain a violation over `before`, in registry order, each
+    /// naming the `gone` rows that provided what it lost.
+    fn newly_broken(
+        &self,
+        enabled: &HashSet<String>,
+        gone: &HashSet<String>,
+        before: &[Violation],
+    ) -> Vec<ImpactedMod> {
+        let remaining: HashSet<String> = enabled.difference(gone).cloned().collect();
+        let mut wave: Vec<ImpactedMod> = Vec::new();
+        for v in self.resolve(&remaining) {
+            // Only what the leaving mods cause, and never about a mod that is
+            // leaving too — the check the fixed point's termination rests on.
+            if before.contains(&v) || gone.contains(v.dependent_sha1()) {
+                continue;
+            }
+            let at = match wave.iter().position(|d| d.sha1 == v.dependent_sha1()) {
+                Some(i) => i,
+                None => {
+                    wave.push(ImpactedMod {
+                        sha1: v.dependent_sha1().to_string(),
+                        name: v.dependent_name().to_string(),
+                        needs: Vec::new(),
+                    });
+                    wave.len() - 1
+                }
+            };
+            let lost = self
+                .rows
+                .iter()
+                .filter(|r| gone.contains(&r.parsed.sha1) && row_provides(r, v.dep_id()));
+            for r in lost {
+                if !wave[at].needs.contains(&r.parsed.name) {
+                    wave[at].needs.push(r.parsed.name.clone());
+                }
+            }
+        }
+        wave
+    }
+
+    /// The `candidates` that can leave together with `targets` without a mod
+    /// that stays enabled gaining a violation — the check under an orphan offer
+    /// (A14). `orphans::find_orphans` trusts the registry's `requires` edges,
+    /// which can be incomplete; an offer must never name a library another mod
+    /// still needs.
+    ///
+    /// Greedy, in the order given: each candidate is judged with the targets AND
+    /// every candidate kept before it already gone, so the kept set is harmless
+    /// removed WHOLE — two libraries that cover for each other are never both
+    /// offered. Only what a candidate adds counts: what the targets break is the
+    /// removal's own impact. A candidate whose ENABLED jar could not be read may
+    /// provide anything, and one this parse does not list is gone or changed
+    /// since the caller read the registry — neither is kept, because an offer
+    /// claims that nothing needs the mod. Known limit: an OTHER enabled mod whose
+    /// jar could not be read declares nothing the resolver sees, so its needs are
+    /// not protected here; the pre-flight reports it as unjudged.
+    pub fn removable_with(&self, targets: &HashSet<String>, candidates: &[String]) -> Vec<String> {
+        let mut gone = targets.clone();
+        let mut before = self.resolve_without(&gone);
+        let mut kept = Vec::new();
+        for c in candidates {
+            let judged =
+                self.row(c).is_some() || self.unreadable.iter().any(|m| &m.sha1 == c && !m.enabled);
+            if !judged {
+                continue;
+            }
+            let mut next = gone.clone();
+            next.insert(c.clone());
+            let after = self.resolve_without(&next);
+            // Every violation `after` holds is about a mod that stays enabled:
+            // rows outside the set never emit.
+            if after.iter().any(|v| !before.contains(v)) {
+                continue;
+            }
+            gone = next;
+            before = after;
+            kept.push(c.clone());
+        }
+        kept
+    }
+
+    /// The violations of this instance with the `gone` rows removed outright.
+    /// Not `resolve` over a smaller enabled set: a removed jar must not linger
+    /// as the disabled provider a `RequiredDisabled` names — once it is gone,
+    /// switching it on is no longer a way out.
+    fn resolve_without(&self, gone: &HashSet<String>) -> Vec<Violation> {
+        let rest = ParsedInstance {
+            rows: self
+                .rows
+                .iter()
+                .filter(|r| !gone.contains(&r.parsed.sha1))
+                .cloned()
+                .collect(),
+            unreadable: self
+                .unreadable
+                .iter()
+                .filter(|m| !gone.contains(&m.sha1))
+                .cloned()
+                .collect(),
+            loader: self.loader,
+            era: self.era,
+            mc: self.mc.clone(),
+            loader_version: self.loader_version.clone(),
+        };
+        rest.resolve(&rest.registry_enabled())
+    }
+
+    /// The disabled mods `targets` need switched on with them, transitively:
+    /// enabling a requirement may reveal its own. Only requirements of the
+    /// targets and of what they pull in count — another mod's disabled
+    /// dependency is not theirs — and a target is never its own requirement.
+    ///
+    /// Order: the requirements are safe to switch on one by one as listed,
+    /// among themselves. A mod comes after any listed mod it needs
+    /// ([`Self::flip_order`]) — save inside a cycle, which no order keeps whole
+    /// and which is broken at its earliest mod. Of the mods free to go next, the
+    /// one found first goes first. `order` places the targets among them
+    /// ([`Self::with_targets`]) — a requirement may need a target, and targets
+    /// may need each other — so a run that switches on `order`, or any part of
+    /// it, and stops early leaves none of them on without one it needs, save
+    /// inside a cycle.
+    ///
+    /// Errors when a target's jar could not be read, or the registry does not
+    /// list it: "none" would be a guess.
+    pub fn enable_impact(&self, targets: &HashSet<String>) -> crate::error::Result<EnableImpact> {
+        if let Some(m) = self.unreadable.iter().find(|m| targets.contains(&m.sha1)) {
+            return Err(crate::error::Error::io(
+                m.filename.clone(),
+                "the jar could not be read, so what it requires is unknown",
+            ));
+        }
+        self.refuse_unlisted(targets)?;
+        let mut enabled = self.registry_enabled();
+        enabled.extend(targets.iter().cloned());
+        let mut asking: HashSet<String> = targets.clone();
+        let mut pulled: Vec<String> = Vec::new();
+        // Each round switches on at least one more row or stops: a
+        // `RequiredDisabled` only ever names a row OUTSIDE `enabled`. There are
+        // no more rows than the registry holds — the fixed point's cap.
+        for _ in 0..self.rows.len() {
+            let fresh: Vec<String> = self
+                .resolve(&enabled)
+                .into_iter()
+                .filter_map(|v| match v {
+                    Violation::RequiredDisabled {
+                        dependent_sha1,
+                        provider_sha1,
+                        ..
+                    } if asking.contains(&dependent_sha1) => Some(provider_sha1),
+                    _ => None,
+                })
+                .collect();
+            if fresh.is_empty() {
+                break;
+            }
+            for p in fresh {
+                // Two targets needing one provider name it twice: listed once.
+                if enabled.insert(p.clone()) {
+                    asking.insert(p.clone());
+                    pulled.push(p);
+                }
+            }
+        }
+        let requirements: Vec<DisabledRequirement> = pulled
+            .iter()
+            .filter_map(|p| self.row(p))
+            .map(|r| DisabledRequirement {
+                sha1: r.parsed.sha1.clone(),
+                name: r.parsed.name.clone(),
+            })
+            .collect();
+        let sha1s: Vec<&str> = requirements.iter().map(|r| r.sha1.as_str()).collect();
+        let at = self.flip_order(&sha1s, Flip::On);
+        let requirements = reordered(requirements, &at);
+        let listed: Vec<&str> = requirements.iter().map(|r| r.sha1.as_str()).collect();
+        let order = self.with_targets(&listed, targets, Flip::On);
+        Ok(EnableImpact {
+            requirements,
+            order,
+        })
+    }
+
+    /// [`Self::resolve`], enriched for the UI. The provider maps come from the
+    /// same `enabled` set, so a jar outside it can never be where «Обновить»
+    /// (`ranged()`) is routed. Each violation names its provider's row
+    /// ([`Self::with_provider_name`]).
+    pub fn report(&self, enabled: &HashSet<String>) -> Vec<DepViolation> {
+        let (owner, by_id) = self.provider_maps(enabled);
+        self.resolve(enabled)
+            .into_iter()
+            .map(|v| self.with_provider_name(enrich(v, &owner, &by_id)))
+            .collect()
+    }
+
+    /// `v` with `provider_name`: the registry name of the row `provider_sha1`
+    /// names — a range's enabled provider, or the disabled jar of a
+    /// `RequiredDisabled` — the same source `dependent_name` is read from, so a
+    /// surface with no installed list of its own names both mods alike. Every
+    /// digest `provider_sha1` can hold is a parsed row's (the provider maps and
+    /// `explain_absence` read nothing else), so `None` here means no provider.
+    fn with_provider_name(&self, v: DepViolation) -> DepViolation {
+        let provider_name = v
+            .provider_sha1
+            .as_deref()
+            .and_then(|sha1| self.row(sha1))
+            .map(|r| r.parsed.name.clone());
+        DepViolation { provider_name, ..v }
+    }
+
+    /// Canon provided id → platform ref / registry digest of the first row in
+    /// registry order that provides it. Top-level ids only: an embedded library
+    /// has no row of its own to update or link to.
+    fn provider_maps(
+        &self,
+        enabled: &HashSet<String>,
+    ) -> (
+        HashMap<String, crate::mods::platform::DepProjectRef>,
+        HashMap<String, String>,
+    ) {
+        let mut owner = HashMap::new();
+        let mut by_id = HashMap::new();
+        for r in self.active(enabled) {
+            // Populated regardless of source, so even FTB/ATL mods (which yield
+            // no DepProjectRef) still route updates. The REGISTRY digest, not
+            // the on-disk one: it routes UI actions (`mods_update_one`, row
+            // identity) against `installed-mods.json`. Canonicalized
+            // ('-'/'_' equivalent, lowercase) like `enrich`'s lookup, so a
+            // `fabric-api` dep matches a `fabric_api` provider.
+            for p in &r.parsed.manifest.provided {
+                by_id
+                    .entry(canon_id(&p.mod_id))
+                    .or_insert_with(|| r.parsed.sha1.clone());
+            }
+            // FTB/ATLauncher yield no ref (no per-mod browser) and must not
+            // create a spurious link.
+            let ref_ = r
+                .source
+                .zip(r.project_id.as_deref())
+                .and_then(|(s, pid)| dep_project_ref(s, pid));
+            if let Some(ref_) = ref_ {
+                for p in &r.parsed.manifest.provided {
+                    owner
+                        .entry(canon_id(&p.mod_id))
+                        .or_insert_with(|| ref_.clone());
+                }
+            }
+        }
+        (owner, by_id)
+    }
+
+    /// The enabled row «Обновить» is routed to for `dep_id` — the same
+    /// first-in-registry-order owner `ranged()` reports as `provider_sha1`.
+    /// `None` when only an embedded (JIJ) copy provides it.
+    pub(crate) fn provider_row(
+        &self,
+        enabled: &HashSet<String>,
+        dep_id: &str,
+    ) -> Option<&ParsedRow> {
+        let (_, by_id) = self.provider_maps(enabled);
+        by_id.get(&canon_id(dep_id)).and_then(|sha| self.row(sha))
+    }
+}
+
+/// Would `row`, switched on, answer for `dep_id`? The same three routes
+/// [`ProviderIndex::is_provided`] accepts: an own id, an embedded (JIJ) id, or an
+/// umbrella alias of either.
+fn row_provides(row: &ParsedRow, dep_id: &str) -> bool {
+    ids_provide(&provided_ids(row), dep_id)
+}
+
+/// The canonical ids `row`, switched on, answers for: its own and its embedded
+/// (JIJ) ones — the first half of [`row_provides`], kept apart so a caller asking
+/// about many requirements reads each row once.
+fn provided_ids(row: &ParsedRow) -> HashSet<String> {
+    row.parsed
+        .manifest
+        .provided
+        .iter()
+        .chain(&row.jij_provided)
+        .map(|p| canon_id(&p.mod_id))
+        .collect()
+}
+
+/// Do `ids` — a row's [`provided_ids`] — answer for `dep_id`, directly or
+/// through an umbrella alias? The second half of [`row_provides`].
+fn ids_provide(ids: &HashSet<String>, dep_id: &str) -> bool {
+    let key = canon_id(dep_id);
+    ids.contains(&key)
+        || PROVIDES_ALIASES
+            .iter()
+            .find(|(name, _)| *name == key)
+            .is_some_and(|(_, aliases)| aliases.iter().any(|a| ids.contains(*a)))
+}
+
+/// Which way a list of mods is switched, one mod at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Flip {
+    /// Switched off: a mod goes before any listed mod it needs.
+    Off,
+    /// Switched on: a mod goes after any listed mod it needs.
+    On,
+}
+
+/// A stable order to switch `n` mods one at a time: a permutation of `0..n`,
+/// where index order is today's order and `goes_first(a, b)` says `a` must be
+/// switched before `b`.
+///
+/// Each step takes the EARLIEST remaining index that waits on nothing outside
+/// its own cycle — no remaining index must go before it, or every one that must
+/// is itself waiting on it, transitively. So an order that already respects
+/// every pair comes back unchanged (ties keep today's order), and a cycle, which
+/// no order respects whole, is broken at its earliest member that nothing
+/// outside the cycle must precede: only that cycle's own pairs are broken.
+/// Deterministic — plain indices, no hashing.
+fn safe_flip_order(n: usize, goes_first: impl Fn(usize, usize) -> bool) -> Vec<usize> {
+    // `after[a]`: what `a` must go before; `before[b]`: what must go before `b`.
+    let mut after: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut before: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for a in 0..n {
+        for b in (0..n).filter(|&b| b != a && goes_first(a, b)) {
+            after[a].push(b);
+            before[b].push(a);
+        }
+    }
+    let mut placed = vec![false; n];
+    let mut order = Vec::with_capacity(n);
+    // Each round places one index not placed before, so the loop ends after `n`.
+    while let Some(i) = next_to_flip(&before, &after, &placed) {
+        placed[i] = true;
+        order.push(i);
+    }
+    order
+}
+
+/// The step [`safe_flip_order`] takes next; `None` once every index is placed.
+fn next_to_flip(before: &[Vec<usize>], after: &[Vec<usize>], placed: &[bool]) -> Option<usize> {
+    let remaining = || (0..placed.len()).filter(|&i| !placed[i]);
+    remaining()
+        .find(|&i| waits_only_on_its_cycle(i, before, after, placed))
+        // Never taken: walking back along "must go before" through the remaining
+        // indices ends in a cycle nothing outside precedes, and its members
+        // qualify. Kept so every index is still placed exactly once.
+        .or_else(|| remaining().next())
+}
+
+/// Is every remaining index that must go before `i` one that `i` must go
+/// before too, through remaining indices — do they share a cycle? True when
+/// none remains.
+fn waits_only_on_its_cycle(
+    i: usize,
+    before: &[Vec<usize>],
+    after: &[Vec<usize>],
+    placed: &[bool],
+) -> bool {
+    let waits_on: Vec<usize> = before[i].iter().copied().filter(|&p| !placed[p]).collect();
+    if waits_on.is_empty() {
+        return true;
+    }
+    // Everything `i` must go before, transitively, through remaining indices.
+    let mut reached = vec![false; placed.len()];
+    let mut stack = vec![i];
+    while let Some(v) = stack.pop() {
+        for &w in &after[v] {
+            if !placed[w] && !reached[w] {
+                reached[w] = true;
+                stack.push(w);
+            }
+        }
+    }
+    waits_on.iter().all(|&p| reached[p])
+}
+
+/// `items` in `order` — indices into `items`, as [`safe_flip_order`] returns.
+/// An index `order` does not name keeps its place after them: nothing is dropped.
+fn reordered<T>(items: Vec<T>, order: &[usize]) -> Vec<T> {
+    let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
+    let mut out: Vec<T> = order
+        .iter()
+        .filter_map(|&i| slots.get_mut(i).and_then(Option::take))
+        .collect();
+    out.extend(slots.into_iter().flatten());
+    out
+}
+
+/// One row's jar: through the cache when its record answers this era, else read
+/// from disk, queuing a fresh record in `fresh`. `None` is "could not tell": no
+/// jar under either spelling, or a zip that would not parse.
+async fn scan_row(
+    mods_dir: &std::path::Path,
+    m: &InstalledMod,
+    cached: &crate::mods::jar_scan_cache::ScanCache,
+    want_legacy: bool,
+    fresh: &mut Vec<(String, crate::mods::jar_scan_cache::CachedScan)>,
+) -> Option<JarScan> {
+    // The cache key is the digest of the bytes on disk RIGHT NOW, never
+    // `m.sha1`: the registry deliberately keeps a record's EXPECTED digest when
+    // the file under that name was replaced, so keying on it would serve the
+    // previous jar's dependencies for the current one. `None` — no file, or a
+    // digest we could not compute — means no cache participation for this jar
+    // in either direction.
+    let cache_key = crate::mods::installed::on_disk_sha1(mods_dir, &m.filename).await;
+    if let Some(s) = usable_hit(
+        cache_key.as_deref().and_then(|k| cached.get(k)),
+        want_legacy,
+    ) {
+        return Some(s);
+    }
+    // Jar missing from disk: "could not tell", reported by the caller.
+    let bytes = crate::mods::local::read_jar_for(mods_dir, &m.filename).await?;
+    // Unreadable zip: the same.
+    let s = scan_jar(bytes, want_legacy).await?;
+    // Only a key computed from the real bytes may be written: without one we do
+    // not know WHICH jar this record describes.
+    if let Some(k) = cache_key {
+        fresh.push((
+            k,
+            crate::mods::jar_scan_cache::CachedScan {
+                // Not read on this path. `None` says exactly that, leaving
+                // `local::scan_instance`'s half of the record for whoever
+                // measures it.
+                meta: None,
+                manifest: Some(s.manifest.clone()),
+                // `Some(vec![])` only when the reader actually ran. A
+                // modern-era scan stores `None`, so a later legacy-era scan
+                // re-reads instead of believing an emptiness nobody measured.
+                legacy_deps: want_legacy.then(|| s.legacy_deps.clone()),
+                jij_provided: Some(s.jij_provided.clone()),
+            },
+        ));
+    }
+    Some(s)
+}
+
+/// Parse every registry row — enabled AND disabled — once. Unchanged cost for
+/// enabled mods (same cache, same readers); a disabled jar is read through the
+/// `.disabled` spelling `read_jar_for` / `on_disk_sha1` already try.
 ///
 /// `cache_path` is the shared jar-scan cache (`paths::jar_scan_cache_file`).
 /// `None` runs the scan uncached: the same answer, only slower. That is the
 /// deliberate direction — a data root that cannot be resolved right now must
 /// not fail a check sitting in the launch chokepoint.
-pub async fn dependency_preflight_for_root(
+pub async fn parse_instance(
     root: &std::path::Path,
     cache_path: Option<&std::path::Path>,
-    loader: crate::instances::schema::LoaderKind,
+    loader: LoaderKind,
     mc: &str,
     loader_version: Option<&str>,
-) -> crate::error::Result<PreflightReport> {
-    use crate::mods::jar_scan_cache::{CachedScan, ScanCache};
-    use crate::mods::local::{descriptor_era, DescriptorEra};
-    use std::collections::HashMap;
+) -> crate::error::Result<ParsedInstance> {
+    use crate::mods::jar_scan_cache::ScanCache;
 
     // Which descriptor this instance's loader actually opens. Decided by the
     // instance's MC version, never by which files a jar happens to ship.
-    let era = descriptor_era(mc);
+    let era = crate::mods::local::descriptor_era(mc);
     let want_legacy = era == DescriptorEra::Legacy;
 
     let installed = crate::mods::installed::list(root).await?;
@@ -774,107 +1733,33 @@ pub async fn dependency_preflight_for_root(
     // One read of a small JSON for the whole scan, then a map lookup per jar —
     // the shape `l10n::coverage::scan_instance` uses.
     let cached = cache_path.map(ScanCache::load).unwrap_or_default();
-    let mut fresh: Vec<(String, CachedScan)> = Vec::new();
-
-    // Map lowercased provided mod_id → DepProjectRef for violation enrichment
-    // (powers the "view on platform" link). Built from mods with source identity.
-    let mut provider_owner: HashMap<String, crate::mods::platform::DepProjectRef> = HashMap::new();
-    // Map lowercased provided mod_id → SHA-1 of the jar that provides it.
-    // Used to route "Обновить" through mods_update_one (remove-old + install-new).
-    let mut provider_sha1: HashMap<String, String> = HashMap::new();
-
-    let mut parsed: Vec<ParsedMod> = Vec::new();
-    let mut jij: Vec<(String, Option<String>)> = Vec::new();
-
-    for m in &installed {
-        if !m.enabled {
+    let mut fresh = Vec::new();
+    let mut rows = Vec::new();
+    let mut unreadable = Vec::new();
+    for m in installed {
+        let Some(scan) = scan_row(&mods_dir, &m, &cached, want_legacy, &mut fresh).await else {
+            // Skipped, never fatal — one bad jar must not fail the whole scan —
+            // and recorded, so nobody reads the silence as "declares nothing".
+            unreadable.push(m);
             continue;
-        }
-        // The cache key is the digest of the bytes on disk RIGHT NOW, never
-        // `m.sha1`: the registry deliberately keeps a record's EXPECTED digest
-        // when the file under that name was replaced, so keying on it would
-        // serve the previous jar's dependencies for the current one. `None` —
-        // no file, or a digest we could not compute — means no cache
-        // participation for this jar in either direction.
-        let cache_key = crate::mods::installed::on_disk_sha1(&mods_dir, &m.filename).await;
-        let hit = cache_key.as_deref().and_then(|k| cached.get(k));
-
-        let scan = match usable_hit(hit, want_legacy) {
-            Some(s) => s,
-            None => {
-                let Some(bytes) = crate::mods::local::read_jar_for(&mods_dir, &m.filename).await
-                else {
-                    continue; // jar missing from disk — skip gracefully
-                };
-                let Some(s) = scan_jar(bytes, want_legacy).await else {
-                    continue; // unreadable zip — skip, never fail the whole scan
-                };
-                // Only a key computed from the real bytes may be written:
-                // without one we do not know WHICH jar this record describes.
-                if let Some(k) = cache_key.as_deref() {
-                    fresh.push((
-                        k.to_string(),
-                        CachedScan {
-                            // Not read on this path. `None` says exactly that,
-                            // leaving `local::scan_instance`'s half of the
-                            // record for whoever measures it.
-                            meta: None,
-                            manifest: Some(s.manifest.clone()),
-                            // `Some(vec![])` only when the reader actually ran.
-                            // A modern-era scan stores `None`, so a later
-                            // legacy-era scan re-reads instead of believing an
-                            // emptiness nobody measured.
-                            legacy_deps: want_legacy.then(|| s.legacy_deps.clone()),
-                            jij_provided: Some(s.jij_provided.clone()),
-                        },
-                    ));
-                }
-                s
-            }
         };
-
         let mut manifest = scan.manifest;
         // On the legacy era the requirements live nowhere else: `mcmod.info`'s
         // own `dependencies` array is cosmetic and FML enforces the
         // `@Mod(dependencies = …)` annotation instead. Empty on every other era.
         manifest.deps.extend(scan.legacy_deps);
-
-        // Collect JIJ (Jar-in-Jar) providers so an embedded lib is not
-        // falsely flagged as a missing dependency.
-        for p in scan.jij_provided {
-            jij.push((p.mod_id, p.version));
-        }
-
-        // Register provided mod-ids → platform identity and SHA-1 for enrichment.
-        // provider_sha1 is populated regardless of source so that even FTB/ATL
-        // mods (which yield no DepProjectRef) can still route updates correctly.
-        // Deliberately `m.sha1`, the REGISTRY digest, not the on-disk one above:
-        // this value routes UI actions (`mods_update_one`, row identity) against
-        // `installed-mods.json`, so it must be the record's own key.
-        for p in &manifest.provided {
-            // Canonicalize ('-'/'_' equivalent, lowercase) so the enrichment
-            // lookup in `enrich` — which uses the same `canon_id` — matches a
-            // `fabric-api` dep against a `fabric_api` provider.
-            let key = canon_id(&p.mod_id);
-            provider_sha1.entry(key).or_insert_with(|| m.sha1.clone());
-        }
-        // Only insert a DepProjectRef when dep_project_ref returns Some;
-        // FTB/ATLauncher sources return None (no per-mod browser) and must
-        // not create a spurious link.
-        if let (Some(source), Some(project_id)) = (m.source, m.project_id.as_deref()) {
-            if let Some(ref_) = dep_project_ref(source, project_id) {
-                for p in &manifest.provided {
-                    provider_owner
-                        .entry(canon_id(&p.mod_id))
-                        .or_insert_with(|| ref_.clone());
-                }
-            }
-        }
-
-        parsed.push(ParsedMod {
-            sha1: m.sha1.clone(),
-            name: m.name.clone(),
-            manifest,
+        rows.push(ParsedRow {
+            parsed: ParsedMod {
+                sha1: m.sha1,
+                name: m.name,
+                manifest,
+            },
+            jij_provided: scan.jij_provided,
+            enabled: m.enabled,
+            source: m.source,
+            project_id: m.project_id,
+            version_id: m.version_id,
+            version_number: m.version_number,
         });
     }
 
@@ -890,15 +1775,31 @@ pub async fn dependency_preflight_for_root(
         }
     }
 
-    let index = ProviderIndex::build(&parsed, &jij, loader, era);
-    let raw = resolve(&parsed, &index, loader, era, mc, loader_version);
-    let violations = raw
-        .into_iter()
-        .map(|v| enrich(v, &provider_owner, &provider_sha1))
-        .collect();
+    Ok(ParsedInstance {
+        rows,
+        unreadable,
+        loader,
+        era,
+        mc: mc.to_string(),
+        loader_version: loader_version.map(str::to_string),
+    })
+}
+
+/// The testable core of the `instance_dependency_preflight` Tauri command.
+/// Accepts a resolved `instance_root` path so integration tests can call it
+/// without a `tauri::AppHandle`. `cache_path` as for [`parse_instance`].
+pub async fn dependency_preflight_for_root(
+    root: &std::path::Path,
+    cache_path: Option<&std::path::Path>,
+    loader: LoaderKind,
+    mc: &str,
+    loader_version: Option<&str>,
+) -> crate::error::Result<PreflightReport> {
+    let parsed = parse_instance(root, cache_path, loader, mc, loader_version).await?;
     Ok(PreflightReport {
-        violations,
+        violations: parsed.report(&parsed.registry_enabled()),
         pack_completion: crate::mods::pack_completion::read(root),
+        unjudged: parsed.unjudged(),
     })
 }
 
@@ -1571,14 +2472,20 @@ mod tests {
                     version_id: None,
                 }),
                 provider_sha1: Some("abc123".into()),
+                provider_name: Some("Sophisticated Core".into()),
                 family: Some(crate::mods::version_range::RangeFamily::Maven),
             }],
             pack_completion: None,
+            unjudged: vec![],
         };
         let json = serde_json::to_string(&report).unwrap();
         let back: PreflightReport = serde_json::from_str(&json).unwrap();
         assert_eq!(back.violations.len(), 1);
         assert_eq!(back.violations[0].dep_id, "sophisticatedcore");
+        assert_eq!(
+            back.violations[0].provider_name.as_deref(),
+            Some("Sophisticated Core")
+        );
         assert!(matches!(
             back.violations[0].kind,
             ViolationKind::VersionOutOfRange
@@ -1944,5 +2851,1260 @@ mod tests {
         };
         assert!(usable_hit(Some(&compat_written), false).is_none());
         assert!(usable_hit(None, false).is_none());
+    }
+
+    // ── the split: one parse, any enabled set ─────────────────────────────
+
+    fn row(m: ParsedMod, enabled: bool) -> ParsedRow {
+        ParsedRow {
+            parsed: m,
+            jij_provided: vec![],
+            enabled,
+            source: None,
+            project_id: None,
+            version_id: None,
+            version_number: None,
+        }
+    }
+    fn instance(rows: Vec<ParsedRow>) -> ParsedInstance {
+        ParsedInstance {
+            rows,
+            unreadable: vec![],
+            loader: LoaderKind::NeoForge,
+            era: DescriptorEra::Modern,
+            mc: "1.20.1".into(),
+            loader_version: None,
+        }
+    }
+    fn set(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The pre-split algorithm, kept as the oracle: enabled rows only, their JIJ
+    /// flattened into one ownerless list, first-in-registry-order provider maps —
+    /// the post-parse half of `dependency_preflight_for_root` as it stood before
+    /// the split, over the SAME free `resolve`, `ProviderIndex::build` and
+    /// `enrich` it called — plus `provider_name`, added since: the name of the
+    /// row `provider_sha1` names, an enabled one, the only kind of provider
+    /// there was then.
+    fn pre_split_report(inst: &ParsedInstance) -> Vec<DepViolation> {
+        let on: Vec<&ParsedRow> = inst.rows.iter().filter(|r| r.enabled).collect();
+        let mods: Vec<ParsedMod> = on.iter().map(|r| r.parsed.clone()).collect();
+        let mut jij = Vec::new();
+        let mut owner = HashMap::new();
+        let mut sha = HashMap::new();
+        for r in &on {
+            for p in &r.jij_provided {
+                jij.push((p.mod_id.clone(), p.version.clone()));
+            }
+            for p in &r.parsed.manifest.provided {
+                sha.entry(canon_id(&p.mod_id))
+                    .or_insert_with(|| r.parsed.sha1.clone());
+            }
+            if let (Some(s), Some(pid)) = (r.source, r.project_id.as_deref()) {
+                if let Some(rf) = dep_project_ref(s, pid) {
+                    for p in &r.parsed.manifest.provided {
+                        owner
+                            .entry(canon_id(&p.mod_id))
+                            .or_insert_with(|| rf.clone());
+                    }
+                }
+            }
+        }
+        let index = ProviderIndex::build(&mods, &jij, inst.loader, inst.era);
+        resolve(&mods, &index, inst.loader, inst.era, &inst.mc, None)
+            .into_iter()
+            .map(|v| enrich(v, &owner, &sha))
+            .map(|v| {
+                let provider_name = v
+                    .provider_sha1
+                    .as_deref()
+                    .and_then(|s| on.iter().find(|r| r.parsed.sha1 == s))
+                    .map(|r| r.parsed.name.clone());
+                DepViolation { provider_name, ..v }
+            })
+            .collect()
+    }
+
+    /// Disabled rows are parsed now, yet with the registry's enabled set the
+    /// answer is exactly the old one. `pnew` is DISABLED, listed FIRST and would
+    /// satisfy `d` — if it leaked into the index, the provider maps or the
+    /// dependents, this report would change.
+    #[test]
+    fn resolving_the_registry_enabled_set_reproduces_the_pre_split_report() {
+        let mut pnew = row(modz("pnew", vec![prov("core", "9.0")], vec![]), false);
+        pnew.source = Some(ModSource::Modrinth);
+        pnew.project_id = Some("CORE-NEW".into());
+        let mut p = row(modz("p", vec![prov("core", "1.0")], vec![]), true);
+        p.source = Some(ModSource::Modrinth);
+        p.project_id = Some("CORE".into());
+        let d = row(
+            modz("d", vec![], vec![dep("core", "[2.0,)", RangeFamily::Maven)]),
+            true,
+        );
+        let mut j = row(modz("j", vec![prov("host", "1.0")], vec![]), true);
+        j.jij_provided = vec![prov("lib", "3.0")];
+        let u = row(
+            modz("u", vec![], vec![dep("lib", "[4.0,)", RangeFamily::Maven)]),
+            true,
+        );
+        let x = row(
+            modz("x", vec![], vec![dep("ghost", "", RangeFamily::Maven)]),
+            false,
+        );
+        let m = row(
+            modz("m", vec![], vec![dep("absent", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![pnew, p, d, j, u, x, m]);
+
+        let got = inst.report(&inst.registry_enabled());
+        assert_eq!(format!("{got:?}"), format!("{:?}", pre_split_report(&inst)));
+        let summary: Vec<(&str, &str, ViolationKind, Option<&str>)> = got
+            .iter()
+            .map(|v| {
+                let k = v.kind.clone();
+                (
+                    v.dependent_sha1.as_str(),
+                    v.dep_id.as_str(),
+                    k,
+                    v.provider_sha1.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("d", "core", ViolationKind::VersionOutOfRange, Some("p")),
+                ("u", "lib", ViolationKind::VersionOutOfRange, None),
+                ("m", "absent", ViolationKind::MissingRequired, None),
+            ]
+        );
+        assert!(matches!(
+            &got[0].provider_project,
+            Some(crate::mods::platform::DepProjectRef::Modrinth { project_id, .. }) if project_id == "CORE"
+        ));
+    }
+
+    /// Audit A-F1: an embedded library belongs to its host. With the host out of
+    /// the enabled set, the library is gone too.
+    #[test]
+    fn a_hosts_embedded_library_leaves_the_index_with_its_host() {
+        let mut host = row(modz("a", vec![prov("host", "1.0")], vec![]), true);
+        host.jij_provided = vec![prov("lib", "1.0")];
+        let user = row(
+            modz("u", vec![], vec![dep("lib", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![host, user]);
+        assert!(
+            inst.resolve(&set(&["a", "u"])).is_empty(),
+            "the embedded lib satisfies u"
+        );
+        let without = inst.resolve(&set(&["u"]));
+        assert_eq!(without.len(), 1, "{without:?}");
+        assert_eq!(
+            (without[0].dependent_sha1(), without[0].dep_id()),
+            ("u", "lib")
+        );
+    }
+
+    /// One admission test, each exclusion by exactly one rule.
+    #[test]
+    fn active_deps_for_is_the_one_admission_test() {
+        use crate::mods::local::DescriptorSource as S;
+        let neo = |id: &str, kind| dep_from(id, "", RangeFamily::Maven, kind, S::NeoForgeToml);
+        let mut server = neo("serveronly", DependencyKind::Required);
+        server.side = DepSide::Server;
+        let shadowed = dep_from(
+            "shadowed",
+            "",
+            RangeFamily::Maven,
+            DependencyKind::Required,
+            S::ModsToml,
+        );
+        let m = modz_from(
+            "aa",
+            vec![],
+            vec![
+                server,
+                shadowed,
+                neo("discouraged", DependencyKind::Discouraged),
+                neo("real", DependencyKind::Required),
+                neo("opt", DependencyKind::Optional),
+            ],
+            vec![S::NeoForgeToml, S::ModsToml],
+        );
+        let ids: Vec<&str> =
+            active_deps_for(&m.manifest, LoaderKind::NeoForge, DescriptorEra::Modern)
+                .map(|d| d.dep_id.as_str())
+                .collect();
+        assert_eq!(ids, ["real", "opt"]);
+    }
+
+    // ── a disabled provider, and what could not be judged ────────────────
+
+    #[test]
+    fn a_requirement_only_a_disabled_mod_provides_is_required_disabled() {
+        let p = row(modz("p", vec![prov("core", "1.0")], vec![]), false);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![p, d]);
+        let got = inst.report(&inst.registry_enabled());
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].kind, ViolationKind::RequiredDisabled);
+        assert_eq!(got[0].provider_sha1.as_deref(), Some("p"));
+        assert_eq!(
+            (got[0].installed_version.as_deref(), got[0].family),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn a_disabled_mods_embedded_library_and_aliases_count_as_what_it_provides() {
+        let mut host = row(modz("h", vec![prov("host", "1.0")], vec![]), false);
+        host.jij_provided = vec![prov("lib", "2.0")];
+        let d = row(
+            modz("d", vec![], vec![dep("lib", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![host, d]);
+        assert!(matches!(
+            inst.resolve(&inst.registry_enabled()).as_slice(),
+            [Violation::RequiredDisabled { provider_sha1, .. }] if provider_sha1 == "h"
+        ));
+
+        let ff = row(
+            modz("ff", vec![prov("forgified_fabric_api", "2.2")], vec![]),
+            false,
+        );
+        let c = row(
+            modz(
+                "c",
+                vec![],
+                vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+            ),
+            true,
+        );
+        let mut fabric = instance(vec![ff, c]);
+        fabric.loader = LoaderKind::Fabric;
+        assert!(matches!(
+            fabric.resolve(&fabric.registry_enabled()).as_slice(),
+            [Violation::RequiredDisabled { provider_sha1, .. }] if provider_sha1 == "ff"
+        ));
+    }
+
+    /// Plan §5b V1 (07c): the Play gate on a cold start has no installed list
+    /// to name a provider from, so the report names it — the registry's name for
+    /// the row `provider_sha1` names, enabled (a range) or disabled (a jar to
+    /// switch on). No provider row, no name: an absent id, or one only an
+    /// embedded library answers.
+    #[test]
+    fn a_violation_names_the_row_its_provider_sha1_names() {
+        let p = row(modz("p", vec![prov("core", "1.0")], vec![]), true);
+        let off = row(modz("off", vec![prov("lib", "1.0")], vec![]), false);
+        let mut host = row(modz("host", vec![prov("host", "1.0")], vec![]), true);
+        host.jij_provided = vec![prov("inner", "1.0")];
+        let d = row(
+            modz(
+                "d",
+                vec![],
+                vec![
+                    dep("core", "[2.0,)", RangeFamily::Maven),
+                    dep("lib", "", RangeFamily::Maven),
+                    dep("inner", "[2.0,)", RangeFamily::Maven),
+                    dep("absent", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let inst = instance(vec![p, off, host, d]);
+        let got = inst.report(&inst.registry_enabled());
+        let named = |id: &str| {
+            let v = got
+                .iter()
+                .find(|v| v.dep_id == id)
+                .unwrap_or_else(|| panic!("no violation for {id}: {got:?}"));
+            (v.provider_sha1.as_deref(), v.provider_name.as_deref())
+        };
+        assert_eq!(named("core"), (Some("p"), Some("P")));
+        assert_eq!(named("lib"), (Some("off"), Some("OFF")));
+        assert_eq!(named("inner"), (None, None));
+        assert_eq!(named("absent"), (None, None));
+    }
+
+    #[test]
+    fn an_enabled_provider_is_never_upstaged_by_a_disabled_one() {
+        let off = row(modz("off", vec![prov("core", "9.0")], vec![]), false);
+        let on = row(modz("on", vec![prov("core", "1.0")], vec![]), true);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "[2.0,)", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![off, on, d]);
+        let got = inst.report(&inst.registry_enabled());
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].kind, ViolationKind::VersionOutOfRange);
+        assert_eq!(got[0].provider_sha1.as_deref(), Some("on"));
+    }
+
+    #[test]
+    fn required_disabled_and_unjudged_on_the_wire() {
+        assert_eq!(
+            serde_json::to_string(&ViolationKind::RequiredDisabled).unwrap(),
+            "\"required_disabled\""
+        );
+        let old: PreflightReport = serde_json::from_str(r#"{"violations":[]}"#).unwrap();
+        assert!(
+            old.unjudged.is_empty(),
+            "a report written before the field reads as all-judged"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_disabled_fabric_api_is_named_as_the_provider_of_its_submodule() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let inner = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"fabric-renderer-api-v1","version":"3.2.0"}"#,
+        )]);
+        let fabric_api = zip_bytes(&[
+            (
+                "fabric.mod.json",
+                br#"{"id":"fabric-api","version":"0.100.0"}"#,
+            ),
+            ("META-INF/jars/fabric-renderer-api-v1.jar", &inner),
+        ]);
+        let indium = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"indium","version":"1.0.35","depends":{"fabric-renderer-api-v1":"*"}}"#,
+        )]);
+        // Switched off: `.disabled` on disk, `enabled: false` in the registry.
+        tokio::fs::write(dir.join("fabric-api.jar.disabled"), &fabric_api)
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("indium.jar"), &indium)
+            .await
+            .unwrap();
+        let mut off = installed_jar("fabric-api.jar", "sha-fabricapi", "Fabric API");
+        off.enabled = false;
+        add(td.path(), off).await.unwrap();
+        add(
+            td.path(),
+            installed_jar("indium.jar", "sha-indium", "Indium"),
+        )
+        .await
+        .unwrap();
+
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
+        assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+        assert_eq!(report.violations[0].kind, ViolationKind::RequiredDisabled);
+        assert_eq!(
+            report.violations[0].provider_sha1.as_deref(),
+            Some("sha-fabricapi")
+        );
+        assert!(report.unjudged.is_empty());
+    }
+
+    /// §9: an unreadable disabled jar is "could not tell", never "it is there,
+    /// switched off" — the row keeps today's `MissingRequired`.
+    #[tokio::test]
+    async fn an_unreadable_disabled_jar_is_not_claimed_as_a_provider() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let indium = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"indium","version":"1.0.35","depends":{"fabric-renderer-api-v1":"*"}}"#,
+        )]);
+        tokio::fs::write(dir.join("indium.jar"), &indium)
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("fabric-api.jar.disabled"), b"not a zip")
+            .await
+            .unwrap();
+        let mut off = installed_jar("fabric-api.jar", "sha-fabricapi", "Fabric API");
+        off.enabled = false;
+        add(td.path(), off).await.unwrap();
+        add(
+            td.path(),
+            installed_jar("indium.jar", "sha-indium", "Indium"),
+        )
+        .await
+        .unwrap();
+
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
+        assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+        assert_eq!(report.violations[0].kind, ViolationKind::MissingRequired);
+        assert!(report.unjudged.is_empty(), "a disabled jar is never judged");
+    }
+
+    /// Unjudged = exactly the two skip sites, enabled rows only. A jar that
+    /// parses and declares nothing IS judged.
+    #[tokio::test]
+    async fn unjudged_names_exactly_the_enabled_jars_that_could_not_be_read() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let quiet = zip_bytes(&[("fabric.mod.json", br#"{"id":"quiet","version":"1.0"}"#)]);
+        tokio::fs::write(dir.join("quiet.jar"), &quiet)
+            .await
+            .unwrap();
+        add(td.path(), installed_jar("quiet.jar", "sha-quiet", "Quiet"))
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("broken.jar"), b"not a zip")
+            .await
+            .unwrap();
+        add(
+            td.path(),
+            installed_jar("broken.jar", "sha-broken", "Broken"),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(dir.join("off.jar.disabled"), b"not a zip either")
+            .await
+            .unwrap();
+        let mut off = installed_jar("off.jar", "sha-off", "Off");
+        off.enabled = false;
+        add(td.path(), off).await.unwrap();
+
+        let report =
+            dependency_preflight_for_root(td.path(), None, LoaderKind::Fabric, "1.20.1", None)
+                .await
+                .unwrap();
+        assert_eq!(report.unjudged, vec!["sha-broken".to_string()]);
+        assert!(report.violations.is_empty(), "{:?}", report.violations);
+    }
+
+    // ── impact ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn removing_a_provider_names_each_dependent_and_only_what_it_loses() {
+        let a = row(modz("a", vec![prov("core", "1.0")], vec![]), true);
+        let b = row(modz("b", vec![prov("lib", "1.0")], vec![]), true);
+        let d = row(
+            modz(
+                "d",
+                vec![],
+                vec![
+                    dep("core", "", RangeFamily::Maven),
+                    dep("lib", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let e = row(
+            modz("e", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let f = row(modz("f", vec![prov("other", "1.0")], vec![]), true);
+        let inst = instance(vec![a, b, d, e, f]);
+        let hit = |sha1: &str, name: &str, needs: &[&str]| ImpactedMod {
+            sha1: sha1.into(),
+            name: name.into(),
+            needs: needs.iter().map(|n| n.to_string()).collect(),
+        };
+        let impact = |t: &[&str]| inst.removal_impact(&set(t)).unwrap().dependents;
+        assert_eq!(
+            impact(&["a"]),
+            vec![hit("d", "D", &["A"]), hit("e", "E", &["A"])]
+        );
+        assert_eq!(impact(&["a", "b"])[0], hit("d", "D", &["A", "B"]));
+        assert_eq!(
+            impact(&["a", "d"]),
+            vec![hit("e", "E", &["A"])],
+            "a dependent leaving too is not warned about"
+        );
+        assert!(impact(&["f"]).is_empty());
+    }
+
+    #[test]
+    fn a_second_provider_or_an_inert_declaration_is_no_impact() {
+        let a = row(modz("a", vec![prov("core", "1.0")], vec![]), true);
+        let b = row(modz("b", vec![prov("core", "1.0")], vec![]), true);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        // fabric.mod.json: NeoForge never opens it, so this requirement does not exist here.
+        let x = row(
+            modz(
+                "x",
+                vec![],
+                vec![dep("core", "*", RangeFamily::FabricPredicate)],
+            ),
+            true,
+        );
+        let inst = instance(vec![a, b, d, x]);
+        assert!(
+            inst.removal_impact(&set(&["a"]))
+                .unwrap()
+                .dependents
+                .is_empty(),
+            "b still provides core"
+        );
+        let both: Vec<String> = inst
+            .removal_impact(&set(&["a", "b"]))
+            .unwrap()
+            .dependents
+            .into_iter()
+            .map(|m| m.sha1)
+            .collect();
+        assert_eq!(both, ["d"], "x's declaration is inert on NeoForge");
+    }
+
+    #[test]
+    fn an_embedded_library_leaves_with_its_host() {
+        let mut host = row(modz("a", vec![prov("host", "1.0")], vec![]), true);
+        host.jij_provided = vec![prov("lib", "1.0")];
+        let u = row(
+            modz("u", vec![], vec![dep("lib", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![host, u]);
+        let got = inst.removal_impact(&set(&["a"])).unwrap().dependents;
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(
+            (got[0].sha1.as_str(), got[0].needs.as_slice()),
+            ("u", &["A".to_string()][..])
+        );
+    }
+
+    /// The umbrella alias counts on the way out too: a target that answers
+    /// `fabric-api` only as `forgified_fabric_api` leaves it unmet, and the
+    /// dependent names that target as what it loses.
+    #[test]
+    fn a_provider_known_only_by_an_alias_is_what_its_dependent_loses() {
+        let ff = row(
+            modz("ff", vec![prov("forgified_fabric_api", "2.2")], vec![]),
+            true,
+        );
+        let c = row(
+            modz(
+                "c",
+                vec![],
+                vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+            ),
+            true,
+        );
+        let mut inst = instance(vec![ff, c]);
+        inst.loader = LoaderKind::Fabric;
+        assert!(
+            inst.resolve(&inst.registry_enabled()).is_empty(),
+            "installed, the alias satisfies the requirement"
+        );
+        assert_eq!(
+            inst.removal_impact(&set(&["ff"])).unwrap().dependents,
+            vec![ImpactedMod {
+                sha1: "c".into(),
+                name: "C".into(),
+                needs: vec!["FF".into()],
+            }]
+        );
+    }
+
+    /// §9 Q1/Q2: an ENABLED jar we could not read may provide anything, so what
+    /// breaks without it is unknown — an error, never "no dependents". A
+    /// DISABLED one satisfies nothing, so its leaving is known to break nothing.
+    #[test]
+    fn removal_impact_will_not_guess_for_an_enabled_jar_it_could_not_read() {
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let mut inst = instance(vec![d]);
+        let on = installed_jar("on.jar", "on", "On");
+        let mut off = installed_jar("off.jar", "off", "Off");
+        off.enabled = false;
+        inst.unreadable = vec![on, off];
+        assert!(inst.removal_impact(&set(&["on"])).is_err());
+        assert!(inst
+            .removal_impact(&set(&["off"]))
+            .unwrap()
+            .dependents
+            .is_empty());
+    }
+
+    /// A target the registry no longer lists (removed since the UI read it) is
+    /// "could not tell", not "breaks nothing" — the `ModsNotFound`
+    /// `enable_impact` answers with for the same digest.
+    #[test]
+    fn removal_impact_refuses_a_mod_the_registry_does_not_know() {
+        let a = row(modz("a", vec![prov("core", "1.0")], vec![]), true);
+        let d = row(
+            modz("d", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![a, d]);
+        assert!(matches!(
+            inst.removal_impact(&set(&["a", "ghost"])),
+            Err(crate::error::Error::ModsNotFound { platform }) if platform == "installed"
+        ));
+    }
+
+    /// The `ImpactedMod` a `modz` fixture yields: its name is its sha1 in capitals.
+    fn impacted(sha1: &str, needs: &[&str]) -> ImpactedMod {
+        ImpactedMod {
+            sha1: sha1.into(),
+            name: sha1.to_uppercase(),
+            needs: needs.iter().map(|n| n.to_string()).collect(),
+        }
+    }
+
+    /// S ← A ← B: switching A off with S is not enough, because B needs A. The
+    /// dialog's «Disable all» exists so that what remains still launches, so B is
+    /// named too — and it names A, the mod it loses, not S. B is listed first: it
+    /// needs A, so it goes off before A does.
+    #[test]
+    fn removing_a_mod_also_names_what_breaks_once_its_dependents_are_off() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let b = row(
+            modz("b", vec![], vec![dep("amod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![s, a, b]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![impacted("b", &["A"]), impacted("a", &["S"])]
+        );
+    }
+
+    /// S ← L, S ← R, and D needs both: D breaks once, when L and R leave
+    /// together, and names both — listed before them, since it needs both.
+    #[test]
+    fn a_mod_two_dependents_feed_is_named_once_with_both() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let l = row(
+            modz(
+                "l",
+                vec![prov("lmod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let r = row(
+            modz(
+                "r",
+                vec![prov("rmod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let d = row(
+            modz(
+                "d",
+                vec![],
+                vec![
+                    dep("lmod", "", RangeFamily::Maven),
+                    dep("rmod", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let inst = instance(vec![s, l, r, d]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![
+                impacted("d", &["L", "R"]),
+                impacted("l", &["S"]),
+                impacted("r", &["S"]),
+            ]
+        );
+    }
+
+    /// A needs S and C, B needs A, C needs B — a cycle among the dependents: the
+    /// fixed point ends, and each mod is named once, with what it lost in the
+    /// wave it broke in. No order keeps a cycle whole: it is broken at A, the
+    /// earliest, and C, which needs B, still goes off before B.
+    #[test]
+    fn a_cycle_among_dependents_ends_with_each_named_once() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![
+                    dep("smod", "", RangeFamily::Maven),
+                    dep("cmod", "", RangeFamily::Maven),
+                ],
+            ),
+            true,
+        );
+        let b = row(
+            modz(
+                "b",
+                vec![prov("bmod", "1.0")],
+                vec![dep("amod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let c = row(
+            modz(
+                "c",
+                vec![prov("cmod", "1.0")],
+                vec![dep("bmod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let inst = instance(vec![s, a, b, c]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![
+                impacted("a", &["S"]),
+                impacted("c", &["B"]),
+                impacted("b", &["A"]),
+            ]
+        );
+    }
+
+    /// Only what really breaks is carried along: B needs `amod`, which P still
+    /// provides after A is switched off, so B stays on — while C, which needs
+    /// what only Q provided, is carried along, and goes off before Q.
+    #[test]
+    fn a_mod_another_enabled_provider_still_covers_is_not_carried_along() {
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let q = row(
+            modz(
+                "q",
+                vec![prov("qmod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let p = row(modz("p", vec![prov("amod", "1.0")], vec![]), true);
+        let b = row(
+            modz("b", vec![], vec![dep("amod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let c = row(
+            modz("c", vec![], vec![dep("qmod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![s, a, q, p, b, c]);
+        assert_eq!(
+            inst.removal_impact(&set(&["s"])).unwrap().dependents,
+            vec![
+                impacted("a", &["S"]),
+                impacted("c", &["Q"]),
+                impacted("q", &["S"]),
+            ]
+        );
+    }
+
+    /// Three waves — Y and A break directly, Z and X once those are off, W last
+    /// — with the registry listing later waves first. A mod goes off before any
+    /// listed mod it needs (Z before A, W before X before Y), and otherwise the
+    /// earliest by wave, then registry order, goes first: the interleaving of the
+    /// two chains is today's order, not the registry's. The answer never depends
+    /// on a hash set's iteration order, which is seeded anew for every set.
+    #[test]
+    fn dependents_come_in_one_safe_order_whatever_the_hash_seed() {
+        let w = row(
+            modz("w", vec![], vec![dep("xmod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let z = row(
+            modz("z", vec![], vec![dep("amod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let s = row(modz("s", vec![prov("smod", "1.0")], vec![]), true);
+        let y = row(
+            modz(
+                "y",
+                vec![prov("ymod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("smod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let x = row(
+            modz(
+                "x",
+                vec![prov("xmod", "1.0")],
+                vec![dep("ymod", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let inst = instance(vec![w, z, s, y, a, x]);
+        let expected = vec![
+            impacted("z", &["A"]),
+            impacted("a", &["S"]),
+            impacted("w", &["X"]),
+            impacted("x", &["Y"]),
+            impacted("y", &["S"]),
+        ];
+        for _ in 0..16 {
+            assert_eq!(
+                inst.removal_impact(&set(&["s"])).unwrap().dependents,
+                expected
+            );
+        }
+    }
+
+    // ── orphan offers (A14) ───────────────────────────────────────────────
+
+    fn shas(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `l` and `n` were pulled in for `t`, which is leaving. `m` stays and needs
+    /// `core`, which only `l` provides — whatever the registry's `requires`
+    /// edges say, the jars say `l` is still needed.
+    #[test]
+    fn an_orphan_a_mod_that_stays_still_needs_is_not_offered() {
+        let t = row(
+            modz(
+                "t",
+                vec![prov("tmod", "1.0")],
+                vec![dep("core", "", RangeFamily::Maven)],
+            ),
+            true,
+        );
+        let l = row(modz("l", vec![prov("core", "1.0")], vec![]), true);
+        let n = row(modz("n", vec![prov("other", "1.0")], vec![]), true);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, l, n, m]);
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["l", "n"])),
+            shas(&["n"])
+        );
+    }
+
+    /// Each alone is harmless, both together break `m`: the offer is judged as
+    /// a whole, so accepting all of it can never break what one-by-one would not.
+    #[test]
+    fn two_libraries_that_cover_for_each_other_are_not_both_offered() {
+        let t = row(modz("t", vec![prov("tmod", "1.0")], vec![]), true);
+        let l1 = row(modz("l1", vec![prov("core", "1.0")], vec![]), true);
+        let l2 = row(modz("l2", vec![prov("core", "1.0")], vec![]), true);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, l1, l2, m]);
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["l1", "l2"])),
+            shas(&["l1"])
+        );
+    }
+
+    /// Removing `t` already breaks `m` (the removal dialog says so). Only what a
+    /// CANDIDATE adds holds it back, so `n`, needed by nobody, is still offered.
+    #[test]
+    fn what_the_removal_itself_breaks_does_not_hold_an_orphan_back() {
+        let t = row(modz("t", vec![prov("core", "1.0")], vec![]), true);
+        let n = row(modz("n", vec![prov("other", "1.0")], vec![]), true);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, n, m]);
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["n"])),
+            shas(&["n"])
+        );
+    }
+
+    /// `m` is broken today and its fix is «enable `l`»: a switched-off library
+    /// an enabled mod needs is still needed. Removed, `l` could no longer be
+    /// named as the provider to switch on — the counterfactual drops the row
+    /// outright, it does not merely leave it disabled.
+    #[test]
+    fn a_disabled_library_an_enabled_mod_needs_is_not_offered() {
+        let t = row(modz("t", vec![prov("tmod", "1.0")], vec![]), true);
+        let l = row(modz("l", vec![prov("core", "1.0")], vec![]), false);
+        let m = row(
+            modz("m", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            true,
+        );
+        let inst = instance(vec![t, l, m]);
+        assert!(inst.removable_with(&set(&["t"]), &shas(&["l"])).is_empty());
+    }
+
+    /// An ENABLED jar the scan could not read may provide anything, and a row
+    /// the parse does not list is gone or changed since the registry was read:
+    /// neither is known to be unneeded. A DISABLED unreadable jar satisfies
+    /// nothing today, so its leaving is known to break nothing.
+    #[test]
+    fn an_orphan_that_cannot_be_judged_is_not_offered() {
+        let t = row(modz("t", vec![prov("tmod", "1.0")], vec![]), true);
+        let mut inst = instance(vec![t]);
+        let on = installed_jar("on.jar", "on", "On");
+        let mut off = installed_jar("off.jar", "off", "Off");
+        off.enabled = false;
+        inst.unreadable = vec![on, off];
+        assert_eq!(
+            inst.removable_with(&set(&["t"]), &shas(&["on", "off", "ghost"])),
+            shas(&["off"])
+        );
+    }
+
+    /// Transitive to a fixed point: t → a → b; b → t closes a cycle. `zmod` is
+    /// absent (an install, not an enable); `q` is `e`'s problem, not `t`'s. B is
+    /// listed first: A needs it, so it comes on before A.
+    #[test]
+    fn enabling_asks_for_disabled_requirements_to_a_fixed_point() {
+        let t = row(
+            modz(
+                "t",
+                vec![prov("tmod", "1.0")],
+                vec![
+                    dep("amod", "", RangeFamily::Maven),
+                    dep("zmod", "", RangeFamily::Maven),
+                ],
+            ),
+            false,
+        );
+        let a = row(
+            modz(
+                "a",
+                vec![prov("amod", "1.0")],
+                vec![dep("bmod", "", RangeFamily::Maven)],
+            ),
+            false,
+        );
+        let b = row(
+            modz(
+                "b",
+                vec![prov("bmod", "1.0")],
+                vec![dep("tmod", "", RangeFamily::Maven)],
+            ),
+            false,
+        );
+        let e = row(
+            modz("e", vec![], vec![dep("qmod", "", RangeFamily::Maven)]),
+            true,
+        );
+        let q = row(modz("q", vec![prov("qmod", "1.0")], vec![]), false);
+        let inst = instance(vec![t, a, b, e, q]);
+        let got = inst.enable_impact(&set(&["t"])).unwrap().requirements;
+        assert_eq!(
+            got,
+            vec![
+                DisabledRequirement {
+                    sha1: "b".into(),
+                    name: "B".into()
+                },
+                DisabledRequirement {
+                    sha1: "a".into(),
+                    name: "A".into()
+                },
+            ]
+        );
+    }
+
+    /// Several targets are switched on together: a provider they share is
+    /// listed once, and a provider that is itself among the targets is not a
+    /// requirement at all.
+    #[test]
+    fn enabling_several_reports_a_shared_requirement_once_and_never_a_target() {
+        let t1 = row(
+            modz("t1", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            false,
+        );
+        let t2 = row(
+            modz("t2", vec![], vec![dep("core", "", RangeFamily::Maven)]),
+            false,
+        );
+        let p = row(modz("p", vec![prov("core", "1.0")], vec![]), false);
+        let inst = instance(vec![t1, t2, p]);
+        let req = |t: &[&str]| inst.enable_impact(&set(t)).unwrap().requirements;
+        assert_eq!(
+            req(&["t1", "t2"]),
+            vec![DisabledRequirement {
+                sha1: "p".into(),
+                name: "P".into()
+            }],
+            "one provider, needed by two targets, is listed once"
+        );
+        assert!(
+            req(&["t1", "t2", "p"]).is_empty(),
+            "a provider being enabled with them is not a requirement"
+        );
+    }
+
+    #[test]
+    fn enable_impact_will_not_guess_for_a_jar_it_could_not_read() {
+        let mut inst = instance(vec![]);
+        let mut t = installed_jar("t.jar", "t", "T");
+        t.enabled = false;
+        inst.unreadable = vec![t];
+        assert!(inst.enable_impact(&set(&["t"])).is_err());
+    }
+
+    /// A target the registry no longer lists (removed since the UI read it) is
+    /// "could not tell", not "needs nothing" — the same `ModsNotFound` the
+    /// enable itself would answer with.
+    #[test]
+    fn enable_impact_refuses_a_mod_the_registry_does_not_know() {
+        let inst = instance(vec![row(modz("a", vec![], vec![]), false)]);
+        assert!(matches!(
+            inst.enable_impact(&set(&["a", "ghost"])),
+            Err(crate::error::Error::ModsNotFound { .. })
+        ));
+    }
+
+    // ── flip order: the lists are switched one by one, as given ──────────
+
+    /// A row that provides `<sha1>mod` and requires `<n>mod` for each `n` of
+    /// `needs` — `mods.toml` declarations, which the NeoForge fixture enforces.
+    fn mod_row(sha1: &str, needs: &[&str], enabled: bool) -> ParsedRow {
+        let deps = needs
+            .iter()
+            .map(|n| dep(&format!("{n}mod"), "", RangeFamily::Maven))
+            .collect();
+        row(
+            modz(sha1, vec![prov(&format!("{sha1}mod"), "1.0")], deps),
+            enabled,
+        )
+    }
+
+    /// The dependents `targets` leaving takes along, in the order they are listed.
+    fn off_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.removal_impact(&set(targets)).unwrap();
+        impact.dependents.into_iter().map(|d| d.sha1).collect()
+    }
+
+    /// The requirements enabling `targets` switches on, in the order they are listed.
+    fn on_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.enable_impact(&set(targets)).unwrap();
+        impact.requirements.into_iter().map(|r| r.sha1).collect()
+    }
+
+    /// S is a library, L needs S, M needs S and L: both break in one wave, and
+    /// whichever the registry lists first, M goes off before L — L off while M
+    /// is still on would leave M without L.
+    #[test]
+    fn a_mod_goes_off_before_a_same_wave_mod_it_needs() {
+        let s = || mod_row("s", &[], true);
+        let l = || mod_row("l", &["s"], true);
+        let m = || mod_row("m", &["s", "l"], true);
+        for inst in [instance(vec![s(), l(), m()]), instance(vec![s(), m(), l()])] {
+            assert_eq!(off_order(&inst, &["s"]), shas(&["m", "l"]));
+        }
+    }
+
+    /// A needs S and B, B needs C, C needs S: A and C break at once, B once C is
+    /// off. Wave order (A, C, B) would switch C off while B needs it; reversed,
+    /// B off while A needs it. A, B, C keeps every step whole.
+    #[test]
+    fn a_mod_goes_off_before_a_later_wave_mod_it_needs() {
+        let inst = instance(vec![
+            mod_row("s", &[], true),
+            mod_row("a", &["s", "b"], true),
+            mod_row("b", &["c"], true),
+            mod_row("c", &["s"], true),
+        ]);
+        assert_eq!(off_order(&inst, &["s"]), shas(&["a", "b", "c"]));
+    }
+
+    /// The same-wave mirror: T needs L and S, L needs S — both found in one
+    /// round, in T's declaration order. Whichever T declares first, S comes on
+    /// before L: L on without S would not load.
+    #[test]
+    fn a_requirement_comes_on_before_a_same_round_requirement_that_needs_it() {
+        for t_needs in [["l", "s"], ["s", "l"]] {
+            let inst = instance(vec![
+                mod_row("t", &t_needs, false),
+                mod_row("l", &["s"], false),
+                mod_row("s", &[], false),
+            ]);
+            assert_eq!(on_order(&inst, &["t"]), shas(&["s", "l"]), "{t_needs:?}");
+        }
+    }
+
+    /// The later-wave mirror: T needs S and B, B needs C, C needs S — found as S,
+    /// B, then C. Found order switches B on before C; reversed, C before S.
+    /// S, C, B keeps every step whole.
+    #[test]
+    fn a_requirement_comes_on_before_an_earlier_found_requirement_that_needs_it() {
+        let inst = instance(vec![
+            mod_row("t", &["s", "b"], false),
+            mod_row("b", &["c"], false),
+            mod_row("c", &["s"], false),
+            mod_row("s", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t"]), shas(&["s", "c", "b"]));
+    }
+
+    /// P and Q need each other. No order keeps a cycle whole, so it keeps
+    /// today's order — broken at its earliest mod, whichever the registry lists
+    /// first. X needs Q too, and still goes off before Q.
+    #[test]
+    fn a_cycle_keeps_todays_order_broken_at_its_earliest_mod() {
+        let s = || mod_row("s", &[], true);
+        let p = || mod_row("p", &["s", "q"], true);
+        let q = || mod_row("q", &["s", "p"], true);
+        let x = || mod_row("x", &["s", "q"], true);
+        assert_eq!(
+            off_order(&instance(vec![s(), p(), q()]), &["s"]),
+            shas(&["p", "q"])
+        );
+        assert_eq!(
+            off_order(&instance(vec![s(), q(), p()]), &["s"]),
+            shas(&["q", "p"])
+        );
+        assert_eq!(
+            off_order(&instance(vec![s(), p(), q(), x()]), &["s"]),
+            shas(&["p", "x", "q"])
+        );
+    }
+
+    /// Requirements that need nothing of each other keep the order they were
+    /// found in. Where Y needs X, found after it, Y waits for X while the
+    /// earliest mod free to go goes first: P, Q, X, Y — P and Q keep their order.
+    #[test]
+    fn mods_that_need_nothing_of_each_other_keep_todays_order() {
+        let inst = instance(vec![
+            mod_row("t", &["r", "p", "q"], false),
+            mod_row("p", &[], false),
+            mod_row("q", &[], false),
+            mod_row("r", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t"]), shas(&["r", "p", "q"]));
+        let inst = instance(vec![
+            mod_row("t", &["p", "y", "q"], false),
+            mod_row("p", &[], false),
+            mod_row("y", &["x"], false),
+            mod_row("q", &[], false),
+            mod_row("x", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t"]), shas(&["p", "q", "x", "y"]));
+    }
+
+    // ── one order over the targets too ────────────────────────────────────
+
+    /// Fails unless `order` names each of `want` exactly once.
+    fn assert_names_each_once<'a>(order: &[String], want: impl Iterator<Item = &'a str>) {
+        let mut got: Vec<&str> = order.iter().map(String::as_str).collect();
+        let mut want: Vec<&str> = want.collect();
+        got.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(
+            got, want,
+            "the order names every target and listed mod once"
+        );
+    }
+
+    /// The order a removal switches `targets` and their dependents off in.
+    fn removal_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.removal_impact(&set(targets)).unwrap();
+        let listed = impact.dependents.iter().map(|d| d.sha1.as_str());
+        assert_names_each_once(&impact.order, listed.chain(targets.iter().copied()));
+        impact.order
+    }
+
+    /// The order an enable switches `targets` and their requirements on in.
+    fn enable_order(inst: &ParsedInstance, targets: &[&str]) -> Vec<String> {
+        let impact = inst.enable_impact(&set(targets)).unwrap();
+        let listed = impact.requirements.iter().map(|r| r.sha1.as_str());
+        assert_names_each_once(&impact.order, listed.chain(targets.iter().copied()));
+        impact.order
+    }
+
+    /// Sodium, Indium and Fabric API switched off together, where Indium needs
+    /// the other two and nothing else needs any of them: Indium goes off first
+    /// — off after either, one step would leave it on without what it needs.
+    /// Switched on together, it comes on last.
+    #[test]
+    fn targets_that_need_each_other_are_switched_in_a_safe_order() {
+        let rows = |on| {
+            vec![
+                mod_row("s", &[], on),
+                mod_row("i", &["s", "f"], on),
+                mod_row("f", &[], on),
+            ]
+        };
+        let targets = ["s", "i", "f"];
+        assert_eq!(
+            removal_order(&instance(rows(true)), &targets),
+            shas(&["i", "s", "f"])
+        );
+        assert_eq!(
+            enable_order(&instance(rows(false)), &targets),
+            shas(&["s", "f", "i"])
+        );
+    }
+
+    /// U and T leave together; D needs U, and T needs D. D is carried along —
+    /// it loses U — but T, still on, needs D: T goes off before D, and D before
+    /// U. The dependents, then the targets (D, U, T), would switch D off while
+    /// T still needs it.
+    #[test]
+    fn a_target_goes_off_before_a_dependent_it_needs() {
+        let inst = instance(vec![
+            mod_row("u", &[], true),
+            mod_row("t", &["d"], true),
+            mod_row("d", &["u"], true),
+        ]);
+        assert_eq!(off_order(&inst, &["u", "t"]), shas(&["d"]));
+        assert_eq!(removal_order(&inst, &["u", "t"]), shas(&["t", "d", "u"]));
+    }
+
+    /// T and U come on together; T needs R, which is off, and R needs U. R is
+    /// switched on with them — after U, which it needs, and before T, which
+    /// needs it. The requirements, then the targets (R, T, U), would switch R
+    /// on without U.
+    #[test]
+    fn a_target_comes_on_before_a_requirement_that_needs_it() {
+        let inst = instance(vec![
+            mod_row("t", &["r"], false),
+            mod_row("r", &["u"], false),
+            mod_row("u", &[], false),
+        ]);
+        assert_eq!(on_order(&inst, &["t", "u"]), shas(&["r"]));
+        assert_eq!(enable_order(&inst, &["t", "u"]), shas(&["u", "r", "t"]));
+    }
+
+    /// The caller switches exactly what `order` names, so it names every
+    /// target — a disabled one whose jar could not be read too, after the
+    /// readable ones.
+    #[test]
+    fn the_order_names_a_target_whose_jar_could_not_be_read() {
+        let mut inst = instance(vec![mod_row("a", &[], true)]);
+        let mut off = installed_jar("off.jar", "off", "Off");
+        off.enabled = false;
+        inst.unreadable = vec![off];
+        assert_eq!(removal_order(&inst, &["off", "a"]), shas(&["a", "off"]));
     }
 }

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { installMockIpc, makeInstalledMod, makeInstance } from './helpers/mock-ipc';
 
 // Full-app e2e of the MC-version migration flow reached from the Installed tab:
-// the compat scan surfaces incompatible mods → the "Fix incompatible mods"
+// the compat scan surfaces incompatible mods → the panel's "Fix incompatible (N)"
 // button opens the migration plan → the plan's fixes and the settled apply
 // payload are asserted. Backend is the mock IPC layer (no Rust); the plan is
 // injected, so this verifies the FRONTEND behaviour of the recent fixes:
@@ -56,7 +56,7 @@ const bopTarget = modVersion('bop', 'v-1211', 'Biomes O Plenty');
 const terrablenderTarget = modVersion('terrablender', 'tb-1211', 'TerraBlender');
 
 // Two mods flagged incompatible by the offline scan → incompatibleCount = 2 →
-// the "Fix incompatible mods" button appears. Xaero's is a loader-version
+// the "Fix incompatible (2)" button appears. Xaero's is a loader-version
 // violation; BoP an MC violation.
 const compatScan = [
   {
@@ -123,8 +123,9 @@ async function openMigrationDialog(page: import('@playwright/test').Page) {
   await page.getByRole('tab', { name: 'Add-ons' }).click();
   await page.getByRole('tab', { name: 'Installed' }).click();
 
-  // The scan surfaces incompatible mods → the header remediation button appears.
-  const fixButton = page.getByRole('button', { name: 'Fix incompatible mods' });
+  // The scan surfaces incompatible mods → the panel header's counted remediation
+  // button appears (its own key; "Fix incompatible mods" is the standalone flow's).
+  const fixButton = page.getByRole('button', { name: 'Fix incompatible (2)' });
   await expect(fixButton).toBeVisible();
   await fixButton.click();
 

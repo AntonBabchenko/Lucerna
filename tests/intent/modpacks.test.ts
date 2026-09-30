@@ -372,6 +372,21 @@ describe('ModpackBrowseView — filter bar structural elements', () => {
     expect(btn).toHaveBtnVariant('tertiary');
     expect(btn.className).toContain('text-xs');
   });
+
+  // Plan §5d: the same filter bar as the mod browser's, over the same sticky page switcher — an
+  // open list sat under it. While one is open the bar lifts itself to the popover tier.
+  it('lifts the sticky filter bar above the page switcher while one of its lists is open', async () => {
+    render(ModpackBrowseView, { props: { onPickHit: () => {} } });
+    const select = screen.getByTestId('browse-loader-select');
+    const bar = select.closest('.sticky') as HTMLElement;
+    expect(bar.classList).toContain('has-[[aria-expanded=true]]:z-[var(--z-popover)]');
+    // What `:has([aria-expanded=true])` asks (happy-dom caches a `matches(':has(…)')` answer).
+    const lifted = () => bar.querySelector('[aria-expanded="true"]') !== null;
+    expect(lifted()).toBe(false);
+    await fireEvent.click(select);
+    expect(bar.contains(screen.getByRole('listbox'))).toBe(true);
+    expect(lifted()).toBe(true);
+  });
 });
 
 // ── ModpackBrowseView — pagination ────────────────────────────────────────────

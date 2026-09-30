@@ -16,6 +16,8 @@ module.exports = {
         // Borders
         'border-subtle': 'rgb(var(--border-subtle) / <alpha-value>)',
         'border-emphasis': 'rgb(var(--border-emphasis) / <alpha-value>)',
+        // An edge a control stands on alone (the drop box): ≥ 3:1 in both themes (DESIGN.md §1).
+        'border-strong': 'rgb(var(--border-strong) / <alpha-value>)',
         // Accent / state
         accent: 'rgb(var(--accent) / <alpha-value>)',
         'accent-soft': 'rgb(var(--accent-soft) / <alpha-value>)',

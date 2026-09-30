@@ -61,8 +61,8 @@ export function loaderOutcomeToast(outcome: LoaderOutcome, mc: string): OutcomeT
  * every project can answer yes to even when the FILE on disk is a stale
  * build from before a version change. `entries` comes from the offline scan
  * (`scanInstanceModCompat` / `ensureCompatScan`), which judges the file
- * itself, via the same `isOfflineMismatch` predicate the Overview's
- * `offlineMismatchCount` uses — one verdict, not two.
+ * itself, via the same `isOfflineMismatch` predicate `offlineMismatchCount`
+ * uses — one verdict, not two.
  *
  * There is no "unknown" bucket here the way there was for live platform
  * queries: the offline scan is unconditional, so every installed mod gets a

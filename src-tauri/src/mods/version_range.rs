@@ -6,7 +6,7 @@
 /// Result of comparing two version strings. `Unknown` when a confident
 /// numeric comparison is impossible (a qualifier in a decisive position).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Cmp {
+pub(crate) enum Cmp {
     Less,
     Equal,
     Greater,
@@ -71,7 +71,7 @@ fn compare_tokens(a: &str, b: &str) -> Cmp {
 /// Token-wise version comparison. When BOTH sides carry an MC-version prefix
 /// (`<mc>-<modver>`), compares only the mod-version part — the MC segments can
 /// differ (e.g. `1.19.2` vs `1.19`) and would otherwise misalign the tokens.
-fn compare_numeric(a: &str, b: &str) -> Cmp {
+pub(crate) fn compare_numeric(a: &str, b: &str) -> Cmp {
     if let (Some(am), Some(bm)) = (strip_mc_prefix(a), strip_mc_prefix(b)) {
         return compare_tokens(am, bm);
     }

@@ -2,6 +2,7 @@
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { t } from '$lib/i18n';
+  import { displayVersion } from '$lib/format/version';
   import { Icon } from '$lib/ui/icons';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import { accentStripClass } from '$lib/ui/cards/card-status';
@@ -72,7 +73,7 @@
   <div class="flex items-center gap-2.5 flex-wrap">
     <span class="font-semibold text-primary">{instance.mrpack_name}</span>
     {#if instance.mrpack_version}
-      <span class="text-secondary text-sm">v{instance.mrpack_version}</span>
+      <span class="text-secondary text-sm">{displayVersion(instance.mrpack_version)}</span>
     {/if}
     {#if sourceLabel}
       <span
@@ -84,7 +85,7 @@
       <span data-testid="modpack-update-available">
         <StatusBadge variant="success"
           >{$t('page.overview.modpackUpdateAvailable', {
-            version: status.entry.version_number,
+            version: displayVersion(status.entry.version_number),
           })}</StatusBadge
         >
       </span>
