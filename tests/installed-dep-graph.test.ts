@@ -394,12 +394,10 @@ describe('createDepGraph', () => {
       () => rows,
       { ...ctx, getFiltered: () => rows, setPage: (n) => (page = n), getPageSize: () => 2 },
     );
-    // Mount first: the seed effect's first run resets hoveredKey, and a jump
-    // only ever happens on a mounted list.
+    // Mount first: a jump only ever happens on a mounted list.
     await new Promise((r) => setTimeout(r, 0));
     expect(await d.jumpToSha1('c')).toBe(true);
     expect(page).toBe(1);
-    expect(d.hoveredKey).toBe('modrinth:Pc');
     page = -1;
     expect(await d.jumpToSha1('nope')).toBe(false);
     expect(page).toBe(-1);

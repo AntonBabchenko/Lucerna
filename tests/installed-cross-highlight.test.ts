@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // Mirrors the vi.hoisted listener registry pattern from
@@ -12,8 +12,9 @@ const listeners = vi.hoisted(() => ({
 
 // Two installed platform mods: A (sha1 'a', project PA) requires B; B (sha1 'b',
 // project PB) stands alone. The dependency graph reports A as a root whose
-// single required child is the satisfied node B. The factory helpers live in
-// vi.hoisted so they exist before the (also hoisted) vi.mock factory runs.
+// single required child is the installed node B, so B is required by A. The
+// factory helpers live in vi.hoisted so they exist before the (also hoisted)
+// vi.mock factory runs.
 const { mod, proj } = vi.hoisted(() => ({
   mod: (sha1: string, projectId: string, name: string, requires: string[] = []) => ({
     filename: `${sha1}.jar`,
@@ -85,6 +86,8 @@ vi.mock('$lib/ipc/bindings', () => ({
         roots: [
           {
             sha1: 'a',
+            source: 'modrinth',
+            project_id: 'PA',
             name: 'Alpha',
             required: [
               {
@@ -99,7 +102,14 @@ vi.mock('$lib/ipc/bindings', () => ({
             ],
             optional: [],
           },
-          { sha1: 'b', name: 'Bravo', required: [], optional: [] },
+          {
+            sha1: 'b',
+            source: 'modrinth',
+            project_id: 'PB',
+            name: 'Bravo',
+            required: [],
+            optional: [],
+          },
         ],
       },
     }),
@@ -139,105 +149,76 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
-describe('hover cross-highlight across dep-tree nodes and rows', () => {
-  it("hovering a dep-tree node highlights the same mod's main row", async () => {
-    render(InstalledModsView, {
-      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
-    });
+// Pointing at a mod marks only what is under the pointer, through its own CSS :hover. Nothing
+// lights up its row, its dependency-tree nodes and its «Required by» entries together — 0.25.0's
+// amber wash did, and then a blue ring. The way from a dependency or a dependent to its row is ↗.
+// A class drew both, so the guard is on every element's class list, whatever a future highlight
+// would be called.
+const classSnapshot = () =>
+  new Map([...document.body.querySelectorAll('*')].map((el) => [el, el.getAttribute('class')]));
+const classChanges = (before: Map<Element, string | null>): string[] =>
+  [...before]
+    .filter(([el, cls]) => el.getAttribute('class') !== cls)
+    .map(([el, cls]) => `<${el.tagName.toLowerCase()}> "${cls}" → "${el.getAttribute('class')}"`);
 
-    // Wait for rows + the async dep-graph load: once the graph resolves, A's
-    // row shows the row's relation pill (depTotal > 0) — the one control that
-    // opens its dependencies.
-    const expandBtn = await waitFor(() => {
-      const btn = document.querySelector(
-        '[data-mod-row="modrinth:PA"] [data-testid="relation-pill"]',
-      );
-      if (!btn) throw new Error('relation pill not rendered yet');
-      return btn as HTMLButtonElement;
-    });
+// A pointer that comes to rest on `el` has entered it and every element around it, and its
+// mouseover bubbles up from it.
+async function pointAt(el: Element): Promise<void> {
+  const around: Element[] = [];
+  for (let n: Element | null = el; n && n !== document.body; n = n.parentElement) around.unshift(n);
+  for (const n of around) await fireEvent.mouseEnter(n);
+  await fireEvent.mouseOver(el);
+}
 
-    // Expand A's dep tree so B's node renders inside the DepSection.
-    await fireEvent.click(expandBtn);
-
-    // After expansion there are TWO elements keyed modrinth:PB — B's main row
-    // (which carries BOTH data-mod-key and data-mod-row) and the dep-tree node
-    // (data-mod-key only). Pick the dep-tree node: the one without data-mod-row.
-    const depNode = await waitFor(() => {
-      const node = [...document.querySelectorAll('[data-mod-key="modrinth:PB"]')].find(
-        (el) => !el.hasAttribute('data-mod-row'),
-      );
-      if (!node) throw new Error('dep-tree node not rendered yet');
-      return node as HTMLElement;
-    });
-
-    // Hovering the dep-tree node sets hoveredKey = "modrinth:PB" via onHover,
-    // which propagates back to B's main row's class:dep-highlight binding.
-    await fireEvent.mouseEnter(depNode);
-
-    const bRow = document.querySelector('[data-mod-row="modrinth:PB"]');
-    expect(bRow?.classList.contains('dep-highlight')).toBe(true);
-
-    // Drawn ONCE, by the row: the highlight is a ring its host draws above its
-    // children (a wash on the wrapper was hidden under ModCard's opaque row, and
-    // a second wash on that row compounded the first to 3.31:1 for muted text).
-    // So the inner card row carries none of its own — and not the amber
-    // `bg-highlight` either, which marks an installed pack version.
-    const bInnerRow = document.querySelector(
-      '[data-mod-row="modrinth:PB"] [data-testid="card-list-row"]',
-    );
-    expect(bInnerRow).not.toBeNull();
-    expect(bInnerRow?.classList.contains('dep-highlight')).toBe(false);
-    expect(bInnerRow?.classList.contains('bg-highlight')).toBe(false);
-    expect(bRow?.querySelectorAll('.dep-highlight')).toHaveLength(0);
+const relationPill = (rowKey: string) =>
+  waitFor(() => {
+    const pill = document.querySelector(`[data-mod-row="${rowKey}"] [data-testid="relation-pill"]`);
+    if (!pill) throw new Error(`relation pill of ${rowKey} not rendered yet`);
+    return pill as HTMLButtonElement;
   });
 
-  it('hovering a mod row highlights only that row, not its expanded dep node', async () => {
-    // Regression guard for the cross-highlight conflict: when A's dep tree is
-    // expanded, the mod-row hover region and the dep-tree node's hover used to
-    // share the same outer element and fight over hoveredKey. The fix moves the
-    // DepSection OUT of the hover region (sibling), so hovering A's row sets
-    // hoveredKey = A's rowKey and the B dep-node (key PB ≠ PA) stays un-highlighted.
+describe('pointing at a mod marks nothing else', () => {
+  it('a row, a dependency-tree node and a «Required by» entry change no class anywhere', async () => {
     render(InstalledModsView, {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
 
-    const expandBtn = await waitFor(() => {
-      const btn = document.querySelector(
-        '[data-mod-row="modrinth:PA"] [data-testid="relation-pill"]',
-      );
-      if (!btn) throw new Error('relation pill not rendered yet');
-      return btn as HTMLButtonElement;
+    // Open both dependency sections (the pills appear once the graph has loaded): A's tree names
+    // B, and B's «Required by» names A — every place one mod shows up in the other's row.
+    await fireEvent.click(await relationPill('modrinth:PA'));
+    await fireEvent.click(await relationPill('modrinth:PB'));
+    const treeItem = await screen.findByRole('treeitem', { name: 'Bravo' });
+    const requiredBy = within(screen.getByRole('group', { name: 'Bravo' })).getByRole('button', {
+      name: 'Alpha',
     });
+    const aCard = document.querySelector(
+      '[data-mod-row="modrinth:PA"] [data-testid="card-list-row"]',
+    );
+    expect(aCard).not.toBeNull();
 
-    // Expand A's dep tree so B's node renders inside the (now sibling) DepSection.
-    await fireEvent.click(expandBtn);
+    const treeName = treeItem.querySelector('[data-tree-name]');
+    expect(treeName).not.toBeNull();
 
-    // The B dep-tree node (data-mod-key only, no data-mod-row) must exist.
-    const depNode = await waitFor(() => {
-      const node = [...document.querySelectorAll('[data-mod-key="modrinth:PB"]')].find(
-        (el) => !el.hasAttribute('data-mod-row'),
-      );
-      if (!node) throw new Error('dep-tree node not rendered yet');
-      return node as HTMLElement;
-    });
-
-    // Hover A's MOD ROW (the inner hover region). This sets hoveredKey = A's key.
-    const aRow = document.querySelector('[data-mod-row="modrinth:PA"]') as HTMLElement;
-    await fireEvent.mouseEnter(aRow);
-
-    // A's row highlights...
-    expect(aRow.classList.contains('dep-highlight')).toBe(true);
-    // ...but the B dep-node does NOT (its key is PB ≠ PA).
-    expect(depNode.classList.contains('dep-highlight')).toBe(false);
-
-    // The load-bearing structural guard: the expanded dep node must NOT be a
-    // descendant of A's hover-region element. On the OLD structure the
-    // DepSection was nested INSIDE the element carrying data-mod-row +
-    // onmouseenter, so A's highlight covered the whole dep section and the
-    // node's own per-node hover fought the row's hover over the shared
-    // hoveredKey. The fix makes DepSection a SIBLING of the hover region — so
-    // aRow no longer contains the dep node. This assertion fails on the old
-    // structure (aRow.contains(depNode) === true) and passes on the new one.
-    expect(aRow.contains(depNode)).toBe(false);
+    // What each gesture changed, collected so a failure names every one of them. The keyboard
+    // marks nothing either: a tree item taking focus moves the tree's tab stop, and the focus
+    // ring on its own row is CSS.
+    const gestures: [string, () => Promise<void>][] = [
+      ["pointing at A's row", () => pointAt(aCard as Element)],
+      ["pointing at B's node in A's dependency tree", () => pointAt(treeName as Element)],
+      ["pointing at A's entry in B's «Required by»", () => pointAt(requiredBy)],
+      [
+        "focusing B's node in A's dependency tree",
+        async () => {
+          await fireEvent.focusIn(treeItem);
+        },
+      ],
+    ];
+    const changed: Record<string, string[]> = {};
+    for (const [what, gesture] of gestures) {
+      const before = classSnapshot();
+      await gesture();
+      changed[what] = classChanges(before);
+    }
+    expect(changed).toEqual(Object.fromEntries(gestures.map(([what]) => [what, []])));
   });
 });

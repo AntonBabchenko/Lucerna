@@ -1168,7 +1168,6 @@
           problem={problemOf(row)}
           expanded={deps.expanded.has(row.installed.sha1)}
           graphLoading={deps.graphLoading}
-          hoveredKey={deps.hoveredKey}
           updateState={updates.updateChecks.get(row.installed.sha1)?.state ?? null}
           held={updates.isHeld(row.installed)}
           checking={updates.checking}
@@ -1178,7 +1177,6 @@
           selected={selection.selected.has(row.installed.sha1)}
           {treeCtx}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
-          onHover={(k) => (deps.hoveredKey = k)}
           onOpenDetail={() => {
             if (row.installed.source && row.installed.project_id)
               openDetailMod(row.installed.source as ModSource, row.installed.project_id);

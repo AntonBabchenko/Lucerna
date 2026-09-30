@@ -190,8 +190,8 @@
 </script>
 
 <!-- Stays on screen with its chips while the list scrolls (spec §6.7): on the page background,
-     edge to edge over the view's padding, above the rows — they are positioned (accent strip,
-     dependency ring) and would otherwise paint over it. The counts line is gone: the chips
+     edge to edge over the view's padding, above the rows — they are positioned (the card's
+     accent strip) and would otherwise paint over it. The counts line is gone: the chips
      carry every count. It reserves its height in the scroll container, so a focused row never
      hides under it (`stickyEdge`, WCAG 2.4.11), and shows its bottom edge while it is stuck —
      rows cut under it read as scrolled, not broken. The edge is there at rest, transparent, so

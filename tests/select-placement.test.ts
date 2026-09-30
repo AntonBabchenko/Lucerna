@@ -89,4 +89,48 @@ describe('computePopoverPlacement', () => {
     expect(p.maxWidth).toBe(224);
     expect(p.width).toBe(224); // min(300, 224) — never exceeds the ceiling
   });
+
+  // Plan §5e: a list is as wide as its longest option, which its trigger does not know. Clamped by
+  // the trigger's width, the Installed sort list — a 115 px trigger at x 693, a 184 px list — ran
+  // 56 px past the launcher's 820 px window. Once the list has been laid out, its own width decides.
+  describe('by the popover’s own width, once measured', () => {
+    it('keeps a list wider than its trigger inside the window', () => {
+      const p = computePopoverPlacement(
+        { top: 190, bottom: 222, left: 693, width: 115 },
+        { width: 820, height: 520 },
+        { ...OPTS, popoverWidth: 184 },
+      );
+      expect(p.left).toBe(628); // 820 - 184 - 8
+      expect(p.width).toBe(115); // the min-width still matches the trigger
+    });
+
+    it('leaves a list that fits under its trigger', () => {
+      const p = computePopoverPlacement(
+        { top: 190, bottom: 222, left: 300, width: 115 },
+        { width: 820, height: 520 },
+        { ...OPTS, popoverWidth: 184 },
+      );
+      expect(p.left).toBe(300);
+    });
+
+    it('puts a list wider than the window at the margin, where its max-width ends it', () => {
+      const p = computePopoverPlacement(
+        { top: 100, bottom: 132, left: 100, width: 115 },
+        { width: 240, height: 560 },
+        { ...OPTS, popoverWidth: 500 },
+      );
+      expect(p.maxWidth).toBe(224);
+      expect(p.left).toBe(8);
+    });
+
+    it('never clamps by less than the min-width, whatever was measured', () => {
+      // A list measured before it took its min-width (0 while hidden) still has the trigger's.
+      const p = computePopoverPlacement(
+        { top: 100, bottom: 132, left: 320, width: 300 },
+        { width: 326, height: 800 },
+        { ...OPTS, popoverWidth: 0 },
+      );
+      expect(p.left).toBe(18); // 326 - 300 - 8, as without a measurement
+    });
+  });
 });

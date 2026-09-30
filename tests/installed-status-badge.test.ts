@@ -38,13 +38,11 @@ const base = () => ({
   problem: null,
   expanded: false,
   graphLoading: false,
-  hoveredKey: null,
   updateState: null,
   checking: false,
   packChip: null,
   selected: false,
   onToggleExpand() {},
-  onHover() {},
   onOpenDetail() {},
   onOpenDetailMod() {},
   onToggle() {},
@@ -310,8 +308,9 @@ describe('problem line', () => {
 
   // Plan §5b V2 (screenshots 01, 06d): the line sat under the card, on the page background —
   // outside the card's surface and its accent strip. It is the card's own second line now, so the
-  // strip, the hover fill and the dependency ring (drawn by `[data-mod-row]`) cover both lines.
-  it('sits inside the card, under the row, with the strip and the ring host around both', () => {
+  // strip and the hover fill cover both lines, and the row ↗ scrolls to (`[data-mod-row]`) holds
+  // both.
+  it('sits inside the card, under the row, with the strip and the jump target around both', () => {
     render(InstalledModRow, {
       props: { ...base(), installed: installed(true), problem: blocking() },
     });

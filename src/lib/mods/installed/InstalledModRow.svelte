@@ -28,7 +28,6 @@
     problem = null,
     expanded,
     graphLoading,
-    hoveredKey,
     updateState,
     held = false,
     checking,
@@ -36,7 +35,6 @@
     selected,
     treeCtx = EMPTY_TREE_CTX,
     onToggleExpand,
-    onHover,
     onOpenDetail,
     onOpenDetailMod,
     onToggle,
@@ -65,7 +63,6 @@
     problem?: RowProblem | null;
     expanded: boolean;
     graphLoading: boolean;
-    hoveredKey: string | null;
     updateState: ModUpdateState | null;
     // Updates for this project are held («Не обновлять»): the card pins its version.
     held?: boolean;
@@ -75,7 +72,6 @@
     // What the expanded tree needs to say what the loader does about each dependency.
     treeCtx?: DepTreeCtx;
     onToggleExpand: () => void;
-    onHover: (k: string | null) => void;
     // The MAIN row's own ModCard detail opener.
     onOpenDetail: () => void;
     // Opens the info modal for any dependency mod by (source, project_id).
@@ -268,20 +264,10 @@
 {/snippet}
 
 <div role="group" aria-label={installed.name}>
-  <!-- Hover region = the mod row with its problem line ONLY. The expanded
-       DepSection is a sibling below, so its per-node hover doesn't fight the
-       row's hover over the shared hoveredKey. It draws the cross-highlight
-       once, as a ring above the card — both its lines (`relative`: the
-       ring's containing block). -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    data-mod-key={rowKey}
-    data-mod-row={rowKey}
-    class="relative"
-    class:dep-highlight={hoveredKey === rowKey}
-    onmouseenter={() => onHover(rowKey)}
-    onmouseleave={() => onHover(null)}
-  >
+  <!-- The row a ↗ scrolls into view and a removal moves focus into (`data-mod-row`): the card
+       with its problem line, not the expanded DepSection below it. Pointing at it shows the
+       card's own hover and nothing else — no other place this mod appears lights up. -->
+  <div data-mod-row={rowKey}>
     <ModCard
       layout="list"
       {summary}
@@ -313,8 +299,6 @@
     <DepSection
       {root}
       {requiredBy}
-      {hoveredKey}
-      {onHover}
       onInstall={onInstallDep}
       {onJump}
       onOpenDetail={onOpenDetailMod}

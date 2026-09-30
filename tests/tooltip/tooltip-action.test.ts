@@ -49,12 +49,27 @@ describe('use:tooltip action', () => {
     expect(node.hasAttribute('aria-describedby')).toBe(false);
   });
 
-  it('hides and clears aria-describedby on blur', () => {
+  // A blur hides one microtask later, past the Svelte batch it may fire in (a focused trigger
+  // removed by a block — tests/tooltip/tooltip-teardown.test.ts).
+  it('hides and clears aria-describedby on blur', async () => {
     const { node } = mount('Grid view');
     node.dispatchEvent(new FocusEvent('focusin'));
     node.dispatchEvent(new FocusEvent('focusout'));
+    await Promise.resolve();
     expect(tooltipState.visible).toBe(false);
     expect(node.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  // Focus leaving and coming back — or moving between two controls inside a wrapper trigger —
+  // must not lose the tooltip to the blur's late hide.
+  it('keeps a tooltip shown again before the blur’s hide lands', async () => {
+    const { node } = mount('Grid view');
+    node.dispatchEvent(new FocusEvent('focusin'));
+    node.dispatchEvent(new FocusEvent('focusout'));
+    node.dispatchEvent(new FocusEvent('focusin'));
+    await Promise.resolve();
+    expect(tooltipState.visible).toBe(true);
+    expect(node.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
   });
 
   it('does nothing for a null / empty param', () => {

@@ -63,9 +63,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
   levels — the game won't start, and the mod may not work — and a panel above
   the list that names what stops the game, each with its fix and a way to fix
   them all. A row with a problem gives its reason and one fix under its name.
-  Red means the game won't start, everywhere; the highlight that links a mod
-  to its dependencies is a thin outline instead of an amber wash, so the text
-  under it stays readable.
+  Red means the game won't start, everywhere.
 - **Fixing before launch checks its own work.** The pre-launch dialog's main
   action fixes what it can — switches disabled dependencies on, installs
   missing ones with their own dependencies, applies a version fix that breaks
@@ -89,6 +87,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   problems panel. Branches fold, the count is per project rather than per file,
   the tree follows every switch on and off, and it works from the keyboard and
   with a screen reader. The author-claim badge and its hide button are gone.
+- **Pointing at a mod no longer highlights it everywhere it appears.** Its row
+  and its mentions in other mods' dependency lists used to light up together;
+  the arrow beside a dependency or a dependent still takes you to its row.
 - **The Overview shows the active profile's problems and pending updates**:
   mods that stop the game, or may not work, lead to the Installed tab's
   problem list, and the Mods card counts problems and updates.
@@ -192,6 +193,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Tooltips keep their own width.** A tooltip shown right after one near the
   right edge of the window took the width left there and wrapped its text into
   a narrow column.
+- **A list opened by the window's right edge stays inside the window.** In a
+  narrow window, the list of sort orders for installed mods and the list of
+  Minecraft versions in the mod browser opened partly past the edge.
+- **The page switcher fits the launcher's default window.** Under a long list
+  of mods or modpacks, the choice of how many to show on a page sat past the
+  window's right edge. In a narrow window the buttons for the first, previous,
+  next and last page now show only their arrows, with their names in a
+  tooltip.
 - **Importing from another launcher no longer fills in a wrong Minecraft
   version or Forge build.** The import took a version from any text that
   looked like one: a `.minecraft` whose last played profile was Forge offered

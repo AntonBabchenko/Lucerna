@@ -102,8 +102,8 @@ describe('InstalledToolbar', () => {
     const bar = screen.getByTestId('installed-toolbar');
     expect(bar.className).toMatch(/\bsticky\b/);
     expect(bar.className).toMatch(/\btop-0\b/);
-    // Above the rows: they are positioned (the accent strip, the dependency ring) and would
-    // otherwise paint over the bar as they scroll under it.
+    // Above the rows: they are positioned (the card's accent strip) and would otherwise paint
+    // over the bar as they scroll under it.
     expect(bar.className).toMatch(/\bz-10\b/);
     expect(bar.className).toContain('bg-base');
     expect(bar.contains(screen.getByRole('radiogroup'))).toBe(true);

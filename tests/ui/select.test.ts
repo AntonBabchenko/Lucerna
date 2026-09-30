@@ -181,4 +181,26 @@ describe('Select', () => {
     expect(trigger.className).toContain('disabled:bg-subtle');
     expect(trigger.className).toContain('disabled:text-muted');
   });
+
+  // Plan §5e: a list is as wide as its longest option, not as its trigger. At 820 px the Installed
+  // sort list — 184 px under a 115 px trigger by the window's right edge — ran 56 px past it. Once
+  // laid out, the list is placed again by its own width. happy-dom lays nothing out: the list
+  // measures 184 px, the trigger is given its box.
+  it('keeps a list wider than its trigger inside the window', async () => {
+    const measured = vi
+      .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return this.getAttribute('role') === 'listbox' ? 184 : 0;
+      });
+    try {
+      const { trigger } = setup();
+      const left = window.innerWidth - 8 - 115;
+      trigger.getBoundingClientRect = () =>
+        ({ top: 190, bottom: 222, left, width: 115 }) as DOMRect;
+      await fireEvent.click(trigger);
+      expect(screen.getByRole('listbox').style.left).toBe(`${window.innerWidth - 184 - 8}px`);
+    } finally {
+      measured.mockRestore();
+    }
+  });
 });

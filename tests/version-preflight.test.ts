@@ -260,8 +260,6 @@ const satisfiedNode: DepTreeNode = {
 
 // The tree reads the report per edge: `dependentSha1` is the mod that declared this level.
 const treeProps = (dependentSha1: string, violations: DepViolation[]) => ({
-  hoveredKey: null,
-  onHover: () => {},
   onInstall: () => {},
   onAdd: () => {},
   onOpenDetail: () => {},

@@ -10,8 +10,6 @@
   let {
     root,
     requiredBy,
-    hoveredKey,
-    onHover,
     onInstall,
     onJump,
     onOpenDetail,
@@ -19,8 +17,6 @@
   }: {
     root: DepRoot;
     requiredBy: RequiredByEntry[];
-    hoveredKey: string | null;
-    onHover: (k: string | null) => void;
     // The node and the mod that declared it (null under an absent parent) — see DepTree.
     onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
@@ -64,8 +60,6 @@
       labelledby={reqId}
       dependentSha1={root.sha1}
       ctx={treeCtx}
-      {hoveredKey}
-      {onHover}
       {onInstall}
       onAdd={onInstall}
       {onJump}
@@ -81,8 +75,6 @@
       labelledby={optId}
       dependentSha1={root.sha1}
       ctx={treeCtx}
-      {hoveredKey}
-      {onHover}
       {onInstall}
       onAdd={onInstall}
       {onJump}
@@ -95,19 +87,10 @@
     </div>
     <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
       {#each requiredBy as e (e.sha1)}
-        {@const k = `${e.source}:${e.projectId}`}
         <!-- Name opens the mod's info modal; the separate ↗ jumps to the
-             requiring mod's own row — mirroring the dependency tree. The keyed
-             wrapper carries the cross-highlight so hovering either control marks
-             the requiring mod's row. -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span
-          data-mod-key={k}
-          class="relative inline-flex items-center gap-1 rounded px-1 -mx-1"
-          class:dep-highlight={hoveredKey === k}
-          onmouseenter={() => onHover(k)}
-          onmouseleave={() => onHover(null)}
-        >
+             requiring mod's own row — mirroring the dependency tree. The two
+             stay together when the list wraps. -->
+        <span class="inline-flex items-center gap-1">
           <button
             type="button"
             class="btn-tertiary"
