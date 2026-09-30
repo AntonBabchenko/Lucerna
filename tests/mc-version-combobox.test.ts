@@ -33,4 +33,42 @@ describe('McVersionCombobox', () => {
     await fireEvent.input(input);
     expect(screen.queryByRole('listbox')).toBeNull();
   });
+
+  // Plan §5e: the list hung 16 px past its input's right edge (`absolute w-32` under a `w-28`
+  // input), 4 px past the launcher's 820 px window, where the scroll container cut its border off.
+  // It is placed like Select's list now: fixed, kept inside the window by its own width. happy-dom
+  // lays nothing out: the list measures 128 px, the input is given its box by the right edge.
+  describe('a list that stays inside the window', () => {
+    function openAtRightEdge() {
+      render(McVersionCombobox, { props: { dataTestid: 'mc', value: '' } });
+      const input = screen.getByTestId('mc');
+      const left = window.innerWidth - 8 - 112;
+      input.getBoundingClientRect = () => ({ top: 190, bottom: 222, left, width: 112 }) as DOMRect;
+      return fireEvent.focus(input);
+    }
+
+    it('ends inside the window, by its own width', async () => {
+      const measured = vi
+        .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.getAttribute('role') === 'listbox' ? 128 : 0;
+        });
+      try {
+        await openAtRightEdge();
+        const list = screen.getByRole('listbox');
+        expect(list.className).toMatch(/\bfixed\b/);
+        expect(list.style.left).toBe(`${window.innerWidth - 128 - 8}px`);
+        expect(list.style.top).toBe('226px'); // under the input, 4 px apart
+      } finally {
+        measured.mockRestore();
+      }
+    });
+
+    // Fixed, it does not follow the input: a scroll of the page around it closes it, as Select's.
+    it('closes when the page scrolls', async () => {
+      await openAtRightEdge();
+      window.dispatchEvent(new Event('scroll'));
+      await vi.waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+    });
+  });
 });

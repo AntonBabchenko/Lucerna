@@ -193,6 +193,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Tooltips keep their own width.** A tooltip shown right after one near the
   right edge of the window took the width left there and wrapped its text into
   a narrow column.
+- **A list opened by the window's right edge stays inside the window.** In a
+  narrow window, the list of sort orders for installed mods and the list of
+  Minecraft versions in the mod browser opened partly past the edge.
 
 ## [0.25.0] — 2026-09-27
 

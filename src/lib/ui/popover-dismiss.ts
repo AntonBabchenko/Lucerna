@@ -3,8 +3,8 @@
 // A position:fixed popover is measured from its trigger on open and does NOT
 // follow it when the layout shifts, so any ancestor scroll or a window resize
 // must close it. Placement maths lives in select-placement.ts; this is only the
-// dismiss glue. (Absolute-positioned dropdowns that move with their container —
-// e.g. McVersionCombobox — don't need this.)
+// dismiss glue. (An absolute-positioned dropdown that moves with its container
+// would not need this.)
 
 export interface PopoverDismissOptions {
   /** Called when the popover should close. */
