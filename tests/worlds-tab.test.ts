@@ -86,6 +86,29 @@ describe('WorldsTab', () => {
     await findByText(/No worlds yet/);
   });
 
+  // The dropzone rule (DESIGN.md §14): a strip whose drag overlay covers the whole tab; an empty
+  // list holds the one full drop area instead.
+  it('with worlds: a strip over the tab; with none: the list shows the one full drop area', async () => {
+    const overlayHost = () => {
+      let el = screen.getByTestId('file-dropzone-overlay').parentElement;
+      while (el && !el.classList.contains('relative')) el = el.parentElement;
+      return el;
+    };
+    const mod = await import('$lib/ipc/bindings');
+    const r = render(WorldsTab, { props: { instanceId: 'i1', onListChanged: () => {} } });
+    await r.findByText('My World');
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+    expect(overlayHost()).toBe(screen.getByTestId('worlds-tab'));
+    r.unmount();
+    vi.mocked(mod.commands.listWorlds).mockResolvedValueOnce({ status: 'ok', data: [] });
+    render(WorldsTab, { props: { instanceId: 'i1', onListChanged: () => {} } });
+    await screen.findByText(/No worlds yet/);
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('file-dropzone'))).toBe(
+      true,
+    );
+  });
+
   it('renders a clickable world row per world', async () => {
     const { findByText, container } = render(WorldsTab, {
       props: { instanceId: 'i1', onListChanged: () => {} },

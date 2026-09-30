@@ -1,7 +1,9 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
   import { locale, t } from '$lib/i18n';
   import { formatCount } from '$lib/format/count';
+  import { displayVersion } from '$lib/format/version';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -26,6 +28,8 @@
     onUninstall,
     updateState = null,
     onUpdate = () => {},
+    onShowChangelog = null,
+    held = false,
     checking = false,
     packChip = null,
     attention = null,
@@ -39,6 +43,11 @@
     placeholderIcon = 'puzzle',
     installedLabel = null,
     actionsBlockedReason = null,
+    relation,
+    below,
+    onRevealFile = null,
+    onOpenProjectPage = null,
+    hold = null,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -48,6 +57,10 @@
     onUninstall: () => void;
     updateState?: ModUpdateState | null;
     onUpdate?: () => void;
+    /** Set = the update badge opens the changelog (the caller owns the "supported" gate). */
+    onShowChangelog?: (() => void) | null;
+    /** Updates for this project are held («Не обновлять»): a pin next to the version. */
+    held?: boolean;
     checking?: boolean;
     packChip?: string | null;
     // Installed-tab attention state that outranks enabled/disabled for the accent
@@ -74,6 +87,19 @@
     // server data pack catalog sets it for a world with only level.dat_old,
     // which refuses every add, switch and removal.
     actionsBlockedReason?: string | null;
+    /** Installed list rows: the relation pill, rendered between the badges and the actions (spec
+     *  §6.7). Pass it only when there is something to render — an empty slot still takes a gap. */
+    relation?: Snippet;
+    /** List rows: a second line inside the card, under the row (the installed mod's problem
+     *  line) — CardShell's `below`. */
+    below?: Snippet;
+    /** Installed rows: show the jar in the OS file manager (row menu) — the keyboard path to the
+     *  file name the version's tooltip shows on hover. */
+    onRevealFile?: (() => void) | null;
+    /** Mods with a known project page only: open it in the browser (row menu). */
+    onOpenProjectPage?: (() => void) | null;
+    /** Mods whose hold state is known and can matter: «Не обновлять» / «Разрешить обновления». */
+    hold?: { held: boolean; onToggle: () => void } | null;
   } = $props();
 
   const blocked = $derived(actionsBlockedReason !== null);
@@ -107,16 +133,20 @@
   });
   const style = $derived(cardStatusStyle(statusKind));
 
-  // The single muted secondary line for an installed mod (version is the norm;
-  // cross-platform explains the version mismatch; otherwise the install state).
+  // The installed meta, split (spec §6.7, audit C-Q13): the version as its own node — its tooltip
+  // is the jar's file name, the held pin sits beside it — or a state / cross-platform note
+  // (cross-platform explains the version mismatch; otherwise the install state). Exactly one of
+  // the two is set for an installed mod, so the visible text is what the one line said before.
   // An explicit `installedLabel` wins outright — see its prop doc.
-  const installedMeta = $derived.by(() => {
-    if (!installed) return '';
-    if (installedLabel) return installedLabel;
+  const meta = $derived.by((): { version: string | null; note: string | null } => {
+    if (!installed) return { version: null, note: null };
+    if (installedLabel) return { version: null, note: installedLabel };
     const stateWord = installed.enabled ? $t('mods.card.installed') : $t('mods.card.disabled');
-    if (crossPlatform && otherPlatformLabel) return `${stateWord} (${otherPlatformLabel})`;
-    if (installed.version_number) return `v${installed.version_number}`;
-    return stateWord;
+    if (crossPlatform && otherPlatformLabel)
+      return { version: null, note: `${stateWord} (${otherPlatformLabel})` };
+    if (installed.version_number)
+      return { version: displayVersion(installed.version_number), note: null };
+    return { version: null, note: stateWord };
   });
 
   // Degraded-row identity (summary null).
@@ -166,6 +196,24 @@
         ...blockedMenu,
       });
     if (summary) out.push({ label: $t('mods.card.details'), icon: 'info', onSelect: onOpenDetail });
+    // Per-row conventions (DESIGN.md §8): an item that mirrors a control reuses its key («Открыть
+    // страницу мода» is the pre-flight panel's); looking is never blocked, changing is; the
+    // destructive item stays last, behind a separator.
+    if (onOpenProjectPage)
+      out.push({
+        label: $t('mods.preflight.openModPage'),
+        icon: 'externalLink',
+        onSelect: onOpenProjectPage,
+      });
+    if (onRevealFile)
+      out.push({ label: $t('mods.card.revealFile'), icon: 'folderOpen', onSelect: onRevealFile });
+    if (hold)
+      out.push({
+        label: hold.held ? $t('mods.updates.unhold') : $t('mods.updates.hold'),
+        icon: 'pin',
+        onSelect: hold.onToggle,
+        ...blockedMenu,
+      });
     out.push({
       label: $t('mods.card.uninstall'),
       icon: 'trash',
@@ -179,6 +227,24 @@
 
   const menuLabel = $derived(
     $t('mods.card.menuAriaLabel', { name: summary?.name ?? degradedTitle }),
+  );
+
+  // The list row's text line and its version node. Short of room, the version node wraps onto a
+  // second line that the one-line row clips (plan §5d M1) — then the name's tooltip carries it.
+  let textLine = $state<HTMLElement | undefined>();
+  let versionNode = $state<HTMLElement | undefined>();
+  /** The version node sits below the row's one line: wrapped away, out of sight. A box with no
+   *  layout (a hidden view) measures 0 tall and says no. */
+  function versionWrappedAway(): boolean {
+    if (!textLine || !versionNode) return false;
+    const line = textLine.getBoundingClientRect();
+    return line.height > 0 && versionNode.getBoundingClientRect().top >= line.bottom;
+  }
+  // What the version's own tooltip says, for the name to say while the version is away.
+  const versionTip = $derived(
+    installed && (meta.version ?? meta.note)
+      ? `${meta.version ?? meta.note} · ${installed.filename}`
+      : null,
   );
 </script>
 
@@ -245,6 +311,19 @@
   {/if}
 {/snippet}
 
+{#snippet heldPin(klass: string)}
+  {#if held}
+    <!-- Beside the version it keeps: updates for this project are held (row menu). -->
+    <span
+      class="inline-flex text-secondary flex-shrink-0 {klass}"
+      data-testid="mod-held-pin"
+      use:tooltip={{ text: $t('mods.updates.heldTooltip'), describe: false }}
+    >
+      <Icon name="pin" size={12} label={$t('mods.updates.heldTooltip')} />
+    </span>
+  {/if}
+{/snippet}
+
 {#snippet badges()}
   {#if packChip}
     <StatusBadge
@@ -258,14 +337,34 @@
   {:else if checking}
     <span class="text-xs text-placeholder">{$t('mods.card.checking')}</span>
   {:else if hasUpdate && updateState?.kind === 'update_available'}
-    <StatusBadge
-      variant="warning"
-      title={$t('mods.card.updateAvailableTitle')}
-      testid="mod-update-badge"
-    >
-      v{installed?.version_number ?? '?'}
-      <Icon name="arrowRight" size={12} /> v{updateState.target.version_number}
-    </StatusBadge>
+    {@const from = displayVersion(installed?.version_number ?? '?')}
+    {@const to = displayVersion(updateState.target.version_number)}
+    {#if onShowChangelog}
+      <!-- The badge opens what changed (spec §6.6); its name keeps the versions it shows. -->
+      <button
+        type="button"
+        class="rounded"
+        aria-label={$t('mods.updates.badgeChangelogAria', { from, to })}
+        use:tooltip={{ text: $t('mods.changelog.view'), describe: false }}
+        onclick={onShowChangelog}
+      >
+        <StatusBadge variant="warning" icon="scrollText" testid="mod-update-badge">
+          {from}
+          <Icon name="arrowRight" size={12} />
+          {to}
+        </StatusBadge>
+      </button>
+    {:else}
+      <StatusBadge
+        variant="warning"
+        title={$t('mods.card.updateAvailableTitle')}
+        testid="mod-update-badge"
+      >
+        {from}
+        <Icon name="arrowRight" size={12} />
+        {to}
+      </StatusBadge>
+    {/if}
   {:else if updateState && updateState.kind === 'check_failed'}
     <span class="text-xs text-placeholder" use:tooltip={updateState.reason}
       >{$t('mods.card.checkFailed')}</span
@@ -281,6 +380,7 @@
       dim={style.dim}
       {highlighted}
       testid="manual-mod-row"
+      {below}
     >
       {#if selectable && installed}
         <input
@@ -295,9 +395,13 @@
       <CardMedia iconUrl={null} placeholder={isPlatform ? 'circleX' : placeholderIcon} size="sm" />
       <div class="flex-1 min-w-0">
         <span class="font-medium text-primary truncate font-mono text-xs">{degradedTitle}</span>
-        {#if installed}<span class="text-xs text-muted ml-2">{degradedMeta}</span>{/if}
+        {#if installed}
+          <span class="text-xs text-muted ml-2">{degradedMeta}</span>
+          {@render heldPin('align-middle')}
+        {/if}
       </div>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      {#if relation}<div class="flex items-center flex-shrink-0">{@render relation()}</div>{/if}
       {#if installed}
         <div class="flex items-center gap-1 flex-shrink-0">
           {#if canToggle}
@@ -339,7 +443,7 @@
         <span class="block font-medium text-primary truncate">{summary.name}</span>
         <span class="block text-xs text-muted truncate">
           {#if installed}
-            {installedMeta}
+            {meta.version ?? meta.note}
           {:else}
             <!-- Raw count, never pre-formatted: `{downloads, number}` groups the
                  digits using the UI locale, while a bare toLocaleString() uses
@@ -366,6 +470,7 @@
       dim={style.dim}
       {highlighted}
       testid="card-list-row"
+      {below}
     >
       {#if selectable}
         <input
@@ -378,14 +483,63 @@
         />
       {/if}
       <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="sm" />
+      <!-- An installed row's line is one line tall, and what wraps off it is clipped: short of room,
+           the description goes first, then the version — which takes only the room the whole name
+           leaves: from a few characters up (`basis-[4ch]`) it grows to its full width before the
+           description gets any (`grow-[1000]`, `max-w-max`), ending in «…» while cut; with less it
+           wraps onto the clipped line, never a sliver (plan §5d M1, screenshot n01j). The name is
+           cut, ending in «…», only once it alone does not fit. Shrinking in proportion cut the name
+           a fraction of a pixel while the version kept 2.7 px. A catalogue row keeps shrinking. -->
       <button
+        bind:this={textLine}
         type="button"
-        class="flex flex-1 items-center gap-2 text-left min-w-0"
+        class="flex flex-1 items-center gap-2 text-left min-w-0 {installed
+          ? 'h-5 flex-wrap overflow-hidden'
+          : ''}"
         onclick={onOpenDetail}
       >
-        <span class="font-medium text-primary flex-shrink-0">{summary.name}</span>
+        <!-- Cut short, the name shows whole in its tooltip; with the version wrapped away, the
+             tooltip carries the version too. -->
+        <span
+          class="min-w-0 truncate font-medium text-primary"
+          use:tooltip={{
+            text: summary.name,
+            whenOverflowing: true,
+            clippedText: versionTip ? `${summary.name} · ${versionTip}` : undefined,
+            alsoClipped: versionTip ? versionWrappedAway : undefined,
+          }}>{summary.name}</span
+        >
         {#if installed}
-          <span class="text-xs text-muted flex-shrink-0">{installedMeta}</span>
+          <!-- «Name · version · description» (spec D12): the file name is the version's tooltip —
+               with the version whole before it while the version is cut short — and the pin sits
+               beside the version it keeps, inside the version's room (`+1rem`). -->
+          <span
+            bind:this={versionNode}
+            class="min-w-0 max-w-max grow-[1000] {held
+              ? 'basis-[calc(4ch+1rem)]'
+              : 'basis-[4ch]'} text-xs text-muted inline-flex items-center gap-1"
+          >
+            {#if meta.version}
+              <span
+                class="min-w-0 truncate"
+                data-testid="mod-version"
+                use:tooltip={{
+                  text: installed.filename,
+                  clippedText: `${meta.version} · ${installed.filename}`,
+                }}>{meta.version}</span
+              >
+            {:else}
+              <span
+                class="min-w-0 truncate"
+                data-testid="mod-state-note"
+                use:tooltip={{
+                  text: installed.filename,
+                  clippedText: `${meta.note} · ${installed.filename}`,
+                }}>{meta.note}</span
+              >
+            {/if}
+            {@render heldPin('')}
+          </span>
         {:else}
           <span class="text-xs text-muted flex-shrink-0 inline-flex items-center gap-1">
             <Icon name="user" size={12} />
@@ -402,6 +556,7 @@
         {/if}
       </button>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      {#if relation}<div class="flex items-center flex-shrink-0">{@render relation()}</div>{/if}
       <div class="flex items-center gap-1 flex-shrink-0">{@render iconActions()}</div>
     </CardShell>
   </ContextMenu>

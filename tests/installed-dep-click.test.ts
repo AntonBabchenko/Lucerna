@@ -25,8 +25,6 @@ describe('dep-tree node name opens the mod detail modal', () => {
     render(DepTree, {
       props: {
         nodes: [installedNode],
-        hoveredKey: null,
-        onHover: () => {},
         onInstall: () => {},
         onAdd: () => {},
         onJump,
@@ -46,8 +44,6 @@ describe('dep-tree node name opens the mod detail modal', () => {
     render(DepTree, {
       props: {
         nodes: [installedNode],
-        hoveredKey: null,
-        onHover: () => {},
         onInstall: () => {},
         onAdd: () => {},
         onJump,
@@ -81,15 +77,14 @@ describe('"required by" entries are interactive', () => {
     { name: 'Alpha', source: 'modrinth', projectId: 'PA', sha1: 'a' },
   ];
 
-  it('clicking a "required by" entry NAME opens the requiring mod; the keyed wrapper cross-highlights on hover', async () => {
+  // Pointing at the entry marks nothing (tests/installed-cross-highlight.test.ts): the way to the
+  // requiring mod's row is its ↗, below.
+  it('clicking a "required by" entry NAME opens the requiring mod', async () => {
     const onOpenDetail = vi.fn();
-    const onHover = vi.fn();
-    const { container } = render(DepSection, {
+    render(DepSection, {
       props: {
         root,
         requiredBy,
-        hoveredKey: null,
-        onHover,
         onInstall: () => {},
         onJump: () => {},
         onOpenDetail,
@@ -99,13 +94,6 @@ describe('"required by" entries are interactive', () => {
     // The name button opens the requiring mod's info modal.
     await fireEvent.click(screen.getByRole('button', { name: 'Alpha' }));
     expect(onOpenDetail).toHaveBeenCalledWith('modrinth', 'PA');
-
-    // The keyed wrapper (holding name + ↗) drives cross-highlighting against
-    // the requiring mod's row/nodes; hovering it sets hoveredKey.
-    const wrapper = container.querySelector('[data-mod-key="modrinth:PA"]') as HTMLElement;
-    expect(wrapper).not.toBeNull();
-    await fireEvent.mouseEnter(wrapper);
-    expect(onHover).toHaveBeenCalledWith('modrinth:PA');
   });
 
   it('a "required by" entry has a separate ↗ jump button that navigates to the requiring mod row', async () => {
@@ -115,8 +103,6 @@ describe('"required by" entries are interactive', () => {
       props: {
         root,
         requiredBy,
-        hoveredKey: null,
-        onHover: () => {},
         onInstall: () => {},
         onJump,
         onOpenDetail,
@@ -129,21 +115,5 @@ describe('"required by" entries are interactive', () => {
     await fireEvent.click(arrow);
     expect(onJump).toHaveBeenCalledWith({ source: 'modrinth', project_id: 'PA' });
     expect(onOpenDetail).not.toHaveBeenCalled();
-  });
-
-  it('toggles bg-highlight on the wrapper when hoveredKey matches the entry', () => {
-    const { container } = render(DepSection, {
-      props: {
-        root,
-        requiredBy,
-        hoveredKey: 'modrinth:PA',
-        onHover: () => {},
-        onInstall: () => {},
-        onJump: () => {},
-        onOpenDetail: () => {},
-      },
-    });
-    const wrapper = container.querySelector('[data-mod-key="modrinth:PA"]') as HTMLElement;
-    expect(wrapper.className).toContain('bg-highlight');
   });
 });

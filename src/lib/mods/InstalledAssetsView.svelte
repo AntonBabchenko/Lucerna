@@ -27,6 +27,7 @@
   import ChangelogModal from './ChangelogModal.svelte';
   import { changelogSupported } from './changelog-supported';
   import { get } from 'svelte/store';
+  import type { Snippet } from 'svelte';
   import { tooltip } from '$lib/ui/tooltip';
 
   let {
@@ -34,11 +35,17 @@
     kind,
     mcVersion = null,
     loader = null,
+    emptyDropzone,
+    onEmptyChange = () => {},
   }: {
     instanceId: string | null;
     kind: ContentKind;
     mcVersion?: string | null;
     loader?: LoaderKind | null;
+    /** The host's full drop area, rendered in the empty list (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
   } = $props();
 
   // Project summaries (icon_url) for assets that have a platform identity,
@@ -117,6 +124,16 @@
       }
       loading = false;
     })();
+  });
+
+  // Empty is reported, never assumed: no profile, a list still loading or a read that failed is
+  // not an empty list — the host keeps its strip until the list says it is empty.
+  const listEmpty = $derived(
+    instanceId !== null && !loading && assets.length === 0 && error === null,
+  );
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
   });
 
   // Resolve the platform assets' project summaries (icon_url) via the batched
@@ -350,9 +367,14 @@
     </div>
   {:else if loading && assets.length === 0}
     <LoadingPanel label={$t('addons.installed.loading')} size="md" />
-  {:else if assets.length === 0}
-    <div class="text-muted text-sm py-6 text-center">{$t('addons.installed.empty')}</div>
-  {:else}
+  {:else if listEmpty}
+    <!-- The host's full drop area replaces its strip here (DESIGN.md §14); a list that could not
+         be read shows its error above instead. -->
+    <div class="pt-6 flex flex-col gap-3" data-testid="list-empty">
+      <p class="text-muted text-sm text-center">{$t('addons.installed.empty')}</p>
+      {@render emptyDropzone?.()}
+    </div>
+  {:else if assets.length > 0}
     <div class="border border-border-subtle rounded-lg overflow-hidden">
       {#each assets as asset (asset.filename)}
         {@const latest = updatable(asset.filename)}

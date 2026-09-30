@@ -121,7 +121,8 @@
       ` max-height: ${popoverMaxHeight}px;`,
   );
 
-  function positionPopover() {
+  // `listWidth`: the open list's own width, once it has been laid out (see the effect below).
+  function positionPopover(listWidth?: number) {
     if (!trigger) return;
     const r = trigger.getBoundingClientRect();
     // Clamp the list to whatever vertical room the viewport actually has. In
@@ -132,7 +133,7 @@
     const p = computePopoverPlacement(
       { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
       { width: window.innerWidth, height: window.innerHeight },
-      { gap: GAP, margin: MARGIN, maxHeight: MAX_POPOVER_HEIGHT },
+      { gap: GAP, margin: MARGIN, maxHeight: MAX_POPOVER_HEIGHT, popoverWidth: listWidth },
     );
     flipUp = p.flipUp;
     popoverTop = p.top;
@@ -273,6 +274,14 @@
     }
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
+  });
+
+  // The list is as wide as its longest option, which the trigger does not know: placed by the
+  // trigger's width, the Installed sort list ran 56 px past an 820 px window (plan §5e). Once the
+  // list has been laid out it is placed again by its own width — in the same flush, so before the
+  // frame is painted, as Menu does.
+  $effect(() => {
+    if (open && listEl) positionPopover(listEl.offsetWidth);
   });
 
   // A fixed popover does not follow the trigger on layout shift — close on

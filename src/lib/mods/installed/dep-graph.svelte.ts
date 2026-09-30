@@ -10,13 +10,31 @@ import {
   type ModSource,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
-import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+import { modWriteReason } from '$lib/mods/mod-ops.svelte';
+import { installDependency, installModWithDeps } from '$lib/tasks/adapters/mod-install';
+import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { depGraphCache } from '../dep-graph-cache';
 import type { Row } from './installed-data.svelte';
 import { modKey, rowDisplayName } from './row-utils';
+import { depsLines } from './update-review';
 
 export type RequiredByEntry = { name: string; source: ModSource; projectId: string; sha1: string };
+
+const reachedAll = (nodes: readonly DepTreeNode[]): boolean =>
+  nodes.every((n) => n.deps_unknown !== 'unreachable' && reachedAll(n.children));
+
+/**
+ * Whether `graph` may be kept for the session. A mod whose dependencies are unknown because the
+ * platform could not be reached (`unreachable`: offline, rate-limited, no usable key) is unknown
+ * only for now — a graph holding one, at a root or any installed node below, is shown but not
+ * kept, so the next open asks again (cheap: the backend keeps the versions it did get). An
+ * `unidentified` version is the platform's own answer and stays until the mods change.
+ */
+export function isSettledGraph(graph: DependencyGraph): boolean {
+  return graph.roots.every(
+    (r) => r.deps_unknown !== 'unreachable' && reachedAll(r.required) && reachedAll(r.optional),
+  );
+}
 
 export type DepGraphCtx = {
   getMcVersion: () => string | null;
@@ -40,7 +58,6 @@ export function createDepGraph(
   let graph = $state<DependencyGraph | null>(null);
   let graphLoading = $state(false);
   let expanded = $state<Set<string>>(new Set());
-  let hoveredKey = $state<string | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
 
@@ -97,39 +114,49 @@ export function createDepGraph(
     return out;
   });
 
-  // Relationship count only. There is deliberately no "missing" tally here: the
-  // graph knows what the platform was told, not what the loader enforces, and a
-  // measured mod declares on Modrinth a dependency its own jar descriptor does
-  // not. The pre-flight owns "this is a problem".
+  // Distinct REQUIRED projects in the subtree (spec 2026-09-28 §6.3: REI is 3,
+  // not 4) — a diamond visits a library twice, and an optional child (with
+  // everything under it) or a cycle back to the mod itself is not something it
+  // requires. Still no "missing" tally: the graph knows what the platform was
+  // told, not what the loader enforces. The pre-flight owns "this is a problem".
   function depCounts(root: DepRoot | undefined) {
     if (!root) return { total: 0 };
-    let total = 0;
+    const seen = new Set<string>();
     const walk = (ns: DepTreeNode[]) => {
       for (const n of ns) {
-        total++;
+        if (n.declared !== 'required') continue;
+        seen.add(`${n.source}:${n.project_id}`);
         if (!n.cycle) walk(n.children);
       }
     };
     walk(root.required);
-    return { total };
+    seen.delete(`${root.source}:${root.project_id}`);
+    return { total: seen.size };
   }
 
+  // Every mod change re-resolves the graph, so loads overlap and may answer out
+  // of order. Latest wins: an older answer describes a mod set that is gone, and
+  // its `graphLoading = false` would hide the newer load still in flight.
+  let loadTicket = 0;
   async function reloadGraphNow() {
     const id = getInstanceId();
     if (!id) return;
+    const ticket = ++loadTicket;
     graphLoading = true;
     error = null;
     const r = await commands.modsDependencyGraph(id);
-    if (getInstanceId() !== id) {
-      graphLoading = false; // reset even when discarding the stale result
-      return;
-    }
-    graphLoading = false;
+    // Superseded: the newer load owns the result and the spinner.
+    if (ticket !== loadTicket) return;
+    graphLoading = false; // reset even when the answer is for a profile left meanwhile
+    if (getInstanceId() !== id) return;
     if (r.status === 'ok') {
       graph = r.data;
-      depGraphCache.set(id, r.data);
+      // Only a settled answer is the session's; one the platform could not be reached for is
+      // asked for again on the next open — and never leaves an older graph behind it.
+      if (isSettledGraph(r.data)) depGraphCache.set(id, r.data);
+      else depGraphCache.delete(id);
     } else {
-      // Surface the failure so "Re-check deps" doesn't silently do nothing —
+      // Surface the failure so the ⋯ re-check doesn't silently do nothing —
       // the graph load failed (offline / rate-limited). InstalledModsView folds
       // `deps.error` into its aggregate error banner, so setting it here is
       // enough to tell the user the recheck failed instead of no-oping.
@@ -137,8 +164,9 @@ export function createDepGraph(
     }
   }
 
-  // Force a fresh resolve after the installed SET changes (install/uninstall).
-  // Debounced: a bulk uninstall emits one event per mod; collapse the burst.
+  // Force a fresh resolve after the mods change (install, uninstall, and a
+  // toggle: the graph is rooted at the ENABLED mods and marks the disabled ones).
+  // Debounced: a bulk operation emits one event per mod; collapse the burst.
   let graphReloadTimer: ReturnType<typeof setTimeout> | null = null;
   function reloadGraph() {
     const id = getInstanceId();
@@ -153,10 +181,8 @@ export function createDepGraph(
       }
     }, 150);
   }
-  function recheckDeps() {
-    reloadGraph();
-  }
-  // Invalidate the cache + reload immediately (used by bulk uninstall's onMutated).
+  // Invalidate the cache + reload immediately (bulk uninstall's onMutated, the toolbar's ⋯
+  // «Re-check compatibility and dependencies»).
   function invalidateGraph() {
     const id = getInstanceId();
     if (id) {
@@ -172,16 +198,8 @@ export function createDepGraph(
     expanded = next;
   }
 
-  // Accepts any mod identity (a DepTreeNode or a required-by entry), so the
-  // ↗ jump works from both the dependency tree and the "Required by" list.
-  async function jumpToMod(target: { source: ModSource; project_id: string }) {
-    const key = `${target.source}:${target.project_id}`;
-    hoveredKey = key;
-    const filtered = ctx.getFiltered();
-    const idx = filtered.findIndex(
-      (r) => modKey(r.installed.source, r.installed.project_id, r.installed.sha1) === key,
-    );
-    if (idx < 0) return;
+  // Turn to the page holding filtered row `idx` (keyed `key`) and scroll it into view.
+  async function showRow(idx: number, key: string): Promise<void> {
     ctx.setPage(Math.floor(idx / ctx.getPageSize()));
     await tick();
     if (typeof document !== 'undefined') {
@@ -190,33 +208,87 @@ export function createDepGraph(
     }
   }
 
-  async function installDepNode(node: DepTreeNode) {
-    const id = getInstanceId();
+  // Accepts any mod identity (a DepTreeNode or a required-by entry), so the
+  // ↗ jump works from both the dependency tree and the "Required by" list.
+  async function jumpToMod(target: { source: ModSource; project_id: string }) {
+    const key = `${target.source}:${target.project_id}`;
+    const filtered = ctx.getFiltered();
+    const idx = filtered.findIndex(
+      (r) => modKey(r.installed.source, r.installed.project_id, r.installed.sha1) === key,
+    );
+    if (idx < 0) return;
+    await showRow(idx, key);
+  }
+
+  // The pre-flight panel knows a dependent by its jar, not its project (a manual
+  // jar has none). False = the row is not in the filtered list: the caller
+  // decides whether to widen the view and try again.
+  async function jumpToSha1(sha1: string): Promise<boolean> {
+    const filtered = ctx.getFiltered();
+    const idx = filtered.findIndex((r) => r.installed.sha1 === sha1);
+    const r = filtered[idx];
+    if (!r) return false;
+    await showRow(idx, modKey(r.installed.source, r.installed.project_id, sha1));
+    return true;
+  }
+
+  // The newest build the platform lists for this profile, with its own dependencies. Null =
+  // nothing to install: no profile version to ask for (as before — silent), or no build, said in
+  // `error` like every other failure of this view.
+  async function installPlain(id: string, node: DepTreeNode) {
     const mc = ctx.getMcVersion();
     const loader = ctx.getLoader();
-    if (!id || !mc || !loader) return;
-    busy = true;
-    error = null;
+    if (!mc || !loader) return null;
     const vr = await commands.modsVersions(node.source, node.project_id, mc, loader);
     if (vr.status === 'error' || vr.data.length === 0) {
       error =
         vr.status === 'error'
           ? formatError(vr.error)
           : get(t)('mods.installed.installDepFailed', { name: node.name });
-      busy = false;
-      return;
+      return null;
     }
     const primary = vr.data[0];
-    const res = await installModWithDeps(
+    return installModWithDeps(
       id,
       node.name,
       { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
       [],
     );
-    if (res.status === 'error') {
-      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(res.error)]);
+  }
+
+  // The tree's Install / Add. `dependentSha1` is the enabled jar that declared the node (the row's
+  // own mod, or an installed parent — DepTree passes its level's): the install goes through the
+  // dependency path (spec §5.6), which records the edge on that mod, so removing it can offer what
+  // came in for it, and refuses a project the profile already lists — a stale graph can never add
+  // a second jar. Under an absent parent nothing installed declared the node: a plain install.
+  async function installDepNode(node: DepTreeNode, dependentSha1: string | null) {
+    const id = getInstanceId();
+    if (!id) return;
+    busy = true;
+    error = null;
+    const res = dependentSha1
+      ? await installDependency(id, node.name, dependentSha1, node.source, node.project_id)
+      : await installPlain(id, node);
+    // Nothing to install (see `installPlain`).
+    if (res === null) {
+      busy = false;
+      return;
+    }
+    if (res.status === 'error' && res.error.kind === 'mods_already_installed') {
+      // «Already installed» is no failed install: there is nothing to add, and a warning would
+      // call a satisfied dependency a failure. Said the way the panel's «Install» says it; the
+      // re-read below shows the project installed.
+      pushInfo(formatError(res.error));
+    } else if (res.status === 'error') {
+      // A refused install says the profile is busy — never that the game runs (plan A9).
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [modWriteReason(res.error)]);
     } else {
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: node.name }));
+      // Its own required dependencies come along: said, never installed silently (D9).
+      const tt = get(t);
+      pushSuccess(
+        tt('mods.browse.toastInstalledMod', { name: node.name }),
+        depsLines(tt, [res.data]),
+      );
     }
     busy = false;
     // Await the graph re-resolve before refreshing rows so the tree's
@@ -239,7 +311,6 @@ export function createDepGraph(
       $effect(() => {
         const id = getInstanceId();
         expanded = new Set();
-        hoveredKey = null;
         if (!id) {
           graph = null;
           return;
@@ -248,10 +319,13 @@ export function createDepGraph(
         if (cached) {
           // Reuse the session-cached graph — do NOT re-resolve. Re-resolving on
           // every Installed-tab open / instance switch re-hit the mod platforms
-          // (a 429 rate-limit source). The cache is invalidated whenever the
-          // installed set actually changes (install/uninstall events ->
-          // reloadGraph, installDepNode -> invalidateGraph) and by the explicit
-          // "Re-check deps" button, so a stale graph can't persist past a real change.
+          // (a 429 rate-limit source). The entry is dropped whenever the mods
+          // change — every install, removal, toggle or external change, by the
+          // always-mounted page for any profile and by this view's own reloads
+          // (installDepNode -> invalidateGraph) — and by the explicit ⋯ re-check,
+          // so a stale graph can't persist past a real change. A
+          // graph the platform could not be reached for is never cached
+          // (`isSettledGraph`), so it is asked for again here.
           graph = cached;
         } else {
           graph = null;
@@ -260,7 +334,8 @@ export function createDepGraph(
       });
     });
   } catch {
-    /* no Svelte runtime (vitest) — effect inert, which is what unit tests want */
+    /* no reactive runtime to root the effect in — it stays inert. Under vitest the runtime IS
+       there: the effect runs at a test's first await, and may start a load of its own. */
   }
 
   return {
@@ -272,12 +347,6 @@ export function createDepGraph(
     },
     get expanded() {
       return expanded;
-    },
-    get hoveredKey() {
-      return hoveredKey;
-    },
-    set hoveredKey(v: string | null) {
-      hoveredKey = v;
     },
     get rootBySha() {
       return rootBySha;
@@ -294,10 +363,10 @@ export function createDepGraph(
     depCounts,
     toggleExpand,
     jumpToMod,
+    jumpToSha1,
     installDepNode,
     reloadGraph,
     reloadGraphNow,
-    recheckDeps,
     invalidateGraph,
     dispose() {
       stopEffects?.();

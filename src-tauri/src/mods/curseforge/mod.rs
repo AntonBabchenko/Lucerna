@@ -678,8 +678,22 @@ fn project_loaders(idx: &[types::FileIndex]) -> Option<Vec<LoaderKind>> {
     (!out.is_empty()).then_some(out)
 }
 
+/// CurseForge's «API and Library» category, by slug or display name — never by
+/// id (no id is documented, and one guessed wrong would be silently false).
+fn is_library_category(c: &types::Category) -> bool {
+    c.slug
+        .as_deref()
+        .is_some_and(|s| s.eq_ignore_ascii_case("library-api"))
+        || c.name
+            .as_deref()
+            .is_some_and(|n| n.eq_ignore_ascii_case("API and Library"))
+}
+
 fn convert_mod_summary(m: types::Mod) -> ModSummary {
     let loaders = project_loaders(&m.latest_files_indexes);
+    // Always `Some` — CurseForge can report categories, and `None` would mark
+    // the cached entry permanently stale (see `platform::ModSummary::library`).
+    let library = Some(m.categories.iter().any(is_library_category));
     ModSummary {
         source: ModSource::Curseforge,
         project_id: m.id.to_string(),
@@ -696,6 +710,7 @@ fn convert_mod_summary(m: types::Mod) -> ModSummary {
             .unwrap_or_default(),
         updated_at: m.date_modified,
         loaders,
+        library,
     }
 }
 
@@ -890,6 +905,41 @@ mod tests {
         .expect("an absent latestFilesIndexes must not be a decode error");
         assert!(m.latest_files_indexes.is_empty());
         assert_eq!(project_loaders(&m.latest_files_indexes), None);
+    }
+
+    fn cf_mod(extra: &str) -> types::Mod {
+        serde_json::from_str(&format!(
+            r#"{{"id":1,"slug":"s","name":"N","summary":"","downloadCount":0,"authors":[],
+                "logo":null,"dateModified":null,"links":{{}}{extra}}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_api_and_library_category_marks_a_library_by_slug_or_by_name() {
+        let by_slug = cf_mod(r#","categories":[{"id":0,"name":"Renamed","slug":"library-api"}]"#);
+        assert_eq!(convert_mod_summary(by_slug).library, Some(true));
+        let by_name = cf_mod(r#","categories":[{"name":"API and Library","slug":"x"}]"#);
+        assert_eq!(convert_mod_summary(by_name).library, Some(true));
+    }
+
+    #[test]
+    fn a_mod_outside_that_category_is_known_not_to_be_a_library() {
+        let magic = cf_mod(r#","categories":[{"name":"Magic","slug":"magic"}]"#);
+        assert_eq!(convert_mod_summary(magic).library, Some(false));
+        assert_eq!(
+            convert_mod_summary(cf_mod("")).library,
+            Some(false),
+            "absent key decodes"
+        );
+    }
+
+    /// The categories are read for one match only; a drifted entry must not
+    /// turn into a decode error that blanks the whole summaries batch.
+    #[test]
+    fn a_category_with_a_null_field_still_decodes_and_matches_by_the_other() {
+        let m = cf_mod(r#","categories":[{"name":null,"slug":"library-api"}]"#);
+        assert_eq!(convert_mod_summary(m).library, Some(true));
     }
 
     #[tokio::test]

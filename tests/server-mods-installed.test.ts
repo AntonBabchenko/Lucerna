@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerCore } from '$lib/ipc/bindings';
@@ -118,6 +119,42 @@ describe('ServerModsInstalled', () => {
       status: 'ok',
       data: [modRow('jei.jar'), modRow('betterf3.jar', { disabled: true, reason: 'client_only' })],
     });
+  });
+
+  // The dropzone rule (DESIGN.md §14): an empty list holds the host's full drop area, and says so
+  // — the host hides its strip meanwhile. A list that could not be read is not empty.
+  it('reports an empty list to its host and renders the host’s drop area in it', async () => {
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [] });
+    const onEmptyChange = vi.fn();
+    const emptyDropzone = createRawSnippet(() => ({
+      render: () => '<div data-testid="host-dropzone"></div>',
+    }));
+    render(ServerModsInstalled, { serverId: 'srv-1', emptyDropzone, onEmptyChange });
+    expect(await screen.findByTestId('host-dropzone')).toBeTruthy();
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('host-dropzone'))).toBe(
+      true,
+    );
+    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('a list that could not be read is not empty — until a read says it is', async () => {
+    mockListEnriched.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'io', path: 'mods', details: 'denied' },
+    });
+    const onEmptyChange = vi.fn();
+    const emptyDropzone = createRawSnippet(() => ({
+      render: () => '<div data-testid="host-dropzone"></div>',
+    }));
+    const props = { serverId: 'srv-1', emptyDropzone, onEmptyChange };
+    const r = render(ServerModsInstalled, props);
+    expect(await screen.findByText(/denied/)).toBeTruthy();
+    expect(screen.queryByTestId('host-dropzone')).toBeNull();
+    expect(onEmptyChange).not.toHaveBeenCalledWith(true);
+    mockListEnriched.mockResolvedValueOnce({ status: 'ok', data: [] });
+    await r.rerender({ ...props, reloadToken: 1 });
+    expect(await screen.findByTestId('host-dropzone')).toBeTruthy();
+    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
   });
 
   it('renders the enriched rows as ModCard rows, with the quarantine badge', async () => {

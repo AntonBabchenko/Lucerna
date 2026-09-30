@@ -13,7 +13,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
-  import { droppedServer, serverImportActive, dragActive } from '$lib/settings/state.svelte';
+  import { droppedServer, serverImportActive } from '$lib/settings/state.svelte';
 
   let {
     onDone,
@@ -50,41 +50,12 @@
   // Heap for the imported server. The adaptive bounds live inside MemorySlider.
   let memoryMb = $state(4096);
 
-  // Mark the import view as active on mount; register own drag-drop listener.
+  // While mounted, this view owns every OS file drop in servers mode (DESIGN.md §14): the app's
+  // single window drop router hands it the source and routes nothing to the tabs underneath. In
+  // client mode its panel is hidden and it owns nothing. It has no listener of its own — Tauri
+  // gives every listener the same event, so a second one took the same drop again.
   onMount(() => {
     serverImportActive.value = true;
-    let cleanup: (() => void) | null = null;
-
-    // Lazily import the Tauri webview API so test environments (happy-dom)
-    // don't crash — the webview API is unavailable outside Tauri.
-    import('@tauri-apps/api/webview')
-      .then(({ getCurrentWebview }) => {
-        const pending = getCurrentWebview().onDragDropEvent((event) => {
-          const payload = (event as { payload: { type: string; paths?: string[] } }).payload;
-          const evType = payload.type;
-          if (evType === 'enter' || evType === 'over') {
-            dragActive.value = true;
-          } else if (evType === 'leave') {
-            dragActive.value = false;
-          } else if (evType === 'drop') {
-            dragActive.value = false;
-            const paths = payload.paths ?? [];
-            if (paths.length > 0) {
-              droppedServer.value = paths;
-            }
-          }
-        });
-        pending.then((un) => {
-          cleanup = un;
-        });
-      })
-      .catch(() => {
-        // Not in a Tauri context (tests / SSR); skip.
-      });
-
-    return () => {
-      cleanup?.();
-    };
   });
 
   // On destroy: deactivate, cancel any pending inspect if not committed.
@@ -95,7 +66,7 @@
     }
   });
 
-  // Consume droppedServer paths set by our own drag-drop listener.
+  // Consume droppedServer paths routed here by the window drop router.
   $effect(() => {
     const v = droppedServer.value;
     if (v !== null && v.length > 0) {
@@ -192,7 +163,14 @@
 
 {#if phase === 'pick'}
   <div class="flex flex-col gap-4 p-4">
-    <FileDropzone label={$t('servers.import.dropzone')} onClick={() => void pickZip()} />
+    <!-- The one full drop area outside an empty list: this view IS the drop target (DESIGN.md §14). -->
+    <FileDropzone
+      variant="full"
+      target="server-import"
+      label={$t('servers.import.dropzone')}
+      dragLabel={$t('servers.import.dropzoneDrag')}
+      onClick={() => void pickZip()}
+    />
 
     <div class="flex gap-2">
       <button

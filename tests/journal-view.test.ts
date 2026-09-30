@@ -162,6 +162,7 @@ describe('copy-map completeness', () => {
     'mod_installed',
     'mod_updated',
     'mod_removed',
+    'mod_restored',
     'mod_enabled',
     'mod_disabled',
     'asset_installed',

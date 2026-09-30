@@ -22,7 +22,18 @@ export const tooltipState = $state<{
   placement: Placement;
   /** Caret centre, in px from the bubble's left edge — points at the trigger. */
   caretLeft: number;
-}>({ visible: false, text: '', top: 0, left: 0, placement: 'top', caretLeft: CARET_INSET });
+  /** Counts the showings: TooltipLayer measures and places the bubble afresh for each, even one
+   *  that takes over from a tooltip still visible with the same text. */
+  shown: number;
+}>({
+  visible: false,
+  text: '',
+  top: 0,
+  left: 0,
+  placement: 'top',
+  caretLeft: CARET_INSET,
+  shown: 0,
+});
 
 let triggerRect: TriggerRect | null = null;
 let openTimer: ReturnType<typeof setTimeout> | null = null;
@@ -74,6 +85,13 @@ export function showTooltip(rect: TriggerRect, text: string, opts: ShowOptions):
   const reveal = () => {
     tooltipState.text = text;
     tooltipState.placement = opts.placement;
+    // Laid out at the window's origin, where nothing narrows it, until TooltipLayer has measured
+    // it: left where the previous bubble stood — by the right edge — its text wrapped to the room
+    // there, and it was measured and placed at that squeezed size (plan §5d L2). It never paints
+    // there: the measure and the move run before the next frame.
+    tooltipState.top = 0;
+    tooltipState.left = 0;
+    tooltipState.shown += 1;
     tooltipState.visible = true;
     attachDismiss();
   };

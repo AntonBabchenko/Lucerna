@@ -3,6 +3,7 @@ export type AttentionKind =
   | 'log_fix'
   | 'pick_version'
   | 'missing_mods'
+  | 'mods_blocking'
   | 'incompatible'
   | 'integrity'
   | 'modpack_update'
@@ -17,6 +18,11 @@ export interface AttentionItem {
 export interface AttentionInputs {
   mcVersionMissing: boolean;
   missingModsCount: number;
+  /** Mods the dependency pre-flight says will stop the launch — the Play gate's
+   *  predicate (`hasBlocking`), each mod at the level its Installed row gets. */
+  blockingModsCount: number;
+  /** Mods that may not work: compat-only warnings, counted only when nothing
+   *  blocks (one mods item). */
   incompatibleCount: number;
   /** Integrity problems to surface. Callers MUST pass 0 when integrity is
    *  healthy, absent, or stale (stale → shown as "not checked", not a problem). */
@@ -42,6 +48,11 @@ export interface AttentionInputs {
 /** Build the ordered "needs attention" list from instance signals. */
 export function buildAttentionItems(input: AttentionInputs): AttentionItem[] {
   const items: AttentionItem[] = [];
+  // ONE mods item (spec §6.2): what stops the game, first of all — or, only
+  // when nothing does, what may not work (below). Both open Installed on Issues.
+  if (input.blockingModsCount > 0) {
+    items.push({ kind: 'mods_blocking', count: input.blockingModsCount });
+  }
   if (input.hasLogIssue) {
     items.push({ kind: input.logFixAvailable ? 'log_fix' : 'log_issue', count: 0 });
   }
@@ -49,7 +60,7 @@ export function buildAttentionItems(input: AttentionInputs): AttentionItem[] {
   if (input.missingModsCount > 0) {
     items.push({ kind: 'missing_mods', count: input.missingModsCount });
   }
-  if (input.incompatibleCount > 0) {
+  if (input.blockingModsCount === 0 && input.incompatibleCount > 0) {
     items.push({ kind: 'incompatible', count: input.incompatibleCount });
   }
   if (input.integrityProblemCount > 0) {

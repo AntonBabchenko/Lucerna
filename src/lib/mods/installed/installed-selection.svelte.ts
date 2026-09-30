@@ -1,39 +1,44 @@
-import { get } from 'svelte/store';
-import { t } from '$lib/i18n';
-import { commands, type ModUpdateCheck, type ModVersion, type OrphanRef } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
-import { updateMod } from '$lib/tasks/adapters/mod-install';
-import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+import type { ModUpdateCheck } from '$lib/ipc/bindings';
+import {
+  disableMods,
+  enableMods,
+  type ModOpOutcome,
+  type ModOpScope,
+  type ModOpTarget,
+  uninstallMods,
+} from '$lib/mods/mod-ops.svelte';
 import type { Row } from './installed-data.svelte';
 import { rowDisplayName } from './row-utils';
+import { pushUpdatesReport, runUpdates, type UpdateTarget, updatedShas } from './update-review';
 
 // Which bulk action is currently in flight, so the bulk bar can spin only the
 // clicked button (not all four). `null` when idle.
 export type BulkAction = 'enable' | 'disable' | 'update' | 'uninstall';
 
+const toTarget = (r: Row): ModOpTarget => ({ sha1: r.installed.sha1, name: rowDisplayName(r) });
+
 // Owns bulk-action selection state and the bulk operations themselves. The
 // `selected` Set is always reassigned whole (never mutated in place). Selections
 // for rows hidden by a filter/search change are dropped. `getUpdateChecks` lets
-// bulk Update target only rows with a pending update; `onMutated` is called
-// after install-set changes (uninstall) so the caller can invalidate the graph.
+// bulk Update target only rows with a pending update (a held project has none);
+// `onMutated` is called after install-set changes (uninstall) so the caller can
+// invalidate the graph. Enable, disable and removal go through the guarded path
+// (mod-ops), which asks about dependents, requirements and unneeded libraries
+// and reports the outcome; every operation here reports through a toast.
 export function createInstalledSelection(
   getFiltered: () => Row[],
   getInstanceId: () => string | null,
   refresh: () => Promise<void>,
   getUpdateChecks: () => Map<string, ModUpdateCheck>,
   onMutated: () => void,
+  // What a guarded operation captures (instance, profile name, row names); the view supplies it.
+  scopeFor: (instanceId: string) => ModOpScope = (instanceId) => ({ instanceId }),
 ) {
   let selected = $state<Set<string>>(new Set());
   let busy = $state(false);
   // The specific bulk action in flight (drives per-button spinners); `busy`
   // stays the aggregate gate that disables the whole bar.
   let busyAction = $state<BulkAction | null>(null);
-  let error = $state<string | null>(null);
-  let uninstallPrompt = $state<{
-    removing: string[];
-    names: string[];
-    orphans: OrphanRef[];
-  } | null>(null);
 
   const selectedRows = $derived(getFiltered().filter((r) => selected.has(r.installed.sha1)));
   const allSelected = $derived.by(() => {
@@ -69,7 +74,9 @@ export function createInstalledSelection(
       });
     });
   } catch {
-    /* no Svelte runtime (vitest) — effects inert, which is what unit tests want */
+    /* no reactive runtime to root the effects in — they stay inert. Under vitest the runtime IS
+       there: the effects make their first run (the instance-switch clear) at a test's first
+       await, so a test that selects must let them run first. */
   }
 
   function toggleSelect(sha1: string, checked: boolean) {
@@ -85,139 +92,81 @@ export function createInstalledSelection(
     selected = new Set();
   }
 
-  async function applyUpdate(sha1: string, target: ModVersion): Promise<boolean> {
-    const id = getInstanceId();
-    if (!id) return false;
-    const r = await updateMod(id, target.name, sha1, target);
-    if (r.status === 'error') {
-      error = formatError(r.error);
-      return false;
-    }
-    return true;
-  }
-
+  // Through the guarded path (spec §6.1): one impact check for the selection, one dialog, then
+  // the flips, which report their own outcome. Rows already in the wanted state are left alone;
+  // a cancelled dialog keeps the selection so the user can adjust it.
   async function bulkSetEnabled(enable: boolean) {
     const id = getInstanceId();
     if (!id || selected.size === 0) return;
+    const targets = selectedRows.filter((r) => r.installed.enabled !== enable).map(toTarget);
     busy = true;
     busyAction = enable ? 'enable' : 'disable';
-    error = null;
-    let ok = 0;
-    let failed = 0;
-    const reasons = new Set<string>();
-    for (const r of selectedRows) {
-      if (r.installed.enabled === enable) {
-        ok++;
-        continue;
-      }
-      const res = enable
-        ? await commands.modsEnable(id, r.installed.sha1)
-        : await commands.modsDisable(id, r.installed.sha1);
-      if (res.status === 'error') {
-        failed++;
-        reasons.add(formatError(res.error));
-      } else {
-        ok++;
-      }
+    let outcome: ModOpOutcome = 'cancelled';
+    try {
+      if (targets.length > 0)
+        outcome = enable
+          ? await enableMods(scopeFor(id), targets, { bulk: true })
+          : await disableMods(scopeFor(id), targets, { bulk: true });
+    } finally {
+      busy = false;
+      busyAction = null;
     }
-    busy = false;
-    busyAction = null;
+    if (outcome === 'cancelled' && targets.length > 0) return;
     selected = new Set();
     await refresh();
-    if (failed === 0) {
-      pushSuccess(
-        get(t)(enable ? 'mods.installed.toastEnabled' : 'mods.installed.toastDisabled', {
-          count: ok,
-        }),
-      );
-    } else {
-      // The distinct reasons, not just a count: "Disabled 0 mods, 5 failed"
-      // alone cannot tell the user that a pack update holds the instance
-      // (every row refused the same way) from five unrelated failures.
-      pushWarning(
-        get(t)(
-          enable ? 'mods.installed.toastEnabledFailed' : 'mods.installed.toastDisabledFailed',
-          {
-            count: ok,
-            failed,
-          },
-        ),
-        [...reasons],
-      );
-    }
   }
 
-  async function bulkUpdate() {
+  // The selected rows with a pending update, one after another, then one notice for the run
+  // (D9: the dependencies they installed, why the rest failed). Returns the sha1s that updated, so
+  // the caller drops their now-stale checks — and only those.
+  async function bulkUpdate(): Promise<string[]> {
     const id = getInstanceId();
-    if (!id) return;
+    if (!id) return [];
     const checks = getUpdateChecks();
-    const targets = selectedUpdatable.flatMap((r) => {
+    const targets = selectedUpdatable.flatMap((r): UpdateTarget[] => {
       const st = checks.get(r.installed.sha1)?.state;
-      return st?.kind === 'update_available' ? [{ sha1: r.installed.sha1, target: st.target }] : [];
+      return st?.kind === 'update_available'
+        ? [{ sha1: r.installed.sha1, name: rowDisplayName(r), target: st.target }]
+        : [];
     });
-    if (targets.length === 0) return;
+    if (targets.length === 0) return [];
+    const scope = scopeFor(id);
     busy = true;
     busyAction = 'update';
-    error = null;
-    let ok = 0;
-    let failed = 0;
-    for (const tgt of targets) {
-      if (await applyUpdate(tgt.sha1, tgt.target)) ok++;
-      else failed++;
+    let attempts: Awaited<ReturnType<typeof runUpdates>> = [];
+    try {
+      attempts = await runUpdates(id, targets);
+    } finally {
+      busy = false;
+      busyAction = null;
     }
-    busy = false;
-    busyAction = null;
     selected = new Set();
     await refresh();
-    if (failed === 0) pushSuccess(get(t)('mods.installed.toastUpdated', { count: ok }));
-    else pushWarning(get(t)('mods.installed.toastUpdatedFailed', { count: ok, failed }), []);
+    const profile = getInstanceId() !== id ? (scope.profileName ?? null) : null;
+    pushUpdatesReport(attempts, { profile });
+    return updatedShas(attempts);
   }
 
+  // ONE guarded removal for the selection (spec §6.1): the dependents dialog if any, the
+  // unneeded-libraries question if any, then one `mods_uninstall_many` → one token → one toast.
   async function requestBulkUninstall() {
     const id = getInstanceId();
     if (!id || selected.size === 0) return;
-    const removing = selectedRows.map((r) => r.installed.sha1);
-    const names = selectedRows.map((r) => rowDisplayName(r));
-    const r = await commands.modsFindOrphans(id, removing);
-    const orphans = r.status === 'ok' ? r.data : [];
-    uninstallPrompt = { removing, names, orphans };
-  }
-
-  async function confirmBulkUninstall(alsoRemove: string[]) {
-    const id = getInstanceId();
-    if (!id || !uninstallPrompt) return;
-    const all = [...uninstallPrompt.removing, ...alsoRemove];
-    uninstallPrompt = null;
+    const targets = selectedRows.map(toTarget);
     busy = true;
     busyAction = 'uninstall';
-    error = null;
-    let ok = 0;
-    let failed = 0;
-    const reasons = new Set<string>();
-    for (const sha1 of all) {
-      const res = await commands.modsUninstall(id, sha1);
-      if (res.status === 'error') {
-        failed++;
-        reasons.add(formatError(res.error));
-      } else {
-        ok++;
-      }
+    let outcome: ModOpOutcome = 'cancelled';
+    try {
+      outcome = await uninstallMods(scopeFor(id), targets, { offerOrphans: true });
+    } finally {
+      busy = false;
+      busyAction = null;
     }
-    busy = false;
-    busyAction = null;
+    if (outcome === 'cancelled') return;
     selected = new Set();
     // Removed mods would otherwise linger as stale roots in the dep tree.
     onMutated();
     await refresh();
-    if (failed === 0) pushSuccess(get(t)('mods.installed.toastUninstalled', { count: ok }));
-    else
-      pushWarning(get(t)('mods.installed.toastUninstalledFailed', { count: ok, failed }), [
-        ...reasons,
-      ]);
-  }
-
-  function cancelUninstall() {
-    uninstallPrompt = null;
   }
 
   return {
@@ -236,20 +185,12 @@ export function createInstalledSelection(
     get busyAction() {
       return busyAction;
     },
-    get error() {
-      return error;
-    },
-    get uninstallPrompt() {
-      return uninstallPrompt;
-    },
     toggleSelect,
     toggleSelectAll,
     clear,
     bulkSetEnabled,
     bulkUpdate,
     requestBulkUninstall,
-    confirmBulkUninstall,
-    cancelUninstall,
     dispose() {
       stopEffects?.();
     },

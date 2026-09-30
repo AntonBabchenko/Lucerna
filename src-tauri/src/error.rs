@@ -322,6 +322,13 @@ pub enum Error {
         incoming_sha: String,
     },
 
+    /// The project is already in this instance, enabled or switched off: a
+    /// second jar of one mod stops the game on the duplicate mod id, so the
+    /// install is refused before its jar is downloaded. `name` is the installed
+    /// row's display name.
+    #[error("{name} is already installed")]
+    ModsAlreadyInstalled { name: String },
+
     #[error(
         "Mod filename {filename} is unsafe (path separator or traversal); refusing to install"
     )]
@@ -1440,6 +1447,18 @@ mod tests {
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_filename_conflict""#));
         assert!(j.contains(r#""filename":"jei.jar""#));
+    }
+
+    #[test]
+    fn mods_already_installed_names_the_installed_mod() {
+        let e = Error::ModsAlreadyInstalled {
+            name: "Fabric API".into(),
+        };
+        let j = serde_json::to_string(&e).unwrap();
+        assert_eq!(
+            j,
+            r#"{"kind":"mods_already_installed","name":"Fabric API"}"#
+        );
     }
 
     #[test]

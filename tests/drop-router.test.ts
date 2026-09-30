@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { type DropContext, routeDrop } from '$lib/layout/drop-router';
+import { type DropContext, planDrop, routeDrop } from '$lib/layout/drop-router';
 
 const base: DropContext = {
+  modalOnTop: false,
+  modpacksOpen: false,
+  serverImportOpen: false,
+  dataRootFellBack: false,
   mode: 'client',
   clientTab: 'mod_browser',
   addonsKind: 'mod',
@@ -80,6 +84,69 @@ describe('routeDrop', () => {
     expect(
       routeDrop(['C:/a.zip'], { ...base, mode: 'servers', serverAddonsKind: 'plugin' }),
     ).toBeNull();
+  });
+
+  // A surface on top owns the drop (DESIGN.md §14): the Modpacks modal covers everything, the
+  // server-import view its servers panel. What sits underneath takes nothing meanwhile.
+  it('the open Modpacks modal takes the drop: a .zip is a modpack, whatever sits underneath', () => {
+    expect(
+      routeDrop(['C:/pack.zip'], { ...base, addonsKind: 'resource_pack', modpacksOpen: true }),
+    ).toEqual({ target: 'modpack', path: 'C:/pack.zip' });
+    expect(
+      routeDrop(['C:/notes.txt', 'C:/pack.mrpack'], {
+        ...base,
+        mode: 'servers',
+        serverImportOpen: true,
+        modpacksOpen: true,
+      }),
+    ).toEqual({ target: 'modpack', path: 'C:/pack.mrpack' });
+  });
+
+  it('the open Modpacks modal passes nothing to the tab under it', () => {
+    expect(routeDrop(['C:/a.jar'], { ...base, modpacksOpen: true })).toBeNull();
+  });
+
+  it('servers mode: the server-import view takes the drop — one source, a .zip or a folder', () => {
+    expect(
+      routeDrop(['C:/srv', 'C:/other.zip'], {
+        ...base,
+        mode: 'servers',
+        serverAddonsKind: 'mod',
+        serverImportOpen: true,
+      }),
+    ).toEqual({ target: 'server-import', path: 'C:/srv' });
+  });
+
+  // Only the topmost surface takes a drop. A dialog that takes no files — Settings, Manage, a mod's
+  // details, the skin editor, a confirm — covers the whole window under its scrim, the Modpacks
+  // modal and the server-import view included: no box under it lights up or takes the files, and
+  // the drop says what to do instead of adding them where nobody can see.
+  it('a dialog on top that takes no files leaves every box under it out, and says why', () => {
+    const closeFirst = (path: string) => ({
+      host: null,
+      route: null,
+      skipped: [{ path, why: 'modal' }],
+    });
+    expect(planDrop(['C:/a.jar'], { ...base, modalOnTop: true })).toEqual(closeFirst('C:/a.jar'));
+    // Settings opened from the Modpacks modal's CurseForge-key banner sits on top of it.
+    expect(planDrop(['C:/pack.zip'], { ...base, modpacksOpen: true, modalOnTop: true })).toEqual(
+      closeFirst('C:/pack.zip'),
+    );
+    expect(
+      planDrop(['C:/srv'], {
+        ...base,
+        mode: 'servers',
+        serverImportOpen: true,
+        modalOnTop: true,
+      }),
+    ).toEqual(closeFirst('C:/srv'));
+  });
+
+  it('client mode: a server-import view left mounted in the hidden servers panel takes nothing', () => {
+    expect(routeDrop(['C:/a.jar'], { ...base, serverImportOpen: true })).toEqual({
+      target: 'client-mods',
+      paths: ['C:/a.jar'],
+    });
   });
 
   it('respects gating flags', () => {

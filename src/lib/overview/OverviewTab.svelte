@@ -33,6 +33,10 @@
     installedStats,
     playtime,
     incompatibleCount,
+    blockingModsCount = 0,
+    problemCount = null,
+    modsCheckError = null,
+    updateCount = null,
     missingModsCount,
     running,
     installing,
@@ -64,7 +68,16 @@
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
     playtime: PlaytimeStats;
+    /** Mods that may not work (compat-only warnings), at the Installed rows' level. */
     incompatibleCount: number;
+    /** Mods that stop the launch (the page pre-flight, the Play gate's predicate). */
+    blockingModsCount?: number;
+    /** Blocking ∪ warning mods; null = the pre-flight has not answered ("—"). */
+    problemCount?: number | null;
+    /** Why the page pre-flight could not run, when it could not (the readiness pill says so). */
+    modsCheckError?: string | null;
+    /** Pending updates from the persisted check; null = never checked ("—"). */
+    updateCount?: number | null;
     missingModsCount: number;
     running: boolean;
     installing: boolean;
@@ -76,7 +89,7 @@
     onExport: () => void;
     onOpenPackDrawer: () => void;
     onPackUpdated?: () => void;
-    onNavInstalled: (filter?: 'incompatible') => void;
+    onNavInstalled: (filter?: 'issues') => void;
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
     onRetryError?: (key: ErrorKey) => void;
@@ -115,11 +128,17 @@
       : 0,
   );
 
+  // What the readiness pill may say about the mods: how many stop the game — the attention
+  // item's own count — or null while the page pre-flight has not answered (`problemCount` null,
+  // the same «—» the Mods card shows). Never «Ready to play» beside «N mods will stop the game».
+  const pillBlockingMods = $derived(problemCount === null ? null : blockingModsCount);
+
   const attentionItems = $derived(
     activeInstance
       ? buildAttentionItems({
           mcVersionMissing: activeInstance.mc_version === '',
           missingModsCount,
+          blockingModsCount,
           incompatibleCount,
           integrityProblemCount,
           hasModpackUpdate: modpackUpdates.hasUpdate(activeInstance.id),
@@ -151,7 +170,8 @@
   function onAttention(kind: AttentionKind) {
     if (kind === 'log_issue' || kind === 'log_fix') onOpenLogs();
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
-    else if (kind === 'incompatible') onNavInstalled('incompatible');
+    // Both levels of the one problem view (spec §6.2).
+    else if (kind === 'mods_blocking' || kind === 'incompatible') onNavInstalled('issues');
     // The dependency panel and «Перепроверить зависимости» both live on the
     // Installed tab, and opening it re-attempts the pre-flight.
     else if (kind === 'preflight_unknown') onNavInstalled();
@@ -199,6 +219,8 @@
       instance={activeInstance}
       {running}
       {installing}
+      blockingMods={pillBlockingMods}
+      {modsCheckError}
       {attentionCollapsed}
       attentionCount={attentionItems.length}
       onShowAttention={() =>
@@ -321,6 +343,33 @@
             <span
               >{$t('page.overview.statsDisabled')}
               <span class="font-medium text-secondary">{installedStats.disabled}</span></span
+            >
+          </button>
+          <!-- Problems and updates (spec §6.2): the one problem model's count —
+               red while a mod stops the game, amber for «may not work» — and the
+               persisted update check. "—" is "not known yet", never a reassuring
+               0. Opens the Issues view only when there is something in it. -->
+          <button
+            type="button"
+            class="card-zone px-3.5 pb-2 flex gap-4 text-sm"
+            data-testid="overview-mods-health"
+            onclick={() => onNavInstalled((problemCount ?? 0) > 0 ? 'issues' : undefined)}
+          >
+            <span
+              >{$t('page.overview.statsProblems')}
+              <span
+                class="font-medium {(problemCount ?? 0) === 0
+                  ? 'text-secondary'
+                  : blockingModsCount > 0
+                    ? 'text-danger'
+                    : 'text-warning-text'}">{problemCount ?? '—'}</span
+              ></span
+            >
+            <span
+              >{$t('page.overview.statsUpdates')}
+              <span class="font-medium {updateCount ? 'text-warning-text' : 'text-secondary'}"
+                >{updateCount ?? '—'}</span
+              ></span
             >
           </button>
         {/if}

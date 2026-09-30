@@ -2,6 +2,8 @@
   import { mcVersions } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import { useLayer } from '$lib/ui/layer-stack.svelte';
+  import { attachPopoverDismiss } from '$lib/ui/popover-dismiss';
+  import { computePopoverPlacement } from '$lib/ui/select-placement';
 
   // A combobox over the Minecraft version list: text input that opens a
   // filtered dropdown below it. Lives in $lib/mods because the only two
@@ -138,9 +140,58 @@
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
   });
+
+  // The list is placed as Select's is (select-placement.ts): position:fixed, under the input — or
+  // over it when the room below is short — as tall as the room allows, and kept inside the window
+  // by its own width. As `absolute` it hung 16 px past the input's right edge, 4 px past the
+  // launcher's 820 px window, and the scroll container cut its border off (plan §5e).
+  const LIST_MAX_HEIGHT = 240; // the old max-h-60
+  const GAP = 4; // the old mt-1
+  const MARGIN = 8;
+  let listTop = $state(0);
+  let listLeft = $state(0);
+  let listMaxHeight = $state(LIST_MAX_HEIGHT);
+  let flipUp = $state(false);
+  const listStyle = $derived(
+    (flipUp ? `bottom: ${window.innerHeight - listTop}px;` : `top: ${listTop}px;`) +
+      ` left: ${listLeft}px; max-height: ${listMaxHeight}px;`,
+  );
+
+  function placeList(listWidth: number) {
+    if (!inputEl) return;
+    const r = inputEl.getBoundingClientRect();
+    const p = computePopoverPlacement(
+      { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
+      { width: window.innerWidth, height: window.innerHeight },
+      { gap: GAP, margin: MARGIN, maxHeight: LIST_MAX_HEIGHT, popoverWidth: listWidth },
+    );
+    flipUp = p.flipUp;
+    listTop = p.top;
+    listLeft = p.left;
+    listMaxHeight = p.maxHeight;
+  }
+
+  // Placed once it has been laid out, its width known — in the same flush, before the frame is
+  // painted (Select and Menu do the same).
+  $effect(() => {
+    if (open && listEl) placeList(listEl.offsetWidth);
+  });
+
+  // Fixed, it does not follow the input when the page scrolls or the window resizes: it closes.
+  // Scrolling the list itself does not.
+  $effect(() => {
+    if (!open) return;
+    return attachPopoverDismiss({
+      onDismiss: () => {
+        open = false;
+        activeIndex = -1;
+      },
+      ignoreScrollWithin: () => listEl,
+    });
+  });
 </script>
 
-<div class="relative">
+<div>
   <input
     bind:this={inputEl}
     {id}
@@ -174,7 +225,8 @@
       id={listboxId}
       bind:this={listEl}
       role="listbox"
-      class="absolute z-[var(--z-popover)] mt-1 w-32 max-h-60 overflow-y-auto bg-surface border border-border-subtle rounded shadow"
+      class="fixed z-[var(--z-popover)] w-32 overflow-y-auto bg-surface border border-border-subtle rounded shadow"
+      style={listStyle}
     >
       <button
         type="button"

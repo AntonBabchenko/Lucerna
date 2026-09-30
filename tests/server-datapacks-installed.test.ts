@@ -3,6 +3,7 @@
 // mounted directly: ServerAddonsTab, its only host, is stubbed out in
 // tests/server-addons-tab.test.ts.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerDatapackEntry } from '$lib/ipc/bindings';
 
@@ -102,6 +103,24 @@ describe('ServerDatapacksInstalled', () => {
     expect(alert.textContent).toContain('C:/srv/world/datapacks');
     expect(screen.queryByRole('button', { name: 'Remove data pack' })).toBeNull();
     expect(screen.queryByText(/no data packs/i)).toBeNull();
+  });
+
+  // The dropzone rule (DESIGN.md §14): an empty world holds the host's full drop area and says so
+  // — the host hides its strip meanwhile.
+  it('reports an empty list to its host and renders the host’s drop area in it', async () => {
+    listing('present', []);
+    const onEmptyChange = vi.fn();
+    const emptyDropzone = createRawSnippet(() => ({
+      render: () => '<div data-testid="host-dropzone"></div>',
+    }));
+    render(ServerDatapacksInstalled, {
+      props: { serverId: 's1', mcVersion: '1.21.1', emptyDropzone, onEmptyChange },
+    });
+    expect(await screen.findByTestId('host-dropzone')).toBeTruthy();
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('host-dropzone'))).toBe(
+      true,
+    );
+    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
   });
 });
 

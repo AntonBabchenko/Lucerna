@@ -4,7 +4,11 @@
   // to ToggleChip via the shared toggleChipClass() helper. For multi-select use
   // bare ToggleChip[] instead.
   import { Icon, type IconName } from '$lib/ui/icons';
-  import { toggleChipClass, type ToggleChipTone } from '$lib/ui/ToggleChip.svelte';
+  import {
+    chipAttentionClass,
+    toggleChipClass,
+    type ToggleChipTone,
+  } from '$lib/ui/ToggleChip.svelte';
   import { nextRovingIndex } from '$lib/ui/roving';
 
   type Option = {
@@ -14,17 +18,23 @@
     icon?: IconName;
     count?: number;
     testId?: string;
+    /** Not chosen, it keeps its tone on its icon and count (a problem that exists right now). */
+    attention?: boolean;
   };
   let {
     options,
     value,
     onChange,
     ariaLabel,
+    wrap = true,
   }: {
     options: Option[];
     value: string;
     onChange: (v: string) => void;
     ariaLabel: string;
+    /** False: one line whose chips never shrink or break — for a host that scrolls it sideways
+     *  (`use:scrollRow`, DESIGN.md §6). */
+    wrap?: boolean;
   } = $props();
 
   let btnEls = $state<(HTMLButtonElement | null)[]>([]);
@@ -48,10 +58,11 @@
   role="radiogroup"
   aria-label={ariaLabel}
   onkeydown={onKeydown}
-  class="inline-flex flex-wrap items-center gap-2"
+  class="inline-flex items-center gap-2 {wrap ? 'flex-wrap' : 'shrink-0 flex-nowrap'}"
 >
   {#each options as option, i (option.value)}
     {@const active = value === option.value}
+    {@const tint = !active && option.attention ? chipAttentionClass(option.tone) : ''}
     <button
       bind:this={btnEls[i]}
       type="button"
@@ -59,12 +70,12 @@
       aria-checked={active}
       tabindex={active || (i === 0 && !options.some((o) => o.value === value)) ? 0 : -1}
       data-testid={option.testId}
-      class={toggleChipClass(active, option.tone)}
+      class="{toggleChipClass(active, option.tone)}{wrap ? '' : ' shrink-0 whitespace-nowrap'}"
       onclick={() => onChange(option.value)}
     >
-      {#if option.icon}<Icon name={option.icon} size={14} />{/if}
+      {#if option.icon}<Icon name={option.icon} size={14} class={tint} />{/if}
       <span>{option.label}</span>
-      {#if option.count !== undefined}<span class="opacity-70">{option.count}</span>{/if}
+      {#if option.count !== undefined}<span class={tint || 'opacity-70'}>{option.count}</span>{/if}
     </button>
   {/each}
 </div>

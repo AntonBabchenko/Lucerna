@@ -180,11 +180,25 @@ describe('Sidebar — instance section buttons', () => {
     expect(btn).toHaveBtnSize('xs');
   });
 
-  it('Mods is btn-secondary btn-xs', () => {
+  it('Mods folder is btn-secondary btn-xs', () => {
     render(Sidebar, { props: baseProps });
-    const btn = screen.getByRole('button', { name: /mods$/i });
+    const btn = screen.getByRole('button', { name: /^mods folder$/i });
     expect(btn).toHaveBtnVariant('secondary');
     expect(btn).toHaveBtnSize('xs');
+  });
+
+  // Plan §5b V2: «Папка модов» wrapped onto two lines beside «Управление» at the sidebar's width.
+  // Neither label breaks inside itself: when the pair does not fit on one line (Russian), each
+  // button takes a line of its own; when it does (English), they share one.
+  it('Manage and Mods folder keep their labels whole; the pair wraps whole buttons', () => {
+    render(Sidebar, { props: baseProps });
+    const manage = screen.getByRole('button', { name: /manage/i });
+    const mods = screen.getByRole('button', { name: /^mods folder$/i });
+    for (const b of [manage, mods]) expect(b.className).toContain('whitespace-nowrap');
+    // Each sits in its ContextMenu's `display: contents` wrapper, inside the pair.
+    const pair = manage.parentElement?.parentElement;
+    expect(pair?.contains(mods)).toBe(true);
+    expect(pair?.className).toContain('flex-wrap');
   });
 });
 

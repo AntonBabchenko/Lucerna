@@ -39,7 +39,12 @@ describe('WorldsTab import', () => {
     const toasts = await import('$lib/toasts/toasts.svelte');
     const onListChanged = vi.fn();
 
-    const { findByTestId } = render(WorldsTab, { props: { instanceId: 'i1', onListChanged } });
+    const { findByTestId, findByText } = render(WorldsTab, {
+      props: { instanceId: 'i1', onListChanged },
+    });
+    // The list settles first: an empty one swaps the strip for its full drop area, which is then
+    // the only one.
+    await findByText(/No worlds yet/);
     const dropzone = await findByTestId('file-dropzone');
     await fireEvent.click(dropzone);
 
