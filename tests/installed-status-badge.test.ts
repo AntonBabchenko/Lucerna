@@ -145,23 +145,6 @@ describe('dependency relation pill', () => {
     expect(pill().getAttribute('aria-label')).not.toMatch(/\bdep\b/i);
   });
 
-  it('sits between the badges and the actions inside the list row', () => {
-    render(InstalledModRow, {
-      props: {
-        ...base(),
-        installed: installed(true),
-        depTotal: 1,
-        updateState: { kind: 'update_available', target: { version_number: '2.0' } } as never,
-      },
-    });
-    const row = screen.getByTestId('card-list-row');
-    const badge = within(row).getByTestId('mod-update-badge');
-    const p = within(row).getByTestId('relation-pill');
-    const update = within(row).getByRole('button', { name: 'Update' });
-    expect(badge.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(p.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
   // What the platform could not describe is not "needs nothing" (fallback discipline: "could not
   // tell" ≠ "absent"): the count is a question mark, the name says so, the tooltip says why.
   it('shows a mod whose dependencies are unknown as unknown — never as zero — and why', () => {

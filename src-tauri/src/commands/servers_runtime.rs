@@ -1964,14 +1964,17 @@ async fn provision_loader(
             create::create_fabric_server(base, file, &url).await?;
         }
         ServerCore::Quilt => {
-            let installer = create::latest_quilt_installer(&file.mc_version).await?;
+            // Quilt publishes no prebuilt server jar (its meta serves
+            // profile/json and server/json only), so the server is assembled
+            // from its server profile plus the vanilla jar. Both are resolved
+            // before anything touches disk.
             let lv = create::require_loader_version(file, "quilt")?;
-            let url = crate::servers_runtime::jar::quilt_server_jar_url(
-                &file.mc_version,
-                &lv,
-                &installer,
-            );
-            create::create_quilt_server(base, file, &url).await?;
+            let json =
+                crate::versions::loaders::quilt::server_profile(&file.mc_version, &lv).await?;
+            let profile =
+                crate::servers_runtime::quilt::parse_server_profile(json, &file.mc_version)?;
+            let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
+            create::create_quilt_server(base, file, &profile, &jar_url, &sha1).await?;
         }
         ServerCore::Forge | ServerCore::NeoForge => {
             let lv = create::require_loader_version(file, "forge/neoforge")?;
@@ -1989,6 +1992,29 @@ async fn provision_loader(
             crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
             let java_bin = crate::jre::java_executable_path(&component, app)?;
             create::create_installer_server(base, file, &bytes, &java_bin, label).await?;
+            // The install must leave one install Lucerna can start. Say so
+            // here, where it happened, not on the first Start. A re-download
+            // (`server_redownload_jar`) installs into an existing runtime, so
+            // another install already there is reported as such.
+            use crate::servers_runtime::installed_loader::{self, ArgsOs, ForgeInstall};
+            let runtime = crate::paths::server_paths(base, &file.id).runtime;
+            match installed_loader::resolve_forge_family(&runtime, flavor, ArgsOs::current()) {
+                ForgeInstall::Found(_) => {}
+                ForgeInstall::Ambiguous { candidates } => {
+                    return Err(Error::ServerLoaderAmbiguous {
+                        loader: installed_loader::flavor_name(flavor).into(),
+                        candidates,
+                    });
+                }
+                ForgeInstall::Absent => {
+                    return Err(Error::ServerInstallerFailed {
+                        loader: label.to_string(),
+                        details: "the installer finished but left no launch file Lucerna \
+                                  recognises"
+                            .into(),
+                    });
+                }
+            }
         }
         ServerCore::Paper => {
             let jar = crate::servers_runtime::paper::PaperClient::new()

@@ -74,7 +74,7 @@ async fn create_prebuilt_server_with(
     Ok(())
 }
 
-/// `sha1` = "" означает пропустить SHA-верификацию (Fabric/Quilt не предоставляют).
+/// `sha1` = "" означает пропустить SHA-верификацию (Fabric её не предоставляет).
 async fn create_prebuilt_server(
     base: &Path,
     file: &ServerFile,
@@ -122,16 +122,57 @@ pub async fn create_vanilla_server(
     create_prebuilt_server(base, file, jar_url, sha1).await
 }
 
-// ---------------------------------------------------------------- Fabric / Quilt
+// ---------------------------------------------------------------- Fabric
 
 /// Fabric: server-launcher jar готов с meta-эндпоинта (sha не предоставляется → "").
 pub async fn create_fabric_server(base: &Path, file: &ServerFile, jar_url: &str) -> Result<()> {
     create_prebuilt_server(base, file, jar_url, "").await
 }
 
-/// Quilt: идентично Fabric, другой URL.
-pub async fn create_quilt_server(base: &Path, file: &ServerFile, jar_url: &str) -> Result<()> {
-    create_prebuilt_server(base, file, jar_url, "").await
+// ---------------------------------------------------------------- Quilt
+
+/// Quilt: no prebuilt server jar exists, so assemble Quilt's own layout (see
+/// `servers_runtime::quilt`) from its validated server `profile` and the
+/// vanilla jar (`server_url` + `server_sha1`, from `resolve_vanilla_jar`) —
+/// both resolved by the caller before anything touches disk.
+///
+/// Order matters: libraries, then the SHA-1-verified vanilla `server.jar`,
+/// then the launcher (properties + launch jar, the launch jar last). A
+/// failure at any step leaves no launch jar, so a half-built server refuses
+/// to start instead of starting wrong.
+pub async fn create_quilt_server(
+    base: &Path,
+    file: &ServerFile,
+    profile: &crate::servers_runtime::quilt::QuiltServerProfile,
+    server_url: &str,
+    server_sha1: &str,
+) -> Result<()> {
+    crate::servers_runtime::eula::require_accepted(file.eula_accepted)?;
+    if server_sha1.is_empty() {
+        // An empty digest would skip verification of Mojang's jar, which is
+        // never exempt (PRINCIPLES.md Part B 6).
+        return Err(Error::ServerJarUnavailable {
+            loader: "quilt".into(),
+            mc_version: file.mc_version.clone(),
+            reason: "the Minecraft server jar has no published SHA-1".into(),
+        });
+    }
+    let p = crate::paths::server_paths(base, &file.id);
+    std::fs::create_dir_all(&p.runtime)
+        .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
+    crate::servers_runtime::store::write_server_json(&p.json, file)?;
+    crate::servers_runtime::quilt::download_libraries(&p.runtime, profile).await?;
+    crate::network::download::download_no_emit_with(
+        server_url,
+        &p.runtime.join("server.jar"),
+        crate::network::download::Checksum::Sha1(server_sha1.to_string()),
+        "servers",
+    )
+    .await?;
+    crate::servers_runtime::quilt::write_launcher(&p.runtime, profile).await?;
+    seed_server_properties(&p.runtime, &file.name);
+    crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------- installer version fetchers
@@ -164,15 +205,6 @@ pub async fn latest_fabric_installer(mc_version: &str) -> Result<String> {
     latest_installer(
         "https://meta.fabricmc.net/v2/versions/installer",
         "fabric",
-        mc_version,
-    )
-    .await
-}
-
-pub async fn latest_quilt_installer(mc_version: &str) -> Result<String> {
-    latest_installer(
-        "https://meta.quiltmc.org/v3/versions/installer",
-        "quilt",
         mc_version,
     )
     .await

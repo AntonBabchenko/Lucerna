@@ -2645,6 +2645,7 @@
     "serverJarUnavailable": "Could not find a server download for {loader} {mcVersion}",
     "serverInstallerFailed": "The {loader} server installer failed",
     "serverSpawnFailed": "Failed to start the server process",
+    "serverLoaderAmbiguous": "This server folder has several {loader} installs, and nothing says which one it uses: {candidates}. Remove the ones you don't need, then start it again.",
     "serverAlreadyRunning": "This server is already running",
     "serverNotRunning": "This server is not running",
     "serverModRequiredByOther": "Can't remove {filename} — {requiredBy} needs it. Remove that mod too, or keep this one.",
