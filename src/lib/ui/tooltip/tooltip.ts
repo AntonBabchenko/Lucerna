@@ -98,8 +98,12 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
     return !node.hasAttribute('aria-label');
   };
 
+  // Showings so far: a blur's deferred hide (below) is cancelled by one that came after it.
+  let shows = 0;
+
   function open(immediate: boolean) {
     if (!opts || !shouldShow()) return;
+    shows += 1;
     const text = opts.clippedText !== null && isClipped() ? opts.clippedText : opts.text;
     showTooltip(node.getBoundingClientRect(), text, {
       placement: opts.placement,
@@ -120,7 +124,18 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
     if (!isFocusVisible()) return;
     open(true);
   };
-  const onBlur = () => close();
+  // `focusout` also fires when the focused node is REMOVED — synchronously, inside the Svelte block
+  // that removes it (a toast's ×, any {#if}), where writing the tooltip's $state throws
+  // `state_unsafe_mutation` (plan §5e). So a blur hides one microtask later, past that batch — the
+  // Svelte 5 destroy-phase rule — unless the tooltip was shown again meanwhile: focus came back,
+  // or moved between two controls inside a wrapper trigger. Every other hide (pointer leave,
+  // update, destroy) runs outside a block and stays immediate.
+  const onBlur = () => {
+    const seen = shows;
+    queueMicrotask(() => {
+      if (shows === seen) close();
+    });
+  };
 
   node.addEventListener('mouseenter', onEnter);
   node.addEventListener('mouseleave', onLeave);

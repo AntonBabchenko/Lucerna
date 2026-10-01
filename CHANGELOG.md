@@ -56,6 +56,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   pack explanation moved up into the same row, so it is there while you
   browse too, and it now says when a data pack is the better choice over a
   mod.
+- **Forge servers for Minecraft before 1.17 can be started.** Creating one
+  used to install it and then fail at the first start, because Lucerna only
+  knew how newer Forge versions are started. An older Forge server now starts
+  from the Forge server file in its folder, and if a file it needs is
+  missing, the message names it.
 
 ### Changed
 
@@ -114,6 +119,30 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Quilt servers can be created.** Creating a server on Quilt always failed
+  with a download error: Lucerna asked Quilt for a ready-made server file that
+  Quilt has never published. Lucerna now puts the Quilt server together itself,
+  the way Quilt's own installer does. The same fix covers re-downloading a
+  Quilt server's files and importing a Quilt server whose loader has to be
+  reinstalled. An imported Quilt server that would have started as plain
+  Minecraft, without Quilt and its mods, now says so instead of starting.
+- **Importing an older Forge server no longer turns it into a Vanilla
+  server.** A Forge server for Minecraft 1.7.10, for example, came in as
+  Vanilla, so it would have run without its mods. It is now recognised as
+  Forge, with its Minecraft version and Forge build.
+- **Server import fills in the version a server actually runs.** Updating a
+  server in place leaves the older version's files behind, and the import
+  could pick the older Minecraft or loader version: 1.21.9 for a server on
+  1.21.10, for example. It now reads what the server starts: its start
+  script, or the Fabric launcher's own record. Fabric servers for Minecraft
+  26.1 and later, which the import could only date from a log, now come in
+  with their version too. When the version cannot be told, the field stays
+  empty.
+- **A server with several Forge or NeoForge versions installed no longer
+  starts the oldest one.** Lucerna started whichever version folder came
+  first, usually the oldest. It now starts the one the server's start script
+  names; when nothing names one, it stops and lists the folders so you can
+  remove the ones you don't need.
 - **Updating a mod no longer installs a second copy of a library you already
   have.** An update used to install every library the new version needs, even
   one already there: a different version landed next to yours and the game
@@ -194,6 +223,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Tooltips keep their own width.** A tooltip shown right after one near the
   right edge of the window took the width left there and wrapped its text into
   a narrow column.
+- **A list opened by the window's right edge stays inside the window.** In a
+  narrow window, the list of sort orders for installed mods and the list of
+  Minecraft versions in the mod browser opened partly past the edge.
+- **The page switcher fits the launcher's default window.** Under a long list
+  of mods or modpacks, the choice of how many to show on a page sat past the
+  window's right edge. In a narrow window the buttons for the first, previous,
+  next and last page now show only their arrows, with their names in a
+  tooltip.
 - **Importing from another launcher no longer fills in a wrong Minecraft
   version or Forge build.** The import took a version from any text that
   looked like one: a `.minecraft` whose last played profile was Forge offered
@@ -203,6 +240,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   in as Minecraft `9999.0`, the version of an unrelated library. The version
   now comes only from where a profile actually records it; when it cannot be
   told, the field stays empty for you to fill in.
+- **Mod version requirements are read correctly for Minecraft 26.** Many mods put
+  the Minecraft version in front of their own, like `26.1.2-5.1.3`. When another
+  mod's requirement named a shorter Minecraft version, like `26.1`, the dependency
+  check and the version list compared the wrong parts and could call a new enough
+  mod too old, or a too new one fine. They now compare the mod's own version when
+  the requirement names that Minecraft version. A requirement written for a
+  different Minecraft version is judged by the Minecraft version, the way the game
+  does, instead of by the mod's own number.
 
 ## [0.25.0] — 2026-09-27
 

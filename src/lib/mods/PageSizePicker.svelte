@@ -18,7 +18,8 @@
   }));
 </script>
 
-<span class="inline-flex items-center gap-2 text-sm">
+<!-- One unit that never breaks inside: «На странице:» wrapped onto two lines in a narrow window. -->
+<span class="inline-flex items-center gap-2 text-sm whitespace-nowrap">
   <span class="text-muted">{$t('mods.pageSize.perPage')}</span>
   <SegmentedControl
     {options}

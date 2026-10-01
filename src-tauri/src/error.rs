@@ -598,6 +598,15 @@ pub enum Error {
     #[error("server process spawn failed: {details}")]
     ServerSpawnFailed { details: String },
 
+    /// Several installs of the server's loader, and nothing (a run script,
+    /// a single launchable candidate) names the one the server runs.
+    /// `candidates` are paths relative to the server folder.
+    #[error("cannot tell which {loader} install the server runs: {candidates:?}")]
+    ServerLoaderAmbiguous {
+        loader: String,
+        candidates: Vec<String>,
+    },
+
     /// The server is already running.
     #[error("server already running: {id}")]
     ServerAlreadyRunning { id: String },

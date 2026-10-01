@@ -149,7 +149,7 @@ describe('JournalPanel', () => {
     revealTooltip(subject);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe(long);
-    dismissTooltip(subject);
+    await dismissTooltip(subject);
 
     Object.defineProperty(subject, 'scrollWidth', { value: 120, configurable: true });
     revealTooltip(subject);
