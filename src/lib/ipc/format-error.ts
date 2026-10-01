@@ -136,6 +136,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   unknown_version: 'clean',
   unsupported_platform: 'clean',
   loader_unavailable: 'clean',
+  loader_builds_not_offered: 'clean',
+  loader_versions_unreadable: 'clean',
   last_instance: 'clean',
   no_version_selected: 'clean',
   instance_not_found: 'clean',
@@ -531,6 +533,16 @@ export function formatError(e: IpcError): string {
       return translate('errors.unsupportedPlatform', { os: e.os, arch: e.arch });
     case 'loader_unavailable':
       return translate('errors.loaderUnavailable', {
+        loader: displayLoader(e.loader as LoaderKind),
+        mcVersion: e.mc_version,
+      });
+    case 'loader_builds_not_offered':
+      return translate('errors.loaderBuildsNotOffered', {
+        loader: displayLoader(e.loader as LoaderKind),
+        mcVersion: e.mc_version,
+      });
+    case 'loader_versions_unreadable':
+      return translate('errors.loaderVersionsUnreadable', {
         loader: displayLoader(e.loader as LoaderKind),
         mcVersion: e.mc_version,
       });

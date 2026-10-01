@@ -141,6 +141,14 @@ pub enum Error {
     #[error("{loader} does not support Minecraft {mc_version}")]
     LoaderUnavailable { loader: String, mc_version: String },
 
+    #[error(
+        "Lucerna does not install {loader} builds for Minecraft snapshots such as {mc_version}"
+    )]
+    LoaderBuildsNotOffered { loader: String, mc_version: String },
+
+    #[error("Could not read the {loader} version list for Minecraft {mc_version}: it contains versions Lucerna does not recognise")]
+    LoaderVersionsUnreadable { loader: String, mc_version: String },
+
     #[error("Unsupported platform: {os}/{arch}")]
     UnsupportedPlatform { os: String, arch: String },
 
@@ -1114,6 +1122,36 @@ mod tests {
         );
         assert!(json.contains(r#""loader":"fabric""#), "got: {json}");
         assert!(json.contains(r#""mc_version":"1.6.4""#), "got: {json}");
+    }
+
+    #[test]
+    fn loader_list_gap_errors_serialize_with_tags() {
+        let e = Error::LoaderBuildsNotOffered {
+            loader: "neoforge".into(),
+            mc_version: "26.1-snapshot-1".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"loader_builds_not_offered""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
+        assert!(
+            json.contains(r#""mc_version":"26.1-snapshot-1""#),
+            "got: {json}"
+        );
+
+        let e = Error::LoaderVersionsUnreadable {
+            loader: "neoforge".into(),
+            mc_version: "26.4".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"loader_versions_unreadable""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
+        assert!(json.contains(r#""mc_version":"26.4""#), "got: {json}");
     }
 
     #[test]

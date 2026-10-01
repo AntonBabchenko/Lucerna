@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
@@ -168,5 +168,29 @@ describe('create-instance form — memory picker', () => {
     await fireEvent.click(screen.getByRole('button', { name: '+ New instance' }));
 
     expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('6144');
+  });
+});
+
+describe('create-instance form — loader footer', () => {
+  beforeAll(() => locale.set('en'));
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockLoad.mockResolvedValue(RAM_16GB);
+  });
+  afterEach(() => {
+    m.listNeoforgeLoaders.mockResolvedValue({ status: 'ok', data: [] });
+  });
+
+  it('does not claim the loader lacks support when its version list failed to load', async () => {
+    m.listNeoforgeLoaders.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'network', url: 'https://maven.neoforged.net', details: 'offline' },
+    });
+    renderModal();
+    await openCreateForm();
+    await fireEvent.click(screen.getByRole('button', { name: 'NeoForge' }));
+
+    await waitFor(() => expect(screen.getByText('Choose a NeoForge version first')).toBeTruthy());
+    expect(screen.queryByText(/does not support Minecraft/)).toBeNull();
   });
 });

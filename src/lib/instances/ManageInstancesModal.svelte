@@ -403,10 +403,11 @@
     if (!createMode) return '';
     if (!draftName.trim()) return get(t)('instance.error.nameRequired');
     if (!draftMc) return get(t)('instance.error.pickMcFirst');
+    // Neutral on purpose: the picker's own alert beside this names the cause
+    // (no build, network, snapshot-only builds, an unreadable list).
     if (draftLoader !== 'vanilla' && !draftLoaderVersion)
-      return get(t)('instance.error.loaderNoSupport', {
+      return get(t)('instance.error.loaderVersionRequired', {
         loader: displayLoader(draftLoader),
-        mc: draftMc,
       });
     return '';
   });
@@ -479,9 +480,8 @@
       // Belt-and-braces: the Create button is also disabled in this
       // state via createDisabledReason. This branch catches the
       // in-flight race where load() hasn't resolved yet.
-      modalError = get(t)('instance.error.loaderNoSupport', {
+      modalError = get(t)('instance.error.loaderVersionRequired', {
         loader: displayLoader(draftLoader),
-        mc: draftMc,
       });
       return;
     }

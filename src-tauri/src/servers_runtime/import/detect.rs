@@ -213,12 +213,45 @@ fn dir_versions(root: &Path, flavor: ForgeFlavor, dir: &str) -> (Option<String>,
     }
 }
 
-/// Minecraft version of the NeoForge install in `version_dir`. One function
-/// on purpose: the NeoForge 26.x work (`fix/neoforge-26x-loader-list`)
-/// replaces its body with the args-file / `forge::meta::neoforge_mc_for`
-/// chain.
+/// Minecraft version of the NeoForge install in `version_dir`: the
+/// installer's own `--fml.mcVersion`, then the shared NeoForge numbering rule,
+/// then a log from an earlier run.
 fn neoforge_mc(root: &Path, version_dir: &str) -> Option<String> {
-    neoforge_mc_version(version_dir).or_else(|| mc_from_logs(root))
+    let dir = root
+        .join("libraries/net/neoforged/neoforge")
+        .join(version_dir);
+    mc_from_args_files(&dir)
+        .or_else(|| neoforge_mc_from_version(version_dir))
+        .or_else(|| mc_from_logs(root))
+}
+
+/// `--fml.mcVersion <id>` from the args files the NeoForge installer writes
+/// into the version dir (`win_args.txt`, then `unix_args.txt`). This is the
+/// installer's own answer, so it wins over reading the version number.
+fn mc_from_args_files(version_dir: &Path) -> Option<String> {
+    ["win_args.txt", "unix_args.txt"]
+        .into_iter()
+        .find_map(|name| {
+            // Absent or unreadable: this file says nothing; the next source may.
+            let text = installed_loader::read_text(&version_dir.join(name))
+                .ok()
+                .flatten()?;
+            let mut tokens = text.split_whitespace();
+            tokens.find(|t| *t == "--fml.mcVersion")?;
+            tokens.next().map(str::to_string)
+        })
+}
+
+/// The Minecraft version a NeoForge version number is for, by the shared rule
+/// in `forge::meta`. A server is what it is whether or not Lucerna offers that
+/// build, so a not-offered build's id counts. A shape the rule does not know
+/// is `None`, never a guess.
+fn neoforge_mc_from_version(v: &str) -> Option<String> {
+    use crate::forge::meta::{neoforge_mc_for, NeoForgeMc};
+    match neoforge_mc_for(v) {
+        NeoForgeMc::Minecraft(id) | NeoForgeMc::NotOffered(id) => Some(id),
+        NeoForgeMc::Unrecognized => None,
+    }
 }
 
 /// Fabric or Quilt, versions from the launcher's own records first.
@@ -248,19 +281,6 @@ fn unknown_loader(root: &Path) -> Detected {
         mc_version: mc_from_logs(root),
         loader_version: None,
     }
-}
-
-/// NeoForge `<a>.<b>.<c>` → MC `1.<a>.<b>` (b==0 → `1.<a>`). e.g. 20.4.237 →
-/// 1.20.4; 21.0.x → 1.21; 21.1.x → 1.21.1.
-fn neoforge_mc_version(v: &str) -> Option<String> {
-    let mut it = v.split('.');
-    let a: u32 = it.next()?.parse().ok()?;
-    let b: u32 = it.next()?.parse().ok()?;
-    Some(if b == 0 {
-        format!("1.{a}")
-    } else {
-        format!("1.{a}.{b}")
-    })
 }
 
 fn fabric_marker(root: &Path) -> bool {
@@ -526,6 +546,63 @@ mod tests {
         assert_eq!(r.loader_version.as_deref(), Some("20.4.237"));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
         assert!(can_launch_as_is(d.path(), ServerCore::NeoForge));
+    }
+
+    fn write(p: &Path, text: &str) {
+        if let Some(d) = p.parent() {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(p, text).unwrap();
+    }
+
+    #[test]
+    fn neoforge_mc_comes_from_the_installer_args_file_first() {
+        // The version dir's shape is unknown to the mapping; the installer's
+        // own `--fml.mcVersion` still answers.
+        let d = tempdir().unwrap();
+        write(
+            &d.path()
+                .join("libraries/net/neoforged/neoforge/27.1.0.0.0/unix_args.txt"),
+            "-p libraries/a.jar\n--fml.neoForgeVersion 27.1.0.0.0\n--fml.mcVersion 27.1\n",
+        );
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::NeoForge));
+        assert_eq!(r.mc_version.as_deref(), Some("27.1"));
+        assert_eq!(r.loader_version.as_deref(), Some("27.1.0.0.0"));
+    }
+
+    #[test]
+    fn neoforge_mc_from_the_version_number_when_no_args_file_says() {
+        for (dir, mc) in [
+            ("26.2.0.59", "26.2"),
+            ("21.0.167", "1.21"),
+            ("0.25w14craftmine.5-beta", "25w14craftmine"),
+        ] {
+            let d = tempdir().unwrap();
+            touch(&d.path().join(format!(
+                "libraries/net/neoforged/neoforge/{dir}/win_args.txt"
+            )));
+            let r = detect(d.path());
+            assert_eq!(r.mc_version.as_deref(), Some(mc), "{dir}");
+        }
+    }
+
+    #[test]
+    fn neoforge_mc_falls_back_to_the_server_log_then_to_none() {
+        let d = tempdir().unwrap();
+        touch(
+            &d.path()
+                .join("libraries/net/neoforged/neoforge/27.1.0.0.0/win_args.txt"),
+        );
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::NeoForge));
+        assert_eq!(r.mc_version, None, "an unknown number is not guessed at");
+
+        write(
+            &d.path().join("logs/latest.log"),
+            "[12:00:00] [main/INFO]: Starting minecraft server version 27.1\n",
+        );
+        assert_eq!(detect(d.path()).mc_version.as_deref(), Some("27.1"));
     }
 
     #[test]
