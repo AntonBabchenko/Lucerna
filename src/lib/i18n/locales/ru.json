@@ -2539,7 +2539,7 @@
     "unknownVersion": "Версия {id} не найдена в манифесте",
     "unsupportedPlatform": "Неподдерживаемая платформа: {os}/{arch}",
     "loaderUnavailable": "{loader} не поддерживает Minecraft {mcVersion}",
-    "loaderBuildsNotOffered": "Lucerna не устанавливает сборки {loader} для снапшотов Minecraft, в том числе для {mcVersion}",
+    "loaderBuildsNotOffered": "Lucerna не устанавливает версии {loader} для снапшотов Minecraft, в том числе для {mcVersion}",
     "loaderVersionsUnreadable": "Lucerna не смогла разобрать список версий {loader} для Minecraft {mcVersion}: в нём есть номера версий, которые ей незнакомы",
     "lastInstance": "Нельзя удалить последний профиль — должен оставаться хотя бы один",
     "noVersionSelected": "Сначала выберите версию Minecraft",
