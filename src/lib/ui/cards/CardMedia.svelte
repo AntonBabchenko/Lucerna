@@ -26,6 +26,7 @@
        fetches on every page/filter change — let below-fold ones wait.
        The box is CSS-fixed, so lazy-loading causes no layout shift. -->
   <img
+    data-card-media
     src={iconUrl}
     alt=""
     loading="lazy"
@@ -34,6 +35,7 @@
   />
 {:else}
   <div
+    data-card-media
     class={`${BOX[size]} rounded bg-subtle flex items-center justify-center text-placeholder flex-shrink-0`}
     aria-hidden="true"
   >
