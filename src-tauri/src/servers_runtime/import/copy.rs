@@ -95,7 +95,14 @@ pub const SKIP_PRESERVE: &[&str] = &["logs", "server.json", "server.json.tmp", "
 
 /// Скопировать `src` → `runtime`, пропуская топ-левел скип-сет, с дефолтными капами.
 pub fn copy_into_runtime(src: &Path, runtime: &Path) -> Result<()> {
-    copy_into_runtime_with_skip(src, runtime, SKIP_TOP_LEVEL, PER_FILE_CAP, AGGREGATE_CAP)
+    copy_into_runtime_with_skip(
+        src,
+        runtime,
+        SKIP_TOP_LEVEL,
+        is_loader_launch_jar,
+        PER_FILE_CAP,
+        AGGREGATE_CAP,
+    )
 }
 
 pub fn copy_into_runtime_capped(
@@ -104,18 +111,57 @@ pub fn copy_into_runtime_capped(
     per_file_cap: u64,
     aggregate_cap: u64,
 ) -> Result<()> {
-    copy_into_runtime_with_skip(src, runtime, SKIP_TOP_LEVEL, per_file_cap, aggregate_cap)
+    copy_into_runtime_with_skip(
+        src,
+        runtime,
+        SKIP_TOP_LEVEL,
+        is_loader_launch_jar,
+        per_file_cap,
+        aggregate_cap,
+    )
 }
 
 /// Copy `src` → `runtime`, preserving loader binaries (PRESERVE path).
 pub fn copy_into_runtime_preserving(src: &Path, runtime: &Path) -> Result<()> {
-    copy_into_runtime_with_skip(src, runtime, SKIP_PRESERVE, PER_FILE_CAP, AGGREGATE_CAP)
+    copy_into_runtime_with_skip(
+        src,
+        runtime,
+        SKIP_PRESERVE,
+        keep_every_file,
+        PER_FILE_CAP,
+        AGGREGATE_CAP,
+    )
+}
+
+/// Reprovision only: a top-level loader launch jar from the source tree.
+/// `provision_loader` installs the loader into `runtime/` BEFORE this copy
+/// runs, so a source launch jar would overwrite the fresh one or sit beside
+/// it, and two Forge launch jars make the start ambiguous. Caught by name,
+/// and by manifest for a renamed Forge server jar.
+fn is_loader_launch_jar(path: &Path, lower_name: &str) -> bool {
+    const LAUNCH_JAR_PREFIXES: &[&str] = &[
+        "forge-",
+        "neoforge-",
+        "minecraft_server.",
+        "fabric-server-mc.",
+    ];
+    lower_name.ends_with(".jar")
+        && (LAUNCH_JAR_PREFIXES
+            .iter()
+            .any(|prefix| lower_name.starts_with(prefix))
+            || crate::servers_runtime::installed_loader::is_forge_server_jar(path))
+}
+
+/// Preserve keeps the runnable state, launch jars included.
+fn keep_every_file(_path: &Path, _lower_name: &str) -> bool {
+    false
 }
 
 fn copy_into_runtime_with_skip(
     src: &Path,
     runtime: &Path,
     skip: &[&str],
+    skip_file: fn(&Path, &str) -> bool,
     per_file_cap: u64,
     aggregate_cap: u64,
 ) -> Result<()> {
@@ -144,6 +190,9 @@ fn copy_into_runtime_with_skip(
                 aggregate_cap,
             )?;
         } else if ft.is_file() {
+            if skip_file(&entry.path(), &lower) {
+                continue;
+            }
             copy_file_capped(
                 &entry.path(),
                 &to,
@@ -280,6 +329,51 @@ mod tests {
         // eula.txt is skipped on the reprovision copy — provision_loader writes
         // the correct eula=true; a source eula=false must not overwrite it.
         assert!(!dst.path().join("eula.txt").exists());
+    }
+
+    #[test]
+    fn reprovision_copy_skips_loader_launch_jars_preserve_keeps_them() {
+        use crate::servers_runtime::installed_loader::test_jars::{jar, manifest};
+        let src = tempdir().unwrap();
+        touch(&src.path().join("forge-1.12.2-14.23.5.2860.jar"));
+        touch(&src.path().join("minecraft_server.1.12.2.jar"));
+        touch(
+            &src.path()
+                .join("fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar"),
+        );
+        // A renamed Forge server jar is caught by its manifest.
+        let mf = manifest(&[(
+            "Main-Class",
+            "net.minecraftforge.fml.relauncher.ServerLaunchWrapper",
+        )]);
+        jar(
+            &src.path().join("start.jar"),
+            &[("META-INF/MANIFEST.MF", mf.as_str())],
+        );
+        touch(&src.path().join("world/level.dat"));
+        touch(&src.path().join("mods/forge-addon.jar"));
+        touch(&src.path().join("config/foo.toml"));
+        touch(&src.path().join("custom-tool.jar"));
+
+        let dst = tempdir().unwrap();
+        copy_into_runtime(src.path(), dst.path()).unwrap();
+        for gone in [
+            "forge-1.12.2-14.23.5.2860.jar",
+            "minecraft_server.1.12.2.jar",
+            "fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar",
+            "start.jar",
+        ] {
+            assert!(!dst.path().join(gone).exists(), "{gone} was copied");
+        }
+        assert!(dst.path().join("world/level.dat").is_file());
+        assert!(dst.path().join("mods/forge-addon.jar").is_file());
+        assert!(dst.path().join("config/foo.toml").is_file());
+        assert!(dst.path().join("custom-tool.jar").is_file());
+
+        let kept = tempdir().unwrap();
+        copy_into_runtime_preserving(src.path(), kept.path()).unwrap();
+        assert!(kept.path().join("forge-1.12.2-14.23.5.2860.jar").is_file());
+        assert!(kept.path().join("start.jar").is_file());
     }
 
     #[test]

@@ -276,8 +276,10 @@ pub(crate) fn java_component_or_legacy(component: Option<&str>) -> String {
 }
 
 /// Build the JVM argv to launch an assembled server, per loader. Paths are
-/// relative to `runtime/` (the spawn cwd). Forge/NeoForge use the installer-
-/// generated `@argfile` mechanism; the args file lives under libraries/.
+/// relative to `runtime/` (the spawn cwd). Forge/NeoForge start the install
+/// `installed_loader` resolves — the rule import detection uses too: 1.17+
+/// through the installer-generated `@argfile` under libraries/, pre-1.17
+/// Forge through `-jar <its server jar>`.
 ///
 /// The user's `extra_jvm_args` blob is tokenized with the SAME sanitizer the
 /// client launch uses (`crate::launch::args::sanitize_jvm_args`: drops
@@ -305,43 +307,52 @@ pub(crate) fn build_launch_argv(
             Ok(argv)
         }
         ServerCore::Forge | ServerCore::NeoForge => {
-            let args_rel =
-                find_loader_args_file(runtime).ok_or_else(|| Error::ServerSpawnFailed {
-                    details: "installer args file not found under libraries/".into(),
+            use crate::servers_runtime::installed_loader::{
+                self, ArgsOs, ForgeInstall, LaunchEntry,
+            };
+            let flavor =
+                installed_loader::forge_flavor(loader).ok_or_else(|| Error::ServerSpawnFailed {
+                    details: format!("{loader:?} is not a Forge-family core"),
                 })?;
             let mut argv = vec![xmx];
             argv.extend(extra);
-            argv.extend([
-                "@user_jvm_args.txt".into(),
-                format!("@{args_rel}"),
-                "nogui".into(),
-            ]);
+            match installed_loader::resolve_forge_family(runtime, flavor, ArgsOs::current()) {
+                ForgeInstall::Found(LaunchEntry::ArgsFile { rel, .. }) => {
+                    argv.extend([
+                        "@user_jvm_args.txt".into(),
+                        format!("@{rel}"),
+                        "nogui".into(),
+                    ]);
+                }
+                ForgeInstall::Found(LaunchEntry::RootJar { file }) => {
+                    let missing = installed_loader::root_jar_missing(runtime, &file);
+                    if !missing.is_empty() {
+                        return Err(Error::ServerSpawnFailed {
+                            details: format!(
+                                "{file} needs files that are missing: {}",
+                                missing.join(", ")
+                            ),
+                        });
+                    }
+                    argv.extend(["-jar".into(), file, "nogui".into()]);
+                }
+                ForgeInstall::Ambiguous { candidates } => {
+                    return Err(Error::ServerLoaderAmbiguous {
+                        loader: installed_loader::flavor_name(flavor).into(),
+                        candidates,
+                    });
+                }
+                ForgeInstall::Absent => {
+                    return Err(Error::ServerSpawnFailed {
+                        details: "no installer args file under libraries/ and no Forge server \
+                                  jar in the server folder could be found or read"
+                            .into(),
+                    });
+                }
+            }
             Ok(argv)
         }
     }
-}
-
-/// Relative path (from runtime/) of the installer-generated args file for the
-/// current OS, e.g. `libraries/net/neoforged/neoforge/<v>/win_args.txt`.
-pub(crate) fn find_loader_args_file(runtime: &Path) -> Option<String> {
-    let name = if cfg!(windows) {
-        "win_args.txt"
-    } else {
-        "unix_args.txt"
-    };
-    for base in [
-        "libraries/net/neoforged/neoforge",
-        "libraries/net/minecraftforge/forge",
-    ] {
-        if let Ok(rd) = std::fs::read_dir(runtime.join(base)) {
-            for e in rd.flatten() {
-                if e.path().join(name).exists() {
-                    return Some(format!("{base}/{}/{name}", e.file_name().to_string_lossy()));
-                }
-            }
-        }
-    }
-    None
 }
 
 /// Start an assembled server. Resolves the MC Java component, ensures the JRE,
@@ -811,6 +822,84 @@ mod tests {
         );
         assert_eq!(argv.last().map(String::as_str), Some("nogui"));
     }
+    /// A pre-1.17 Forge server as the 1.12.2 installer writes it.
+    fn legacy_forge_1_12_2(root: &Path) {
+        use crate::servers_runtime::installed_loader::test_jars::{jar, manifest};
+        let mf = manifest(&[
+            (
+                "Main-Class",
+                "net.minecraftforge.fml.relauncher.ServerLaunchWrapper",
+            ),
+            (
+                "Class-Path",
+                "libraries/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar minecraft_server.1.12.2.jar",
+            ),
+        ]);
+        jar(
+            &root.join("forge-1.12.2-14.23.5.2860.jar"),
+            &[("META-INF/MANIFEST.MF", mf.as_str())],
+        );
+        for f in [
+            "minecraft_server.1.12.2.jar",
+            "libraries/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar",
+        ] {
+            let p = root.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"x").unwrap();
+        }
+    }
+
+    #[test]
+    fn launch_argv_legacy_forge_runs_its_root_jar() {
+        let dir = tempfile::tempdir().unwrap();
+        legacy_forge_1_12_2(dir.path());
+        let argv = build_launch_argv(ServerCore::Forge, dir.path(), 1024, "-XX:+UseG1GC").unwrap();
+        assert_eq!(
+            argv,
+            vec![
+                "-Xmx1024m",
+                "-XX:+UseG1GC",
+                "-jar",
+                "forge-1.12.2-14.23.5.2860.jar",
+                "nogui"
+            ]
+        );
+    }
+
+    #[test]
+    fn launch_argv_legacy_forge_names_the_files_it_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        legacy_forge_1_12_2(dir.path());
+        std::fs::remove_file(dir.path().join("minecraft_server.1.12.2.jar")).unwrap();
+        match build_launch_argv(ServerCore::Forge, dir.path(), 1024, "") {
+            Err(crate::error::Error::ServerSpawnFailed { details }) => {
+                assert!(details.contains("minecraft_server.1.12.2.jar"), "{details}");
+            }
+            other => panic!("expected ServerSpawnFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn launch_argv_forge_refuses_several_installs_nothing_names() {
+        let dir = tempfile::tempdir().unwrap();
+        for v in ["1.20.1-47.2.0", "1.20.1-47.3.0"] {
+            let af = dir
+                .path()
+                .join("libraries/net/minecraftforge/forge")
+                .join(v);
+            std::fs::create_dir_all(&af).unwrap();
+            std::fs::write(af.join("win_args.txt"), b"@stuff\n").unwrap();
+            std::fs::write(af.join("unix_args.txt"), b"@stuff\n").unwrap();
+        }
+        match build_launch_argv(ServerCore::Forge, dir.path(), 1024, "") {
+            Err(crate::error::Error::ServerLoaderAmbiguous { loader, candidates }) => {
+                assert_eq!(loader, "Forge");
+                assert_eq!(candidates.len(), 2, "{candidates:?}");
+            }
+            other => panic!("expected ServerLoaderAmbiguous, got {other:?}"),
+        }
+    }
+
     #[test]
     fn launch_argv_forge_errors_without_args_file() {
         let dir = tempfile::tempdir().unwrap();

@@ -1,7 +1,15 @@
 //! Best-effort детект (loader, mc_version, loader_version) импортируемого
 //! сервера + `can_launch_as_is`. Несработавшее поле → `None`; юзер правит в
 //! визарде (Слайс 2b). Никогда не паникует на странном дереве.
+//!
+//! Which installed loader version the tree runs comes from
+//! `servers_runtime::installed_loader` — the rule the launch uses too — and
+//! never from folder-name order.
 
+use crate::forge::ForgeFlavor;
+use crate::servers_runtime::installed_loader::{
+    self, Answer, ArgsOs, FabricKind, ForgeInstall, LaunchEntry,
+};
 use crate::servers_runtime::schema::ServerCore;
 use std::path::Path;
 
@@ -14,8 +22,10 @@ pub struct Detected {
 }
 
 /// Детект (loader, mc_version, loader_version) по содержимому `root`.
-/// Порядок: серверные паки (CF/Modrinth манифест) → Forge/NeoForge (по
-/// libraries) → Fabric/Quilt (маркеры) → Paper/Purpur (purpur.yml /
+/// Порядок: серверные паки (CF/Modrinth манифест) → NeoForge/Forge (their
+/// install as `installed_loader` resolves it: run scripts, args-file
+/// folders, a pre-1.17 Forge server jar in the root) → Quilt/Fabric (маркеры;
+/// versions from the launcher's own records) → Paper/Purpur (purpur.yml /
 /// config/paper-global.yml / version_history.json) → Vanilla (server.jar +
 /// version.json). Любая ветка может вернуть частичный результат.
 pub fn detect(root: &Path) -> Detected {
@@ -42,33 +52,16 @@ pub fn detect(root: &Path) -> Detected {
         }
         None => {}
     }
-    if let Some((mc, lv)) = neoforge_from_libraries(root) {
-        return Detected {
-            loader: Some(ServerCore::NeoForge),
-            mc_version: mc,
-            loader_version: Some(lv),
-        };
-    }
-    if let Some((mc, lv)) = forge_from_libraries(root) {
-        return Detected {
-            loader: Some(ServerCore::Forge),
-            mc_version: mc,
-            loader_version: Some(lv),
-        };
+    for flavor in [ForgeFlavor::NeoForge, ForgeFlavor::Forge] {
+        if let Some(found) = detect_forge_family(root, flavor) {
+            return found;
+        }
     }
     if quilt_marker(root) {
-        return Detected {
-            loader: Some(ServerCore::Quilt),
-            mc_version: fabric_family_mc(root).or_else(|| mc_from_logs(root)),
-            loader_version: loader_version_under(root, "org/quiltmc/quilt-loader"),
-        };
+        return detect_fabric_family(root, ServerCore::Quilt, FabricKind::Quilt);
     }
     if fabric_marker(root) {
-        return Detected {
-            loader: Some(ServerCore::Fabric),
-            mc_version: fabric_family_mc(root).or_else(|| mc_from_logs(root)),
-            loader_version: loader_version_under(root, "net/fabricmc/fabric-loader"),
-        };
+        return detect_fabric_family(root, ServerCore::Fabric, FabricKind::Fabric);
     }
     // Bukkit-family cores. Purpur first (a Purpur tree also has Paper's
     // config/, so the more specific marker wins). Checked before the vanilla
@@ -94,9 +87,18 @@ pub fn detect(root: &Path) -> Detected {
         };
     }
     if root.join("server.jar").exists() || has_vanilla_named_jar(root) {
+        // An old vanilla server keeps the version in its jar's name
+        // (`minecraft_server.1.12.2.jar`); several such jars cannot be told
+        // apart, and then a log from an earlier run cannot either.
+        let named = || match installed_loader::vanilla_root_jar_mcs(root) {
+            Ok(mcs) => answer_or_logs(Answer::of(mcs), root),
+            // The folder could not be listed: which jar is there, and so
+            // which version, cannot be told.
+            Err(_) => None,
+        };
         return Detected {
             loader: Some(ServerCore::Vanilla),
-            mc_version: mc_from_server_jar(root).or_else(|| mc_from_logs(root)),
+            mc_version: mc_from_server_jar(root).or_else(named),
             loader_version: None,
         };
     }
@@ -110,7 +112,9 @@ pub fn detect(root: &Path) -> Detected {
 /// `true` если staged-дерево уже запускаемо нашим `build_launch_argv`:
 /// V/Q/F — есть `server.jar` и НЕТ отдельного чужого лаунчер-jar (иначе
 /// `server.jar` — ванильный, и `-jar server.jar` запустил бы ваниль);
-/// Forge/NeoForge — найден installer args-файл (та же проверка, что у запуска).
+/// Forge/NeoForge — `installed_loader` resolves exactly one install (the same
+/// rule the launch uses), and a pre-1.17 Forge jar has every file its
+/// `Class-Path` needs.
 pub fn can_launch_as_is(root: &Path, loader: ServerCore) -> bool {
     match loader {
         // Paper/Purpur launch exactly like vanilla (`-jar server.jar`).
@@ -127,38 +131,115 @@ pub fn can_launch_as_is(root: &Path, loader: ServerCore) -> bool {
                 && !root.join("quilt-server-launch.jar").exists()
         }
         ServerCore::Forge | ServerCore::NeoForge => {
-            crate::servers_runtime::runtime::find_loader_args_file(root).is_some()
+            let Some(flavor) = installed_loader::forge_flavor(loader) else {
+                return false;
+            };
+            match installed_loader::resolve_forge_family(root, flavor, ArgsOs::current()) {
+                ForgeInstall::Found(LaunchEntry::ArgsFile { .. }) => true,
+                ForgeInstall::Found(LaunchEntry::RootJar { file }) => {
+                    installed_loader::root_jar_missing(root, &file).is_empty()
+                }
+                ForgeInstall::Ambiguous { .. } | ForgeInstall::Absent => false,
+            }
         }
     }
 }
 
-fn first_subdir_name(dir: &Path) -> Option<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .filter_map(|e| {
-            if e.file_type().ok()?.is_dir() {
-                e.file_name().to_str().map(String::from)
-            } else {
-                None
-            }
-        })
-        .collect();
-    names.sort();
-    names.into_iter().last()
+/// Forge or NeoForge, when its `libraries/` folder holds a version or (Forge)
+/// a pre-1.17 Forge server jar sits in the root. `None` when there is no
+/// trace of it — or an unknown loader when a folder that would hold one (its
+/// `libraries/` folder, or for Forge the server folder itself) cannot be
+/// listed, since then it cannot be told apart from any other.
+fn detect_forge_family(root: &Path, flavor: ForgeFlavor) -> Option<Detected> {
+    let install = installed_loader::resolve_forge_family(root, flavor, ArgsOs::current());
+    let dirs = installed_loader::version_dirs(root, flavor);
+    let has_dirs = matches!(&dirs, Ok(names) if !names.is_empty());
+    if install == ForgeInstall::Absent && !has_dirs {
+        let unlistable = dirs.is_err()
+            || (flavor == ForgeFlavor::Forge && installed_loader::root_jar_names(root).is_err());
+        return unlistable.then(|| unknown_loader(root));
+    }
+    let core = match flavor {
+        ForgeFlavor::Forge => ServerCore::Forge,
+        ForgeFlavor::NeoForge => ServerCore::NeoForge,
+    };
+    let (mc_version, loader_version) = match (&install, dirs.as_deref()) {
+        (ForgeInstall::Found(entry), _) => live_versions(root, flavor, entry),
+        // Nothing launchable and exactly one version folder: the best
+        // evidence there is, and the version a reprovision would install.
+        (ForgeInstall::Absent, Ok([only])) => dir_versions(root, flavor, only),
+        // Several installs (or folders) and nothing names the live one. A log
+        // from an earlier run cannot say which either.
+        _ => (None, None),
+    };
+    Some(Detected {
+        loader: Some(core),
+        mc_version,
+        loader_version,
+    })
 }
 
-fn neoforge_from_libraries(root: &Path) -> Option<(Option<String>, String)> {
-    let v = first_subdir_name(&root.join("libraries/net/neoforged/neoforge"))?;
-    Some((neoforge_mc_version(&v), v))
+/// `(mc, loader version)` of the install the server runs.
+fn live_versions(
+    root: &Path,
+    flavor: ForgeFlavor,
+    entry: &LaunchEntry,
+) -> (Option<String>, Option<String>) {
+    match entry {
+        LaunchEntry::ArgsFile { version_dir, .. } => dir_versions(root, flavor, version_dir),
+        LaunchEntry::RootJar { file } => {
+            let (mc, build) = installed_loader::root_jar_versions(root, file);
+            (answer_or_logs(mc, root), build)
+        }
+    }
 }
 
-fn forge_from_libraries(root: &Path) -> Option<(Option<String>, String)> {
-    let dir = first_subdir_name(&root.join("libraries/net/minecraftforge/forge"))?;
-    // Forge version dir is "<mc>-<forge>" e.g. "1.20.1-47.2.0".
-    match dir.split_once('-') {
-        Some((mc, forge)) => Some((Some(mc.to_string()), forge.to_string())),
-        None => Some((None, dir)),
+/// `(mc, loader version)` named by a version folder.
+fn dir_versions(root: &Path, flavor: ForgeFlavor, dir: &str) -> (Option<String>, Option<String>) {
+    match flavor {
+        ForgeFlavor::Forge => match installed_loader::split_forge_raw(dir) {
+            Some((mc, build)) => (Some(mc), Some(build)),
+            // Not `<mc>-<build>` (a branch build): only a log is left.
+            None => (mc_from_logs(root), None),
+        },
+        ForgeFlavor::NeoForge => (neoforge_mc(root, dir), Some(dir.to_string())),
+    }
+}
+
+/// Minecraft version of the NeoForge install in `version_dir`. One function
+/// on purpose: the NeoForge 26.x work (`fix/neoforge-26x-loader-list`)
+/// replaces its body with the args-file / `forge::meta::neoforge_mc_for`
+/// chain.
+fn neoforge_mc(root: &Path, version_dir: &str) -> Option<String> {
+    neoforge_mc_version(version_dir).or_else(|| mc_from_logs(root))
+}
+
+/// Fabric or Quilt, versions from the launcher's own records first.
+fn detect_fabric_family(root: &Path, core: ServerCore, kind: FabricKind) -> Detected {
+    let versions = installed_loader::fabric_family_versions(root, kind);
+    Detected {
+        loader: Some(core),
+        mc_version: answer_or_logs(versions.mc, root),
+        loader_version: versions.loader.known(),
+    }
+}
+
+/// A resolved answer, or — only when no source had evidence — a log line.
+/// Sources that disagree stay unanswered: a log from an earlier run cannot
+/// settle which install is live.
+fn answer_or_logs(answer: Answer, root: &Path) -> Option<String> {
+    match answer {
+        Answer::Known(value) => Some(value),
+        Answer::CannotTell => None,
+        Answer::NoEvidence => mc_from_logs(root),
+    }
+}
+
+fn unknown_loader(root: &Path) -> Detected {
+    Detected {
+        loader: None,
+        mc_version: mc_from_logs(root),
+        loader_version: None,
     }
 }
 
@@ -186,16 +267,6 @@ fn quilt_marker(root: &Path) -> bool {
     root.join(".quilt").is_dir()
         || root.join("quilt-server-launch.jar").exists()
         || root.join("libraries/org/quiltmc").is_dir()
-}
-
-/// MC version from `libraries/net/fabricmc/intermediary/<mc>/`.
-fn fabric_family_mc(root: &Path) -> Option<String> {
-    first_subdir_name(&root.join("libraries/net/fabricmc/intermediary"))
-}
-
-/// Loader version from `libraries/<rel>/<v>/`.
-fn loader_version_under(root: &Path, rel: &str) -> Option<String> {
-    first_subdir_name(&root.join("libraries").join(rel))
 }
 
 fn has_vanilla_named_jar(root: &Path) -> bool {
@@ -289,30 +360,201 @@ mod tests {
         fs::write(p, b"x").unwrap();
     }
 
+    /// The real 1.7.10 server layout the official installer writes: the
+    /// universal jar in the root (with its `version.json`), the vanilla jar
+    /// on its Class-Path, and no Forge folder under libraries/.
+    fn legacy_forge_1_7_10_tree(root: &Path) {
+        use crate::servers_runtime::installed_loader::test_jars::{jar, manifest};
+        let mf = manifest(&[
+            ("Main-Class", "cpw.mods.fml.relauncher.ServerLaunchWrapper"),
+            (
+                "Class-Path",
+                "libraries/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar minecraft_server.1.7.10.jar",
+            ),
+        ]);
+        jar(
+            &root.join("forge-1.7.10-10.13.4.1614-1.7.10-universal.jar"),
+            &[
+                ("META-INF/MANIFEST.MF", mf.as_str()),
+                (
+                    "version.json",
+                    r#"{"id":"1.7.10-Forge10.13.4.1614-1.7.10","libraries":[{"name":"net.minecraftforge:forge:1.7.10-10.13.4.1614-1.7.10"}]}"#,
+                ),
+            ],
+        );
+        touch(&root.join("minecraft_server.1.7.10.jar"));
+        touch(&root.join("libraries/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar"));
+    }
+
     #[test]
-    fn detects_neoforge_and_mc_from_libraries() {
+    fn legacy_forge_1_7_10_tree_is_forge_not_vanilla() {
         let d = tempdir().unwrap();
+        legacy_forge_1_7_10_tree(d.path());
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Forge));
+        assert_eq!(r.mc_version.as_deref(), Some("1.7.10"));
+        assert_eq!(r.loader_version.as_deref(), Some("10.13.4.1614"));
+        assert!(can_launch_as_is(d.path(), ServerCore::Forge));
+    }
+
+    fn forge_args_dir(root: &Path, dir: &str) {
+        for f in ["win_args.txt", "unix_args.txt"] {
+            touch(&root.join(format!("libraries/net/minecraftforge/forge/{dir}/{f}")));
+        }
+    }
+
+    #[test]
+    fn in_place_upgraded_forge_follows_its_run_script() {
+        let d = tempdir().unwrap();
+        forge_args_dir(d.path(), "1.21.9-58.1.0");
+        forge_args_dir(d.path(), "1.21.11-61.1.0");
+        fs::write(
+            d.path().join("run.bat"),
+            "java @user_jvm_args.txt @libraries/net/minecraftforge/forge/1.21.11-61.1.0/win_args.txt %*\r\n",
+        )
+        .unwrap();
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Forge));
+        assert_eq!(r.mc_version.as_deref(), Some("1.21.11"));
+        assert_eq!(r.loader_version.as_deref(), Some("61.1.0"));
+        assert!(can_launch_as_is(d.path(), ServerCore::Forge));
+    }
+
+    #[test]
+    fn forge_installs_nothing_names_leave_the_versions_empty() {
+        let d = tempdir().unwrap();
+        forge_args_dir(d.path(), "1.21.9-58.1.0");
+        forge_args_dir(d.path(), "1.21.11-61.1.0");
+        fs::create_dir_all(d.path().join("logs")).unwrap();
+        fs::write(
+            d.path().join("logs/latest.log"),
+            "[main/INFO]: Starting minecraft server version 1.21.9\n",
+        )
+        .unwrap();
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Forge));
+        // An earlier run's log cannot say which install is live.
+        assert_eq!(r.mc_version, None);
+        assert_eq!(r.loader_version, None);
+        assert!(!can_launch_as_is(d.path(), ServerCore::Forge));
+    }
+
+    #[test]
+    fn client_layout_forge_folder_reads_from_its_single_folder() {
+        // A `.minecraft` holds the Forge library but nothing launchable.
+        let d = tempdir().unwrap();
+        touch(&d.path().join(
+            "libraries/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10.jar",
+        ));
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Forge));
+        assert_eq!(r.mc_version.as_deref(), Some("1.7.10"));
+        assert_eq!(r.loader_version.as_deref(), Some("10.13.4.1614"));
+        assert!(!can_launch_as_is(d.path(), ServerCore::Forge));
+    }
+
+    #[test]
+    fn fabric_26_bundled_server_jar_names_its_versions() {
+        use crate::servers_runtime::installed_loader::test_jars::jar;
+        let d = tempdir().unwrap();
+        jar(
+            &d.path().join("server.jar"),
+            &[(
+                "install.properties",
+                "fabric-loader-version=0.19.5\ngame-version=26.1",
+            )],
+        );
+        touch(&d.path().join(".fabric/server/26.1-server.jar"));
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Fabric));
+        assert_eq!(r.mc_version.as_deref(), Some("26.1"));
+        assert_eq!(r.loader_version.as_deref(), Some("0.19.5"));
+    }
+
+    #[test]
+    fn fabric_stale_intermediary_folders_leave_the_mc_empty() {
+        let d = tempdir().unwrap();
+        touch(&d.path().join(".fabric/x"));
         touch(
             &d.path()
-                .join("libraries/net/neoforged/neoforge/20.4.237/win_args.txt"),
+                .join("libraries/net/fabricmc/intermediary/1.21.9/x.jar"),
         );
+        touch(
+            &d.path()
+                .join("libraries/net/fabricmc/intermediary/1.21.10/x.jar"),
+        );
+        fs::create_dir_all(d.path().join("logs")).unwrap();
+        fs::write(
+            d.path().join("logs/latest.log"),
+            "[main/INFO]: Starting minecraft server version 1.21.9\n",
+        )
+        .unwrap();
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Fabric));
+        assert_eq!(r.mc_version, None);
+    }
+
+    #[test]
+    fn old_vanilla_server_takes_the_mc_from_its_jar_name() {
+        let d = tempdir().unwrap();
+        touch(&d.path().join("minecraft_server.1.12.2.jar"));
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Vanilla));
+        assert_eq!(r.mc_version.as_deref(), Some("1.12.2"));
+    }
+
+    #[test]
+    fn detects_neoforge_and_mc_from_libraries() {
+        // Installers write both OS args files; with both present the live
+        // install resolves on every CI OS (not the one-folder fallback).
+        let d = tempdir().unwrap();
+        for f in ["win_args.txt", "unix_args.txt"] {
+            touch(
+                &d.path()
+                    .join(format!("libraries/net/neoforged/neoforge/20.4.237/{f}")),
+            );
+        }
         let r = detect(d.path());
         assert_eq!(r.loader, Some(ServerCore::NeoForge));
         assert_eq!(r.loader_version.as_deref(), Some("20.4.237"));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
+        assert!(can_launch_as_is(d.path(), ServerCore::NeoForge));
     }
 
     #[test]
     fn detects_forge_split_version() {
         let d = tempdir().unwrap();
-        touch(
-            &d.path()
-                .join("libraries/net/minecraftforge/forge/1.20.1-47.2.0/win_args.txt"),
-        );
+        forge_args_dir(d.path(), "1.20.1-47.2.0");
         let r = detect(d.path());
         assert_eq!(r.loader, Some(ServerCore::Forge));
         assert_eq!(r.mc_version.as_deref(), Some("1.20.1"));
         assert_eq!(r.loader_version.as_deref(), Some("47.2.0"));
+        assert!(can_launch_as_is(d.path(), ServerCore::Forge));
+    }
+
+    #[test]
+    fn a_corrupt_fabric_launch_jar_does_not_vouch_for_its_vanilla_jar() {
+        use crate::servers_runtime::installed_loader::test_jars::jar;
+        let d = tempdir().unwrap();
+        // Truncated download: not a readable jar.
+        fs::write(
+            d.path().join("fabric-server-launch.jar"),
+            b"PK\x03\x04trunc",
+        )
+        .unwrap();
+        jar(
+            &d.path().join("server.jar"),
+            &[("version.json", r#"{"id":"1.21.1"}"#)],
+        );
+        touch(
+            &d.path()
+                .join("libraries/net/fabricmc/intermediary/1.20.4/x.jar"),
+        );
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Fabric));
+        // Only the version folder speaks; the vanilla jar a broken launcher
+        // would run says nothing.
+        assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
     }
 
     #[test]

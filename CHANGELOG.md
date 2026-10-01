@@ -56,6 +56,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   pack explanation moved up into the same row, so it is there while you
   browse too, and it now says when a data pack is the better choice over a
   mod.
+- **Forge servers for Minecraft before 1.17 can be started.** Creating one
+  used to install it and then fail at the first start, because Lucerna only
+  knew how newer Forge versions are started. An older Forge server now starts
+  from the Forge server file in its folder, and if a file it needs is
+  missing, the message names it.
 
 ### Changed
 
@@ -113,6 +118,23 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Importing an older Forge server no longer turns it into a Vanilla
+  server.** A Forge server for Minecraft 1.7.10, for example, came in as
+  Vanilla, so it would have run without its mods. It is now recognised as
+  Forge, with its Minecraft version and Forge build.
+- **Server import fills in the version a server actually runs.** Updating a
+  server in place leaves the older version's files behind, and the import
+  could pick the older Minecraft or loader version: 1.21.9 for a server on
+  1.21.10, for example. It now reads what the server starts: its start
+  script, or the Fabric launcher's own record. Fabric servers for Minecraft
+  26.1 and later, which the import could only date from a log, now come in
+  with their version too. When the version cannot be told, the field stays
+  empty.
+- **A server with several Forge or NeoForge versions installed no longer
+  starts the oldest one.** Lucerna started whichever version folder came
+  first, usually the oldest. It now starts the one the server's start script
+  names; when nothing names one, it stops and lists the folders so you can
+  remove the ones you don't need.
 - **Updating a mod no longer installs a second copy of a library you already
   have.** An update used to install every library the new version needs, even
   one already there: a different version landed next to yours and the game
