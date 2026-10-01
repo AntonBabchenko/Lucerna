@@ -5,6 +5,7 @@ const none = {
   mcVersionMissing: false,
   missingModsCount: 0,
   incompatibleCount: 0,
+  blockingModsCount: 0,
   integrityProblemCount: 0,
   hasModpackUpdate: false,
   hasLogIssue: false,
@@ -23,6 +24,7 @@ describe('buildAttentionItems', () => {
       mcVersionMissing: true,
       missingModsCount: 3,
       incompatibleCount: 1,
+      blockingModsCount: 0,
       integrityProblemCount: 2,
       hasModpackUpdate: true,
       hasLogIssue: false,
@@ -89,5 +91,27 @@ describe('buildAttentionItems', () => {
     expect(
       buildAttentionItems({ ...none, incompatibleCount: 0, integrityProblemCount: 4 }),
     ).toEqual([{ kind: 'integrity', count: 4 }]);
+  });
+});
+
+describe('buildAttentionItems — one mods item', () => {
+  it('leads with mods that stop the game, and does not repeat them as a warning', () => {
+    const items = buildAttentionItems({
+      ...none,
+      blockingModsCount: 2,
+      incompatibleCount: 5,
+      hasLogIssue: true,
+      mcVersionMissing: true,
+    });
+    expect(items.map((i) => i.kind)).toEqual(['mods_blocking', 'log_issue', 'pick_version']);
+    expect(items[0]).toEqual({ kind: 'mods_blocking', count: 2 });
+  });
+
+  // A guard, green before and after: the fallback is today's behaviour; the
+  // test above is the one that goes red.
+  it('falls back to the «may not work» count when nothing blocks', () => {
+    expect(buildAttentionItems({ ...none, incompatibleCount: 3 })).toEqual([
+      { kind: 'incompatible', count: 3 },
+    ]);
   });
 });

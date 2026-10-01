@@ -3,7 +3,7 @@
 //! Minecraft version + loader. Pure logic — no I/O — so the command
 //! layer in `commands.rs` stays a thin orchestrator.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::mods::installed::PackOrigin;
@@ -11,7 +11,8 @@ use crate::mods::platform::{AssetUpdateState, InstalledMod, LoaderKind, ModSourc
 
 /// One installed user-mod's update-check result. One per *eligible*
 /// mod — see [`eligible_identity`]; ineligible mods are absent.
-#[derive(Debug, Clone, Serialize, Type)]
+/// `Deserialize` for the persisted check (`update_check_store`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModUpdateCheck {
     /// SHA-1 of the currently installed jar — identifies the row and is
     /// the handle `mods_update_one` uses to remove the old file.
@@ -26,7 +27,7 @@ pub struct ModUpdateCheck {
 }
 
 /// The per-mod classification.
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModUpdateState {
     /// The installed version is the newest for this MC + loader.
@@ -154,6 +155,17 @@ pub fn eligible_identity(
         }
         _ => None,
     }
+}
+
+/// [`eligible_identity`] minus the projects on hold — the filter
+/// `mods_check_updates` runs (D9: a held mod is not checked at all).
+pub fn check_identity(
+    installed: &InstalledMod,
+    pack_origin: Option<&PackOrigin>,
+    holds: &[crate::mods::holds::HeldProject],
+) -> Option<(ModSource, String, String)> {
+    eligible_identity(installed, pack_origin)
+        .filter(|(source, project_id, _)| !crate::mods::holds::is_held(holds, *source, project_id))
 }
 
 /// The platform identity a REPLACEMENT search needs: a project to ask about.
@@ -568,6 +580,24 @@ mod tests {
         assert!(
             decided >= 4,
             "only {decided} decided — the batch is not being exercised"
+        );
+    }
+
+    #[test]
+    fn check_identity_skips_a_held_project_and_only_that_project() {
+        use crate::mods::holds::HeldProject;
+        let held = vec![HeldProject {
+            source: ModSource::Modrinth,
+            project_id: "p".into(),
+        }];
+        let m = installed_mod("aa", Some(ModSource::Modrinth), Some("p"), Some("v1"));
+        assert_eq!(check_identity(&m, None, &held), None);
+        let other = installed_mod("bb", Some(ModSource::Modrinth), Some("q"), Some("v1"));
+        assert!(check_identity(&other, None, &held).is_some());
+        let cf = installed_mod("cc", Some(ModSource::Curseforge), Some("p"), Some("v1"));
+        assert!(
+            check_identity(&cf, None, &held).is_some(),
+            "a hold is per source"
         );
     }
 }

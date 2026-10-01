@@ -413,26 +413,7 @@ impl ModPlatform for ModrinthClient {
                 details: e.to_string(),
             })?;
         Ok(ModSearchPage {
-            hits: body
-                .hits
-                .into_iter()
-                .map(|h| ModSummary {
-                    source: ModSource::Modrinth,
-                    project_id: h.project_id,
-                    slug: Some(h.slug),
-                    name: h.title,
-                    summary: h.description,
-                    icon_url: h.icon_url,
-                    downloads: h.downloads as f64,
-                    author: h.author,
-                    updated_at: h.date_modified,
-                    // Search interleaves loader tags into `categories`, which
-                    // `SearchHit` does not parse. Search hits never enter the
-                    // dependency graph (it batches `summaries()` by project id),
-                    // so leaving this unknown costs nothing.
-                    loaders: None,
-                })
-                .collect(),
+            hits: body.hits.into_iter().map(summary_from_search_hit).collect(),
             total: body.total_hits,
             offset: body.offset,
             page_size: body.limit,
@@ -787,6 +768,36 @@ fn loaders_from_slugs(slugs: &[String]) -> Vec<LoaderKind> {
         .collect()
 }
 
+/// Modrinth's category tag for library / API projects.
+const LIBRARY_CATEGORY: &str = "library";
+
+fn has_library_category<'a>(tags: impl IntoIterator<Item = &'a String>) -> bool {
+    tags.into_iter().any(|t| t.as_str() == LIBRARY_CATEGORY)
+}
+
+/// One search hit. Its `categories` mixes loader tags in, so `loaders` stays
+/// unknown; `library` is an unambiguous tag in that list, so it is read.
+fn summary_from_search_hit(h: types::SearchHit) -> ModSummary {
+    let library = Some(has_library_category(h.categories.iter()));
+    ModSummary {
+        source: ModSource::Modrinth,
+        project_id: h.project_id,
+        slug: Some(h.slug),
+        name: h.title,
+        summary: h.description,
+        icon_url: h.icon_url,
+        downloads: h.downloads as f64,
+        author: h.author,
+        updated_at: h.date_modified,
+        // Search interleaves loader tags into `categories`, so they are no
+        // project-level loader set. Search hits never enter the dependency graph
+        // (it batches `summaries()` by project id), so leaving this unknown
+        // costs nothing.
+        loaders: None,
+        library,
+    }
+}
+
 /// Map a Modrinth `Project` to the normalized summary. Shared by `project()`
 /// and the batched `summaries()` so both paths agree on the field mapping
 /// (author = team, no `updated_at` — the project endpoint omits it).
@@ -805,6 +816,10 @@ fn summary_from_project(p: &types::Project) -> ModSummary {
         // loaders, so `None` here would mean "unknown source" and would mark the
         // cached entry permanently stale. See `platform::ModSummary::loaders`.
         loaders: Some(loaders_from_slugs(&p.loaders)),
+        // `Some` for the same reason: an absent tag is "not a library".
+        library: Some(has_library_category(
+            p.categories.iter().chain(&p.additional_categories),
+        )),
     }
 }
 
@@ -1218,6 +1233,41 @@ mod tests {
         let c = ModrinthClient::with_base(s.uri());
         let out = c.summaries(&[]).await.unwrap();
         assert!(out.is_empty());
+    }
+
+    fn project_json(extra: &str) -> types::Project {
+        serde_json::from_str(&format!(
+            r#"{{"id":"p","slug":"p","title":"P","description":"","body":"","icon_url":null,
+                "downloads":1,"source_url":null,"wiki_url":null,"team":"t"{extra}}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_project_filed_under_library_is_a_library_in_either_category_list() {
+        let primary = project_json(r#","categories":["library","utility"]"#);
+        assert_eq!(summary_from_project(&primary).library, Some(true));
+        let secondary = project_json(r#","additional_categories":["library"]"#);
+        assert_eq!(summary_from_project(&secondary).library, Some(true));
+    }
+
+    #[test]
+    fn a_project_without_the_category_is_known_not_to_be_one() {
+        // Modrinth CAN report categories: an absent key is Some(false), never None
+        // (None would mark the cached entry stale forever).
+        assert_eq!(summary_from_project(&project_json("")).library, Some(false));
+        let other = project_json(r#","categories":["optimization"]"#);
+        assert_eq!(summary_from_project(&other).library, Some(false));
+    }
+
+    #[test]
+    fn a_search_hit_reads_library_from_its_mixed_tag_list() {
+        let hit: types::SearchHit = serde_json::from_str(
+            r#"{"project_id":"p","slug":"p","title":"P","description":"","icon_url":null,
+                "downloads":1,"author":"a","date_modified":null,"categories":["fabric","library"]}"#,
+        )
+        .unwrap();
+        assert_eq!(summary_from_search_hit(hit).library, Some(true));
     }
 
     #[tokio::test]

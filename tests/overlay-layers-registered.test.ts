@@ -16,6 +16,23 @@ const EXEMPT = new Map<string, string>([
     join('src', 'lib', 'tasks', 'OperationsBar.svelte'),
     'names --z-popover only in a comment; the surface is OperationsPanel.svelte',
   ],
+  // A sticky bar that lifts ITSELF to the popover tier while a popover inside it
+  // is open (`has-[[aria-expanded=true]]:z-[var(--z-popover)]`), so the open
+  // menu or list paints above the sticky pager below it. The bar is not a
+  // surface; the popover inside it (Menu / Select / McVersionCombobox)
+  // registers in the stack on its own.
+  [
+    join('src', 'lib', 'mods', 'installed', 'InstalledToolbar.svelte'),
+    'sticky toolbar lifted while its own ⋯ menu or sort list is open; the popover registers itself',
+  ],
+  [
+    join('src', 'lib', 'mods', 'ModBrowseView.svelte'),
+    'sticky filter bar lifted while one of its lists is open; the popover registers itself',
+  ],
+  [
+    join('src', 'lib', 'modpacks', 'ModpackBrowseView.svelte'),
+    'sticky filter bar lifted while one of its lists is open; the popover registers itself',
+  ],
 ]);
 
 function svelteFiles(dir: string, acc: string[] = []): string[] {

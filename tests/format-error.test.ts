@@ -142,6 +142,11 @@ describe('formatError', () => {
     expect(msg).toContain('jei.jar');
   });
 
+  it('formats mods_already_installed with the installed mod’s name', () => {
+    const msg = formatError({ kind: 'mods_already_installed', name: 'Fabric API' });
+    expect(msg).toBe('Fabric API is already installed');
+  });
+
   it('formats mods_unsafe_filename with the rejected filename', () => {
     const msg = formatError({ kind: 'mods_unsafe_filename', filename: '../../evil.jar' });
     expect(msg).toContain('../../evil.jar');
@@ -336,6 +341,7 @@ describe('formatError', () => {
         existing_sha: '1',
         incoming_sha: '2',
       },
+      mods_already_installed: { kind: 'mods_already_installed', name: 'Fabric API' },
       mods_unsafe_filename: { kind: 'mods_unsafe_filename', filename: '../../evil.jar' },
       mods_cache_io: { kind: 'mods_cache_io', details: 'd' },
       mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
@@ -486,6 +492,14 @@ describe('formatError', () => {
         details: 'exit 1',
       },
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
+      server_loader_ambiguous: {
+        kind: 'server_loader_ambiguous',
+        loader: 'Forge',
+        candidates: [
+          'libraries/net/minecraftforge/forge/1.20.1-47.2.0',
+          'libraries/net/minecraftforge/forge/1.20.1-47.3.0',
+        ],
+      },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
       server_world_not_created: { kind: 'server_world_not_created' },
       server_world_only_old: { kind: 'server_world_only_old' },

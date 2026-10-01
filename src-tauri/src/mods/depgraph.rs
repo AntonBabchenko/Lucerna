@@ -1,6 +1,7 @@
 //! Pure nested dependency-tree builder. Network-decoupled like `deps.rs`:
 //! the caller injects an async `fetch` returning a node's *direct* required
-//! and optional children (already name-enriched and loader-filtered). This
+//! and optional children (already name-enriched and loader-filtered), or why
+//! an installed node's are unknown. This
 //! module owns recursion, cycle-guarding (per-path, keyed by source:project_id),
 //! and installed/missing classification against the installed set.
 
@@ -64,11 +65,47 @@ pub struct DepChild {
     pub filename: Option<String>,
 }
 
-/// What `fetch` returns for one project.
+/// A project's direct children, as `fetch` answers them.
 #[derive(Debug, Clone, Default)]
 pub struct NodeDeps {
     pub required: Vec<DepChild>,
     pub optional: Vec<DepChild>,
+}
+
+/// Why an installed project's dependencies are unknown. The graph says so
+/// instead of showing no children: "could not tell" is never "declares
+/// nothing" (CLAUDE.md, fallback discipline), and while such a mod is enabled
+/// no library can be called unused.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DepsUnknown {
+    /// The platform could not be asked, or did not answer: offline,
+    /// rate-limited, a server error, no usable CurseForge key.
+    Unreachable,
+    /// The platform's answer holds no version for this jar: the registry
+    /// stores no version id (an ambiguous hash match records only the
+    /// project), or the platform does not list the stored one (a version
+    /// removed from it; a pack-only source with no per-version data).
+    Unidentified,
+}
+
+/// What `fetch` answers for one project.
+#[derive(Debug, Clone)]
+pub enum NodeAnswer {
+    /// Its direct children. None at all is then a fact.
+    Deps(NodeDeps),
+    /// What its installed version declares could not be read, and why.
+    /// Meaningful only for an INSTALLED project: one that is not installed is
+    /// a leaf whatever the answer.
+    Unknown(DepsUnknown),
+}
+
+/// The children to walk and the flag to carry: an unknown answer walks nothing.
+fn split_answer(answer: NodeAnswer) -> (NodeDeps, Option<DepsUnknown>) {
+    match answer {
+        NodeAnswer::Deps(deps) => (deps, None),
+        NodeAnswer::Unknown(why) => (NodeDeps::default(), Some(why)),
+    }
 }
 
 /// What the mod's author declared on the platform. NOT a launcher verdict: the
@@ -93,13 +130,26 @@ pub struct DepTreeNode {
     pub source: ModSource,
     pub project_id: String,
     pub name: String,
-    /// A jar for this project is present in the instance.
+    /// An ENABLED jar for this project is present in the instance.
     pub installed: bool,
+    /// A registry row for this project exists but is switched off. Never set
+    /// together with `installed` — an enabled jar of the project wins — and a
+    /// disabled jar still satisfies nothing; the tree offers «Включить» where it
+    /// would otherwise offer an install that duplicates the jar.
+    /// `#[serde(default)]` so specta emits it optional.
+    #[serde(default)]
+    pub disabled: bool,
     pub declared: DepDeclaration,
     /// True when this project was already expanded higher on the path; its
     /// children are omitted to break cycles.
     pub cycle: bool,
     pub children: Vec<DepTreeNode>,
+    /// Set on an INSTALLED node whose installed version the platform could not
+    /// describe: its `children` are empty because they are unknown, not because
+    /// there are none. Always `None` on a node that is not installed — a leaf by
+    /// design. `#[serde(default)]` so specta emits it optional.
+    #[serde(default)]
+    pub deps_unknown: Option<DepsUnknown>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -110,6 +160,12 @@ pub struct DepRoot {
     pub name: String,
     pub required: Vec<DepTreeNode>,
     pub optional: Vec<DepTreeNode>,
+    /// Why this mod's dependencies are unknown, when they are (see
+    /// [`DepTreeNode::deps_unknown`]); `required` and `optional` are then empty.
+    /// While such a mod is enabled, "required by nothing" is not a fact for any
+    /// other mod. `#[serde(default)]` so specta emits it optional.
+    #[serde(default)]
+    pub deps_unknown: Option<DepsUnknown>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -117,8 +173,10 @@ pub struct DependencyGraph {
     pub roots: Vec<DepRoot>,
 }
 
-/// Build the nested graph. `fetch(source, project_id)` returns that project's
-/// direct children; memoized here so each project is fetched at most once.
+/// Build the nested graph. `fetch(source, project_id)` answers that project's
+/// direct children — or, for an installed project whose installed version could
+/// not be read, why they are unknown ([`NodeAnswer::Unknown`], carried as
+/// `deps_unknown`); memoized here so each project is fetched at most once.
 ///
 /// `installed_filenames` (lowercased jar filenames of the installed mods) lets
 /// a dependency be recognised as satisfied across sources: the same logical mod
@@ -126,31 +184,39 @@ pub struct DependencyGraph {
 /// different `ProjectKey` yet the same jar filename. Mirrors
 /// `deps::resolve_closure`'s cross-source pruning so a cross-source dependency
 /// is not wrongly flagged `MissingRequired`.
+///
+/// `disabled` — projects whose registry rows are switched off. They only MARK a
+/// node ([`DepTreeNode::disabled`]); they never satisfy it, and never root it.
 pub async fn build_graph<F, Fut>(
     installed: &[InstalledNode],
+    disabled: &[(ModSource, String)],
     installed_filenames: &HashSet<String>,
     mut fetch: F,
 ) -> Result<DependencyGraph, crate::error::Error>
 where
     F: FnMut(ModSource, String) -> Fut + Send,
-    Fut: Future<Output = Result<NodeDeps, crate::error::Error>> + Send,
+    Fut: Future<Output = Result<NodeAnswer, crate::error::Error>> + Send,
 {
     let installed_keys: HashSet<String> = installed
         .iter()
         .map(|n| key(n.source, &n.project_id))
         .collect();
-    let mut cache: HashMap<String, NodeDeps> = HashMap::new();
+    let disabled_keys: HashSet<String> = disabled.iter().map(|(s, pid)| key(*s, pid)).collect();
+    let mut cache: HashMap<String, NodeAnswer> = HashMap::new();
     let mut budget: usize = MAX_NODES;
     let mut roots = Vec::with_capacity(installed.len());
 
     for node in installed {
         let mut path: HashSet<String> = HashSet::new();
         path.insert(key(node.source, &node.project_id));
-        let deps = fetch_memo(&mut cache, &mut fetch, node.source, &node.project_id).await?;
+        // A root is installed by definition, so an unknown answer is its flag.
+        let (deps, deps_unknown) =
+            split_answer(fetch_memo(&mut cache, &mut fetch, node.source, &node.project_id).await?);
         let required = build_children(
             &deps.required,
             true,
             &installed_keys,
+            &disabled_keys,
             installed_filenames,
             &mut cache,
             &mut fetch,
@@ -163,6 +229,7 @@ where
             &deps.optional,
             false,
             &installed_keys,
+            &disabled_keys,
             installed_filenames,
             &mut cache,
             &mut fetch,
@@ -178,6 +245,7 @@ where
             name: node.name.clone(),
             required,
             optional,
+            deps_unknown,
         });
     }
     Ok(DependencyGraph { roots })
@@ -189,8 +257,9 @@ fn build_children<'a, F, Fut>(
     children: &'a [DepChild],
     required: bool,
     installed_keys: &'a HashSet<String>,
+    disabled_keys: &'a HashSet<String>,
     installed_filenames: &'a HashSet<String>,
-    cache: &'a mut HashMap<String, NodeDeps>,
+    cache: &'a mut HashMap<String, NodeAnswer>,
     fetch: &'a mut F,
     path: &'a mut HashSet<String>,
     depth: usize,
@@ -198,7 +267,7 @@ fn build_children<'a, F, Fut>(
 ) -> WalkFuture<'a, Vec<DepTreeNode>>
 where
     F: FnMut(ModSource, String) -> Fut + Send,
-    Fut: Future<Output = Result<NodeDeps, crate::error::Error>> + Send,
+    Fut: Future<Output = Result<NodeAnswer, crate::error::Error>> + Send,
 {
     Box::pin(async move {
         let mut out = Vec::with_capacity(children.len());
@@ -216,6 +285,9 @@ where
                 || c.filename
                     .as_deref()
                     .is_some_and(|f| installed_filenames.contains(f));
+            // Present but switched off. `installed` wins: an enabled jar of the
+            // same project is the one the loader reads.
+            let disabled = !installed && disabled_keys.contains(&k);
             // Two facts, carried side by side. Collapsing them into one enum is
             // what let the graph speak as if it knew a problem when it only
             // knew what the platform was told.
@@ -225,37 +297,43 @@ where
                 DepDeclaration::Optional
             };
             *budget -= 1;
-            if path.contains(&k) {
+            // A cycle marker (its project is expanded higher on the path) and a
+            // node at the depth cap are emitted but not expanded. An installed
+            // one still says whether its dependencies are known — the answer is
+            // memoized, so asking costs at most the one `fetch` per project.
+            let cycle = path.contains(&k);
+            if cycle || depth >= MAX_DEPTH {
+                let deps_unknown = if installed {
+                    split_answer(
+                        fetch_memo(&mut *cache, &mut *fetch, c.source, &c.project_id).await?,
+                    )
+                    .1
+                } else {
+                    None
+                };
                 out.push(DepTreeNode {
                     source: c.source,
                     project_id: c.project_id.clone(),
                     name: c.name.clone(),
                     installed,
+                    disabled,
                     declared,
-                    cycle: true,
+                    cycle,
                     children: vec![],
-                });
-                continue;
-            }
-            // Depth cap: emit the node but don't expand its subtree.
-            if depth >= MAX_DEPTH {
-                out.push(DepTreeNode {
-                    source: c.source,
-                    project_id: c.project_id.clone(),
-                    name: c.name.clone(),
-                    installed,
-                    declared,
-                    cycle: false,
-                    children: vec![],
+                    deps_unknown,
                 });
                 continue;
             }
             path.insert(k.clone());
-            let deps = fetch_memo(&mut *cache, &mut *fetch, c.source, &c.project_id).await?;
+            let (deps, unknown) =
+                split_answer(fetch_memo(&mut *cache, &mut *fetch, c.source, &c.project_id).await?);
+            // Not installed, the node is a leaf whatever the answer — never "unknown".
+            let deps_unknown = if installed { unknown } else { None };
             let req = build_children(
                 &deps.required,
                 true,
                 installed_keys,
+                disabled_keys,
                 installed_filenames,
                 &mut *cache,
                 &mut *fetch,
@@ -268,6 +346,7 @@ where
                 &deps.optional,
                 false,
                 installed_keys,
+                disabled_keys,
                 installed_filenames,
                 &mut *cache,
                 &mut *fetch,
@@ -289,9 +368,11 @@ where
                 project_id: c.project_id.clone(),
                 name: c.name.clone(),
                 installed,
+                disabled,
                 declared,
                 cycle: false,
                 children: kids,
+                deps_unknown,
             });
         }
         Ok(out)
@@ -299,22 +380,22 @@ where
 }
 
 async fn fetch_memo<F, Fut>(
-    cache: &mut HashMap<String, NodeDeps>,
+    cache: &mut HashMap<String, NodeAnswer>,
     fetch: &mut F,
     source: ModSource,
     project_id: &str,
-) -> Result<NodeDeps, crate::error::Error>
+) -> Result<NodeAnswer, crate::error::Error>
 where
     F: FnMut(ModSource, String) -> Fut + Send,
-    Fut: Future<Output = Result<NodeDeps, crate::error::Error>> + Send,
+    Fut: Future<Output = Result<NodeAnswer, crate::error::Error>> + Send,
 {
     let k = key(source, project_id);
     if let Some(hit) = cache.get(&k) {
         return Ok(hit.clone());
     }
-    let deps = fetch(source, project_id.to_string()).await?;
-    cache.insert(k, deps.clone());
-    Ok(deps)
+    let answer = fetch(source, project_id.to_string()).await?;
+    cache.insert(k, answer.clone());
+    Ok(answer)
 }
 
 #[cfg(test)]
@@ -340,9 +421,13 @@ mod tests {
 
     fn fetcher(
         map: std::collections::HashMap<&'static str, NodeDeps>,
-    ) -> impl FnMut(ModSource, String) -> std::future::Ready<Result<NodeDeps, crate::error::Error>>
+    ) -> impl FnMut(ModSource, String) -> std::future::Ready<Result<NodeAnswer, crate::error::Error>>
     {
-        move |_src, pid| std::future::ready(Ok(map.get(pid.as_str()).cloned().unwrap_or_default()))
+        move |_src, pid| {
+            std::future::ready(Ok(NodeAnswer::Deps(
+                map.get(pid.as_str()).cloned().unwrap_or_default(),
+            )))
+        }
     }
 
     /// The graph carries two independent facts and never collapses them into a
@@ -360,7 +445,7 @@ mod tests {
             },
         )]);
         let installed = vec![node("r", "rei"), node("n", "night")];
-        let g = build_graph(&installed, &HashSet::new(), fetcher(map))
+        let g = build_graph(&installed, &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let rei = g.roots.iter().find(|r| r.project_id == "rei").unwrap();
@@ -413,7 +498,7 @@ mod tests {
         let installed = vec![node("w", "waystones")];
         let mut filenames = HashSet::new();
         filenames.insert("balm.jar".to_string());
-        let g = build_graph(&installed, &filenames, fetcher(map))
+        let g = build_graph(&installed, &[], &filenames, fetcher(map))
             .await
             .unwrap();
         let ws = g
@@ -451,7 +536,7 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("r", "rei")], &HashSet::new(), fetcher(map))
+        let g = build_graph(&[node("r", "rei")], &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let rei = &g.roots[0];
@@ -486,7 +571,7 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], &HashSet::new(), fetcher(map))
+        let g = build_graph(&[node("ax", "a")], &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let a = &g.roots[0];
@@ -536,7 +621,7 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], &HashSet::new(), fetcher(map))
+        let g = build_graph(&[node("ax", "a")], &[], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let a = &g.roots[0];
@@ -571,9 +656,9 @@ mod tests {
                     optional: vec![],
                 })
                 .unwrap_or_default();
-            std::future::ready(Ok(deps))
+            std::future::ready(Ok(NodeAnswer::Deps(deps)))
         };
-        let g = build_graph(&[node("r", "a0")], &HashSet::new(), fetch)
+        let g = build_graph(&[node("r", "a0")], &[], &HashSet::new(), fetch)
             .await
             .unwrap();
 
@@ -589,5 +674,177 @@ mod tests {
             d, MAX_DEPTH,
             "a chain longer than the cap must be capped at MAX_DEPTH"
         );
+    }
+
+    /// r → x (disabled) → y → x: the normal literal and the cycle literal.
+    #[tokio::test]
+    async fn a_disabled_project_is_marked_disabled_and_never_installed() {
+        let map = HashMap::from([
+            (
+                "r",
+                NodeDeps {
+                    required: vec![child("x", "X")],
+                    optional: vec![],
+                },
+            ),
+            (
+                "x",
+                NodeDeps {
+                    required: vec![child("y", "Y")],
+                    optional: vec![],
+                },
+            ),
+            (
+                "y",
+                NodeDeps {
+                    required: vec![child("x", "X")],
+                    optional: vec![],
+                },
+            ),
+        ]);
+        let disabled = [(ModSource::Modrinth, "x".to_string())];
+        let g = build_graph(&[node("rs", "r")], &disabled, &HashSet::new(), fetcher(map))
+            .await
+            .unwrap();
+        let x = &g.roots[0].required[0];
+        assert!(x.disabled && !x.installed, "switched off is not installed");
+        let y = &x.children[0];
+        assert!(!y.disabled && !y.installed);
+        let back = &y.children[0];
+        assert!(
+            back.cycle && back.disabled,
+            "the cycle marker carries the flag too"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_disabled_node_at_the_depth_cap_is_still_marked() {
+        let fetch = |_src: ModSource, pid: String| {
+            let deps = pid
+                .strip_prefix('a')
+                .and_then(|n| n.parse::<u32>().ok())
+                .filter(|n| *n < 13)
+                .map(|n| NodeDeps {
+                    required: vec![child(&format!("a{}", n + 1), "A")],
+                    optional: vec![],
+                })
+                .unwrap_or_default();
+            std::future::ready(Ok(NodeAnswer::Deps(deps)))
+        };
+        let disabled: Vec<(ModSource, String)> = (1..=13)
+            .map(|n| (ModSource::Modrinth, format!("a{n}")))
+            .collect();
+        let g = build_graph(&[node("r", "a0")], &disabled, &HashSet::new(), fetch)
+            .await
+            .unwrap();
+        let mut n = &g.roots[0].required[0];
+        while let Some(next) = n.children.first() {
+            n = next;
+        }
+        assert_eq!(n.project_id, "a10", "the walk stops at the depth cap");
+        assert!(n.disabled, "the depth-capped leaf is disabled");
+    }
+
+    #[tokio::test]
+    async fn an_enabled_jar_of_the_same_project_wins_over_a_disabled_one() {
+        let map = HashMap::from([(
+            "rei",
+            NodeDeps {
+                required: vec![child("night", "Night")],
+                optional: vec![],
+            },
+        )]);
+        let disabled = [(ModSource::Modrinth, "night".to_string())];
+        let installed = vec![node("r", "rei"), node("n", "night")];
+        let g = build_graph(&installed, &disabled, &HashSet::new(), fetcher(map))
+            .await
+            .unwrap();
+        let rei = g.roots.iter().find(|r| r.project_id == "rei").unwrap();
+        assert!(rei.required[0].installed && !rei.required[0].disabled);
+    }
+
+    /// "Could not tell" is not "declares nothing": an installed project whose
+    /// installed version the platform could not describe says so — as a root and
+    /// nested — while a project that is not installed stays a plain leaf whatever
+    /// the answer.
+    #[tokio::test]
+    async fn an_installed_project_the_platform_could_not_describe_is_unknown_not_a_leaf() {
+        let fetch = |_src: ModSource, pid: String| {
+            let answer = match pid.as_str() {
+                "r" => NodeAnswer::Deps(NodeDeps {
+                    required: vec![child("x", "X"), child("y", "Y")],
+                    optional: vec![],
+                }),
+                "x" => NodeAnswer::Unknown(DepsUnknown::Unidentified),
+                "y" | "q" => NodeAnswer::Unknown(DepsUnknown::Unreachable),
+                _ => NodeAnswer::Deps(NodeDeps::default()),
+            };
+            std::future::ready(Ok(answer))
+        };
+        let installed = vec![node("rs", "r"), node("xs", "x"), node("qs", "q")];
+        let g = build_graph(&installed, &[], &HashSet::new(), fetch)
+            .await
+            .unwrap();
+        let root = |pid: &str| g.roots.iter().find(|r| r.project_id == pid).unwrap();
+
+        assert_eq!(root("q").deps_unknown, Some(DepsUnknown::Unreachable));
+        assert!(root("q").required.is_empty() && root("q").optional.is_empty());
+        assert_eq!(root("r").deps_unknown, None, "r's version was described");
+        let x = &root("r").required[0];
+        assert!(x.installed);
+        assert_eq!(
+            x.deps_unknown,
+            Some(DepsUnknown::Unidentified),
+            "nested, the flag rides along"
+        );
+        let y = &root("r").required[1];
+        assert!(!y.installed);
+        assert_eq!(
+            y.deps_unknown, None,
+            "a project that is not installed is a leaf, never unknown"
+        );
+    }
+
+    /// The depth cap stops the walk, not the flag: an installed node emitted
+    /// unexpanded at the cap still says its dependencies are unknown.
+    #[tokio::test]
+    async fn an_installed_node_at_the_depth_cap_still_says_its_dependencies_are_unknown() {
+        let fetch = |_src: ModSource, pid: String| {
+            let answer = match pid.as_str() {
+                "a10" => NodeAnswer::Unknown(DepsUnknown::Unreachable),
+                _ => NodeAnswer::Deps(
+                    pid.strip_prefix('a')
+                        .and_then(|n| n.parse::<u32>().ok())
+                        .filter(|n| *n < 13)
+                        .map(|n| NodeDeps {
+                            required: vec![child(&format!("a{}", n + 1), "A")],
+                            optional: vec![],
+                        })
+                        .unwrap_or_default(),
+                ),
+            };
+            std::future::ready(Ok(answer))
+        };
+        let installed = vec![node("r", "a0"), node("t", "a10")];
+        let g = build_graph(&installed, &[], &HashSet::new(), fetch)
+            .await
+            .unwrap();
+        let mut n = &g.roots[0].required[0];
+        while let Some(next) = n.children.first() {
+            n = next;
+        }
+        assert_eq!(n.project_id, "a10", "the walk stops at the depth cap");
+        assert!(n.installed);
+        assert_eq!(n.deps_unknown, Some(DepsUnknown::Unreachable));
+    }
+
+    #[test]
+    fn a_node_serialized_before_the_field_reads_as_not_disabled() {
+        let n: DepTreeNode = serde_json::from_value(serde_json::json!({
+            "source": "modrinth", "project_id": "a", "name": "A", "installed": false,
+            "declared": "required", "cycle": false, "children": []
+        }))
+        .unwrap();
+        assert!(!n.disabled);
     }
 }

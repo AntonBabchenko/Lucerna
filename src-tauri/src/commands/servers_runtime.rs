@@ -1992,6 +1992,29 @@ async fn provision_loader(
             crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
             let java_bin = crate::jre::java_executable_path(&component, app)?;
             create::create_installer_server(base, file, &bytes, &java_bin, label).await?;
+            // The install must leave one install Lucerna can start. Say so
+            // here, where it happened, not on the first Start. A re-download
+            // (`server_redownload_jar`) installs into an existing runtime, so
+            // another install already there is reported as such.
+            use crate::servers_runtime::installed_loader::{self, ArgsOs, ForgeInstall};
+            let runtime = crate::paths::server_paths(base, &file.id).runtime;
+            match installed_loader::resolve_forge_family(&runtime, flavor, ArgsOs::current()) {
+                ForgeInstall::Found(_) => {}
+                ForgeInstall::Ambiguous { candidates } => {
+                    return Err(Error::ServerLoaderAmbiguous {
+                        loader: installed_loader::flavor_name(flavor).into(),
+                        candidates,
+                    });
+                }
+                ForgeInstall::Absent => {
+                    return Err(Error::ServerInstallerFailed {
+                        loader: label.to_string(),
+                        details: "the installer finished but left no launch file Lucerna \
+                                  recognises"
+                            .into(),
+                    });
+                }
+            }
         }
         ServerCore::Paper => {
             let jar = crate::servers_runtime::paper::PaperClient::new()

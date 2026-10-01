@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerCore } from '$lib/ipc/bindings';
@@ -101,6 +102,22 @@ describe('ServerPluginsInstalled', () => {
     render(ServerPluginsInstalled, { serverId: 'srv-1' });
     expect(await screen.findByText('worldedit.jar')).toBeTruthy();
     expect(screen.getByText('essentials.jar')).toBeTruthy();
+  });
+
+  // The dropzone rule (DESIGN.md §14): an empty list holds the host's full drop area and says so
+  // — the host hides its strip meanwhile.
+  it('reports an empty list to its host and renders the host’s drop area in it', async () => {
+    mockListEnriched.mockResolvedValue({ status: 'ok', data: [] });
+    const onEmptyChange = vi.fn();
+    const emptyDropzone = createRawSnippet(() => ({
+      render: () => '<div data-testid="host-dropzone"></div>',
+    }));
+    render(ServerPluginsInstalled, { serverId: 'srv-1', emptyDropzone, onEmptyChange });
+    expect(await screen.findByTestId('host-dropzone')).toBeTruthy();
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('host-dropzone'))).toBe(
+      true,
+    );
+    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
   });
 
   it('toggling an enabled plugin disables it via on-disk filename', async () => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, type Snippet } from 'svelte';
   import {
     commands,
     type ModSummary,
@@ -34,7 +34,19 @@
     isAutoUpdatable,
   } from './plugin-update-actions';
 
-  let { serverId, reloadToken = 0 }: { serverId: string; reloadToken?: number } = $props();
+  let {
+    serverId,
+    reloadToken = 0,
+    emptyDropzone,
+    onEmptyChange = () => {},
+  }: {
+    serverId: string;
+    reloadToken?: number;
+    /** The host's full drop area, rendered in the empty list (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
+  } = $props();
 
   // Enriched Installed list. Plugins carry no quarantine reason (rows' `reason`
   // is always null → ServerInstalledRow shows no badge).
@@ -45,9 +57,9 @@
   );
 
   // Search / enabled-disabled / sort over the installed list, hosted on the
-  // shared client composable. No status predicates — plugins have no
-  // updates / issues / incompatible views, so those chips stay at 0. Server
-  // rows carry no install timestamp, so the sort is name-only.
+  // shared client composable. Only `isUpdatable` (below) — plugins have no
+  // issues or dependency-graph views, so those chips stay at 0. Server rows
+  // carry no install timestamp, so the sort is name-only.
   // Per-plugin update-check results, keyed by sha1 (identity that survives an
   // enable/disable rename).
   let updateChecks = $state(new Map<string, ModUpdateState>());
@@ -150,6 +162,16 @@
   const isPluginCore = $derived(server !== null && pluginCapable(server.loader));
   const isRunning = $derived(server?.running ?? false);
   const canManage = $derived(isPluginCore && !isRunning);
+
+  // Empty is reported, never assumed: a list still loading or one that could not be read is not
+  // empty — the host keeps its strip until the list says it is empty.
+  const listEmpty = $derived(
+    isPluginCore && !data.loading && data.rows.length === 0 && !data.error,
+  );
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
+  });
 
   // Non-external pending updates drive the "Update all" label + enablement.
   // External-hosted targets open a page individually and are excluded here.
@@ -325,7 +347,11 @@
     {#if data.loading && data.rows.length === 0}
       <LoadingPanel label={$t('mods.installed.loading')} />
     {:else if data.rows.length === 0 && !data.error}
-      <p class="text-sm text-muted">{$t('servers.plugins.empty')}</p>
+      <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
+      <div class="flex flex-col gap-3" data-testid="list-empty">
+        <p class="text-sm text-muted">{$t('servers.plugins.empty')}</p>
+        {@render emptyDropzone?.()}
+      </div>
     {:else if data.rows.length > 0}
       <!-- Filter toolbar: search + all/enabled/disabled + sort. Gated on
            data.rows so an empty search still shows the controls. -->

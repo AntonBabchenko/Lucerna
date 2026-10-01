@@ -1,21 +1,28 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import InstalledToolbar from '$lib/mods/installed/InstalledToolbar.svelte';
 
 const base = () => ({
-  counts: { total: 3, enabled: 2, disabled: 1, updates: 1, issues: 2, incompatible: 0 },
+  counts: {
+    total: 3,
+    enabled: 2,
+    disabled: 1,
+    updates: 1,
+    issues: 2,
+    needed: 0,
+    unusedLibraries: 0,
+  },
   filter: '',
   sortBy: 'name-asc' as const,
   viewFilter: 'all' as const,
   busy: false,
   checking: false,
-  graphLoading: false,
   updateCount: 1,
+  rechecking: false,
   onCheckUpdates: vi.fn(),
-  onRecheckDeps: vi.fn(),
   onUpdateAll: vi.fn(),
-  checkingCompat: false,
-  onCheckCompat: vi.fn(),
+  onRecheckAll: vi.fn(),
+  onOpenModsFolder: vi.fn(),
 });
 
 describe('InstalledToolbar view filter (single mutually-exclusive group)', () => {
@@ -54,12 +61,160 @@ describe('InstalledToolbar view filter (single mutually-exclusive group)', () =>
     render(InstalledToolbar, {
       props: {
         ...base(),
-        counts: { total: 3, enabled: 3, disabled: 0, updates: 0, issues: 0, incompatible: 0 },
+        counts: {
+          total: 3,
+          enabled: 3,
+          disabled: 0,
+          updates: 0,
+          issues: 0,
+          needed: 0,
+          unusedLibraries: 0,
+        },
       },
     });
     expect(screen.queryByRole('radio', { name: /Updates/ })).toBeNull();
     expect(screen.queryByRole('radio', { name: /Issues/ })).toBeNull();
     // The state filters remain.
     expect(screen.getByRole('radio', { name: /All/ })).toBeTruthy();
+  });
+
+  it('shows «Needed by others» and «Unused libraries» only when they have a count', () => {
+    render(InstalledToolbar, {
+      props: { ...base(), counts: { ...base().counts, needed: 2, unusedLibraries: 1 } },
+    });
+    expect(screen.getByRole('radio', { name: /Needed by others/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Unused libraries/ })).toBeTruthy();
+  });
+
+  it('has no separate Incompatible chip — incompatibility is part of Issues', () => {
+    render(InstalledToolbar, { props: base() });
+    expect(screen.queryByRole('radio', { name: /Incompatible/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Needed by others/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Unused libraries/ })).toBeNull();
+  });
+});
+
+// Plan §5c V3 (screenshots n01, n01e): at the launcher's default 820 px the sticky toolbar took
+// four lines (163 px) — the chips alone two — and left the rows ~170 px of an 820×520 window. The
+// chips keep to one line that scrolls sideways (the rule: tests/scroll-row.test.ts), and the
+// controls pack tighter: the sort keeps its visible label only where the line has room for it, and
+// the update check never parts from its «checked …». Only a browser lays this out: these pin the
+// structure the re-render measures.
+describe('InstalledToolbar at the launcher’s default width', () => {
+  it('keeps the chips to one line that scrolls sideways, keyboard included', () => {
+    render(InstalledToolbar, { props: base() });
+    const group = screen.getByRole('radiogroup');
+    const line = screen.getByTestId('installed-filter-row');
+    expect(line.contains(group)).toBe(true);
+    expect(line.classList).toContain('scroll-row');
+    expect(group.className).not.toMatch(/\bflex-wrap\b/);
+    for (const chip of screen.getAllByRole('radio')) {
+      expect(chip.classList).toContain('shrink-0');
+      expect(chip.classList).toContain('whitespace-nowrap');
+    }
+  });
+
+  // Plan §5d L6 (screenshot n01): at 820 px «Проблемы 7» came fifth and sat half under the line's
+  // fade. It comes right after the three chips that are always there — before Updates — so a
+  // problem is in view at the launcher's smallest width without the line scrolling by itself, and
+  // no chip that is always there moves when it appears.
+  it('puts Issues right after the state chips, before Updates', () => {
+    render(InstalledToolbar, {
+      props: { ...base(), counts: { ...base().counts, needed: 2, unusedLibraries: 1 } },
+    });
+    expect(screen.getAllByRole('radio').map((r) => r.getAttribute('data-testid'))).toEqual([
+      'installed-filter-all',
+      'installed-filter-enabled',
+      'installed-filter-disabled',
+      'installed-filter-issues',
+      'installed-filter-updates',
+      'installed-filter-needed',
+      'installed-filter-unused-libraries',
+    ]);
+  });
+
+  it('shows the sort label only where the line has room, and keeps the check with its time', () => {
+    render(InstalledToolbar, { props: { ...base(), checkedAtMs: Date.now() } });
+    // The Select keeps its accessible name, the label's text, at every width.
+    expect(screen.getByRole('combobox', { name: 'Sort:' })).toBeTruthy();
+    expect(screen.getByText('Sort:').className).toMatch(/max-\[1100px\]:hidden/);
+    const check = screen.getByRole('button', { name: /Check for updates/ });
+    const unit = screen.getByTestId('updates-checked-at').parentElement;
+    expect(unit?.contains(check)).toBe(true);
+    expect(unit?.className).toMatch(/\bwhitespace-nowrap\b/);
+  });
+});
+
+// Plan §5b V2 (screenshot 01f): Tab could land on a row under the sticky toolbar. The toolbar
+// reserves its own height in the Add-ons scroll container (the rule: tests/sticky-edge.test.ts).
+describe('InstalledToolbar keeps focus clear of itself', () => {
+  it('reserves its height as its scroll container’s scroll-padding-top', () => {
+    const scroller = document.createElement('div');
+    scroller.style.overflowY = 'auto';
+    document.body.append(scroller);
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
+    ) {
+      const h = (this as HTMLElement).dataset?.testid === 'installed-toolbar' ? 84 : 0;
+      return { height: h, top: 0, bottom: h } as DOMRect;
+    });
+    try {
+      render(InstalledToolbar, { props: base(), target: scroller });
+      expect(scroller.style.scrollPaddingTop).toBe('92px');
+    } finally {
+      rect.mockRestore();
+      scroller.remove();
+    }
+  });
+
+  // Plan §5b V2 (screenshot 01e): rows scrolled under it were cut mid-glyph with no edge. Its edge
+  // shows while it is stuck (`data-stuck`, tests/sticky-edge.test.ts) — and it is there, transparent,
+  // at rest too, so it appearing moves nothing.
+  it('shows a bottom edge while stuck, without changing its height', () => {
+    render(InstalledToolbar, { props: base() });
+    const bar = screen.getByTestId('installed-toolbar');
+    expect(bar.classList).toContain('border-b');
+    expect(bar.classList).toContain('border-transparent');
+    expect(bar.classList).toContain('data-[stuck]:border-border-subtle');
+  });
+});
+
+describe('InstalledToolbar issues tone', () => {
+  it('is danger while something blocks, amber when only warnings remain', () => {
+    const { unmount } = render(InstalledToolbar, {
+      props: { ...base(), viewFilter: 'issues' as const },
+    });
+    expect(screen.getByTestId('installed-filter-issues').className).toContain('text-danger');
+    unmount();
+    render(InstalledToolbar, {
+      props: { ...base(), viewFilter: 'issues' as const, issuesTone: 'warning' as const },
+    });
+    const chip = screen.getByTestId('installed-filter-issues');
+    expect(chip.className).toContain('text-warning-text');
+    expect(chip.className).not.toContain('text-danger');
+  });
+
+  // Plan §5b V2: at rest the chip was plain grey, with the amber triangle, while mods stopped the
+  // game. Now it keeps red on its icon and count while anything blocks — attention, not selection:
+  // no fill, no border, so it never looks chosen — and red takes the ✕; the triangle is amber's.
+  it('at rest it stays red on its ✕ and its count while something blocks', () => {
+    render(InstalledToolbar, { props: base() });
+    const chip = screen.getByTestId('installed-filter-issues');
+    expect(chip.getAttribute('aria-checked')).toBe('false');
+    expect(chip.className).not.toContain('bg-danger');
+    expect(chip.className).not.toContain('border-danger');
+    const icon = chip.querySelector('svg');
+    expect(icon?.classList).toContain('lucide-circle-x');
+    expect(icon?.classList).toContain('text-danger');
+    expect(within(chip).getByText('2').className).toContain('text-danger');
+  });
+
+  it('with only warnings left it rests neutral, with the amber triangle', () => {
+    render(InstalledToolbar, { props: { ...base(), issuesTone: 'warning' as const } });
+    const chip = screen.getByTestId('installed-filter-issues');
+    const icon = chip.querySelector('svg');
+    expect(icon?.classList).toContain('lucide-triangle-alert');
+    expect(chip.innerHTML).not.toContain('text-warning-text');
+    expect(chip.innerHTML).not.toContain('text-danger');
   });
 });

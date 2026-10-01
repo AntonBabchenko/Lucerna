@@ -123,6 +123,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   cosmetic_image_invalid: 'opaque',
   skin_library: 'opaque',
   // Clean — everything else (self-contained from structured fields).
+  server_loader_ambiguous: 'clean',
   host_not_allowed: 'clean',
   consented_channel_disabled: 'clean',
   hash_mismatch: 'clean',
@@ -159,6 +160,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_sha1_mismatch: 'clean',
   mods_dependency_unresolvable: 'clean',
   mods_filename_conflict: 'clean',
+  // Built from the installed row's display name — nothing to truncate.
+  mods_already_installed: 'clean',
   mods_unsafe_filename: 'clean',
   modpack_format_unknown: 'clean',
   // Import-by-link: both carry a self-contained, user-facing reason built in
@@ -621,6 +624,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.modsDependencyUnresolvable', { projectRef: e.project_ref });
     case 'mods_filename_conflict':
       return translate('errors.modsFilenameConflict', { filename: e.filename });
+    case 'mods_already_installed':
+      return translate('errors.modsAlreadyInstalled', { name: e.name });
     case 'mods_unsafe_filename':
       return translate('errors.modsUnsafeFilename', { filename: e.filename });
     case 'mods_cache_io':
@@ -803,6 +808,11 @@ export function formatError(e: IpcError): string {
       );
     case 'server_spawn_failed':
       return withDetailTail(translate('errors.serverSpawnFailed'), e.details);
+    case 'server_loader_ambiguous':
+      return translate('errors.serverLoaderAmbiguous', {
+        loader: e.loader,
+        candidates: listOrDash(e.candidates),
+      });
     case 'server_already_running':
       return translate('errors.serverAlreadyRunning');
     case 'server_upload_in_progress':

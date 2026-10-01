@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { depGraphCache } from '$lib/mods/dep-graph-cache';
 import { createLru } from '$lib/mods/lru';
-import { updateCheckCache } from '$lib/mods/update-check-cache';
 
 // Test the LRU primitive directly with a fresh instance per test (no shared
-// module-singleton state), then a smoke test that both exported session caches
-// are LRU-bounded at cap 5.
+// module-singleton state), then a smoke test that the dep-graph session cache
+// is LRU-bounded at cap 5.
 describe('createLru', () => {
   it('evicts the least-recently-used entry past the cap', () => {
     const lru = createLru<number>(5);
@@ -43,7 +42,7 @@ describe('createLru', () => {
 });
 
 describe('session caches are LRU-bounded', () => {
-  // Both exported caches wrap createLru(5). Verify the bound holds on each by
+  // The exported cache wraps createLru(5). Verify the bound holds by
   // overflowing with fresh, uniquely-prefixed keys (so the assertion is
   // independent of any entries other tests may have left in the singleton).
   it('depGraphCache evicts past cap 5', () => {
@@ -53,12 +52,5 @@ describe('session caches are LRU-bounded', () => {
     // After inserting 6 fresh keys with no intervening get, the first is evicted.
     expect(depGraphCache.get(k(0))).toBeUndefined();
     expect(depGraphCache.get(k(5))).toBeDefined();
-  });
-
-  it('updateCheckCache evicts past cap 5', () => {
-    const k = (n: number) => `lru-test-uc-${n}`;
-    for (let i = 0; i < 6; i++) updateCheckCache.set(k(i), []);
-    expect(updateCheckCache.get(k(0))).toBeUndefined();
-    expect(updateCheckCache.get(k(5))).toBeDefined();
   });
 });

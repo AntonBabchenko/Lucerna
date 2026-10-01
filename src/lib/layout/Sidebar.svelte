@@ -581,7 +581,12 @@
             />
           {/if}
           {#if isVisible('manage') || isVisible('mods')}
-            <div class="flex gap-1">
+            <!-- A label never breaks inside itself (plan §5b V2: «Папка / модов»). Each button is
+                 at least as wide as its label (`flex-1` from a zero basis, clamped to its unwrapped
+                 content): the two share the line in halves when both fit, and each takes a line
+                 of its own when they do not — «Управление» + «Папка модов» need more than the
+                 sidebar's 216 px. -->
+            <div class="flex flex-wrap gap-1">
               {#if isVisible('manage')}
                 <ContextMenu
                   items={hideMenuItems('manage')}
@@ -590,7 +595,7 @@
                   <button
                     type="button"
                     data-tour="manage-btn"
-                    class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                    class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1 whitespace-nowrap"
                     onclick={onOpenManage}
                   >
                     <Icon name="sliders" size={14} />
@@ -605,7 +610,7 @@
                 >
                   <button
                     type="button"
-                    class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+                    class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1 whitespace-nowrap"
                     onclick={onOpenMods}
                   >
                     <Icon name="folderOpen" size={14} />

@@ -50,6 +50,13 @@
     type OffPlatformRow,
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
+  import {
+    disableMods,
+    enableMods,
+    type ModOpScope,
+    uninstallMods,
+  } from '$lib/mods/mod-ops.svelte';
+  import { rowDisplayName } from './installed/row-utils';
   import { dismiss, pushActionToast, pushSuccess } from '$lib/toasts/toasts.svelte';
   import {
     assetsChanged,
@@ -70,6 +77,8 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
+  import { displayVersion } from '$lib/format/version';
+  import { stickyEdge } from '$lib/ui/sticky-edge';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
   import { activeCount } from '$lib/browse/filter-model';
 
@@ -536,6 +545,16 @@
   // Total pages over the server total; always >= 1 so the pager renders.
   const pageCount = $derived(Math.max(1, Math.ceil(total / pageSize)));
 
+  // Mods go through the guarded path (spec §6.1); the datapack and asset branches below keep
+  // their own flows — assets have no dependency graph and are a non-goal for undo.
+  function opScope(id: string): ModOpScope {
+    return { instanceId: id, profileName: instanceName };
+  }
+  const opTarget = (card: ModSummary, inst: InstalledMod) => ({
+    sha1: inst.sha1,
+    name: rowDisplayName({ summary: card, installed: inst }),
+  });
+
   async function uninstallCard(card: ModSummary) {
     if (!instanceId) return;
     // A datapack's trash action NEVER removes directly: the approved product
@@ -569,26 +588,20 @@
     }
     const inst = installedFor(card);
     if (!inst) return;
-    const r = await commands.modsUninstall(instanceId, inst.sha1);
-    if (r.status === 'error') {
-      error = formatError(r.error);
-      return;
-    }
-    await refreshInstalled();
+    if ((await uninstallMods(opScope(instanceId), [opTarget(card, inst)])) !== 'cancelled')
+      await refreshInstalled();
   }
 
   async function toggleCard(card: ModSummary) {
-    if (!instanceId) return;
+    // Only a mod card offers the toggle (`canToggle={isMod}`); the guarded path is mods-only.
+    if (!instanceId || !isMod) return;
     const inst = installedFor(card);
     if (!inst) return;
-    const r = inst.enabled
-      ? await commands.modsDisable(instanceId, inst.sha1)
-      : await commands.modsEnable(instanceId, inst.sha1);
-    if (r.status === 'error') {
-      error = formatError(r.error);
-      return;
-    }
-    await refreshInstalled();
+    const target = [opTarget(card, inst)];
+    const outcome = inst.enabled
+      ? await disableMods(opScope(instanceId), target)
+      : await enableMods(opScope(instanceId), target);
+    if (outcome !== 'cancelled') await refreshInstalled();
   }
 
   async function refreshCfKey() {
@@ -1131,10 +1144,11 @@
         await refreshInstalled();
       } else {
         // Build the per-mod toast from the dialog's already-resolved project
-        // names (the backend's InstallSummary carries release titles, not mod
-        // names). Lines = every newly-installed dependency: the primary's
-        // requireds + each chosen optional and its transitive requireds,
-        // deduped by project. Matches exactly what the dialog showed.
+        // names, so it matches exactly what the dialog showed (the backend's
+        // InstallSummary names projects too, but falls back to a version
+        // title when no project title is cached). Lines = every newly-installed
+        // dependency: the primary's requireds + each chosen optional and its
+        // transitive requireds, deduped by project.
         const depLines = buildInstalledDepLines(prompt, chosenOptional);
         pushSuccess(
           get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
@@ -1289,8 +1303,10 @@
           // installed badges with the (unchanged) on-disk state.
           await refreshInstalled();
         } else {
-          // Fast path has no dependencies; use the resolved project name (not
-          // the backend's release-title `primary_name`) for the toast title.
+          // Fast path has no dependencies. The toast names the project this
+          // flow already resolved; the backend's `primary_name` names the
+          // project too, but falls back to the version title when no project
+          // title is cached.
           pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: primaryProjectName }), []);
           await refreshInstalled();
         }
@@ -1315,7 +1331,11 @@
 {:else if needsCfKey}
   <CurseForgeKeyBanner />
 {:else}
-  <div class="sticky top-0 z-10 bg-base border-b border-border-subtle">
+  <!-- An open filter list lifts the bar above the sticky page switcher (DESIGN.md §14). -->
+  <div
+    class="sticky top-0 z-10 has-[[aria-expanded=true]]:z-[var(--z-popover)] bg-base border-b border-border-subtle"
+    use:stickyEdge
+  >
     <BrowseFilterBar
       searchAriaLabel={$t('mods.browse.searchAriaLabel')}
       searchPlaceholder={$t('mods.browse.searchPlaceholder')}
@@ -1375,7 +1395,9 @@
             const inst = installedFor(hit);
             if (!inst) return null;
             return inst.version_number
-              ? $t('mods.card.inLibraryVersion', { version: inst.version_number })
+              ? $t('mods.card.inLibraryVersion', {
+                  version: displayVersion(inst.version_number),
+                })
               : $t('mods.card.inLibrary');
           }}
         />
@@ -1388,7 +1410,10 @@
         </div>
       {/if}
       <!-- Steam-style footer: shared pagination control, per-page selector right. -->
-      <div class="sticky bottom-0 z-10 bg-base border-t border-border-subtle">
+      <div
+        class="sticky bottom-0 z-10 bg-base border-t border-border-subtle"
+        use:stickyEdge={'bottom'}
+      >
         <Pagination {page} {pageCount} disabled={loading} onPage={(n) => void goToPage(n)}>
           {#snippet end()}
             <PageSizePicker />

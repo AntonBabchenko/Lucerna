@@ -4,9 +4,13 @@
 //! its `project_id` appears in NO remaining mod's `requires`, it is not itself
 //! being removed, and it was pulled in as some removed mod's dependency.
 //! Manual mods (no `project_id`) are never flagged. No network, no I/O.
+//! The edges can be incomplete, so `mods_find_orphans` then drops every
+//! candidate a mod that stays still needs by what the jars declare
+//! (`preflight::ParsedInstance::removable_with`).
 //!
 //! `requires_edges` is the one place a row's `requires` list is computed — by
-//! install and by update alike.
+//! install and by update alike, and for a dependent when a dependency is
+//! installed on its behalf (`dependent_edges_after`).
 
 use crate::mods::platform::{InstalledMod, ModVersion, OrphanRef};
 use std::collections::HashSet;
@@ -93,6 +97,22 @@ pub(crate) fn requires_edges<'a>(
     ids.sort();
     ids.dedup();
     ids
+}
+
+/// The `requires` list for `dependent_sha1` after a dependency was installed on
+/// its behalf (tree node, panel row, gate): its own edges plus every project the
+/// install pulled in that was not installed before (`requires_edges`' rule), so
+/// removing the dependent later offers them as orphans. `None` when the dependent
+/// is not in `registry` — there is no row to extend.
+pub(crate) fn dependent_edges_after<'a>(
+    registry: &[InstalledMod],
+    dependent_sha1: &str,
+    pulled_in: impl IntoIterator<Item = &'a ModVersion>,
+) -> Option<Vec<String>> {
+    registry
+        .iter()
+        .any(|m| m.sha1.eq_ignore_ascii_case(dependent_sha1))
+        .then(|| requires_edges(registry, Some(dependent_sha1), pulled_in))
 }
 
 #[cfg(test)]
@@ -222,5 +242,41 @@ mod tests {
             std::iter::empty::<&ModVersion>()
         )
         .is_empty());
+    }
+
+    // ── dependent_edges_after (spec §5.6) ────────────────────────────────────
+    use super::dependent_edges_after;
+
+    #[test]
+    fn a_dependency_installed_for_a_dependent_extends_its_edges() {
+        let registry = vec![m("dep", "D", &["lib-old"]), m("o", "lib-old", &[])];
+        let pulled_in = [pulled("lib-new"), pulled("lib-sub")];
+        assert_eq!(
+            dependent_edges_after(&registry, "DEP", pulled_in.iter()),
+            Some(vec![
+                "lib-new".to_string(),
+                "lib-old".to_string(),
+                "lib-sub".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn a_library_the_user_already_had_is_not_claimed_by_the_dependent() {
+        let registry = vec![m("dep", "D", &[]), m("l", "lib-present", &[])];
+        let pulled_in = [pulled("lib-present"), pulled("lib-new")];
+        assert_eq!(
+            dependent_edges_after(&registry, "dep", pulled_in.iter()),
+            Some(vec!["lib-new".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_dependent_that_is_gone_gets_no_edges_written() {
+        let registry = vec![m("other", "Q", &[])];
+        assert_eq!(
+            dependent_edges_after(&registry, "dep", [pulled("lib")].iter()),
+            None
+        );
     }
 }

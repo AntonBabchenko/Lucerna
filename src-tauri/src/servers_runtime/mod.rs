@@ -10,6 +10,7 @@ pub mod exit_state;
 pub mod firewall;
 pub mod import;
 pub mod installed;
+pub mod installed_loader;
 pub mod jar;
 pub mod maintenance;
 pub mod mod_classify;

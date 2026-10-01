@@ -17,6 +17,7 @@
   import type { IconName } from '$lib/ui/icons';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
+  import { reportNotAdded } from '$lib/layout/drop-report';
   import { coreToLoaderKind } from '$lib/servers/core-display';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
@@ -130,6 +131,9 @@
   // Installed panes re-read when this bumps (browser/dropzone installs).
   let reloadToken = $state(0);
   let dropError = $state<string | null>(null);
+  // The Installed pane of the current kind is loaded and empty (it reports so): while that pane
+  // shows, the strip gives way to its full drop area.
+  let installedEmpty = $state(false);
 
   // The server world's level.dat presence, from the data pack Installed pane's
   // own read (bound below; that pane is mounted whenever the kind is
@@ -192,11 +196,18 @@
     if (paths.length > 0) await installLocalPaths(paths);
   }
 
-  // Drops routed here by +page.svelte (window drop router); consume only our kind.
+  // Drops routed here by +page.svelte (window drop router); consume only our kind. The router
+  // cannot see the world's level.dat, so a drop can arrive while the drop zone is off: it is
+  // refused here — and said so, in the zone's own words (a drop is never discarded in silence).
   $effect(() => {
     const payload = droppedServerContent.value;
     if (payload && payload.kind === kind) {
       droppedServerContent.value = null;
+      const blocked = addBlockedLabel;
+      if (blocked !== null) {
+        reportNotAdded(payload.paths.map((path) => ({ path, reason: blocked })));
+        return;
+      }
       void installLocalPaths(payload.paths);
     }
   });
@@ -230,7 +241,8 @@
   );
 </script>
 
-<div class="flex flex-col gap-3">
+<!-- min-h-full: the drop area's box below grows to the panel's height (DESIGN.md §14). -->
+<div class="flex flex-col gap-3 min-h-full">
   {#if kinds.length === 0}
     <!-- The hole the 1.13 gate opens: a pre-1.13 vanilla server is neither
          mod- nor plugin-capable, and datapacks are gated off too, so there is
@@ -271,79 +283,116 @@
       />
     </div>
 
-    <div data-tour-ctx="server-addons-dropzone">
-      <FileDropzone
-        label={dropzoneLabel}
-        disabled={addBlockedLabel !== null}
-        disabledLabel={addBlockedLabel ?? undefined}
-        onClick={() => void pickAndInstall()}
-      />
-    </div>
-    {#if dropError}
-      <p class="text-sm text-danger" role="alert">{dropError}</p>
-    {/if}
-    {#if running}
-      <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
-    {/if}
+    <!-- The strip's drag overlay covers this box — the strip and the panes under it (DESIGN.md
+         §14); it fills the tab's height, so the overlay does too. An empty Installed list holds
+         the full drop area instead of the strip. -->
+    <div class="relative flex-1 flex flex-col gap-3">
+      {#if !(view === 'installed' && installedEmpty)}
+        <div data-tour-ctx="server-addons-dropzone">
+          <FileDropzone
+            variant="strip"
+            target="server-content"
+            label={dropzoneLabel}
+            disabled={addBlockedLabel !== null}
+            disabledLabel={addBlockedLabel ?? undefined}
+            dragLabel={$t('common.dropToAdd', { name: server?.name ?? '' })}
+            onClick={() => void pickAndInstall()}
+          />
+        </div>
+      {/if}
+      {#if dropError}
+        <p class="text-sm text-danger" role="alert">{dropError}</p>
+      {/if}
+      {#if running}
+        <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
+      {/if}
 
-    {#if server}
-      <div class:hidden={view !== 'browse'}>
-        <!-- Re-key per kind so switching content type resets filters/results. -->
-        {#key kind}
-          {#if kind === 'mod'}
-            <!-- The ! is safe: 'mod' is only offered when modCapable, and
+      {#if server}
+        <div class:hidden={view !== 'browse'}>
+          <!-- Re-key per kind so switching content type resets filters/results. -->
+          {#key kind}
+            {#if kind === 'mod'}
+              <!-- The ! is safe: 'mod' is only offered when modCapable, and
                  mod-capable cores are never paper/purpur (see core-display). -->
-            <ServerModBrowser
-              {serverId}
-              mcVersion={server.mc_version}
-              loader={coreToLoaderKind(server.loader)!}
-              bind:source
-              showSourcePicker={false}
-              onInstalled={() => reloadToken++}
-            />
-          {:else if kind === 'plugin'}
-            <ServerPluginBrowser
-              {serverId}
-              mcVersion={server.mc_version}
-              core={server.loader}
-              bind:source
-              showSourcePicker={false}
-              onInstalled={() => reloadToken++}
-            />
-          {:else}
-            <ServerDatapackBrowser
-              {serverId}
-              mcVersion={server.mc_version}
-              bind:source
-              showSourcePicker={false}
-              blockedReason={datapackBlock !== null ? $t(datapackBlock) : null}
-              onInstalled={() => reloadToken++}
-            />
-          {/if}
-        {/key}
-      </div>
-      <!-- Kept mounted (mirrors the Browse block above) so switching
+              <ServerModBrowser
+                {serverId}
+                mcVersion={server.mc_version}
+                loader={coreToLoaderKind(server.loader)!}
+                bind:source
+                showSourcePicker={false}
+                onInstalled={() => reloadToken++}
+              />
+            {:else if kind === 'plugin'}
+              <ServerPluginBrowser
+                {serverId}
+                mcVersion={server.mc_version}
+                core={server.loader}
+                bind:source
+                showSourcePicker={false}
+                onInstalled={() => reloadToken++}
+              />
+            {:else}
+              <ServerDatapackBrowser
+                {serverId}
+                mcVersion={server.mc_version}
+                bind:source
+                showSourcePicker={false}
+                blockedReason={datapackBlock !== null ? $t(datapackBlock) : null}
+                onInstalled={() => reloadToken++}
+              />
+            {/if}
+          {/key}
+        </div>
+        <!-- Kept mounted (mirrors the Browse block above) so switching
            Browse↔Installed never remounts it: rows persist across visits, and
            the cold load runs in the background while the user is on Browse.
            `reloadToken` still refreshes it after a Browse/dropzone install. -->
-      <div class:hidden={view !== 'installed'}>
-        {#if kind === 'mod'}
-          <ServerModsInstalled {serverId} {reloadToken} />
-        {:else if kind === 'plugin'}
-          <ServerPluginsInstalled {serverId} {reloadToken} />
-        {:else}
-          <ServerDatapacksInstalled
-            {serverId}
-            mcVersion={server.mc_version}
-            disabled={running}
-            {reloadToken}
-            bind:levelDat={datapackLevelDat}
-          />
-        {/if}
-      </div>
-    {/if}
+        <div class:hidden={view !== 'installed'}>
+          {#if kind === 'mod'}
+            <ServerModsInstalled
+              {serverId}
+              {reloadToken}
+              emptyDropzone={view === 'installed' ? installedDropzone : undefined}
+              onEmptyChange={(e) => (installedEmpty = e)}
+            />
+          {:else if kind === 'plugin'}
+            <ServerPluginsInstalled
+              {serverId}
+              {reloadToken}
+              emptyDropzone={view === 'installed' ? installedDropzone : undefined}
+              onEmptyChange={(e) => (installedEmpty = e)}
+            />
+          {:else}
+            <ServerDatapacksInstalled
+              {serverId}
+              mcVersion={server.mc_version}
+              disabled={running}
+              {reloadToken}
+              bind:levelDat={datapackLevelDat}
+              emptyDropzone={view === 'installed' ? installedDropzone : undefined}
+              onEmptyChange={(e) => (installedEmpty = e)}
+            />
+          {/if}
+        </div>
+      {/if}
+    </div>
   {/if}
 </div>
+
+<!-- The empty Installed list's full drop area (DESIGN.md §14), handed over only while that list
+     shows, so a hidden list never holds a second one. It carries the tour's anchor too. -->
+{#snippet installedDropzone()}
+  <div data-tour-ctx="server-addons-dropzone">
+    <FileDropzone
+      target="server-content"
+      label={dropzoneLabel}
+      disabled={addBlockedLabel !== null}
+      disabledLabel={addBlockedLabel ?? undefined}
+      dragLabel={$t('common.dropToAdd', { name: server?.name ?? '' })}
+      onClick={() => void pickAndInstall()}
+    />
+  </div>
+{/snippet}
 
 <!-- Both steps anchor inside the {:else} branch above, so the tour may only
      mount once the branch is settled: `gateResolved` keeps it off the

@@ -12,7 +12,7 @@
  * violation (1) on the SAME row, so neither source can be swapped for the other
  * without one of the two failing.
  */
-import { render, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 const mod = vi.hoisted(() => ({
@@ -53,6 +53,19 @@ const graphWithAbsentRequired = vi.hoisted(() => ({
   ],
 }));
 
+// Alpha's platform summary: its row is a full card, whose relation pill opens the tree.
+const alphaSummary = vi.hoisted(() => ({
+  source: 'modrinth',
+  project_id: 'PA',
+  slug: 'alpha',
+  name: 'Alpha',
+  summary: '',
+  icon_url: null,
+  downloads: 0,
+  author: 'x',
+  updated_at: null,
+}));
+
 const mocks = vi.hoisted(() => ({ instanceDependencyPreflight: vi.fn() }));
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -60,17 +73,24 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [mod] }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
-    modsProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsProjects: vi.fn((_source: string, ids: string[]) =>
+      Promise.resolve({ status: 'ok', data: ids.includes('PA') ? [alphaSummary] : [] }),
+    ),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: graphWithAbsentRequired }),
     instanceDependencyPreflight: mocks.instanceDependencyPreflight,
-    // The panel enriches missing-dependency ids with project names; without
-    // this the effect calls undefined and the rejection escapes the test run.
+    // The dependency-name store names missing and disabled dependencies
+    // through this command (dep-names.svelte.ts); the last case drives it.
     modsResolveDepNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // The guarded enable path (mod-ops) asks for the impact first — WITH its safe flip `order`.
+    modsEnableImpact: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { requirements: [], order: ['balm-sha'] } }),
+    modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -81,6 +101,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { commands } from '$lib/ipc/bindings';
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 // A DISTINCT instance id per case: `preflightCache` is a per-instance LRU, so
@@ -102,17 +123,24 @@ describe('the issue count comes from the pre-flight', () => {
       data: { violations: [] },
     });
     render(InstalledModsView, { props: props('graph-only') });
-    await waitFor(() => {
-      expect(document.querySelector('[data-mod-row="modrinth:PA"]')).not.toBeNull();
+    // The graph has landed: Alpha's row counts the platform's dependency.
+    const chip = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="relation-pill"]');
+      if (!el) throw new Error('relation pill not rendered yet');
+      return el;
     });
-    expect(issuesChip()).toBeUndefined();
 
-    // Case A, measured: the claim is not hidden either — it is reported with
-    // attribution, in the neutral register, so the user can see what the author
-    // typed without the launcher adopting it as a finding.
-    await waitFor(() =>
-      expect(document.querySelector('[data-testid="author-claim-badge"]')).not.toBeNull(),
+    // Case A, measured: the claim is not hidden either, and it gets no badge on the row any more
+    // (D4). The tree says what the loader does about it — here nothing: the pre-flight judged
+    // Alpha and asked for nothing, so the mod starts without it. Neutral register, no danger.
+    expect(document.querySelector('[data-testid="author-claim-badge"]')).toBeNull();
+    await fireEvent.click(chip);
+    const node = await screen.findByText(
+      'not installed · per the platform; the mod starts without it',
     );
+    expect(node.closest('.text-danger')).toBeNull();
+    // That state stands on the pre-flight's answer — which found no issue here.
+    expect(issuesChip()).toBeUndefined();
     expect(document.querySelector('[data-testid="status-badge"]')).toBeNull();
   });
 
@@ -144,5 +172,173 @@ describe('the issue count comes from the pre-flight', () => {
     });
     render(InstalledModsView, { props: props('preflight-hit') });
     await waitFor(() => expect(issuesChip()).not.toBeUndefined());
+  });
+
+  // Two dependents that share a bare mod-id must keep their own names (audit A-F3): a map keyed
+  // by the dep id alone showed the last answer on both rows.
+  it('names each missing dependency per dependent, through the shared store', async () => {
+    const missing = (sha1: string, name: string) => ({
+      dependent_sha1: sha1,
+      dependent_name: name,
+      dep_id: 'lib',
+      kind: 'missing_required',
+      installed_version: null,
+      needed: '',
+      needed_desc: { raw: '', family: 'maven', alternatives: [], unparseable: false, soft: false },
+      provider_project: null,
+      provider_sha1: null,
+      family: null,
+    });
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: { violations: [missing('a', 'Alpha'), missing('b', 'Beta')] },
+    });
+    vi.mocked(commands.modsResolveDepNames).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        { dependent_sha1: 'a', dep_id: 'lib', name: 'Lib for Alpha', project: null },
+        { dependent_sha1: 'b', dep_id: 'lib', name: 'Lib for Beta', project: null },
+      ],
+    });
+    render(InstalledModsView, { props: props('named-deps') });
+    await waitFor(() => {
+      const rows = [...document.querySelectorAll('[data-testid="preflight-row"]')];
+      expect(rows.map((r) => r.textContent ?? '')).toEqual([
+        expect.stringContaining('Lib for Alpha'),
+        expect.stringContaining('Lib for Beta'),
+      ]);
+    });
+  });
+
+  it('the violation is also the row’s own reason line, marked blocking', async () => {
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: {
+        violations: [
+          {
+            dependent_sha1: 'a',
+            dependent_name: 'Alpha',
+            dep_id: 'stylisheffects',
+            kind: 'missing_required',
+            installed_version: null,
+            needed: '',
+            needed_desc: {
+              raw: '',
+              family: 'maven',
+              alternatives: [],
+              unparseable: false,
+              soft: false,
+            },
+            provider_project: null,
+            provider_sha1: null,
+            family: null,
+          },
+        ],
+      },
+    });
+    render(InstalledModsView, { props: props('reason-line') });
+    const line = await waitFor(() => {
+      const el = document.querySelector('[data-testid="row-problem"]');
+      if (!el) throw new Error('reason line not rendered yet');
+      return el;
+    });
+    expect(line.getAttribute('data-level')).toBe('blocking');
+    expect(line.textContent).toContain('Alpha needs stylisheffects, which is not installed');
+    expect(line.textContent).toContain('Install stylisheffects');
+  });
+
+  // The disabled provider IS a row: it is named as the report names that row (`provider_name`),
+  // and «Enable» switches that jar on through the guarded path — never an install of a second copy.
+  it('a disabled dependency is named by its own row and switched on through mod-ops', async () => {
+    const balm = { ...mod, filename: 'balm.jar', sha1: 'balm-sha', project_id: 'PBALM' };
+    vi.mocked(commands.modsListInstalled).mockResolvedValue({
+      status: 'ok',
+      data: [mod, { ...balm, name: 'Balm', enabled: false }],
+    } as never);
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: {
+        violations: [
+          {
+            dependent_sha1: 'a',
+            dependent_name: 'Alpha',
+            dep_id: 'balm',
+            kind: 'required_disabled',
+            installed_version: null,
+            needed: '',
+            needed_desc: {
+              raw: '',
+              family: 'maven',
+              alternatives: [],
+              unparseable: false,
+              soft: false,
+            },
+            provider_project: null,
+            provider_sha1: 'balm-sha',
+            provider_name: 'Balm',
+            family: null,
+          },
+        ],
+      },
+    });
+    try {
+      render(InstalledModsView, { props: props('enable-provider') });
+      const line = await waitFor(() => {
+        const el = document.querySelector<HTMLElement>('[data-testid="row-problem"]');
+        if (!el) throw new Error('reason line not rendered yet');
+        return el;
+      });
+      expect(line.textContent).toContain("Alpha won't load: Balm is disabled");
+      await fireEvent.click(within(line).getByRole('button', { name: 'Enable' }));
+      await waitFor(() =>
+        expect(commands.modsEnable).toHaveBeenCalledWith('enable-provider', 'balm-sha'),
+      );
+      expect(commands.modsEnableImpact).toHaveBeenCalledWith('enable-provider', ['balm-sha']);
+    } finally {
+      vi.mocked(commands.modsListInstalled).mockResolvedValue({
+        status: 'ok',
+        data: [mod],
+      } as never);
+    }
+  });
+
+  // Plan §5b V1 (c): the Installed panel names a provider exactly as the Play gate does — by the
+  // name the report gives its row — so the two never disagree, and the panel (which shows while
+  // the list is still loading) never falls back to the loader id for a jar it has not listed yet.
+  it('names a provider as the gate does, by the report, before its row is listed', async () => {
+    mocks.instanceDependencyPreflight.mockResolvedValue({
+      status: 'ok',
+      data: {
+        violations: [
+          {
+            dependent_sha1: 'a',
+            dependent_name: 'Alpha',
+            dep_id: 'yet_another_config_lib_v3',
+            kind: 'required_disabled',
+            installed_version: null,
+            needed: '',
+            needed_desc: {
+              raw: '',
+              family: 'maven',
+              alternatives: [],
+              unparseable: false,
+              soft: false,
+            },
+            provider_project: null,
+            provider_sha1: 'yacl-sha',
+            provider_name: 'YetAnotherConfigLib',
+            family: null,
+          },
+        ],
+      },
+    });
+    render(InstalledModsView, { props: props('named-by-report') });
+    const row = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="preflight-row"]');
+      if (!el) throw new Error('panel row not rendered yet');
+      return el;
+    });
+    expect(row.textContent).toContain('YetAnotherConfigLib');
+    expect(row.textContent).not.toContain('yet_another_config_lib_v3');
   });
 });

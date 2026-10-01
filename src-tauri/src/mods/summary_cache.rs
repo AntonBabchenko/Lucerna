@@ -24,7 +24,8 @@
 //! Therefore: make the field `Option` + `#[serde(default)]`, and give the one
 //! caller that needs it a `require_*` flag that marks a `None` entry stale.
 //! Migration then happens per entry, inside a batch that caller already issues,
-//! and can never wipe the file. `require_loaders` is the worked example.
+//! and can never wipe the file. `require_loaders` is the worked example;
+//! `require_library` is the second.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -34,7 +35,9 @@ use std::sync::Mutex;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::mods::platform::{supplies_project_loaders, ModSource, ModSummary};
+use crate::mods::platform::{
+    supplies_project_library, supplies_project_loaders, ModSource, ModSummary,
+};
 
 /// Serializes the disk read-modify-write across concurrent `get_many` calls
 /// (the installed list and the dependency graph fetch around the same time).
@@ -101,22 +104,6 @@ fn save(path: &Path, map: &HashMap<(ModSource, String), StoredEntry>) -> std::io
     std::fs::rename(&tmp, path)
 }
 
-/// Return a `ModSummary` for every requested `(source, id)` that resolves,
-/// serving fresh entries from disk and batch-fetching the missing/stale set via
-/// `fetch`. Newly fetched summaries are persisted. Ids the platform cannot
-/// resolve (404 / unknown) are simply absent from the result — the caller
-/// degrades that row. A whole-batch fetch failure degrades to cache-only
-/// (logged, never propagated): mod metadata is cosmetic and must not break the
-/// list or the graph.
-///
-/// `require_loaders` additionally treats an entry whose `loaders` is `None` as
-/// stale, but only for sources that can actually report them. This is the
-/// migration path for the field: entries written before it existed deserialize
-/// with `None`, and `None` never suppresses a dependency row, so without this
-/// the dependency-graph fix would appear dead until the TTL expired — or
-/// forever at `ttl_days == 0`, which is a supported setting. Only the
-/// dependency graph passes `true`; every other caller passes `false` and
-/// re-fetches nothing.
 /// Cache-only lookup: whatever is already on disk for `(source, id)`, nothing
 /// else. Ids with no entry are simply absent from the result.
 ///
@@ -139,12 +126,33 @@ pub fn get_many_cached(path: &Path, source: ModSource, ids: &[String]) -> Vec<Mo
         .collect()
 }
 
+/// Return a `ModSummary` for every requested `(source, id)` that resolves,
+/// serving fresh entries from disk and batch-fetching the missing/stale set via
+/// `fetch`. Newly fetched summaries are persisted. Ids the platform cannot
+/// resolve (404 / unknown) are simply absent from the result — the caller
+/// degrades that row. A whole-batch fetch failure degrades to cache-only
+/// (logged, never propagated): mod metadata is cosmetic and must not break the
+/// list or the graph.
+///
+/// `require_loaders` additionally treats an entry whose `loaders` is `None` as
+/// stale, but only for sources that can actually report them. This is the
+/// migration path for the field: entries written before it existed deserialize
+/// with `None`, and `None` never suppresses a dependency row, so without this
+/// the dependency-graph fix would appear dead until the TTL expired — or
+/// forever at `ttl_days == 0`, which is a supported setting. Only the
+/// dependency graph passes `true`; every other caller passes `false` and
+/// re-fetches nothing.
+///
+/// `require_library` does the same for `library`, gated on
+/// [`supplies_project_library`]; only `mods_projects` (the Installed list's
+/// library chips) passes `true`.
 pub async fn get_many<F, Fut>(
     path: &Path,
     source: ModSource,
     ids: &[String],
     ttl_days: u32,
     require_loaders: bool,
+    require_library: bool,
     fetch: F,
 ) -> Vec<ModSummary>
 where
@@ -157,6 +165,7 @@ where
         ids,
         ttl_days,
         require_loaders,
+        require_library,
         Utc::now(),
         fetch,
     )
@@ -170,6 +179,7 @@ async fn get_many_inner<F, Fut>(
     ids: &[String],
     ttl_days: u32,
     require_loaders: bool,
+    require_library: bool,
     now: DateTime<Utc>,
     fetch: F,
 ) -> Vec<ModSummary>
@@ -185,15 +195,18 @@ where
     let stale: Vec<String> = {
         let _g = DISK_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let map = load(path);
-        // The loaders clause is OR'd with `is_fresh`, never nested inside it —
-        // `ttl_days == 0` short-circuits `is_fresh` to always-fresh, and a
-        // pre-migration entry must still be re-fetched under that setting.
+        // The loaders and library clauses are OR'd with `is_fresh`, never
+        // nested inside it — `ttl_days == 0` short-circuits `is_fresh` to
+        // always-fresh, and a pre-migration entry must still be re-fetched
+        // under that setting.
         let needs_loaders = require_loaders && supplies_project_loaders(source);
+        let needs_library = require_library && supplies_project_library(source);
         ids.iter()
             .filter(|id| match map.get(&(source, (*id).clone())) {
                 Some(e) => {
                     !is_fresh(&e.fetched_at, now, ttl_days)
                         || (needs_loaders && e.summary.loaders.is_none())
+                        || (needs_library && e.summary.library.is_none())
                 }
                 None => true,
             })
@@ -254,6 +267,7 @@ mod tests {
             author: String::new(),
             updated_at: None,
             loaders: Some(Vec::new()),
+            library: Some(false),
         }
     }
 
@@ -321,6 +335,7 @@ mod tests {
             &["jei".to_string()],
             7,
             true,
+            false,
             now,
             f,
         )
@@ -349,6 +364,7 @@ mod tests {
             &["jei".to_string()],
             0,
             true,
+            false,
             now,
             f,
         )
@@ -373,6 +389,7 @@ mod tests {
             &["plug".to_string()],
             7,
             true,
+            false,
             now,
             f,
         )
@@ -398,10 +415,59 @@ mod tests {
             &["jei".to_string()],
             7,
             false,
+            false,
             now,
             f,
         )
         .await;
+        assert_eq!(out.len(), 1);
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    /// Seed an entry as a write from before `library` existed leaves it.
+    fn seed_without_library(path: &Path, source: ModSource, id: &str, fetched_at: DateTime<Utc>) {
+        let mut map = load(path);
+        let mut s = summary(source, id);
+        s.library = None;
+        map.insert(
+            (source, id.to_string()),
+            StoredEntry {
+                fetched_at: fetched_at.to_rfc3339(),
+                summary: s,
+            },
+        );
+        save(path, &map).unwrap();
+    }
+
+    /// The Installed tab's library chips need the field: a pre-field entry is
+    /// re-fetched once, even at `ttl_days == 0`, like the `loaders` migration.
+    #[tokio::test]
+    async fn refetches_fresh_entry_that_predates_the_library_field() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("summaries.json");
+        let now = Utc::now();
+        seed_without_library(&path, ModSource::Modrinth, "jei", now);
+        let (calls, f) = recording_fetcher(ModSource::Modrinth);
+        let ids = ["jei".to_string()];
+        let out = get_many_inner(&path, ModSource::Modrinth, &ids, 0, false, true, now, f).await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            calls.lock().unwrap().len(),
+            1,
+            "stale for `library`, even at ttl 0"
+        );
+    }
+
+    /// A source that cannot report categories would be stale forever.
+    #[tokio::test]
+    async fn does_not_refetch_library_for_a_source_that_cannot_report_it() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("summaries.json");
+        let now = Utc::now();
+        seed_without_library(&path, ModSource::Hangar, "plug", now);
+        let (calls, f) = recording_fetcher(ModSource::Hangar);
+        let ids = ["plug".to_string()];
+        let out = get_many_inner(&path, ModSource::Hangar, &ids, 7, false, true, now, f).await;
         assert_eq!(out.len(), 1);
         assert!(calls.lock().unwrap().is_empty());
     }
@@ -428,7 +494,7 @@ mod tests {
         let now = Utc::now();
         let (calls, f) = recording_fetcher(ModSource::Modrinth);
         let ids = vec!["jei".to_string(), "sodium".to_string()];
-        let out = get_many_inner(&path, ModSource::Modrinth, &ids, 7, false, now, f).await;
+        let out = get_many_inner(&path, ModSource::Modrinth, &ids, 7, false, false, now, f).await;
         assert_eq!(out.len(), 2);
         // Fetched exactly the two missing ids, in one call.
         let recorded = calls.lock().unwrap().clone();
@@ -451,6 +517,7 @@ mod tests {
             ModSource::Modrinth,
             &["jei".to_string()],
             7,
+            false,
             false,
             now,
             f,
@@ -481,7 +548,7 @@ mod tests {
             "stale".to_string(),
             "missing".to_string(),
         ];
-        let out = get_many_inner(&path, ModSource::Modrinth, &ids, 7, false, now, f).await;
+        let out = get_many_inner(&path, ModSource::Modrinth, &ids, 7, false, false, now, f).await;
         assert_eq!(out.len(), 3);
         let recorded = calls.lock().unwrap().clone();
         assert_eq!(recorded.len(), 1);
@@ -509,6 +576,7 @@ mod tests {
             &["ancient".to_string()],
             0,
             false,
+            false,
             now,
             f,
         )
@@ -530,7 +598,7 @@ mod tests {
             }))
         };
         let ids = vec!["have".to_string(), "gone".to_string()];
-        let out = get_many_inner(&path, ModSource::Modrinth, &ids, 7, false, now, f).await;
+        let out = get_many_inner(&path, ModSource::Modrinth, &ids, 7, false, false, now, f).await;
         // Cached one survives; the failed one is simply absent (row degrades).
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].project_id, "have");
@@ -550,6 +618,7 @@ mod tests {
             ModSource::Curseforge,
             &["42".to_string()],
             7,
+            false,
             false,
             now,
             f,

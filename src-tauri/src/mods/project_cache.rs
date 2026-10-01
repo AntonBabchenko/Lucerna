@@ -63,6 +63,7 @@ mod tests {
                 author: String::new(),
                 updated_at: None,
                 loaders: None,
+                library: None,
             },
             body_html: String::new(),
             gallery: vec![],

@@ -106,6 +106,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { commands } from '$lib/ipc/bindings';
 import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
@@ -136,5 +137,31 @@ describe('Installed pagination footer (unified)', () => {
     await fireEvent.click(screen.getByTestId('page-size-100'));
     expect(browserPrefs.installedPageSize).toBe(100);
     expect(browserPrefs.pageSize).toBe(20); // catalog size untouched
+  });
+
+  // One page has nothing to page through (spec §6.7) — but the size picker stays while a smaller
+  // page would still split the list: hiding it would strand a user who just picked 100.
+  it('hides the pager on one page but keeps the page-size picker while a smaller page would split the list', async () => {
+    browserPrefs.installedPageSize = 100;
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await waitFor(() => expect(screen.getByTestId('page-size-20')).toBeTruthy(), { timeout: 3000 });
+    expect(screen.queryByTestId('pg-label')).toBeNull();
+  });
+
+  it('shows no footer at all when the list is shorter than the smallest page', async () => {
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: mods.slice(0, 5),
+    } as never);
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await waitFor(() => expect(screen.getAllByTestId('card-list-row')).toHaveLength(5), {
+      timeout: 3000,
+    });
+    expect(screen.queryByTestId('page-size-20')).toBeNull();
+    expect(screen.queryByTestId('pg-label')).toBeNull();
   });
 });
