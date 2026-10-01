@@ -381,7 +381,7 @@
       "nameEmpty": "Имя не может быть пустым",
       "nameTooLong": "Имя слишком длинное: {actual}/{max} символов",
       "pickMcFirst": "Сначала выберите версию Minecraft",
-      "loaderNoSupport": "{loader} не поддерживает Minecraft {mc} — попробуйте другую версию или загрузчик",
+      "loaderVersionRequired": "Сначала выберите версию {loader}",
       "dirNameEmpty": "От этого имени не остаётся пригодного имени папки.",
       "dirNameTaken": "Папка с именем {name} уже существует.",
       "dirNameReserved": "{name} — имя, зарезервированное Windows за устройствами.",
@@ -2539,6 +2539,8 @@
     "unknownVersion": "Версия {id} не найдена в манифесте",
     "unsupportedPlatform": "Неподдерживаемая платформа: {os}/{arch}",
     "loaderUnavailable": "{loader} не поддерживает Minecraft {mcVersion}",
+    "loaderBuildsNotOffered": "Lucerna не устанавливает версии {loader} для снапшотов Minecraft, в том числе для {mcVersion}",
+    "loaderVersionsUnreadable": "Lucerna не смогла разобрать список версий {loader} для Minecraft {mcVersion}: в нём есть номера версий, которые ей незнакомы",
     "lastInstance": "Нельзя удалить последний профиль — должен оставаться хотя бы один",
     "noVersionSelected": "Сначала выберите версию Minecraft",
     "instanceNotFound": "Профиль {id} не найден",
@@ -2643,6 +2645,7 @@
     "serverJarUnavailable": "Не удалось найти серверный дистрибутив для {loader} {mcVersion}",
     "serverInstallerFailed": "Установщик сервера {loader} завершился с ошибкой",
     "serverSpawnFailed": "Не удалось запустить процесс сервера",
+    "serverLoaderAmbiguous": "В папке сервера несколько установок {loader}, и ничто не указывает, какую из них он использует: {candidates}. Удалите лишние и запустите сервер снова.",
     "serverAlreadyRunning": "Этот сервер уже запущен",
     "serverNotRunning": "Этот сервер не запущен",
     "serverModRequiredByOther": "Нельзя удалить {filename} — он нужен моду {requiredBy}. Удалите и тот мод, либо оставьте этот.",
@@ -2667,6 +2670,11 @@
     "serverImportTooLarge": "Этот сервер слишком большой для импорта.",
     "serverImportNotAServer": "Эта папка не похожа на сервер Minecraft (нет server jar, файлов загрузчика или server.properties).",
     "serverImportStagingExpired": "Сессия импорта истекла — начните импорт заново.",
+    "serverMcVersionRequired": "Для сервера не указана версия Minecraft.",
+    "serverMcVersionUnlisted": "Minecraft {mcVersion} нет в списке версий Mojang. Проверьте номер версии.",
+    "serverMcVersionUnchecked": "Lucerna не смогла загрузить список версий Mojang и не может проверить версию Minecraft. Попробуйте ещё раз чуть позже.",
+    "serverSavedMcVersionMissing": "У сервера не записана версия Minecraft. Экспортируйте его в .zip на вкладке «Хостинг», импортируйте этот .zip под новым именем, указав версию, а затем удалите этот сервер.",
+    "serverSavedMcVersionUnknown": "Сервер записан как Minecraft {mcVersion}, а такой версии нет в списке Mojang. Экспортируйте его в .zip на вкладке «Хостинг», импортируйте этот .zip под новым именем с правильной версией, а затем удалите этот сервер.",
     "dataLocationBusy": "Сейчас это сделать нельзя: запущена игра или сервер, ещё выполняется другая операция, либо проверить это не удалось. Остановите игры и серверы, дождитесь завершения операций и повторите.",
     "dataLocationInvalid": "Эта папка не подходит: {reason}",
     "dataLocationInvalidReason": {
@@ -3610,7 +3618,8 @@
       "consoleCard": "Консоль",
       "version": "Версия",
       "core": "Ядро",
-      "memory": "Память"
+      "memory": "Память",
+      "versionNotRecorded": "Не указана"
     },
     "addons": {
       "kindPlugins": "Плагины",
@@ -4261,14 +4270,18 @@
       "dropzoneDrag": "Отпустите, чтобы импортировать сервер",
       "inspecting": "Читаю сервер…",
       "detected": "Определено из импорта — поправьте при необходимости.",
-      "willPreserve": "Запустится как есть (офлайн)",
+      "willPreserve": "Запустится как есть",
       "willReprovision": "Загрузчик будет переустановлен",
       "loaderUnknownWarn": "Не удалось определить загрузчик модов — по умолчанию выбран Vanilla. Если на сервере есть моды, выберите правильный загрузчик ниже, иначе они не загрузятся.",
       "modCount": "{count, plural, one {# мод} few {# мода} many {# модов} other {# мода}}",
       "worldPresent": "Включает мир",
       "import": "Импортировать",
       "importing": "Импортирую…",
-      "back": "Назад"
+      "back": "Назад",
+      "mcVersionUndetected": "Lucerna не смогла прочитать версию Minecraft этого сервера. Укажите её, чтобы импортировать сервер.",
+      "disabledReason": {
+        "version": "Укажите версию Minecraft сервера, чтобы продолжить."
+      }
     }
   },
   "tasks": {

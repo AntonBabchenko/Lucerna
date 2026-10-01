@@ -41,6 +41,29 @@ describe('formatError', () => {
     expect(msg).toBe('NeoForge does not support Minecraft 1.20.1');
   });
 
+  it('says Lucerna does not install NeoForge builds for a snapshot', () => {
+    const msg = formatError({
+      kind: 'loader_builds_not_offered',
+      loader: 'neoforge',
+      mc_version: '26.1-snapshot-1',
+    });
+    expect(msg).toBe(
+      'Lucerna does not install NeoForge builds for Minecraft snapshots such as 26.1-snapshot-1',
+    );
+  });
+
+  it('says the NeoForge list could not be read, not that the version is unsupported', () => {
+    const msg = formatError({
+      kind: 'loader_versions_unreadable',
+      loader: 'neoforge',
+      mc_version: '26.4',
+    });
+    expect(msg).toBe(
+      'Lucerna could not read the NeoForge version list for Minecraft 26.4: it has version numbers Lucerna does not recognise',
+    );
+    expect(msg).not.toMatch(/does not support/);
+  });
+
   it('names both sides of a build that is not for this instance', () => {
     const msg = formatError({
       kind: 'mod_version_not_for_instance',
@@ -276,6 +299,16 @@ describe('formatError', () => {
       skin_library: { kind: 'skin_library', details: 'entry not found' },
       unknown_version: { kind: 'unknown_version', id: '1.21' },
       loader_unavailable: { kind: 'loader_unavailable', loader: 'fabric', mc_version: '1.21' },
+      loader_builds_not_offered: {
+        kind: 'loader_builds_not_offered',
+        loader: 'neoforge',
+        mc_version: '26.1-snapshot-1',
+      },
+      loader_versions_unreadable: {
+        kind: 'loader_versions_unreadable',
+        loader: 'neoforge',
+        mc_version: '26.4',
+      },
       unsupported_platform: { kind: 'unsupported_platform', os: 'plan9', arch: 'sparc' },
       io: { kind: 'io', path: 'p', details: 'd' },
       last_instance: { kind: 'last_instance' },
@@ -492,6 +525,14 @@ describe('formatError', () => {
         details: 'exit 1',
       },
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
+      server_loader_ambiguous: {
+        kind: 'server_loader_ambiguous',
+        loader: 'Forge',
+        candidates: [
+          'libraries/net/minecraftforge/forge/1.20.1-47.2.0',
+          'libraries/net/minecraftforge/forge/1.20.1-47.3.0',
+        ],
+      },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
       server_world_not_created: { kind: 'server_world_not_created' },
       server_world_only_old: { kind: 'server_world_only_old' },
@@ -527,6 +568,14 @@ describe('formatError', () => {
       server_import_too_large: { kind: 'server_import_too_large', size: 3, cap: 2 },
       server_import_not_a_server: { kind: 'server_import_not_a_server' },
       server_import_staging_expired: { kind: 'server_import_staging_expired', token: 'tok-1' },
+      server_mc_version_required: { kind: 'server_mc_version_required' },
+      server_mc_version_unlisted: { kind: 'server_mc_version_unlisted', mc_version: '1.20.l' },
+      server_mc_version_unchecked: { kind: 'server_mc_version_unchecked' },
+      server_saved_mc_version_missing: { kind: 'server_saved_mc_version_missing' },
+      server_saved_mc_version_unknown: {
+        kind: 'server_saved_mc_version_unknown',
+        mc_version: '1.20.l',
+      },
       data_location_busy: { kind: 'data_location_busy' },
       data_location_invalid: { kind: 'data_location_invalid', reason: 'not_empty' },
       data_location_migration_failed: {

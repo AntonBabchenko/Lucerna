@@ -79,6 +79,15 @@ describe('i18n locale parity (en vs ru)', () => {
     expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
   });
 
+  it('carries none of the keys retired by the NeoForge 26.x fix', () => {
+    // The New-profile footer said "{loader} does not support Minecraft {mc}"
+    // for ANY missing loader version, a network error included. It now says
+    // "Choose a {loader} version first", and the picker's own alert names
+    // the cause.
+    const retired = ['instance.error.loaderNoSupport'];
+    expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
+  });
+
   // Batch 11a fixed one vocabulary for two concepts: the guided walkthrough is
   // "Tour" / «Тур», and the detail level is "Explanations" / «Объяснения».
   // The old names are kept ON PURPOSE as search keywords — someone who learned

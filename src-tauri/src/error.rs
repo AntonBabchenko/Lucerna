@@ -141,6 +141,14 @@ pub enum Error {
     #[error("{loader} does not support Minecraft {mc_version}")]
     LoaderUnavailable { loader: String, mc_version: String },
 
+    #[error(
+        "Lucerna does not install {loader} builds for Minecraft snapshots such as {mc_version}"
+    )]
+    LoaderBuildsNotOffered { loader: String, mc_version: String },
+
+    #[error("Could not read the {loader} version list for Minecraft {mc_version}: it contains versions Lucerna does not recognise")]
+    LoaderVersionsUnreadable { loader: String, mc_version: String },
+
     #[error("Unsupported platform: {os}/{arch}")]
     UnsupportedPlatform { os: String, arch: String },
 
@@ -598,6 +606,15 @@ pub enum Error {
     #[error("server process spawn failed: {details}")]
     ServerSpawnFailed { details: String },
 
+    /// Several installs of the server's loader, and nothing (a run script,
+    /// a single launchable candidate) names the one the server runs.
+    /// `candidates` are paths relative to the server folder.
+    #[error("cannot tell which {loader} install the server runs: {candidates:?}")]
+    ServerLoaderAmbiguous {
+        loader: String,
+        candidates: Vec<String>,
+    },
+
     /// The server is already running.
     #[error("server already running: {id}")]
     ServerAlreadyRunning { id: String },
@@ -699,6 +716,31 @@ pub enum Error {
 
     #[error("Server import session expired or was already used: {token}")]
     ServerImportStagingExpired { token: String },
+
+    /// A new server (create or import) was given no Minecraft version.
+    #[error("No Minecraft version was given for the server")]
+    ServerMcVersionRequired,
+
+    /// A new server (create or import) was given a Minecraft version Mojang's
+    /// manifest does not list, so it could never resolve its Java runtime.
+    #[error("Minecraft {mc_version} is not in Mojang's version list")]
+    ServerMcVersionUnlisted { mc_version: String },
+
+    /// Mojang's version list could not be loaded while a new server's
+    /// Minecraft version was being checked; the server is refused rather than
+    /// saved with a version nobody checked.
+    #[error("Could not load Mojang's version list to check the Minecraft version")]
+    ServerMcVersionUnchecked,
+
+    /// A saved server has no Minecraft version recorded (it was imported
+    /// before the import required one).
+    #[error("This server has no Minecraft version recorded")]
+    ServerSavedMcVersionMissing,
+
+    /// A saved server records a Minecraft version Mojang's manifest does not
+    /// list.
+    #[error("This server records Minecraft {mc_version}, which is not in Mojang's version list")]
+    ServerSavedMcVersionUnknown { mc_version: String },
 
     /// Server SFTP upload is not configured (no `UploadConfig`).
     #[error("server upload not configured")]
@@ -1105,6 +1147,36 @@ mod tests {
         );
         assert!(json.contains(r#""loader":"fabric""#), "got: {json}");
         assert!(json.contains(r#""mc_version":"1.6.4""#), "got: {json}");
+    }
+
+    #[test]
+    fn loader_list_gap_errors_serialize_with_tags() {
+        let e = Error::LoaderBuildsNotOffered {
+            loader: "neoforge".into(),
+            mc_version: "26.1-snapshot-1".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"loader_builds_not_offered""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
+        assert!(
+            json.contains(r#""mc_version":"26.1-snapshot-1""#),
+            "got: {json}"
+        );
+
+        let e = Error::LoaderVersionsUnreadable {
+            loader: "neoforge".into(),
+            mc_version: "26.4".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"loader_versions_unreadable""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
+        assert!(json.contains(r#""mc_version":"26.4""#), "got: {json}");
     }
 
     #[test]

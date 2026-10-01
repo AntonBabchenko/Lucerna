@@ -65,6 +65,7 @@
   import { createCompatCheck } from './compat-check.svelte';
   import { isProblem, type ModStatus, statusOf } from './mod-status';
   import { type RowFix, type RowProblem, rowProblemOf } from './row-problem';
+  import { relationFigures, relationInput, relationSlotDigits } from './relation-cell';
   import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
@@ -250,6 +251,18 @@
       setPage: (n) => (filters.page = n),
       getPageSize: () => filters.pageSize,
     },
+  );
+  // The relation column's slot widths, in figures (DESIGN.md §9): the longest figure of each slot
+  // over every row of the profile — not the page, not the filter, so neither moves a name — from
+  // the inputs each row gets (the `{#each}` below).
+  const relationDigits = $derived(
+    relationSlotDigits(
+      data.rows.map((row) => {
+        const root = deps.rootBySha.get(row.installed.sha1);
+        const dependents = deps.requiredBy.get(row.installed.project_id ?? '') ?? [];
+        return relationFigures(relationInput(root, deps.depCounts(root).total, dependents.length));
+      }),
+    ),
   );
   // An enabled mod whose dependencies the graph could not learn (see above); a root switched
   // off since requires nothing at load time.
@@ -1138,7 +1151,13 @@
       {@render emptyDropzone?.()}
     </div>
   {:else if data.rows.length > 0}
-    <div bind:this={listEl} class="border border-border-subtle rounded overflow-hidden">
+    <div
+      bind:this={listEl}
+      class="border border-border-subtle rounded overflow-hidden"
+      data-testid="installed-list"
+      style:--rel-dep-ch={relationDigits.dep}
+      style:--rel-by-ch={relationDigits.by}
+    >
       <BulkActionBar
         allSelected={selection.allSelected}
         selectedCount={selection.selected.size}

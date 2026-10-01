@@ -56,6 +56,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   pack explanation moved up into the same row, so it is there while you
   browse too, and it now says when a data pack is the better choice over a
   mod.
+- **Forge servers for Minecraft before 1.17 can be started.** Creating one
+  used to install it and then fail at the first start, because Lucerna only
+  knew how newer Forge versions are started. An older Forge server now starts
+  from the Forge server file in its folder, and if a file it needs is
+  missing, the message names it.
 
 ### Changed
 
@@ -97,8 +102,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   you scroll; the compatibility and dependency re-checks moved into a menu
   beside them, next to opening the mods folder; the counts line, the source
   picker and a pager with a single page are gone; a row counts its
-  dependencies and dependents in one small pill, shows the file name when you
-  point at the version, and its update badge opens what's new.
+  dependencies and dependents in a narrow column before its icon, lined up
+  from row to row, shows the file name when you point at the version, and its
+  update badge opens what's new.
 - **Add-ons remembers Browse or Installed for each content type** until the
   launcher closes, and the first visit to mods opens the installed list when
   the profile has any.
@@ -113,6 +119,39 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **NeoForge is offered for Minecraft 1.21 and every 26.x release.** Lucerna
+  read NeoForge's version numbers the wrong way: `21.0.167` as a build for
+  Minecraft 1.21.0 instead of 1.21, and the year-based numbers such as
+  `26.2.0.59` as builds for 1.26.2 instead of 26.2. So the mod loader picker
+  said NeoForge did not support these versions, switching a NeoForge profile to
+  one of them reset it to Vanilla, and importing a NeoForge server for 26.x
+  filled in the wrong Minecraft version. If NeoForge changes its numbering
+  again, Lucerna says it could not read the version list and refuses the
+  Minecraft change instead of resetting the profile to Vanilla.
+- **Quilt servers can be created.** Creating a server on Quilt always failed
+  with a download error: Lucerna asked Quilt for a ready-made server file that
+  Quilt has never published. Lucerna now puts the Quilt server together itself,
+  the way Quilt's own installer does. The same fix covers re-downloading a
+  Quilt server's files and importing a Quilt server whose loader has to be
+  reinstalled. An imported Quilt server that would have started as plain
+  Minecraft, without Quilt and its mods, now says so instead of starting.
+- **Importing an older Forge server no longer turns it into a Vanilla
+  server.** A Forge server for Minecraft 1.7.10, for example, came in as
+  Vanilla, so it would have run without its mods. It is now recognised as
+  Forge, with its Minecraft version and Forge build.
+- **Server import fills in the version a server actually runs.** Updating a
+  server in place leaves the older version's files behind, and the import
+  could pick the older Minecraft or loader version: 1.21.9 for a server on
+  1.21.10, for example. It now reads what the server starts: its start
+  script, or the Fabric launcher's own record. Fabric servers for Minecraft
+  26.1 and later, which the import could only date from a log, now come in
+  with their version too. When the version cannot be told, the field stays
+  empty.
+- **A server with several Forge or NeoForge versions installed no longer
+  starts the oldest one.** Lucerna started whichever version folder came
+  first, usually the oldest. It now starts the one the server's start script
+  names; when nothing names one, it stops and lists the folders so you can
+  remove the ones you don't need.
 - **Updating a mod no longer installs a second copy of a library you already
   have.** An update used to install every library the new version needs, even
   one already there: a different version landed next to yours and the game
@@ -220,6 +259,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the requirement names that Minecraft version. A requirement written for a
   different Minecraft version is judged by the Minecraft version, the way the game
   does, instead of by the mod's own number.
+- **Importing a server no longer goes through without its Minecraft version.**
+  When Lucerna could not read the version from the server's files, the import
+  went ahead with the field left empty, and the server then refused to start
+  with a message about a missing vanilla download. Import now waits until the
+  version is filled in, says so next to the button, and refuses a version that
+  is not in Mojang's version list. A server imported that way before shows its
+  version as not recorded, and starting it explains how to bring it back with
+  the version set.
 
 ## [0.25.0] — 2026-09-27
 

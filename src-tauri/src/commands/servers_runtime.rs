@@ -353,6 +353,10 @@ pub async fn server_create(
     created_from_instance: Option<String>,
 ) -> Result<ServerCreated> {
     crate::data_root::reject_if_root_unusable(&app)?;
+    // The Minecraft version must be one Mojang lists — the create-from-instance
+    // path passes an instance's version, which nothing else has checked. Done
+    // before the name check so validate_name → reserve stays one sync step.
+    let mc_version = crate::servers_runtime::mc_version::check_new(&mc_version).await?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Trim + reject empty/duplicate names at the boundary (the wizard also gates
     // this, but two concurrent creates could still collide on the same name).
@@ -1948,6 +1952,10 @@ async fn provision_loader(
     base: &std::path::Path,
     file: &mut ServerFile,
 ) -> Result<()> {
+    // A saved server with no version (imported before the import required one)
+    // gets its own error instead of a download failure for an empty id. New
+    // servers never reach this: create and import check the version first.
+    crate::servers_runtime::mc_version::saved_recorded(&file.mc_version)?;
     match file.loader {
         ServerCore::Vanilla => {
             let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
@@ -1964,14 +1972,17 @@ async fn provision_loader(
             create::create_fabric_server(base, file, &url).await?;
         }
         ServerCore::Quilt => {
-            let installer = create::latest_quilt_installer(&file.mc_version).await?;
+            // Quilt publishes no prebuilt server jar (its meta serves
+            // profile/json and server/json only), so the server is assembled
+            // from its server profile plus the vanilla jar. Both are resolved
+            // before anything touches disk.
             let lv = create::require_loader_version(file, "quilt")?;
-            let url = crate::servers_runtime::jar::quilt_server_jar_url(
-                &file.mc_version,
-                &lv,
-                &installer,
-            );
-            create::create_quilt_server(base, file, &url).await?;
+            let json =
+                crate::versions::loaders::quilt::server_profile(&file.mc_version, &lv).await?;
+            let profile =
+                crate::servers_runtime::quilt::parse_server_profile(json, &file.mc_version)?;
+            let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
+            create::create_quilt_server(base, file, &profile, &jar_url, &sha1).await?;
         }
         ServerCore::Forge | ServerCore::NeoForge => {
             let lv = create::require_loader_version(file, "forge/neoforge")?;
@@ -1989,6 +2000,29 @@ async fn provision_loader(
             crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
             let java_bin = crate::jre::java_executable_path(&component, app)?;
             create::create_installer_server(base, file, &bytes, &java_bin, label).await?;
+            // The install must leave one install Lucerna can start. Say so
+            // here, where it happened, not on the first Start. A re-download
+            // (`server_redownload_jar`) installs into an existing runtime, so
+            // another install already there is reported as such.
+            use crate::servers_runtime::installed_loader::{self, ArgsOs, ForgeInstall};
+            let runtime = crate::paths::server_paths(base, &file.id).runtime;
+            match installed_loader::resolve_forge_family(&runtime, flavor, ArgsOs::current()) {
+                ForgeInstall::Found(_) => {}
+                ForgeInstall::Ambiguous { candidates } => {
+                    return Err(Error::ServerLoaderAmbiguous {
+                        loader: installed_loader::flavor_name(flavor).into(),
+                        candidates,
+                    });
+                }
+                ForgeInstall::Absent => {
+                    return Err(Error::ServerInstallerFailed {
+                        loader: label.to_string(),
+                        details: "the installer finished but left no launch file Lucerna \
+                                  recognises"
+                            .into(),
+                    });
+                }
+            }
         }
         ServerCore::Paper => {
             let jar = crate::servers_runtime::paper::PaperClient::new()
@@ -2048,6 +2082,11 @@ pub async fn server_import_commit(
 ) -> Result<ServerWithStatus> {
     crate::data_root::reject_if_root_unusable(&app)?;
     crate::servers_runtime::eula::require_accepted(eula_accepted)?;
+    // The Minecraft version must be one Mojang lists: Start resolves the
+    // server's Java runtime by this id, so any other value saves a server that
+    // can never start. Checked before anything is reserved or written, and
+    // before the name check so validate_name → reserve stays one sync step.
+    let mc_version = crate::servers_runtime::mc_version::check_new(&mc_version).await?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Enforce name validation at the IPC boundary (parity with server_create):
     // reject empty / control-char / duplicate names before committing the import.
@@ -3803,6 +3842,10 @@ pub async fn server_switch_core(
             reason: "unsupported core switch".into(),
         });
     }
+    // The new core's builds are looked up by Minecraft version; a server saved
+    // without one is told so before a backup is taken for a switch that cannot
+    // happen.
+    crate::servers_runtime::mc_version::saved_recorded(&file.mc_version)?;
     // Mandatory fresh backup before anything changes on disk.
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     backup::create_backup(&base, &id, &stamp)?;

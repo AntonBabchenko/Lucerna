@@ -87,8 +87,9 @@
     // server data pack catalog sets it for a world with only level.dat_old,
     // which refuses every add, switch and removal.
     actionsBlockedReason?: string | null;
-    /** Installed list rows: the relation pill, rendered between the badges and the actions (spec
-     *  §6.7). Pass it only when there is something to render — an empty slot still takes a gap. */
+    /** Installed list rows: the relation cell's content — the row's disclosure, in a fixed-width
+     *  column after the checkbox and before the icon (DESIGN.md §9). Pass it on every installed
+     *  row: an empty cell keeps the icons and names in line with the rows that have figures. */
     relation?: Snippet;
     /** List rows: a second line inside the card, under the row (the installed mod's problem
      *  line) — CardShell's `below`. */
@@ -324,6 +325,17 @@
   {/if}
 {/snippet}
 
+{#snippet relationCell()}
+  <!-- The relation column (DESIGN.md §9): one width on every installed row, empty or not, so the
+       icons and names after it line up. The list sets the width; see `.relation-col`. -->
+  <div
+    class="relation-col flex items-center flex-shrink-0 text-xs tabular-nums"
+    data-testid="relation-col"
+  >
+    {@render relation?.()}
+  </div>
+{/snippet}
+
 {#snippet badges()}
   {#if packChip}
     <StatusBadge
@@ -392,6 +404,7 @@
           onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
         />
       {/if}
+      {#if relation}{@render relationCell()}{/if}
       <CardMedia iconUrl={null} placeholder={isPlatform ? 'circleX' : placeholderIcon} size="sm" />
       <div class="flex-1 min-w-0">
         <span class="font-medium text-primary truncate font-mono text-xs">{degradedTitle}</span>
@@ -401,7 +414,6 @@
         {/if}
       </div>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
-      {#if relation}<div class="flex items-center flex-shrink-0">{@render relation()}</div>{/if}
       {#if installed}
         <div class="flex items-center gap-1 flex-shrink-0">
           {#if canToggle}
@@ -482,6 +494,7 @@
           onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
         />
       {/if}
+      {#if relation}{@render relationCell()}{/if}
       <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="sm" />
       <!-- An installed row's line is one line tall, and what wraps off it is clipped: short of room,
            the description goes first, then the version — which takes only the room the whole name
@@ -556,7 +569,6 @@
         {/if}
       </button>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
-      {#if relation}<div class="flex items-center flex-shrink-0">{@render relation()}</div>{/if}
       <div class="flex items-center gap-1 flex-shrink-0">{@render iconActions()}</div>
     </CardShell>
   </ContextMenu>

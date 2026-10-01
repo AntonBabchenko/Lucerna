@@ -28,7 +28,11 @@
   const serverOptions = $derived(
     serverState.list.map((s) => ({
       value: s.id,
-      label: `${s.name} · ${s.mc_version} · ${displayCore(s.loader)}`,
+      // A server imported before the import required a version has none; leave
+      // it out rather than print an empty "name ·  · core" segment.
+      label: [s.name, s.mc_version.trim(), displayCore(s.loader)]
+        .filter((part) => part !== '')
+        .join(' · '),
     })),
   );
   const action = $derived(selected ? serverState.actionFor(selected.id) : null);

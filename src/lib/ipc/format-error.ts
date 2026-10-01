@@ -123,6 +123,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   cosmetic_image_invalid: 'opaque',
   skin_library: 'opaque',
   // Clean — everything else (self-contained from structured fields).
+  server_loader_ambiguous: 'clean',
   host_not_allowed: 'clean',
   consented_channel_disabled: 'clean',
   hash_mismatch: 'clean',
@@ -135,6 +136,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   unknown_version: 'clean',
   unsupported_platform: 'clean',
   loader_unavailable: 'clean',
+  loader_builds_not_offered: 'clean',
+  loader_versions_unreadable: 'clean',
   last_instance: 'clean',
   no_version_selected: 'clean',
   instance_not_found: 'clean',
@@ -234,6 +237,11 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_import_too_large: 'clean',
   server_import_not_a_server: 'clean',
   server_import_staging_expired: 'clean',
+  server_mc_version_required: 'clean',
+  server_mc_version_unlisted: 'clean',
+  server_mc_version_unchecked: 'clean',
+  server_saved_mc_version_missing: 'clean',
+  server_saved_mc_version_unknown: 'clean',
   data_location_busy: 'clean',
   data_location_invalid: 'clean',
   data_location_migration_failed: 'opaque',
@@ -533,6 +541,16 @@ export function formatError(e: IpcError): string {
         loader: displayLoader(e.loader as LoaderKind),
         mcVersion: e.mc_version,
       });
+    case 'loader_builds_not_offered':
+      return translate('errors.loaderBuildsNotOffered', {
+        loader: displayLoader(e.loader as LoaderKind),
+        mcVersion: e.mc_version,
+      });
+    case 'loader_versions_unreadable':
+      return translate('errors.loaderVersionsUnreadable', {
+        loader: displayLoader(e.loader as LoaderKind),
+        mcVersion: e.mc_version,
+      });
     case 'last_instance':
       return translate('errors.lastInstance');
     case 'no_version_selected':
@@ -807,6 +825,11 @@ export function formatError(e: IpcError): string {
       );
     case 'server_spawn_failed':
       return withDetailTail(translate('errors.serverSpawnFailed'), e.details);
+    case 'server_loader_ambiguous':
+      return translate('errors.serverLoaderAmbiguous', {
+        loader: e.loader,
+        candidates: listOrDash(e.candidates),
+      });
     case 'server_already_running':
       return translate('errors.serverAlreadyRunning');
     case 'server_upload_in_progress':
@@ -851,6 +874,16 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverImportNotAServer');
     case 'server_import_staging_expired':
       return translate('errors.serverImportStagingExpired');
+    case 'server_mc_version_required':
+      return translate('errors.serverMcVersionRequired');
+    case 'server_mc_version_unlisted':
+      return translate('errors.serverMcVersionUnlisted', { mcVersion: e.mc_version });
+    case 'server_mc_version_unchecked':
+      return translate('errors.serverMcVersionUnchecked');
+    case 'server_saved_mc_version_missing':
+      return translate('errors.serverSavedMcVersionMissing');
+    case 'server_saved_mc_version_unknown':
+      return translate('errors.serverSavedMcVersionUnknown', { mcVersion: e.mc_version });
     case 'upload_not_configured':
       return translate('errors.uploadNotConfigured');
     case 'sftp_connect_failed':

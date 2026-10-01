@@ -506,7 +506,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	listForgeLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_forge_loaders", { mcId })),
 	/**
 	 *  List NeoForge loader versions compatible with `mc_id`. Cached
-	 *  5 minutes per MC version. Empty list → `LoaderUnavailable`.
+	 *  5 minutes per MC version. Empty list → `LoaderUnavailable`, or
+	 *  `LoaderBuildsNotOffered` (only snapshot builds exist) /
+	 *  `LoaderVersionsUnreadable` (the list has versions Lucerna cannot read).
 	 */
 	listNeoforgeLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_neoforge_loaders", { mcId })),
 	/**
@@ -3664,7 +3666,7 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  truncated, Logs as the way in. Absence is never this — the helpers in
  *  `accounts::keychain` turn `NoEntry` into `Ok(None)` before it can be.
  */
-{ kind: "keyring"; op: KeyringOp; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
+{ kind: "keyring"; op: KeyringOp; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
 /**  The proposed folder name reduced to nothing once normalised to ASCII. */
 { kind: "instance_dir_name_empty" } | 
 /**  Another directory already occupies that name. */
@@ -3808,6 +3810,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_installer_failed"; loader: string; details: string } | 
 /**  The server process failed to spawn. */
 { kind: "server_spawn_failed"; details: string } | 
+/**
+ *  Several installs of the server's loader, and nothing (a run script,
+ *  a single launchable candidate) names the one the server runs.
+ *  `candidates` are paths relative to the server folder.
+ */
+{ kind: "server_loader_ambiguous"; loader: string; candidates: string[] } | 
 /**  The server is already running. */
 { kind: "server_already_running"; id: string } | 
 /**  The operation requires that no hosting upload is in flight, but one is. */
@@ -3882,6 +3890,29 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  a file written here first would switch that recovery off.
  */
 { kind: "server_world_only_old" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+/**  A new server (create or import) was given no Minecraft version. */
+{ kind: "server_mc_version_required" } | 
+/**
+ *  A new server (create or import) was given a Minecraft version Mojang's
+ *  manifest does not list, so it could never resolve its Java runtime.
+ */
+{ kind: "server_mc_version_unlisted"; mc_version: string } | 
+/**
+ *  Mojang's version list could not be loaded while a new server's
+ *  Minecraft version was being checked; the server is refused rather than
+ *  saved with a version nobody checked.
+ */
+{ kind: "server_mc_version_unchecked" } | 
+/**
+ *  A saved server has no Minecraft version recorded (it was imported
+ *  before the import required one).
+ */
+{ kind: "server_saved_mc_version_missing" } | 
+/**
+ *  A saved server records a Minecraft version Mojang's manifest does not
+ *  list.
+ */
+{ kind: "server_saved_mc_version_unknown"; mc_version: string } | 
 /**  Server SFTP upload is not configured (no `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Could not establish the SSH/SFTP connection to the user's server. */

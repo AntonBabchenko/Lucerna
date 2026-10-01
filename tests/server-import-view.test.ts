@@ -64,6 +64,52 @@ describe('ServerImportView', () => {
     importCancel.mockClear();
   });
 
+  async function openConfirm(over = {}) {
+    importInspect.mockResolvedValue({ ok: true, preview: preview(over) });
+    render(ServerImportView, { onDone: vi.fn(), onCancel: vi.fn() });
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose .zip' }));
+    return (await screen.findByLabelText('Minecraft version')) as HTMLInputElement;
+  }
+
+  const importButton = () => screen.getByRole('button', { name: 'Import' }) as HTMLButtonElement;
+
+  it('blocks Import and says why when the Minecraft version was not detected', async () => {
+    const input = await openConfirm({ mc_version: null });
+    expect(importButton().disabled).toBe(true);
+    expect(screen.getByTestId('import-disabled-reason').textContent).toContain(
+      "Enter the server's Minecraft version to continue.",
+    );
+    const hint = screen.getByText(/couldn't read this server's Minecraft version/);
+    expect(input.getAttribute('aria-describedby')).toBe(hint.id);
+
+    await fireEvent.input(input, { target: { value: '1.20.4' } });
+    expect(importButton().disabled).toBe(false);
+    expect(screen.queryByTestId('import-disabled-reason')).toBeNull();
+  });
+
+  // The UI does not judge a filled-in version against the list it loaded at
+  // startup (a snapshot released since would be refused falsely); the backend
+  // checks Mojang's current list and its refusal is shown.
+  it("shows the backend's refusal of a version Mojang does not list", async () => {
+    importCommit.mockResolvedValueOnce({
+      ok: false,
+      error: { kind: 'server_mc_version_unlisted', mc_version: '1.20.l' },
+    });
+    await openConfirm({ mc_version: '1.20.l' });
+    expect(importButton().disabled).toBe(false);
+    expect(screen.queryByTestId('import-disabled-reason')).toBeNull();
+    await fireEvent.click(importButton());
+    await screen.findByText(/Minecraft 1\.20\.l is not in Mojang's version list/);
+  });
+
+  it('sends the trimmed Minecraft version', async () => {
+    const input = await openConfirm({ mc_version: null });
+    await fireEvent.input(input, { target: { value: '  1.20.4  ' } });
+    await fireEvent.click(importButton());
+    await waitFor(() => expect(importCommit).toHaveBeenCalled());
+    expect(importCommit.mock.calls[0][2]).toBe('1.20.4');
+  });
+
   it('after choosing a zip, inspects and shows the prefilled confirm step', async () => {
     importInspect.mockResolvedValue({ ok: true, preview: preview() });
     render(ServerImportView, { onDone: vi.fn(), onCancel: vi.fn() });
