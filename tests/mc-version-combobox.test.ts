@@ -12,6 +12,7 @@ vi.mock('$lib/settings/state.svelte', () => ({
 }));
 
 import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
+import McComboboxInReflowingRow from './fixtures/McComboboxInReflowingRow.svelte';
 
 describe('McVersionCombobox', () => {
   it('opens the listbox on focus and commits a pick when enabled', async () => {
@@ -69,6 +70,47 @@ describe('McVersionCombobox', () => {
       await openAtRightEdge();
       window.dispatchEvent(new Event('scroll'));
       await vi.waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+    });
+  });
+
+  // Fixed (#462), the list escapes the scroll container that cut v0.25.0's `absolute` list off at
+  // the bottom of a short page — but it no longer moves with its field. Placed once per open, it
+  // stayed behind when a keystroke reflowed the row: the Browse filter bar's first keystroke brings
+  // in "Match this instance" or "Clear all", the search box gives up the room, and the field moved
+  // left (110 px for "Match this instance" in a 1600 px window) while the list hung under "Sort:".
+  // happy-dom lays nothing out: the field's box is a stub the test moves.
+  describe('a list that stays under its field while you type', () => {
+    const box = (left: number, top: number) =>
+      ({ top, bottom: top + 32, left, width: 112 }) as DOMRect;
+
+    it('follows its input when a keystroke moves it', async () => {
+      render(McVersionCombobox, { props: { dataTestid: 'mc', value: '' } });
+      const input = screen.getByTestId('mc') as HTMLInputElement;
+      let at = box(600, 190);
+      input.getBoundingClientRect = () => at;
+      await fireEvent.input(input, { target: { value: '1' } });
+      const list = screen.getByRole('listbox');
+      expect(list.style.left).toBe('600px');
+      expect(list.style.top).toBe('226px');
+      // The row reflowed under the open list and wrapped: the field is further left and lower.
+      at = box(490, 230);
+      await fireEvent.input(input, { target: { value: '1.2' } });
+      await vi.waitFor(() => {
+        expect(list.style.left).toBe('490px');
+        expect(list.style.top).toBe('266px');
+      });
+    });
+
+    it('follows its input when the page answers the keystroke in an update of its own', async () => {
+      render(McComboboxInReflowingRow);
+      const input = screen.getByTestId('mc') as HTMLInputElement;
+      // Once the row's answer is in the document, it has moved the field left.
+      input.getBoundingClientRect = () => box(screen.queryByTestId('row-answer') ? 490 : 600, 190);
+      await fireEvent.focus(input);
+      const list = screen.getByRole('listbox');
+      expect(list.style.left).toBe('600px');
+      await fireEvent.input(input, { target: { value: '1' } });
+      await vi.waitFor(() => expect(list.style.left).toBe('490px'));
     });
   });
 });

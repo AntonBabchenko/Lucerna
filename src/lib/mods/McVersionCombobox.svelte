@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { mcVersions } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import { useLayer } from '$lib/ui/layer-stack.svelte';
@@ -172,9 +173,25 @@
   }
 
   // Placed once it has been laid out, its width known — in the same flush, before the frame is
-  // painted (Select and Menu do the same).
+  // painted (Select and Menu do the same) — and placed again after every keystroke while open. A
+  // new value is a new filter, and the row around the field may answer it by moving the field: in
+  // the Browse filter bar "Match this instance" or "Clear all" comes in, the search box gives up
+  // the room, and the field moves left (110 px for "Match this instance" in a 1600 px window). The
+  // `absolute` list moved with it; a fixed one stays where it was put. The second measurement
+  // waits for `tick`, so a row that answers in an update of its own (an `$effect`) has answered
+  // too — still before the frame is painted, as `tick` is a microtask while Svelte's experimental
+  // async mode is off. `live` drops it once the list closes or the next keystroke comes.
   $effect(() => {
-    if (open && listEl) placeList(listEl.offsetWidth);
+    void value;
+    if (!open || !listEl) return;
+    placeList(listEl.offsetWidth);
+    let live = true;
+    void tick().then(() => {
+      if (live && open && listEl) placeList(listEl.offsetWidth);
+    });
+    return () => {
+      live = false;
+    };
   });
 
   // Fixed, it does not follow the input when the page scrolls or the window resizes: it closes.
