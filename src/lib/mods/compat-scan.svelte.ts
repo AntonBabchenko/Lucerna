@@ -53,9 +53,9 @@ export function compatScanEntries(): ModLocalCompat[] {
 
 /**
  * Whether a single scanned mod will not load, on either offline-decidable
- * axis — the file-level verdict that both `offlineMismatchCount` (the
- * Overview) and `compatSummaryFromScan` (the post-version-change summary in
- * the Manage modal) report on. Exported so both call the same predicate
+ * axis — the file-level verdict that both `offlineMismatchCount` and
+ * `compatSummaryFromScan` (the post-version-change summary in the Manage
+ * modal) report on. Exported so both call the same predicate
  * instead of each re-deriving it: two answers to this one question is
  * exactly the defect this shared scan exists to eliminate.
  *
@@ -77,9 +77,9 @@ export function isOfflineMismatch(entry: ModLocalCompat): boolean {
 }
 
 /**
- * Mods that will not load, on either offline-decidable axis. This is the
- * Overview's count — every jar counted here can be decided from the file
- * alone, with no network call. See `isOfflineMismatch` for the predicate.
+ * Mods that will not load, on either offline-decidable axis: every jar
+ * counted here is decided from the file alone, with no network call. See
+ * `isOfflineMismatch` for the predicate.
  */
 export function offlineMismatchCount(): number {
   return entries.filter(isOfflineMismatch).length;

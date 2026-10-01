@@ -262,6 +262,15 @@ pub struct ModSummary {
     /// `summary_cache` and re-fetch it on every resolve.
     #[serde(default)]
     pub loaders: Option<Vec<LoaderKind>>,
+    /// Whether the platform files this project as a library / API (Modrinth tag
+    /// `library`; CurseForge «API and Library»). Feeds «Неиспользуемые
+    /// библиотеки». `None` means ONLY "this source cannot report categories"
+    /// ([`supplies_project_library`]) or "this entry predates the field" — never
+    /// "not a library", and nothing treats `None` as a library. A source that can
+    /// report always yields `Some`, `Some(false)` included, for the staleness
+    /// reason `loaders` spells out.
+    #[serde(default)]
+    pub library: Option<bool>,
 }
 
 /// Whether `source` can populate [`ModSummary::loaders`].
@@ -283,6 +292,21 @@ pub const fn supplies_project_loaders(source: ModSource) -> bool {
         // never populate a summary at all. Vanilla Tweaks serves datapacks,
         // which have no loader either, and its `search`/`project` are
         // unsupported so no summary is ever built for it.
+        ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher | ModSource::VanillaTweaks => {
+            false
+        }
+    }
+}
+
+/// Whether `source` can populate [`ModSummary::library`]. Exhaustive for the
+/// reason [`supplies_project_loaders`] gives: it gates a cache-staleness rule.
+pub const fn supplies_project_library(source: ModSource) -> bool {
+    match source {
+        // Modrinth: the `library` category tag. CurseForge: the «API and
+        // Library» category, matched by slug or name (`curseforge::is_library_category`).
+        ModSource::Modrinth | ModSource::Curseforge => true,
+        // Hangar has plugin categories but no library class; FTB/ATL/VT never
+        // build a summary.
         ModSource::Hangar | ModSource::Ftb | ModSource::Atlauncher | ModSource::VanillaTweaks => {
             false
         }
@@ -448,7 +472,10 @@ pub struct OrphanRef {
     pub project_id: String,
 }
 
-/// Returned by `mods_install_with_deps` so the UI can show a per-mod toast.
+/// Returned by the mod install commands (`mods_install_with_deps`,
+/// `mods_install_dependency`, `mods_install_missing_required` inside its
+/// `Installed` outcome) and by `mods_update_one`, so the UI can show a per-mod
+/// toast.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstallSummary {
     pub primary_name: String,
@@ -458,10 +485,9 @@ pub struct InstallSummary {
     /// One row per installed jar (primary + dependencies), in `install_seq`
     /// order. Unlike the modpack import/update paths — which carry their
     /// per-file report on the terminal `Channel` message because they already
-    /// take one — this command has no channel, so the report rides the
-    /// return value instead. `InstallSummary` has exactly one producer
-    /// (`mods_install_with_deps`) and one consumer (the UI toast), which is
-    /// what makes widening the return value cheap here; the same design was
+    /// take one — these commands have no channel, so the report rides the
+    /// return value instead. Their one consumer is the UI toast, which is what
+    /// makes widening the return value cheap here; the same design was
     /// rejected for the modpack paths, where it would have meant inventing an
     /// envelope across three unrelated command signatures.
     pub details: Vec<crate::tasks::TaskDetail>,
@@ -471,8 +497,14 @@ pub struct InstallSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum InstallMissingOutcome {
-    /// The dependency was resolved, verified, and installed. `name` is its display name.
-    Installed { name: String },
+    /// The dependency was resolved, verified, and installed. `name` is its
+    /// display name (`summary.primary_name`); `summary` is what every install
+    /// command answers — here, which of its own required dependencies came
+    /// along with it, so the UI can say so.
+    Installed {
+        name: String,
+        summary: InstallSummary,
+    },
     /// Could not resolve/verify with confidence — the UI opens a pre-filled
     /// search for `query` (the loader mod-id) so the user can pick it manually.
     OpenSearch { query: String },
@@ -959,5 +991,13 @@ mod tests {
         );
         assert!(tagged_for(&mistagged, "1.20.4", LoaderKind::Forge));
         assert!(!listed_for(&mistagged, "1.20.4", LoaderKind::Forge));
+    }
+
+    #[test]
+    fn only_modrinth_and_curseforge_report_a_library_category() {
+        for s in ModSource::ALL {
+            let expected = matches!(s, ModSource::Modrinth | ModSource::Curseforge);
+            assert_eq!(supplies_project_library(s), expected, "{s:?}");
+        }
     }
 }

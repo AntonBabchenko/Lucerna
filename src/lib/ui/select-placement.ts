@@ -1,5 +1,5 @@
-// Pure placement maths for the Select popover, extracted so the viewport-clamp
-// behaviour is unit-testable without a live DOM. The popover is position:fixed,
+// Pure placement maths for the Select popover and McVersionCombobox's list, extracted so
+// the viewport-clamp behaviour is unit-testable without a live DOM. The popover is position:fixed,
 // so it is bounded by the viewport (in compact mode the OS window shrinks to the
 // sidebar's content height — a short viewport). We clamp the list height to the
 // room actually available on the chosen side and let it scroll internally rather
@@ -24,6 +24,11 @@ export interface PlacementOpts {
   margin: number;
   /** Preferred max height; the result is clamped down to the available room. */
   maxHeight: number;
+  /** The popover's own rendered width, once it has been laid out. A list is as wide as its
+   *  longest option — wider than its trigger, often — so this, not the trigger's width, says how
+   *  far left it must sit to end inside the window (plan §5e: the Installed sort list ran 56 px
+   *  past an 820 px window). Before the first layout it is unknown: the trigger's width stands in. */
+  popoverWidth?: number;
 }
 
 export interface Placement {
@@ -56,7 +61,10 @@ export function computePopoverPlacement(
   // content. The min-width still matches the trigger, capped to the same ceiling.
   const maxWidth = Math.max(0, viewport.width - 2 * margin);
   const width = Math.min(trigger.width, maxWidth);
-  const maxLeft = viewport.width - width - margin;
+  // The width that has to fit: the popover's own once measured — never below its min-width, never
+  // above its max-width, which is what it renders at — else the min-width.
+  const outer = Math.min(Math.max(opts.popoverWidth ?? width, width), maxWidth);
+  const maxLeft = viewport.width - outer - margin;
   const left = Math.min(Math.max(trigger.left, margin), Math.max(margin, maxLeft));
 
   const spaceBelow = viewport.height - trigger.bottom - gap - margin;

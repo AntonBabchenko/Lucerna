@@ -7,6 +7,8 @@
 // Rune-state-in-a-.svelte.ts module — the same idiom as
 // `$lib/settings/state.svelte` and `$lib/onboarding/state.svelte`.
 
+import type { ReportLine } from '$lib/format/reason-lines';
+
 export type ToastKind = 'success' | 'warning' | 'info';
 
 export type ToastAction = { label: string; run: () => void };
@@ -15,8 +17,9 @@ export type Toast = {
   id: number;
   kind: ToastKind;
   title: string;
-  /** Detail lines; empty for a plain success toast. */
-  lines: string[];
+  /** Detail lines; empty for a plain success toast. A batch report's reason comes with the names
+   *  it stopped, shown on a line of their own (`reasonLines`). */
+  lines: ReportLine[];
   /** Optional action button (e.g. "Update" on an update-available toast). */
   action?: ToastAction;
   /** Optional second, quieter action after the first (e.g. "Skip this
@@ -44,7 +47,7 @@ export function toastList(): Toast[] {
 }
 
 /** Show a green success toast; it auto-dismisses after `SUCCESS_TTL_MS`. */
-export function pushSuccess(title: string, lines: string[] = []): number {
+export function pushSuccess(title: string, lines: ReportLine[] = []): number {
   const id = nextId++;
   store.toasts = [...store.toasts, { id, kind: 'success', title, lines }];
   setTimeout(() => dismiss(id), SUCCESS_TTL_MS);
@@ -52,14 +55,14 @@ export function pushSuccess(title: string, lines: string[] = []): number {
 }
 
 /** Show an amber warning toast; it stays until `dismiss` is called. */
-export function pushWarning(title: string, lines: string[] = []): number {
+export function pushWarning(title: string, lines: ReportLine[] = []): number {
   const id = nextId++;
   store.toasts = [...store.toasts, { id, kind: 'warning', title, lines }];
   return id;
 }
 
 /** Show a blue info toast for neutral informational states; stays until `dismiss` is called. */
-export function pushInfo(title: string, lines: string[] = []): number {
+export function pushInfo(title: string, lines: ReportLine[] = []): number {
   const id = nextId++;
   store.toasts = [...store.toasts, { id, kind: 'info', title, lines }];
   return id;
@@ -67,7 +70,7 @@ export function pushInfo(title: string, lines: string[] = []): number {
 
 /** Show a blue info toast carrying a progress bar; starts indeterminate
  *  (`progress: null`). Stays until `dismiss` is called. */
-export function pushProgress(title: string, lines: string[] = []): number {
+export function pushProgress(title: string, lines: ReportLine[] = []): number {
   const id = nextId++;
   store.toasts = [...store.toasts, { id, kind: 'info', title, lines, progress: null }];
   return id;
@@ -92,7 +95,7 @@ export function pushActionToast(
   kind: ToastKind,
   title: string,
   action: ToastAction,
-  lines: string[] = [],
+  lines: ReportLine[] = [],
   opts: ActionToastOptions = {},
 ): number {
   const id = nextId++;

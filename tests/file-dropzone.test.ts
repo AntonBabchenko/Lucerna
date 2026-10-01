@@ -1,18 +1,26 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fireEvent, render } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { dropPreview } from '$lib/settings/state.svelte';
 import FileDropzone from '../src/lib/mods/FileDropzone.svelte';
 
+// A drag the window drop router sends to this box (`target: 'client-mods'`, as every case below
+// renders it). Which box a drag goes to is the router's business: tests/window-drop-owner.test.ts.
+const dragHere = () => {
+  dropPreview.value = { target: 'client-mods', adds: true, notes: [] };
+};
+
 describe('FileDropzone', () => {
-  afterEach(async () => {
-    const { dragActive } = await import('$lib/settings/state.svelte');
-    dragActive.value = false;
+  afterEach(() => {
+    dropPreview.value = null;
   });
 
   it('renders its label and calls onClick when clicked', async () => {
     const onClick = vi.fn();
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'Drop a .jar here', onClick },
+      props: { target: 'client-mods', label: 'Drop a .jar here', onClick },
     });
     await fireEvent.click(getByTestId('file-dropzone'));
     expect(onClick).toHaveBeenCalledOnce();
@@ -22,6 +30,7 @@ describe('FileDropzone', () => {
     const onClick = vi.fn();
     const { getByTestId } = render(FileDropzone, {
       props: {
+        target: 'client-mods',
         label: 'Drop a .jar here',
         disabled: true,
         disabledLabel: 'Pick an instance first',
@@ -34,26 +43,185 @@ describe('FileDropzone', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it('reflects the dragActive rune in its highlight class', async () => {
+  it('highlights while a drag is headed for it', async () => {
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'Drop a .jar here', onClick: () => {} },
+      props: { target: 'client-mods', label: 'Drop a .jar here', onClick: () => {} },
     });
-    const { dragActive } = await import('$lib/settings/state.svelte');
     expect(getByTestId('file-dropzone').className).not.toContain('bg-accent-soft');
-    dragActive.value = true;
+    dragHere();
     await tick();
     expect(getByTestId('file-dropzone').className).toContain('bg-accent-soft');
   });
 
   it('does not show the drag highlight while disabled', async () => {
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'Drop a .jar here', disabled: true, onClick: () => {} },
+      props: {
+        target: 'client-mods',
+        label: 'Drop a .jar here',
+        disabled: true,
+        onClick: () => {},
+      },
     });
-    const { dragActive } = await import('$lib/settings/state.svelte');
-    dragActive.value = true;
+    dragHere();
     await tick();
     // A disabled dropzone stays muted even mid-drag — the highlight is
     // gated on `!disabled`.
     expect(getByTestId('file-dropzone').className).not.toContain('bg-accent-soft');
+  });
+
+  // Plan §5b V2: at rest the dashed outline is the box's only edge, and in the light theme
+  // --border-emphasis was 1.4:1 on the page. It takes --border-strong (≥ 3:1, WCAG 1.4.11, held by
+  // tests/intent/design-tokens.test.ts) — the strip and the full box alike.
+  it.each([
+    'strip',
+    'full',
+  ] as const)('the %s box’s outline at rest is the strong border', (variant) => {
+    const { getByTestId } = render(FileDropzone, {
+      props: { target: 'client-mods', label: 'Drop', variant, onClick: () => {} },
+    });
+    const zone = getByTestId('file-dropzone');
+    expect(zone.classList).toContain('border-border-strong');
+    expect(zone.classList).not.toContain('border-border-emphasis');
+  });
+
+  it('is the full box by default and paints no overlay', () => {
+    const { getByTestId, queryByTestId } = render(FileDropzone, {
+      props: { target: 'client-mods', label: 'Drop', onClick: () => {} },
+    });
+    expect(getByTestId('file-dropzone').dataset.variant).toBe('full');
+    expect(queryByTestId('file-dropzone-overlay')).toBeNull();
+  });
+
+  // Plan §5b V2 (screenshots 10, 10b): the full box was ~46 px tall — hardly a target for a whole
+  // empty list — and a refused drag's note made it grow under the pointer. It is a tall box now,
+  // and the note's line is there while empty, so the note lands in it and nothing moves.
+  it('the full box is a tall target that keeps a line for a note', async () => {
+    const { getByTestId } = render(FileDropzone, {
+      props: { target: 'client-mods', label: 'Drop', onClick: () => {} },
+    });
+    expect(getByTestId('file-dropzone').classList).toContain('min-h-32');
+    const line = getByTestId('file-dropzone-notes');
+    expect(line.classList).toContain('min-h-4');
+    expect(line.textContent?.trim()).toBe('');
+    dropPreview.value = {
+      target: 'client-mods',
+      adds: false,
+      notes: ['Only mod .jar files can be added here'],
+    };
+    await tick();
+    expect(getByTestId('file-dropzone-notes')).toBe(line);
+    expect(line.textContent).toContain('Only mod .jar files can be added here');
+  });
+
+  // The strip grows into an overlay over its host while a file is dragged. The overlay is
+  // decorative — the window-level listener takes the drop — so it can never swallow a pointer
+  // event or reach a screen reader; the strip stays the file-picker button, by keyboard too.
+  it('a strip paints a decorative overlay with its drag label while a file is dragged', async () => {
+    const onClick = vi.fn();
+    const { getByTestId } = render(FileDropzone, {
+      props: {
+        target: 'client-mods',
+        label: 'Drop a .jar here',
+        dragLabel: 'Drop to add to “Test”',
+        variant: 'strip',
+        onClick,
+      },
+    });
+    const overlay = getByTestId('file-dropzone-overlay');
+    expect(overlay.className).toContain('opacity-0');
+    expect(overlay.className).toContain('pointer-events-none');
+    expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    dragHere();
+    await tick();
+    expect(overlay.className).toContain('opacity-100');
+    expect(overlay.textContent).toContain('Drop to add to “Test”');
+    expect(getByTestId('file-dropzone').className).toContain('bg-accent-soft');
+    dropPreview.value = null;
+    await tick();
+    expect(overlay.className).toContain('opacity-0');
+    const strip = getByTestId('file-dropzone');
+    expect(strip.getAttribute('role')).toBe('button');
+    await fireEvent.keyDown(strip, { key: 'Enter' });
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it('a disabled strip keeps its overlay hidden mid-drag', async () => {
+    const { getByTestId } = render(FileDropzone, {
+      props: {
+        target: 'client-mods',
+        label: 'x',
+        variant: 'strip',
+        disabled: true,
+        onClick: () => {},
+      },
+    });
+    dragHere();
+    await tick();
+    expect(getByTestId('file-dropzone-overlay').className).toContain('opacity-0');
+  });
+});
+
+// Plan §5c V3 (screenshots 10a, 10d): over the EMPTY list an accepted drag lit the full box up but
+// left it saying «Перетащите…», while the strip's overlay over a listed one said «Отпустите, чтобы
+// добавить…». The full box's label follows the drag the way the overlay does: the drop label while
+// files it takes are over it, its own label again once the drag leaves — and when none fits, its
+// own label, with the reason on its note line.
+describe('the full box says what a drop will do', () => {
+  afterEach(() => {
+    dropPreview.value = null;
+  });
+  const props = {
+    target: 'client-mods' as const,
+    label: 'Drop a .jar here',
+    dragLabel: 'Drop to add to “Test”',
+    onClick: () => {},
+  };
+
+  it('shows the drop label while a drag it takes is over it', async () => {
+    const { getByTestId } = render(FileDropzone, { props });
+    const zone = getByTestId('file-dropzone');
+    expect(zone.textContent).toContain('Drop a .jar here');
+    dragHere();
+    await tick();
+    expect(zone.textContent).toContain('Drop to add to “Test”');
+    expect(zone.textContent).not.toContain('Drop a .jar here');
+    dropPreview.value = null;
+    await tick();
+    expect(zone.textContent).toContain('Drop a .jar here');
+  });
+
+  // Guard (green before and after): a drag that adds nothing promises nothing.
+  it('keeps its own label, and says why, for a drag it takes nothing from', async () => {
+    const { getByTestId } = render(FileDropzone, { props });
+    dropPreview.value = {
+      target: 'client-mods',
+      adds: false,
+      notes: ['Only mod .jar files can be added here'],
+    };
+    await tick();
+    const zone = getByTestId('file-dropzone');
+    expect(zone.textContent).toContain('Drop a .jar here');
+    expect(zone.textContent).not.toContain('Drop to add');
+    expect(zone.textContent).toContain('Only mod .jar files can be added here');
+  });
+
+  // Every full box in the app — each empty list, and the server import — is given one, so none of
+  // them keeps «drag here» under a drag it is about to take.
+  it('every full box in the app is given a drop label', () => {
+    const sources = (dir: string, acc: string[] = []): string[] => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) sources(full, acc);
+        else if (entry.name.endsWith('.svelte')) acc.push(full);
+      }
+      return acc;
+    };
+    const unlabelled = sources('src').flatMap((file) =>
+      [...readFileSync(file, 'utf8').matchAll(/<FileDropzone\b[\s\S]*?\/>/g)]
+        .map((m) => m[0])
+        .filter((tag) => !tag.includes('variant="strip"') && !tag.includes('dragLabel='))
+        .map(() => file),
+    );
+    expect(unlabelled).toEqual([]);
   });
 });

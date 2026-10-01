@@ -146,8 +146,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     ),
     modsDependencyGraph: mocks.modsDependencyGraph,
     instanceDependencyPreflight: mocks.instanceDependencyPreflight,
-    // The panel enriches missing-dependency ids with project names; without
-    // this the effect calls undefined and the rejection escapes the test run.
+    // The dependency-name store names missing dependencies through this
+    // command (dep-names.svelte.ts).
     modsResolveDepNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -219,8 +219,8 @@ describe('quick-filter auto-resets to "all" when its set empties', () => {
     mocks.instanceDependencyPreflight.mockResolvedValue(preflightClean());
     listeners.modInstalled?.();
 
-    // preflightShas empties → counts.issues → 0 → the reactive effect resets
-    // quickFilter to 'all'. Both rows reappear (no empty-list dead-end).
+    // A's status clears (no violation left) → counts.issues → 0 → the reactive
+    // effect resets the view to 'all'. Both rows reappear (no empty-list dead-end).
     await waitFor(
       () => {
         expect(document.querySelector('[data-mod-row="modrinth:PA"]')).not.toBeNull();

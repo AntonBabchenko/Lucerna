@@ -52,15 +52,22 @@
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
   import { warnFailedRefresh, warnUpdateIncomplete } from './datapack-refresh-warning';
+  import type { Snippet } from 'svelte';
 
   let {
     instanceId,
     mcVersion = null,
     loader = null,
+    emptyDropzone,
+    onEmptyChange = () => {},
   }: {
     instanceId: string | null;
     mcVersion?: string | null;
     loader?: LoaderKind | null;
+    /** The host's full drop area, rendered in the empty library (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
   } = $props();
 
   let view = $state<DatapackLibraryView | null>(null);
@@ -215,6 +222,16 @@
       }
       loading = false;
     })();
+  });
+
+  // Empty is reported, never assumed: no profile, a library still loading or one that could not
+  // be read (`view` null) is not empty — the host keeps its strip until the library says so.
+  const listEmpty = $derived(
+    instanceId !== null && !loading && view !== null && view.entries.length === 0,
+  );
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
   });
 
   // Project icons for catalog-installed packs — same batched modsProjects
@@ -507,7 +524,14 @@
   {:else if loading && view === null}
     <LoadingPanel label={$t('addons.installed.loading')} size="md" />
   {:else if (view?.entries.length ?? 0) === 0}
-    <div class="text-muted text-sm py-6 text-center">{$t('addons.datapacks.empty')}</div>
+    <!-- A library that could not be read shows its error above, never «no datapacks». The host's
+         full drop area replaces its strip once the read says empty (DESIGN.md §14). -->
+    {#if view !== null}
+      <div class="pt-6 flex flex-col gap-3" data-testid="list-empty">
+        <p class="text-muted text-sm text-center">{$t('addons.datapacks.empty')}</p>
+        {#if listEmpty}{@render emptyDropzone?.()}{/if}
+      </div>
+    {/if}
   {:else if view}
     <div class="border border-border-subtle rounded-lg overflow-hidden">
       {#each view.entries as entry (entry.pack.filename)}

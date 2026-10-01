@@ -30,6 +30,7 @@ export const ACTION_COPY: Record<ContentAction, JournalRowCopy> = {
   },
   mod_updated: { icon: 'update', tone: 'neutral', labelKey: 'logs.journal.action.modUpdated' },
   mod_removed: { icon: 'trash', tone: 'danger', labelKey: 'logs.journal.action.modRemoved' },
+  mod_restored: { icon: 'restore', tone: 'positive', labelKey: 'logs.journal.action.modRestored' },
   mod_enabled: { icon: 'eye', tone: 'positive', labelKey: 'logs.journal.action.modEnabled' },
   mod_disabled: { icon: 'eyeOff', tone: 'warning', labelKey: 'logs.journal.action.modDisabled' },
   asset_installed: {

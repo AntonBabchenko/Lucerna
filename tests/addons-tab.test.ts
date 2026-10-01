@@ -72,7 +72,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     datapacksCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     datapacksInstallFromFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     listWorldNames: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    // InstalledDatapacksView (Data packs → Installed) reads the running state.
+    // InstalledDatapacksView (Data packs → Installed) reads the running state: it gates its
+    // writes on the running game.
     runningInstances: vi.fn().mockResolvedValue([]),
   },
   events: {
@@ -91,6 +92,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue
 
 import { commands } from '$lib/ipc/bindings';
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
+import { resetAddonsViewMemory } from '$lib/mods/addons-view-memory.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
 beforeEach(() => markSeen('addons'));
@@ -102,11 +104,21 @@ const props = {
   loader: 'fabric' as const,
 };
 
+// The strip's overlay is positioned against its nearest `relative` ancestor: that must be the
+// host's content box, i.e. contain the list / catalog area under the strip.
+const overlayHost = () => {
+  let el = screen.getByTestId('file-dropzone-overlay').parentElement;
+  while (el && !el.classList.contains('relative')) el = el.parentElement;
+  return el;
+};
+
 describe('AddonsTab', () => {
   afterEach(async () => {
     const { droppedMods, modBrowseOpenProject } = await import('$lib/settings/state.svelte');
     droppedMods.value = null;
     modBrowseOpenProject.value = null;
+    // The sub-view is remembered per kind for the session (module state): each case starts fresh.
+    resetAddonsViewMemory();
     // Reset all mock call counts between tests so assertions about "not called"
     // are not poisoned by invocations from earlier tests.
     vi.clearAllMocks();
@@ -216,7 +228,7 @@ describe('AddonsTab', () => {
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
-  it('switching kind resets to Browse sub-view', async () => {
+  it('switching to a kind never visited lands on Browse', async () => {
     render(AddonsTab, { props });
 
     // Open the Installed sub-tab while on Mods.
@@ -227,7 +239,7 @@ describe('AddonsTab', () => {
       );
     });
 
-    // Switch to Shaders — the kind-reset effect must land on Browse.
+    // Switch to Shaders — a kind with no remembered view starts on Browse.
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
@@ -244,6 +256,76 @@ describe('AddonsTab', () => {
     // calls assetsList on mount for non-mod kinds to drive installed-state
     // badges, so that command is no longer a mount signal for the Installed view.
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
+  });
+
+  it('remembers Browse / Installed per kind, across kind switches and remounts', async () => {
+    const { unmount } = render(AddonsTab, { props });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    expect(screen.getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe('true');
+    await fireEvent.click(screen.getByRole('tab', { name: 'Mods' }));
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    unmount();
+    render(AddonsTab, { props });
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+
+  it('a first visit to a profile with mods opens Installed', () => {
+    render(AddonsTab, { props: { ...props, hasInstalledMods: true } });
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByLabelText('Filter installed mods')).toBeTruthy();
+  });
+
+  // Before the profile's mods are counted (a start, a profile switch) the answer is not "none":
+  // Installed shows what is there — and here, with nothing, the list's full drop area.
+  it('a first visit before the mods are counted opens Installed, whose empty list holds the drop area', async () => {
+    render(AddonsTab, { props: { ...props, hasInstalledMods: null } });
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    await waitFor(() => expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('full'));
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('file-dropzone'))).toBe(
+      true,
+    );
+  });
+
+  // The dropzone rule (spec D11, DESIGN.md §14): a strip above the catalog and a listed Installed
+  // view; an empty Installed list holds the one full drop area instead.
+  it.each([
+    'Mods',
+    'Resource packs',
+    'Data packs (Beta)',
+  ])('an empty %s Installed list shows the full drop area instead of the strip', async (kindTab) => {
+    render(AddonsTab, { props });
+    await fireEvent.click(await screen.findByRole('tab', { name: kindTab }));
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    await waitFor(() => expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('full'));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('file-dropzone'))).toBe(
+      true,
+    );
+    await fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    expect(screen.getAllByTestId('file-dropzone')).toHaveLength(1);
+    expect(screen.getByTestId('file-dropzone').dataset.variant).toBe('strip');
+  });
+
+  it('the strip overlays the content area below it', () => {
+    render(AddonsTab, { props });
+    expect(overlayHost()?.querySelector('.overflow-y-auto')).not.toBeNull();
+  });
+
+  it('offers the source picker on Browse only', async () => {
+    render(AddonsTab, { props });
+    expect(screen.getByRole('combobox', { name: 'Mod source' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    expect(screen.queryByRole('combobox', { name: 'Mod source' })).toBeNull();
   });
 
   it('switching kind does not auto-mount Installed sub-view (no premature IPC)', async () => {

@@ -1,22 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import type { Translate } from '$lib/i18n';
 import en from '$lib/i18n/locales/en.json';
+import ru from '$lib/i18n/locales/ru.json';
 import type { RangeDescription } from '$lib/ipc/bindings';
 import { formatRange } from '$lib/mods/range-format';
 
 /**
- * Translate against the REAL shipped English strings rather than a copy, so a
+ * Translate against the REAL shipped strings rather than a copy, so a
  * reworded `mods.range.*` value can never silently diverge from what this test
  * claims the user sees.
  */
-const t: Translate = (key, values) => {
-  const tmpl = key
-    .split('.')
-    .reduce<unknown>((acc, k) => (acc as Record<string, unknown>)?.[k], en);
-  if (typeof tmpl !== 'string') throw new Error(`missing i18n key: ${key}`);
-  const v = values as Record<string, unknown> | undefined;
-  return v ? tmpl.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? `{${k}}`)) : tmpl;
-};
+const translator =
+  (dict: unknown): Translate =>
+  (key, values) => {
+    const tmpl = key
+      .split('.')
+      .reduce<unknown>((acc, k) => (acc as Record<string, unknown>)?.[k], dict);
+    if (typeof tmpl !== 'string') throw new Error(`missing i18n key: ${key}`);
+    const v = values as Record<string, unknown> | undefined;
+    return v ? tmpl.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? `{${k}}`)) : tmpl;
+  };
+const t = translator(en);
+const tRu = translator(ru);
 
 function desc(partial: Partial<RangeDescription>): RangeDescription {
   return {
@@ -57,7 +62,9 @@ describe('formatRange', () => {
     expect(formatRange(t, d)).toBe('1.21-1.3 recommended (any version works)');
   });
 
-  it('builds a span out of its two bounds instead of a fifth phrasing', () => {
+  // Plan §5b V1: two single-bound phrasings glued with «and» doubled the conjunction in Russian
+  // («0.5.11 и новее и ниже 0.6»). A span reads as ONE range: each bound in its span phrasing.
+  it('reads a span as one range, not two phrasings glued together', () => {
     const d = desc({
       raw: '[1.0,2.0)',
       alternatives: [
@@ -72,7 +79,27 @@ describe('formatRange', () => {
         ],
       ],
     });
-    expect(formatRange(t, d)).toBe('1.0 or newer and older than 2.0');
+    expect(formatRange(t, d)).toBe('from 1.0, but older than 2.0');
+    expect(formatRange(tRu, d)).toBe('от 1.0, но ниже 2.0');
+  });
+
+  it('names each bound’s inclusivity in the span', () => {
+    const d = desc({
+      raw: '(1.0,2.0]',
+      alternatives: [
+        [
+          {
+            kind: 'between',
+            low: '1.0',
+            low_inclusive: false,
+            high: '2.0',
+            high_inclusive: true,
+          },
+        ],
+      ],
+    });
+    expect(formatRange(t, d)).toBe('newer than 1.0, but up to 2.0');
+    expect(formatRange(tRu, d)).toBe('выше 1.0, но до 2.0 включительно');
   });
 
   it('joins AND terms within an alternative and OR across alternatives', () => {
@@ -92,7 +119,55 @@ describe('formatRange', () => {
         ],
       ],
     });
-    expect(formatRange(t, andTerms)).toBe('1.0.0 or newer and older than 2.0.0');
+    // A Fabric predicate like `>=0.5.11 <0.6` (screenshot 07): one range, as a span reads.
+    expect(formatRange(t, andTerms)).toBe('from 1.0.0, but older than 2.0.0');
+    expect(formatRange(tRu, andTerms)).toBe('от 1.0.0, но ниже 2.0.0');
+  });
+
+  // Plan §5c V3: «от 0.5.11, ниже 0.6» read as two facts side by side. The upper bound limits the
+  // lower one, and the copy says so: «от 0.5.11, но ниже 0.6» — "from 0.5.11, but older than 0.6".
+  it('joins the two sides of a range as a limit, not a list', () => {
+    const d = desc({
+      raw: '>=0.5.11 <0.6',
+      family: 'fabric_predicate',
+      alternatives: [
+        [
+          { kind: 'at_least', version: '0.5.11' },
+          { kind: 'below', version: '0.6' },
+        ],
+      ],
+    });
+    expect(formatRange(tRu, d)).toBe('от 0.5.11, но ниже 0.6');
+    expect(formatRange(t, d)).toBe('from 0.5.11, but older than 0.6');
+    // Whichever side the mod wrote first.
+    const upperFirst = desc({
+      raw: '<0.6 >=0.5.11',
+      family: 'fabric_predicate',
+      alternatives: [
+        [
+          { kind: 'below', version: '0.6' },
+          { kind: 'at_least', version: '0.5.11' },
+        ],
+      ],
+    });
+    expect(formatRange(tRu, upperFirst)).toBe('ниже 0.6, но от 0.5.11');
+  });
+
+  // Guard (green before and after): «но» limits one side by the other, so two bounds on the SAME
+  // side are listed, never set against each other.
+  it('lists two bounds on the same side', () => {
+    const d = desc({
+      raw: '>=1.0 >1.2',
+      family: 'fabric_predicate',
+      alternatives: [
+        [
+          { kind: 'at_least', version: '1.0' },
+          { kind: 'above', version: '1.2' },
+        ],
+      ],
+    });
+    expect(formatRange(tRu, d)).toBe('от 1.0, выше 1.2');
+    expect(formatRange(t, d)).toBe('from 1.0, newer than 1.2');
   });
 
   it('falls back to the declared string when the range cannot be decomposed', () => {

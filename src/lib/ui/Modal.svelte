@@ -10,7 +10,7 @@
   // Closing: Escape and a backdrop click both call `onClose`. Set
   // `closeOnBackdrop={false}` (e.g. while a destructive op is in flight) to
   // require an explicit button; `closeOnEscape={false}` likewise.
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import type { Snippet } from 'svelte';
   import { newLayerId, provideLayerHost, pushLayer } from './layer-stack.svelte';
   import { trapFocus } from './trap-focus';
@@ -24,6 +24,7 @@
     closeOnBackdrop = true,
     closeOnEscape = true,
     bare = false,
+    takesFileDrops = false,
     dataTestid,
     children,
   }: {
@@ -43,6 +44,10 @@
         surface inside if backdrop-click dismissal is wanted. Everything else
         (Escape stack, focus trap, role/aria) works as usual. */
     bare?: boolean;
+    /** The dialog's body takes OS file drops (the window drop router routes them to it — the
+        Modpacks modal). Any other dialog on top leaves every drop box under it out. Read once,
+        when the dialog opens. */
+    takesFileDrops?: boolean;
     /** Optional `data-testid` forwarded to the dialog panel element. */
     dataTestid?: string;
     children: Snippet;
@@ -50,8 +55,9 @@
 
   // One entry in the app's layer stack (layer-stack.svelte.ts): Escape reaches
   // this modal only while it is the top layer (a popover or a nested dialog
-  // opened over it takes the key first), and a contextual tour rendered among
-  // its children is hosted by it.
+  // opened over it takes the key first), a contextual tour rendered among its
+  // children is hosted by it, and the window drop router asks the stack whether
+  // the topmost modal takes a file drop (`modalBlocksFileDrops`).
   //
   // Pushed during INITIALISATION, not in onMount: a tour among the children
   // looks its host up in its own onMount, and a child's mount callbacks run
@@ -60,13 +66,19 @@
   // initialises and paints after it (a nested confirm sits after its parent in
   // the template; cross-component modals are ordered in +page.svelte). If a
   // future modal is placed earlier in the DOM but opens later, Escape would
-  // close the visually-lower one — keep new stacked modals after the ones they
-  // cover.
+  // close the visually-lower one — and a drop would follow the hidden one's
+  // rule — so keep new stacked modals after the ones they cover.
   const layer = newLayerId('modal');
   onDestroy(
-    pushLayer(layer, 'modal', () => {
-      if (closeOnEscape) onClose();
-    }),
+    pushLayer(
+      layer,
+      'modal',
+      () => {
+        if (closeOnEscape) onClose();
+      },
+      // Read once, as the dialog opens; `untrack` marks the one-time read.
+      { takesFileDrops: untrack(() => takesFileDrops) },
+    ),
   );
   provideLayerHost(layer);
 

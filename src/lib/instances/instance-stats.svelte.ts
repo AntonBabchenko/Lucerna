@@ -18,7 +18,8 @@ import {
 } from '$lib/ipc/bindings';
 import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
 import { ensureCompatScan } from '$lib/mods/compat-scan.svelte';
-import { ensureLiveCompat, knownIncompatibleCount } from '$lib/mods/installed/compat-check.svelte';
+import { ensureLiveCompat, knownCompatHints } from '$lib/mods/installed/compat-check.svelte';
+import { loadStoredUpdateCheck, pendingUpdateCount } from '$lib/mods/update-check-store.svelte';
 
 export type InstalledStats = { total: number; enabled: number; disabled: number };
 
@@ -36,6 +37,9 @@ const EMPTY_PLAYTIME: PlaytimeStats = {
 
 export function createInstanceStats() {
   let installedStats = $state<InstalledStats>({ ...EMPTY_INSTALLED });
+  // The profile whose listing `installedStats` holds: null until a read has landed, and after a
+  // failed one — its zeros are then a reset, not an answer.
+  let installedFor = $state<string | null>(null);
   let playtime = $state<PlaytimeStats>({ ...EMPTY_PLAYTIME });
   let packMissingMods = $state<MissingModStatus[]>([]);
 
@@ -44,16 +48,23 @@ export function createInstanceStats() {
   // the previous instance's data over the newer one. Each refresher bumps its
   // own counter and drops the commit if a newer call has started.
   //
-  // The incompatible count has no counter because it commits nothing: it is
-  // read straight off the shared scan store, which owns its own generation
-  // guard. A number copied out of a shared store is a second source of truth by
+  // The compat flags and the update count have no counter because they commit
+  // nothing: they are read straight off their shared stores, which own their own
+  // guards. A number copied out of a shared store is a second source of truth by
   // another name — #332 removed the duplicated *scan* and left the duplicated
   // *count*, so the Overview kept showing a value the store no longer held.
   let statsSeq = 0;
   let playtimeSeq = 0;
   let packSeq = 0;
 
-  // The platform triple the last `refreshIncompatible` ran for — the count
+  // The profile whose pending updates the Overview shows. The count is read off
+  // the app-wide persisted check (update-check-store): a check the Installed tab
+  // runs lands there, and the Overview follows at once (plan A18) — a copy would
+  // wait for the next mod event. The store keys by profile, so a slow read for
+  // the previous profile never lands on this one.
+  let updateFor = $state<string | null>(null);
+
+  // The platform triple the last `refreshIncompatible` ran for — the flags
   // getter needs it to look up live verdicts in the shared keyed store.
   let compatTriple = $state<{
     id: string | null;
@@ -67,6 +78,7 @@ export function createInstanceStats() {
   async function refreshInstalledStats(id: string | null) {
     if (!id) {
       installedStats = { ...EMPTY_INSTALLED };
+      installedFor = null;
       return;
     }
     const seq = ++statsSeq;
@@ -77,16 +89,18 @@ export function createInstanceStats() {
     // Mirrors `refreshPlaytime`, which has always done this.
     if (r.status !== 'ok') {
       installedStats = { ...EMPTY_INSTALLED };
+      installedFor = null;
       return;
     }
     const total = r.data.length;
     const enabled = r.data.filter((m) => m.enabled).length;
     installedStats = { total, enabled, disabled: total - enabled };
+    installedFor = id;
   }
 
   // Make sure the app-wide compatibility scan is current for `id`. Commits
-  // nothing of its own — the Overview's count is read from the store (see the
-  // `incompatibleCount` getter below), so this is purely "go and refresh it".
+  // nothing of its own — the Overview's flags are read from the store (see the
+  // `compatHints` getter below), so this is purely "go and refresh it".
   //
   // `force` is required after a mod install / uninstall / toggle: the store
   // keys on (instance, mc, loader), which such a change does not alter, so an
@@ -112,7 +126,7 @@ export function createInstanceStats() {
     compatTriple = triple;
     await ensureCompatScan(triple.id, triple.mc, triple.loader, opts);
     // Fire-and-forget: the Overview must not BLOCK on the network (spec D4).
-    // The count getter is a pure store read; it updates reactively when the
+    // The flags getter is a pure store read; it updates reactively when the
     // verdicts land. Offline this decides everything `unknown` — no flags,
     // no retry hammer.
     void ensureLiveCompat(triple.id, triple.mc, triple.loader);
@@ -152,21 +166,45 @@ export function createInstanceStats() {
     packMissingMods = r.status === 'ok' && r.data ? r.data.missing_mods : [];
   }
 
+  // Re-read the persisted update check of `id` — on an instance switch and
+  // after the mod set changes (an update replaces a jar, the check then lists
+  // it no more).
+  async function refreshUpdateCount(id: string | null) {
+    updateFor = id;
+    if (id) await loadStoredUpdateCheck(id);
+  }
+
   return {
     get installedStats() {
       return installedStats;
     },
-    // Read straight off the SHARED stores at call time (offline scan + keyed
-    // live verdicts), so it can never be a stale copy and, since spec D4, it
-    // is the SAME union the Installed chip shows — the Overview and the chip
-    // can no longer disagree (locked C6). Still a pure read: the network work
-    // happens in `refreshIncompatible`'s fire-and-forget ensure, never here.
-    get incompatibleCount() {
-      return knownIncompatibleCount(
+    /** Whether profile `id` has installed mods (the Add-ons tab's first view, spec D10) — null
+     *  while that is not known: no read has landed yet, the count held is another profile's
+     *  (a switch still reading), or the read failed. No profile has none. A call site reading it
+     *  in a template stays reactive: it reads `$state` at call time. */
+    hasInstalledMods(id: string | null): boolean | null {
+      if (id === null) return false;
+      return installedFor === id ? installedStats.total > 0 : null;
+    },
+    // Every mod compat flags, with the reason its Installed row reads — read
+    // straight off the SHARED stores at call time (offline scan + keyed live
+    // verdicts), so it can never be a stale copy (locked C6). The Overview
+    // decides each mod's level from these and the page pre-flight with the
+    // rows' own `statusOf` (`problemCounts`), so it and the Installed chip
+    // cannot disagree. Still a pure read: the network work happens in
+    // `refreshIncompatible`'s fire-and-forget ensure, never here.
+    get compatHints() {
+      return knownCompatHints(
         compatTriple?.id ?? null,
         compatTriple?.mc ?? null,
         compatTriple?.loader ?? null,
       );
+    },
+    // Pending updates in the persisted check (spec §5.5). null = never checked,
+    // or the stored check could not be read — "not known", never a reassuring
+    // 0 (spec §9).
+    get updateCount() {
+      return pendingUpdateCount(updateFor);
     },
     get playtime() {
       return playtime;
@@ -182,6 +220,7 @@ export function createInstanceStats() {
     refreshIncompatible,
     refreshPlaytime,
     refreshPackStatus,
+    refreshUpdateCount,
   };
 }
 

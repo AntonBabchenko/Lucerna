@@ -2,6 +2,7 @@
   import type { ModpackFile, ModpackSummary, ModpackUnresolvable } from '$lib/ipc/bindings';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
+  import { displayVersion } from '$lib/format/version';
   import Modal from '$lib/ui/Modal.svelte';
   import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -172,7 +173,7 @@
   <header class="p-4 border-b">
     <h2 id="import-picker-title" class="text-lg font-semibold text-primary">{summary.name}</h2>
     <div class="text-sm text-muted">
-      v{summary.version} ·
+      {displayVersion(summary.version)} ·
       {summary.format === 'modrinth'
         ? 'Modrinth .mrpack'
         : summary.format === 'ftb'

@@ -19,6 +19,7 @@ const {
   modsUninstall,
   modsEnable,
   modsDisable,
+  modsRemovalImpact,
   pushSuccess,
   pushWarning,
   pushActionToast,
@@ -35,6 +36,7 @@ const {
   modsUninstall: vi.fn(),
   modsEnable: vi.fn(),
   modsDisable: vi.fn(),
+  modsRemovalImpact: vi.fn(),
   pushSuccess: vi.fn(),
   pushWarning: vi.fn(),
   pushActionToast: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsUninstall,
     modsEnable,
     modsDisable,
+    modsRemovalImpact,
   },
   events: {
     modInstalled: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -173,7 +176,13 @@ beforeEach(() => {
   modsProjects.mockResolvedValue(ok([]));
   modsProject.mockResolvedValue(project('Sodium'));
   modsInstallWithDeps.mockResolvedValue(ok(null));
-  modsUninstall.mockResolvedValue(ok(null));
+  // Nothing depends on the card's mod: the safe flip order names just the target.
+  modsRemovalImpact.mockImplementation(async (_i: string, sha1s: string[]) =>
+    ok({ dependents: [], order: sha1s }),
+  );
+  modsUninstall.mockResolvedValue(
+    ok({ token: 'tok', items: [{ sha1: 'sha-1', name: 'release-1.0' }] }),
+  );
   modsEnable.mockResolvedValue(ok(null));
   modsDisable.mockResolvedValue(ok(null));
 });
@@ -491,7 +500,7 @@ describe('ModBrowseView card actions', () => {
     // no-op: installed cards are visible by default now.
   }
 
-  it('uninstalls an installed card', async () => {
+  it('removes an installed card through the guarded path and offers Undo', async () => {
     searchReturns([hit()]);
     modsListInstalled.mockResolvedValue(ok([installedRow]));
     render(ModBrowseView, { props: { ...full } });
@@ -500,9 +509,20 @@ describe('ModBrowseView card actions', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /remove/i }));
 
     await waitFor(() => expect(modsUninstall).toHaveBeenCalledWith('i', 'sha-1'));
+    expect(modsRemovalImpact).toHaveBeenCalledWith('i', ['sha-1']);
+    // Named as the card names it — the project, not the registry's version title.
+    await waitFor(() =>
+      expect(pushActionToast).toHaveBeenCalledWith(
+        'success',
+        'Removed Sodium',
+        expect.objectContaining({ label: 'Undo' }),
+        [],
+        { ttlMs: 10_000 },
+      ),
+    );
   });
 
-  it('disables an installed-and-enabled card', async () => {
+  it('disables an installed-and-enabled card after the dependents check', async () => {
     searchReturns([hit()]);
     modsListInstalled.mockResolvedValue(ok([installedRow]));
     render(ModBrowseView, { props: { ...full } });
@@ -511,6 +531,7 @@ describe('ModBrowseView card actions', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /disable/i }));
 
     await waitFor(() => expect(modsDisable).toHaveBeenCalledWith('i', 'sha-1'));
+    expect(modsRemovalImpact).toHaveBeenCalledWith('i', ['sha-1']);
     expect(modsEnable).not.toHaveBeenCalled();
   });
 });

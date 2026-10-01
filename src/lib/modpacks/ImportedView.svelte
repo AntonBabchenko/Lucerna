@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { type Snippet, untrack } from 'svelte';
   import { commands } from '$lib/ipc/bindings';
   import type { InstanceWithStatus, LoaderKind, ModpackStatus } from '$lib/ipc/bindings';
   import { modpacksNav } from '$lib/settings/state.svelte';
@@ -39,10 +39,16 @@
     instances,
     onPick,
     onListChanged,
+    emptyDropzone,
+    onEmptyChange = () => {},
   }: {
     instances: InstanceWithStatus[];
     onPick: (id: string) => void;
     onListChanged?: () => void;
+    /** The host's full drop area, rendered in the empty list (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** No pack imported yet — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
   } = $props();
 
   let drawerInstId = $state<string | null>(null);
@@ -102,6 +108,13 @@
   }
 
   const allPacks = $derived(instances.filter((i) => i.mrpack_name != null));
+  // The page's instance list is already loaded when the Modpacks view opens: no pack in it is
+  // an empty list, which the host answers with its full drop area here.
+  const listEmpty = $derived(allPacks.length === 0);
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
+  });
 
   let checkingUpdates = $state(false);
 
@@ -169,11 +182,13 @@
   ]);
 </script>
 
-{#if allPacks.length === 0}
-  <div class="p-4">
+{#if listEmpty}
+  <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
+  <div class="p-4 flex flex-col gap-3" data-testid="list-empty">
     <div class="text-sm text-placeholder text-center mt-12">
       {$t('modpacks.imported.view.emptyState')}
     </div>
+    {@render emptyDropzone?.()}
   </div>
 {:else}
   <div class="px-4 pt-3 flex items-center gap-3" data-testid="imported-updates-strip">

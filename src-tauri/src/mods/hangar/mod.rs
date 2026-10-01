@@ -279,6 +279,8 @@ fn convert_summary(p: types::HangarProject) -> ModSummary {
         // `LoaderKind` has no variant for it. Permanently unknown by design —
         // `platform::supplies_project_loaders` encodes the same answer.
         loaders: None,
+        // No library class either; `platform::supplies_project_library`.
+        library: None,
     }
 }
 

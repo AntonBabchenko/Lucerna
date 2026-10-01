@@ -4,11 +4,15 @@ import type { Translate } from '$lib/i18n';
  * Render a unix-ms timestamp as a short relative phrase
  * ("12s ago", "5m ago", "3h ago", "2d ago"). `null` / `undefined` / 0 →
  * the locale's "never" string. Caller passes `$t` so the result is
- * reactive on locale change.
+ * reactive on locale change; `now` lets a caller re-render on a clock tick.
  */
-export function relativeTime(t: Translate, ms: number | null | undefined): string {
+export function relativeTime(
+  t: Translate,
+  ms: number | null | undefined,
+  now: number = Date.now(),
+): string {
   if (!ms) return t('format.relativeTime.never');
-  const diff = Date.now() - ms;
+  const diff = now - ms;
   const sec = Math.floor(diff / 1000);
   if (sec < 60) return t('format.relativeTime.secondsAgo', { n: sec });
   const min = Math.floor(sec / 60);

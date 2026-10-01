@@ -2,6 +2,7 @@
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
+  import { displayVersion } from '$lib/format/version';
   import { relativeDate } from '$lib/format/relative-time';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
@@ -41,7 +42,7 @@
     <CardMedia iconUrl={null} placeholder="package" size="lg" />
     <div class="min-w-0 flex-1">
       <div class="font-semibold text-sm truncate flex items-center gap-1.5 flex-wrap">
-        <span>{inst.mrpack_name} v{inst.mrpack_version}</span>
+        <span>{inst.mrpack_name} {displayVersion(inst.mrpack_version ?? '')}</span>
         {#if isModified}
           <StatusBadge
             variant="warning"

@@ -1,6 +1,6 @@
 // Single owner of overlay layering. Every open modal, popover and contextual
-// tour sits in ONE ordered stack; the layer opened last is on top. Three rules
-// follow from that order and all three live here, so no caller can get one of
+// tour sits in ONE ordered stack; the layer opened last is on top. Four rules
+// follow from that order and all four live here, so no caller can get one of
 // them half right:
 //   - Escape goes to the top layer only (the router below). Lower layers never
 //     see it — one keypress closes one thing.
@@ -8,6 +8,8 @@
 //     user opens during a tour goes on top, so it is never painted under the
 //     tour's dim; the tour comes back when it closes.
 //   - A modal's focus trap yields only to a tour lying above it (`tourAbove`).
+//   - An OS file drop reaches the app only while the topmost MODAL, if any,
+//     takes drops (`modalBlocksFileDrops`); popovers and tours never count.
 // Same model as React Aria's overlay stack and Radix's DismissableLayer.
 //
 // Tours are inserted directly above their HOST (the modal they belong to, or
@@ -25,6 +27,8 @@ interface Layer {
   /** What a tour sits on — a layer, or null for the page. Null for the rest. */
   readonly host: LayerId | null;
   readonly onEscape: () => void;
+  /** A modal whose body takes OS file drops (the Modpacks modal). False for the rest. */
+  readonly takesFileDrops: boolean;
 }
 
 // Replaced, never mutated. Reads inside the mutators go through `untrack`:
@@ -76,14 +80,19 @@ export function newLayerId(label: string): LayerId {
   return Symbol(label);
 }
 
-/** Push a modal or popover on top. Returns an idempotent release. */
+/**
+ * Push a modal or popover on top. Returns an idempotent release.
+ * `takesFileDrops`: the modal's body takes OS file drops; only a modal's is read.
+ */
 export function pushLayer(
   id: LayerId,
   kind: 'modal' | 'popover',
   onEscape: () => void,
+  { takesFileDrops = false }: { takesFileDrops?: boolean } = {},
 ): () => void {
   const now = current();
-  if (!now.some((l) => l.id === id)) commit([...now, { id, kind, host: null, onEscape }]);
+  if (!now.some((l) => l.id === id))
+    commit([...now, { id, kind, host: null, onEscape, takesFileDrops }]);
   return () => release(id);
 }
 
@@ -105,7 +114,7 @@ export function insertTour(
   if (now.some((l, i) => l.kind === 'tour' && i > hostIndex)) return null;
   if (now.some((l) => l.id === id)) return null;
   const next = [...now];
-  next.splice(hostIndex + 1, 0, { id, kind: 'tour', host, onEscape });
+  next.splice(hostIndex + 1, 0, { id, kind: 'tour', host, onEscape, takesFileDrops: false });
   commit(next);
   return () => release(id);
 }
@@ -125,6 +134,22 @@ export function tourAbove(id: LayerId): boolean {
 /** How many modals are open; 0 when none. Reactive. */
 export function modalDepth(): number {
   return layers.filter((l) => l.kind === 'modal').length;
+}
+
+/**
+ * True while the topmost MODAL takes no OS file drops — then nothing does: its
+ * scrim covers every drop box under it (DESIGN.md §14), which must neither
+ * light up behind it nor take the files where nobody can see. False with no
+ * modal open, or when the topmost one takes drops (the Modpacks modal).
+ * Popovers and tours never count. Over a modal they open within its screen,
+ * and its scrim still covers everything under it; with no modal open the drop
+ * box stays in sight — a popover is a small surface over the page, and a
+ * tour's dim darkens it without taking the pointer. The window drop router
+ * reads it as `modalOnTop`. Reactive.
+ */
+export function modalBlocksFileDrops(): boolean {
+  const top = layers.findLast((l) => l.kind === 'modal');
+  return top !== undefined && !top.takesFileDrops;
 }
 
 /** Plain-callback subscription for code outside components (trap-focus). */

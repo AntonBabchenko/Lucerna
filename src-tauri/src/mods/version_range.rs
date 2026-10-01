@@ -6,36 +6,66 @@
 /// Result of comparing two version strings. `Unknown` when a confident
 /// numeric comparison is impossible (a qualifier in a decisive position).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Cmp {
+pub(crate) enum Cmp {
     Less,
     Equal,
     Greater,
     Unknown,
 }
 
-/// If `v` is `<mcver>-<modver>` where mcver is `1.<minor>[.patch]` (all numeric)
-/// and modver starts with a digit, return modver. Else `None`. Used to drop the
-/// Minecraft-version prefix that Forge/NeoForge mods embed in their versions
-/// (e.g. `1.19.2-5.1.3.0`), which otherwise poisons a token-wise comparison.
-fn strip_mc_prefix(v: &str) -> Option<&str> {
-    let (mc, rest) = v.split_once('-')?;
+/// First component of a year-based Minecraft release id: `26.1` is the first
+/// release after `1.21.11`; the ids are two-digit years followed by a drop number.
+const FIRST_YEAR_BASED_MC_MAJOR: u32 = 26;
+
+/// A mod version that starts with a Minecraft release id: `1.21.1-3.6.3`.
+struct McPrefixed<'a> {
+    /// The id's first two components — the Minecraft line (`1.21`, `26.1`).
+    line: &'a str,
+    /// The id names only the line (`1.21`), not a hotfix of it (`1.21.1`).
+    bare_line: bool,
+    /// The mod's own version, after the first `-`.
+    mod_version: &'a str,
+}
+
+/// Read `v` as `<mc>-<mod version>`: `mc` a Minecraft release id,
+/// `1.<minor>[.<patch>]` or year-based `<yy>.<drop>[.<hotfix>]`, all ASCII digits,
+/// and a mod version that starts with a digit and is not only zeros. Else `None`.
+/// Forge/NeoForge mods embed the Minecraft version this way (`1.19.2-5.1.3.0`,
+/// `26.1.2-4.1.1`), which otherwise misaligns a token-wise comparison.
+fn split_mc_prefix(v: &str) -> Option<McPrefixed<'_>> {
+    let (mc, mod_version) = v.split_once('-')?;
     let mut parts = mc.split('.');
-    if parts.next()? != "1" {
-        return None; // modern Minecraft is 1.x
-    }
-    if parts.next()?.parse::<u32>().is_err() {
-        return None; // minor must be numeric
-    }
-    if let Some(patch) = parts.next() {
-        if patch.parse::<u32>().is_err() {
-            return None;
-        }
-    }
+    let major = parts.next()?;
+    let minor = parts.next()?;
+    let patch = parts.next();
     if parts.next().is_some() {
-        return None; // more than 3 components — not an MC version
+        return None; // more than 3 components — not a Minecraft release id
     }
-    rest.starts_with(|c: char| c.is_ascii_digit())
-        .then_some(rest)
+    // ASCII digits only: `parse::<u32>()` would also accept a leading `+`.
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(major) || !digits(minor) || patch.is_some_and(|p| !digits(p)) {
+        return None;
+    }
+    let year_based = major.len() == 2
+        && major
+            .parse::<u32>()
+            .is_ok_and(|y| y >= FIRST_YEAR_BASED_MC_MAJOR);
+    if major != "1" && !year_based {
+        return None;
+    }
+    if !mod_version.starts_with(|c: char| c.is_ascii_digit()) {
+        return None; // `1.5.2-pre`, `26.4-snapshot-2`: a qualifier, not a mod version
+    }
+    if mod_version.bytes().all(|b| b == b'0' || b == b'.') {
+        return None; // `26.3.0-0`: Maven's lowest pre-release of 26.3.0, not a mod version
+    }
+    Some(McPrefixed {
+        // `major` and `minor` were just checked to be ASCII, so this index is
+        // on a character boundary and at most `mc.len()`.
+        line: &mc[..major.len() + 1 + minor.len()],
+        bare_line: patch.is_none(),
+        mod_version,
+    })
 }
 
 /// Split a version into tokens on `.` and `-`, then compare position by
@@ -68,12 +98,18 @@ fn compare_tokens(a: &str, b: &str) -> Cmp {
     Cmp::Equal
 }
 
-/// Token-wise version comparison. When BOTH sides carry an MC-version prefix
-/// (`<mc>-<modver>`), compares only the mod-version part — the MC segments can
-/// differ (e.g. `1.19.2` vs `1.19`) and would otherwise misalign the tokens.
-fn compare_numeric(a: &str, b: &str) -> Cmp {
-    if let (Some(am), Some(bm)) = (strip_mc_prefix(a), strip_mc_prefix(b)) {
-        return compare_tokens(am, bm);
+/// Token-wise version comparison. When both sides are Minecraft-prefixed on the
+/// same line and one of them names the bare line (`1.19.2-…` against `1.19-…`),
+/// compares only the mod versions: the ids differ in length and would misalign
+/// the tokens, and a range naming a line means the mod's own number. Otherwise
+/// the whole strings are compared, so the first differing number decides — as
+/// in the loader: across lines the Minecraft part, and two hotfix ids by their
+/// hotfix (a mod's own `26.1.12-5` looks exactly like one).
+pub(crate) fn compare_numeric(a: &str, b: &str) -> Cmp {
+    if let (Some(x), Some(y)) = (split_mc_prefix(a), split_mc_prefix(b)) {
+        if x.line == y.line && (x.bare_line || y.bare_line) {
+            return compare_tokens(x.mod_version, y.mod_version);
+        }
     }
     compare_tokens(a, b)
 }
@@ -721,17 +757,40 @@ mod tests {
         );
     }
 
+    fn prefix_parts(v: &str) -> Option<(&str, bool, &str)> {
+        split_mc_prefix(v).map(|p| (p.line, p.bare_line, p.mod_version))
+    }
+
     #[test]
-    fn strip_mc_prefix_detects_mc_prefixed_versions() {
-        assert_eq!(strip_mc_prefix("1.19.2-5.1.3.0"), Some("5.1.3.0"));
-        assert_eq!(strip_mc_prefix("1.21-2.29.0"), Some("2.29.0"));
-        assert_eq!(strip_mc_prefix("1.19-77"), Some("77"));
-        assert_eq!(strip_mc_prefix("1.5.2-pre"), None); // rest non-numeric (qualifier)
-        assert_eq!(strip_mc_prefix("1.3.50.2005"), None); // no dash
-        assert_eq!(strip_mc_prefix("5.0.7.1"), None); // no dash
-        assert_eq!(strip_mc_prefix("1.19.2"), None); // no dash
-        assert_eq!(strip_mc_prefix("2.0.0-1.0.0"), None); // mc must start with "1."
-        assert_eq!(strip_mc_prefix("1.19.2.3-5.0"), None); // >3 mc components
+    fn split_mc_prefix_detects_mc_prefixed_versions() {
+        assert_eq!(
+            prefix_parts("1.19.2-5.1.3.0"),
+            Some(("1.19", false, "5.1.3.0"))
+        );
+        assert_eq!(prefix_parts("1.21-2.29.0"), Some(("1.21", true, "2.29.0")));
+        assert_eq!(prefix_parts("1.19-77"), Some(("1.19", true, "77")));
+        assert_eq!(prefix_parts("1.5.2-pre"), None); // rest non-numeric (qualifier)
+        assert_eq!(prefix_parts("1.3.50.2005"), None); // no dash
+        assert_eq!(prefix_parts("5.0.7.1"), None); // no dash
+        assert_eq!(prefix_parts("1.19.2"), None); // no dash
+        assert_eq!(prefix_parts("2.0.0-1.0.0"), None); // major is neither 1 nor a year
+        assert_eq!(prefix_parts("1.19.2.3-5.0"), None); // >3 mc components
+
+        // Year-based ids.
+        assert_eq!(prefix_parts("26.1.2-5.1.3"), Some(("26.1", false, "5.1.3")));
+        assert_eq!(prefix_parts("26.1-94"), Some(("26.1", true, "94")));
+        assert_eq!(
+            prefix_parts("26.3-3.3.0-neoforge"),
+            Some(("26.3", true, "3.3.0-neoforge"))
+        );
+        assert_eq!(prefix_parts("25.2.10-1"), None); // below the first year-based major
+        assert_eq!(prefix_parts("100.0-1"), None); // not a two-digit year
+        assert_eq!(prefix_parts("026.1-1"), None); // not a two-digit year
+        assert_eq!(prefix_parts("26.1.2.22-beta"), None); // a NeoForge build
+        assert_eq!(prefix_parts("26.4-snapshot-2"), None); // a snapshot id
+        assert_eq!(prefix_parts("1.+5-3"), None); // `parse::<u32>` accepts `+5`
+        assert_eq!(prefix_parts("26.3.0-0"), None); // Maven's lowest pre-release
+        assert_eq!(prefix_parts("1.21-0"), None);
     }
 
     #[test]
@@ -768,6 +827,90 @@ mod tests {
             satisfies("1.19.2-5.0.0", "(1.19-5.0.0,]", Maven),
             Satisfaction::Violated
         ); // equal, exclusive lower
+    }
+
+    #[test]
+    fn year_based_mc_prefix_on_the_same_line_compares_the_mod_version() {
+        // The misaligned-token bug: `26.1.2-5.1.3` against `26.1-5.0` was read
+        // token by token as 26,1,2,… vs 26,1,5,… and gave a confident Less.
+        assert_eq!(
+            satisfies("26.1.2-5.1.3", "[26.1-5.0,]", Maven),
+            Satisfaction::Satisfied
+        );
+        // Author intent (D1): the range names the 26.1 line, so the mod part
+        // decides. FML itself would load this build (it orders 26.1.2 above 26.1).
+        assert_eq!(
+            satisfies("26.1.2-4.0", "[26.1-5.0,]", Maven),
+            Satisfaction::Violated
+        );
+        // The same misalignment used to wave a too-new build through; FML agrees
+        // it is out of range.
+        assert_eq!(
+            satisfies("26.1.2-5.1.3", "(,26.1-5.0]", Maven),
+            Satisfaction::Violated
+        );
+    }
+
+    #[test]
+    fn mc_prefixes_are_compared_whole_unless_a_range_names_the_line() {
+        // Different lines: the Minecraft part decides, as in the loader.
+        // journeymap 26.3 (Fabric) depends on commonnetworking `>=1.0.17-1.21.4`
+        // and common-network 26.3 ships `26.3-1.1.1`; comparing the tails would
+        // read `1.1.1 < 1.21.4` and invent a "too old" row.
+        assert_eq!(
+            satisfies("26.3-1.1.1", ">=1.0.17-1.21.4", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+        // A stale range from another era (advanced-loot-info's 26.x builds still
+        // declare lootjs `[1.21.1-3.4.2,)`) says nothing about 26.x numbering.
+        assert_eq!(
+            satisfies("26.1.2-3.0.0", "[1.21.1-3.4.2,)", Maven),
+            Satisfaction::Satisfied
+        );
+        // Two hotfix-shaped ids cannot be told apart from a mod's own
+        // `26.x.y-build` (AE2 ships `26.1.12-beta`), so they are compared whole.
+        assert_eq!(
+            satisfies("26.1.12-5", "[26.1.13-1,)", Maven),
+            Satisfaction::Violated
+        );
+        // ...and the incompatible mirror stays in range, so it still fires.
+        assert_eq!(
+            satisfies("26.3.159-26.3", "(,26.3.160-26.3)", Maven),
+            Satisfaction::Satisfied
+        );
+        // `-0` is Maven's lowest-pre-release idiom (freecam `[26.3.0-0,)`), not a
+        // mod version: a 26.1.1 build is below a 26.1.2 floor.
+        assert_eq!(
+            satisfies("26.1.1-1.8.4", "[26.1.2-0,)", Maven),
+            Satisfaction::Violated
+        );
+        // `1.x` across lines, both directions, each the loader's answer.
+        assert_eq!(
+            satisfies("1.20.1-1.0", "[1.19-2.0,)", Maven),
+            Satisfaction::Satisfied
+        );
+        assert_eq!(
+            satisfies("1.19.2-9.0", "[1.20-1.0,)", Maven),
+            Satisfaction::Violated
+        );
+        // Two different hotfix ids on one line are ordered by the hotfix.
+        assert_eq!(
+            satisfies("1.20.4-2.3", "[1.20.1-2.5,)", Maven),
+            Satisfaction::Satisfied
+        );
+    }
+
+    #[test]
+    fn accepted_miss_when_the_installed_build_names_an_older_id_on_the_line() {
+        // Accepted miss (D5): the range names a later hotfix than the installed
+        // build and the mod part decides, so this passes although FML orders 26.1
+        // below 26.1.2 and refuses it — as `1.19-6.0` in `[1.19.2-5.0,]` always
+        // has on 1.x. Closing it needs a check that flags when either the loader
+        // or the author objects (a kind-aware `satisfies`), not a tweak here.
+        assert_eq!(
+            satisfies("26.1-1.9.0", "[26.1.2-1.0,)", Maven),
+            Satisfaction::Satisfied
+        );
     }
 
     #[test]

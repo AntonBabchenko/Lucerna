@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ModBrowserTab from '$lib/mods/AddonsTab.svelte';
+import { resetAddonsViewMemory } from '$lib/mods/addons-view-memory.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // Task 14 wires the real ModBrowseView in (Browse branch makes IPC
@@ -77,6 +78,8 @@ describe('ModBrowserTab', () => {
   afterEach(async () => {
     const { droppedMods } = await import('$lib/settings/state.svelte');
     droppedMods.value = null;
+    // The sub-view is remembered per kind for the session: each case starts fresh.
+    resetAddonsViewMemory();
   });
 
   it('defaults to the Browse view', () => {

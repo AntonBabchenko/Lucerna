@@ -29,7 +29,9 @@ export function revealTooltip(node: Element): void {
   node.dispatchEvent(new FocusEvent('focusin'));
 }
 
-/** Blur counterpart — the action's focusout path hides without delay. */
-export function dismissTooltip(node: Element): void {
+/** Blur counterpart. The action's focusout path hides one microtask later — past the Svelte batch
+ *  a removed trigger's blur fires in — so this waits for it. */
+export async function dismissTooltip(node: Element): Promise<void> {
   node.dispatchEvent(new FocusEvent('focusout'));
+  await Promise.resolve();
 }
