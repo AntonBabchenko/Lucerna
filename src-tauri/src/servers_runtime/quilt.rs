@@ -22,6 +22,7 @@
 //! Quilt path already uses).
 
 use crate::error::{Error, Result};
+use crate::servers_runtime::installed_loader;
 use crate::versions::version_json::Library;
 use futures_util::stream::{self, StreamExt};
 use std::path::Path;
@@ -307,12 +308,7 @@ pub fn launch_jar(runtime: &Path) -> Result<&'static str> {
         return Ok(LAUNCH_JAR);
     }
     let server_jar = runtime.join(SERVER_JAR);
-    if is_file(&server_jar)?
-        && jar_manifest(&server_jar)?
-            .and_then(|m| manifest_header(&m, "Main-Class"))
-            .as_deref()
-            == Some(SERVER_LAUNCHER_MAIN)
-    {
+    if is_file(&server_jar)? && main_class(&server_jar)?.as_deref() == Some(SERVER_LAUNCHER_MAIN) {
         return Ok(SERVER_JAR);
     }
     Err(Error::ServerSpawnFailed {
@@ -337,39 +333,30 @@ pub fn launchable_as_is(root: &Path) -> bool {
 
 fn launch_needs_met(root: &Path) -> Result<bool> {
     let jar = launch_jar(root)?;
-    let game = game_jar(root)?;
+    let Some(game) = game_jar(root) else {
+        return Ok(false);
+    };
     if game == jar || !is_file(&root.join(&game))? {
         return Ok(false);
     }
-    let manifest = jar_manifest(&root.join(jar))?.unwrap_or_default();
-    let class_path = manifest_header(&manifest, "Class-Path").unwrap_or_default();
-    for entry in class_path.split_whitespace() {
-        if !is_file(&root.join(entry))? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    // An unreadable launch jar is reported missing too.
+    Ok(installed_loader::root_jar_missing(root, jar).is_empty())
 }
 
 /// The jar Quilt's launcher loads as the game: `serverJar=` from
 /// `quilt-server-launcher.properties`, else `server.jar` (the launcher's own
-/// default).
-fn game_jar(root: &Path) -> Result<String> {
-    let path = root.join(LAUNCHER_PROPERTIES);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(SERVER_JAR.into()),
-        Err(e) => return Err(Error::io(path.display().to_string(), e)),
+/// default, with or without the file). `None` when the file cannot be read or
+/// names something other than a plain relative path — which jar it means
+/// cannot be told.
+fn game_jar(root: &Path) -> Option<String> {
+    let jar = match installed_loader::read_text(&root.join(LAUNCHER_PROPERTIES)) {
+        Ok(Some(text)) => {
+            installed_loader::property(&text, "serverJar").unwrap_or_else(|| SERVER_JAR.into())
+        }
+        Ok(None) => SERVER_JAR.into(),
+        Err(installed_loader::Unreadable) => return None,
     };
-    Ok(text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with('#') && !line.starts_with('!'))
-        .find_map(|line| {
-            let (key, value) = line.split_once(['=', ':'])?;
-            (key.trim() == "serverJar").then(|| value.trim().to_string())
-        })
-        .unwrap_or_else(|| SERVER_JAR.into()))
+    installed_loader::is_plain_relative(&jar).then_some(jar)
 }
 
 fn is_file(path: &Path) -> Result<bool> {
@@ -380,39 +367,19 @@ fn is_file(path: &Path) -> Result<bool> {
     }
 }
 
-/// A jar's `META-INF/MANIFEST.MF` text; `None` when it has none. A jar that
-/// cannot be opened or read is an error: "could not tell" is not "no".
-fn jar_manifest(jar: &Path) -> Result<Option<String>> {
-    let zip_err =
-        |e: zip::result::ZipError| Error::io(jar.display().to_string(), format!("zip: {e}"));
-    let file = std::fs::File::open(jar).map_err(|e| Error::io(jar.display().to_string(), e))?;
-    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(zip_err)?;
-    let mut text = String::new();
-    match archive.by_name(MANIFEST_ENTRY) {
-        Ok(mut entry) => {
-            std::io::Read::read_to_string(&mut entry, &mut text)
-                .map_err(|e| Error::io(jar.display().to_string(), e))?;
+/// A jar's manifest `Main-Class`; `None` when it has no manifest or names no
+/// main class. A jar that cannot be opened or read is an error: "could not
+/// tell" is not "not a Quilt launcher".
+fn main_class(jar: &Path) -> Result<Option<String>> {
+    match installed_loader::read_jar_text(jar, MANIFEST_ENTRY) {
+        Ok(manifest) => {
+            Ok(manifest.and_then(|m| installed_loader::manifest_attr(&m, "Main-Class")))
         }
-        Err(zip::result::ZipError::FileNotFound) => return Ok(None),
-        Err(e) => return Err(zip_err(e)),
+        Err(installed_loader::Unreadable) => Err(Error::io(
+            jar.display().to_string(),
+            "the jar could not be read",
+        )),
     }
-    Ok(Some(text))
-}
-
-/// A header of the manifest's main section, after joining continuation lines
-/// (a line led by one space continues the one before). Header names are
-/// case-insensitive.
-fn manifest_header(text: &str, name: &str) -> Option<String> {
-    let unwrapped = text.replace("\r\n", "\n").replace("\n ", "");
-    unwrapped
-        .lines()
-        .take_while(|line| !line.is_empty())
-        .find_map(|line| {
-            let (key, value) = line.split_once(':')?;
-            key.trim()
-                .eq_ignore_ascii_case(name)
-                .then(|| value.trim().to_string())
-        })
 }
 
 #[cfg(test)]
@@ -562,7 +529,7 @@ mod tests {
         );
 
         assert_eq!(
-            manifest_header(&text, "Main-Class").as_deref(),
+            installed_loader::manifest_attr(&text, "Main-Class").as_deref(),
             Some(SERVER_LAUNCHER_MAIN)
         );
         let unwrapped = text.replace("\r\n ", "");

@@ -595,7 +595,7 @@ fn vanilla_id(root: &Path, props_file: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn is_plain_relative(path: &str) -> bool {
+pub(crate) fn is_plain_relative(path: &str) -> bool {
     !path.is_empty()
         && Path::new(path)
             .components()
@@ -623,7 +623,7 @@ fn loader_dirs(root: &Path, kind: FabricKind) -> Answer {
 // ---- readers -----------------------------------------------------------
 
 /// A small text file: `Ok(None)` when absent, `Err` when it cannot be read.
-fn read_text(path: &Path) -> Result<Option<String>, Unreadable> {
+pub(crate) fn read_text(path: &Path) -> Result<Option<String>, Unreadable> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
@@ -638,7 +638,7 @@ fn read_text(path: &Path) -> Result<Option<String>, Unreadable> {
 
 /// Text of `entry` inside `jar`: `Ok(None)` when the jar has no such entry,
 /// `Err` when the jar cannot be opened or read.
-fn read_jar_text(jar: &Path, entry: &str) -> Result<Option<String>, Unreadable> {
+pub(crate) fn read_jar_text(jar: &Path, entry: &str) -> Result<Option<String>, Unreadable> {
     let file = std::fs::File::open(jar).map_err(|_| Unreadable)?;
     let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|_| Unreadable)?;
     let found = match zip.by_name(entry) {
@@ -702,7 +702,7 @@ fn subdir_names(dir: &Path) -> Result<Vec<String>, Unreadable> {
 /// A main-section attribute of a jar manifest. `java.util.jar.Manifest`
 /// wraps lines at 72 bytes, continuing on a line that starts with one space;
 /// those are unwrapped first.
-fn manifest_attr(manifest: &str, key: &str) -> Option<String> {
+pub(crate) fn manifest_attr(manifest: &str, key: &str) -> Option<String> {
     let mut lines: Vec<String> = Vec::new();
     for raw in manifest.split('\n') {
         let line = raw.strip_suffix('\r').unwrap_or(raw);
@@ -723,7 +723,7 @@ fn manifest_attr(manifest: &str, key: &str) -> Option<String> {
 }
 
 /// A `key=value` (or `key: value`) entry of a Java properties text.
-fn property(text: &str, key: &str) -> Option<String> {
+pub(crate) fn property(text: &str, key: &str) -> Option<String> {
     text.lines()
         .map(str::trim)
         .filter(|line| !line.starts_with('#') && !line.starts_with('!'))
