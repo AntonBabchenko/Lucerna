@@ -279,7 +279,9 @@ pub(crate) fn java_component_or_legacy(component: Option<&str>) -> String {
 /// relative to `runtime/` (the spawn cwd). Forge/NeoForge start the install
 /// `installed_loader` resolves — the rule import detection uses too: 1.17+
 /// through the installer-generated `@argfile` under libraries/, pre-1.17
-/// Forge through `-jar <its server jar>`.
+/// Forge through `-jar <its server jar>`. Quilt starts from its launch jar
+/// (`quilt::launch_jar`), never from a vanilla `server.jar`, which would run
+/// Minecraft without Quilt.
 ///
 /// The user's `extra_jvm_args` blob is tokenized with the SAME sanitizer the
 /// client launch uses (`crate::launch::args::sanitize_jvm_args`: drops
@@ -296,14 +298,17 @@ pub(crate) fn build_launch_argv(
     let xmx = format!("-Xmx{heap_mb}m");
     let extra = crate::launch::args::sanitize_jvm_args(extra_jvm_args);
     match loader {
-        ServerCore::Vanilla
-        | ServerCore::Fabric
-        | ServerCore::Quilt
-        | ServerCore::Paper
-        | ServerCore::Purpur => {
+        ServerCore::Vanilla | ServerCore::Fabric | ServerCore::Paper | ServerCore::Purpur => {
             let mut argv = vec![xmx];
             argv.extend(extra);
             argv.extend(["-jar".into(), "server.jar".into(), "nogui".into()]);
+            Ok(argv)
+        }
+        ServerCore::Quilt => {
+            let jar = crate::servers_runtime::quilt::launch_jar(runtime)?;
+            let mut argv = vec![xmx];
+            argv.extend(extra);
+            argv.extend(["-jar".into(), jar.into(), "nogui".into()]);
             Ok(argv)
         }
         ServerCore::Forge | ServerCore::NeoForge => {
@@ -898,6 +903,29 @@ mod tests {
             }
             other => panic!("expected ServerLoaderAmbiguous, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn quilt_launches_its_launch_jar() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("quilt-server-launch.jar"), b"x").unwrap();
+        // In Quilt's layout server.jar is the vanilla game jar, never the entry point.
+        std::fs::write(dir.path().join("server.jar"), b"x").unwrap();
+        let argv = build_launch_argv(ServerCore::Quilt, dir.path(), 2048, "").unwrap();
+        assert_eq!(
+            argv,
+            vec!["-Xmx2048m", "-jar", "quilt-server-launch.jar", "nogui"]
+        );
+    }
+
+    #[test]
+    fn quilt_without_a_launcher_refuses_to_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = build_launch_argv(ServerCore::Quilt, dir.path(), 2048, "");
+        assert!(matches!(
+            r,
+            Err(crate::error::Error::ServerSpawnFailed { .. })
+        ));
     }
 
     #[test]

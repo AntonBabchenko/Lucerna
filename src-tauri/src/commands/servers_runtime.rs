@@ -1964,14 +1964,17 @@ async fn provision_loader(
             create::create_fabric_server(base, file, &url).await?;
         }
         ServerCore::Quilt => {
-            let installer = create::latest_quilt_installer(&file.mc_version).await?;
+            // Quilt publishes no prebuilt server jar (its meta serves
+            // profile/json and server/json only), so the server is assembled
+            // from its server profile plus the vanilla jar. Both are resolved
+            // before anything touches disk.
             let lv = create::require_loader_version(file, "quilt")?;
-            let url = crate::servers_runtime::jar::quilt_server_jar_url(
-                &file.mc_version,
-                &lv,
-                &installer,
-            );
-            create::create_quilt_server(base, file, &url).await?;
+            let json =
+                crate::versions::loaders::quilt::server_profile(&file.mc_version, &lv).await?;
+            let profile =
+                crate::servers_runtime::quilt::parse_server_profile(json, &file.mc_version)?;
+            let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
+            create::create_quilt_server(base, file, &profile, &jar_url, &sha1).await?;
         }
         ServerCore::Forge | ServerCore::NeoForge => {
             let lv = create::require_loader_version(file, "forge/neoforge")?;

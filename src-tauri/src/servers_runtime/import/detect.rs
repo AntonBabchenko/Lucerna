@@ -110,8 +110,10 @@ pub fn detect(root: &Path) -> Detected {
 }
 
 /// `true` если staged-дерево уже запускаемо нашим `build_launch_argv`:
-/// V/Q/F — есть `server.jar` и НЕТ отдельного чужого лаунчер-jar (иначе
+/// V/F — есть `server.jar` и НЕТ отдельного чужого лаунчер-jar (иначе
 /// `server.jar` — ванильный, и `-jar server.jar` запустил бы ваниль);
+/// Quilt — `quilt::launchable_as_is`: the launcher launch would pick, its game
+/// jar and every library its `Class-Path` names are all present;
 /// Forge/NeoForge — `installed_loader` resolves exactly one install (the same
 /// rule the launch uses), and a pre-1.17 Forge jar has every file its
 /// `Class-Path` needs.
@@ -124,12 +126,17 @@ pub fn can_launch_as_is(root: &Path, loader: ServerCore) -> bool {
         ServerCore::Vanilla | ServerCore::Paper | ServerCore::Purpur => {
             root.join("server.jar").exists()
         }
-        ServerCore::Fabric | ServerCore::Quilt => {
+        ServerCore::Fabric => {
             root.join("server.jar").exists()
                 && !root.join("fabric-server-launch.jar").exists()
                 && !root.join("fabric-server-launcher.jar").exists()
                 && !root.join("quilt-server-launch.jar").exists()
         }
+        // Quilt: the launcher launch itself would pick, plus the game jar and
+        // every library it names. A tree whose server.jar is plain vanilla,
+        // or that lacks a piece, is reprovisioned instead — it would start
+        // Minecraft without Quilt, or crash at boot.
+        ServerCore::Quilt => crate::servers_runtime::quilt::launchable_as_is(root),
         ServerCore::Forge | ServerCore::NeoForge => {
             let Some(flavor) = installed_loader::forge_flavor(loader) else {
                 return false;
@@ -616,6 +623,39 @@ mod tests {
         touch(&d.path().join("server.jar"));
         touch(&d.path().join("fabric-server-launch.jar"));
         assert!(!can_launch_as_is(d.path(), ServerCore::Fabric));
+    }
+
+    #[test]
+    fn can_launch_a_standard_quilt_tree() {
+        // quilt-installer's layout: the launch jar next to the vanilla
+        // server.jar. This launch jar names no Class-Path (libraries bundled,
+        // as before 2022); a Class-Path is checked in `quilt`'s own tests.
+        use std::io::Write;
+        let d = tempdir().unwrap();
+        touch(&d.path().join("server.jar"));
+        let jar = fs::File::create(d.path().join("quilt-server-launch.jar")).unwrap();
+        let mut zw = zip::ZipWriter::new(jar);
+        zw.start_file(
+            "META-INF/MANIFEST.MF",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        write!(
+            zw,
+            "Manifest-Version: 1.0\r\nMain-Class: org.quiltmc.loader.impl.launch.server.QuiltServerLauncher\r\n\r\n"
+        )
+        .unwrap();
+        zw.finish().unwrap();
+        assert!(can_launch_as_is(d.path(), ServerCore::Quilt));
+    }
+
+    #[test]
+    fn cannot_launch_a_quilt_tree_whose_server_jar_is_vanilla() {
+        // No launch jar: server.jar would start Minecraft without Quilt.
+        let d = tempdir().unwrap();
+        touch(&d.path().join(".quilt/x"));
+        write_jar_with_version_json(&d.path().join("server.jar"), "1.20.4");
+        assert!(!can_launch_as_is(d.path(), ServerCore::Quilt));
     }
 
     #[test]
