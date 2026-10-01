@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { type Snippet, untrack } from 'svelte';
   import {
     commands,
     type AssetUpdateState,
@@ -45,6 +45,8 @@
     disabled = false,
     reloadToken = 0,
     levelDat = $bindable(null),
+    emptyDropzone,
+    onEmptyChange = () => {},
   }: {
     serverId: string;
     /** Needed by the Vanilla Tweaks builder, which publishes per MC family. */
@@ -58,6 +60,10 @@
      * drop zone, the catalog) on the one read this pane makes.
      */
     levelDat?: LevelDatPresence | null;
+    /** The host's full drop area, rendered in the empty list (passed only while it shows). */
+    emptyDropzone?: Snippet;
+    /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
+    onEmptyChange?: (empty: boolean) => void;
   } = $props();
 
   let rows = $state<ServerDatapackEntry[]>([]);
@@ -151,6 +157,14 @@
     levelDat = null;
     loadError = null;
     void load();
+  });
+
+  // Empty is reported, never assumed: a list still loading or one that could not be read is not
+  // empty — the host keeps its strip until the list says it is empty.
+  const listEmpty = $derived(!loading && rows.length === 0 && !loadError);
+  $effect(() => {
+    onEmptyChange(listEmpty);
+    return () => onEmptyChange(false);
   });
 
   // A server run rewrites the world: a start restores level.dat from
@@ -385,7 +399,11 @@
   {#if loading && rows.length === 0}
     <LoadingPanel label={$t('mods.installed.loading')} />
   {:else if rows.length === 0 && !loadError}
-    <p class="text-sm text-muted">{$t('servers.datapacks.empty')}</p>
+    <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
+    <div class="flex flex-col gap-3" data-testid="list-empty">
+      <p class="text-sm text-muted">{$t('servers.datapacks.empty')}</p>
+      {@render emptyDropzone?.()}
+    </div>
   {:else if rows.length > 0}
     <div class="border border-border-subtle rounded-lg overflow-hidden">
       {#each rows as row (rowKey(row))}

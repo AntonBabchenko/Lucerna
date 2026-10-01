@@ -57,7 +57,9 @@ pub async fn list_forge_loaders(
 }
 
 /// List NeoForge loader versions compatible with `mc_id`. Cached
-/// 5 minutes per MC version. Empty list → `LoaderUnavailable`.
+/// 5 minutes per MC version. Empty list → `LoaderUnavailable`, or
+/// `LoaderBuildsNotOffered` (only snapshot builds exist) /
+/// `LoaderVersionsUnreadable` (the list has versions Lucerna cannot read).
 #[tauri::command]
 #[specta::specta]
 pub async fn list_neoforge_loaders(

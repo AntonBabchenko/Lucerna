@@ -24,6 +24,11 @@
   /* Borders */
   --border-subtle: 229 229 229; /* neutral-200 */
   --border-emphasis: 212 212 212; /* neutral-300 */
+  /* An edge a control stands on alone — the drop box's dashed outline has no fill at rest — so it
+     must clear the 3:1 non-text minimum (WCAG 1.4.11): --border-emphasis is only 1.42:1 on the
+     light page, and retuning it would repaint every input and secondary button. neutral-500 is
+     the lightest neutral that clears it: 4.54:1 on --bg-base, 4.74:1 on --bg-surface. */
+  --border-strong: 115 115 115; /* neutral-500 */
   /* Accent / state */
   --accent: 37 99 235; /* blue-600 */
   --accent-soft: 239 246 255; /* blue-50 */
@@ -135,6 +140,8 @@
   /* Borders — bumped a tier to stay visible against lighter surfaces */
   --border-subtle: 64 64 64; /* neutral-700 — was 38 38 38 */
   --border-emphasis: 115 115 115; /* neutral-500 — was 64 64 64 */
+  /* The dark --border-emphasis already clears 3:1: 3.78:1 on --bg-base, 3.19:1 on --bg-surface. */
+  --border-strong: 115 115 115; /* neutral-500 */
   /* Accent / state */
   --accent: 59 130 246;
   --accent-soft: 30 58 138; /* blue-900 — was 23 37 84 (blue-950) */
@@ -558,11 +565,87 @@ body[data-tour-active] .tour-overlay {
   @apply w-28;
 }
 
-/* Amber wash used by DepTree hover highlight and Task 11 cross-highlight.
+/* A line that scrolls sideways instead of wrapping (DESIGN.md §6; `use:scrollRow` in
+   src/lib/ui/scroll-row.ts): the Installed toolbar's filter chips. A thin scrollbar where the
+   platform shows one, and a fade on each side that has more (`data-more-start` / `data-more-end`,
+   set by the action) — the affordance where the scrollbar hides at rest (macOS, GTK overlay
+   scrollbars). The fades are sticky overlays inside the line, in the page colour the toolbar sits
+   on, so they never cover the scrollbar; they take no pointer, so a click lands on the chip under
+   them. Opacity only (§12).
+   The line pads itself by a focus ring's 4 px — a scrolling box clips what spills out of it — and
+   gives the room back with negative margins, so it sits where its chips would. A sticky box keeps
+   to its scroll container's padding, so each fade is inset by minus that padding: at 0 it stopped
+   4 px short of the edge, and the chip under those 4 px showed unfaded (plan §5d L1). */
+.scroll-row {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  padding: 0.25rem;
+  margin: -0.25rem;
+}
+.scroll-row::before,
+.scroll-row::after {
+  content: '';
+  position: sticky;
+  z-index: 1;
+  flex: none;
+  width: 2rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.scroll-row::before {
+  left: -0.25rem;
+  margin-right: -2rem;
+  background: linear-gradient(to right, rgb(var(--bg-base)), transparent);
+}
+.scroll-row::after {
+  right: -0.25rem;
+  margin-left: -2rem;
+  background: linear-gradient(to left, rgb(var(--bg-base)), transparent);
+}
+.scroll-row[data-more-start]::before,
+.scroll-row[data-more-end]::after {
+  opacity: 1;
+}
+
+/* Amber wash behind a CardShell passed `highlighted` — today the installed
+   version in a modpack's version list (ModpackVersionList).
    --warning-text is an RGB triple (no rgb() wrapper), so we construct the
    color inline. color-mix blends 18% amber into transparent for a subtle glow. */
 .bg-highlight {
   background-color: color-mix(in oklab, rgb(var(--warning-text)) 18%, transparent);
+}
+
+/* The Installed list's relation column (DESIGN.md §9). The list sets --rel-dep-ch / --rel-by-ch to
+   the longest figure of each slot over the whole profile, in digits; `ch` resolves in the cell's
+   own font (text-xs, tabular figures), so a slot is its 12 px icon, its 2 px gap and that many
+   figures, and the cell is both slots, their 6 px gap and the button's sides (4 px padding and a
+   1 px transparent border, which forced-colors mode paints) — one width on every row, with or
+   without a button in it. Outside the list (a lone row) a slot is one figure. */
+.relation-col {
+  width: calc(
+    2 * (12px + 2px) + 6px + 2 * (4px + 1px) + (var(--rel-dep-ch, 1) + var(--rel-by-ch, 1)) * 1ch
+  );
+}
+.relation-slot-dep {
+  min-width: calc(12px + 2px + var(--rel-dep-ch, 1) * 1ch);
+}
+.relation-slot-by {
+  min-width: calc(12px + 2px + var(--rel-by-ch, 1) * 1ch);
+}
+
+/* DepTree (the app's one WAI-ARIA tree): the treeitem <li> owns focus (roving
+   tabindex) but also wraps its nested group, so a ring on it would circle the
+   whole branch. The ring goes on the item's own row instead, inset like
+   .card-zone's — the rows are packed tight. */
+[role='treeitem']:focus-visible {
+  outline: none;
+}
+[role='treeitem']:focus-visible > .tree-row {
+  outline: 2px solid rgb(var(--focus-ring));
+  outline-offset: -2px;
 }
 
 /* Rotating disclosure caret for native <details>/<summary> sections

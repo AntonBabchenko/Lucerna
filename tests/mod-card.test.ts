@@ -133,7 +133,7 @@ describe('ModCard', () => {
     expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
   });
 
-  it('an incompatible installed mod paints a danger accent strip', () => {
+  it('an incompatible installed mod paints an amber accent strip (warning, not blocking)', () => {
     const { container } = render(ModCard, {
       props: {
         summary,
@@ -143,6 +143,6 @@ describe('ModCard', () => {
         ...noopProps,
       },
     });
-    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
+    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-warning-text');
   });
 });

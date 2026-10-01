@@ -1,5 +1,6 @@
 import { tick } from 'svelte';
 import type { ContentKind, ModSource } from '$lib/ipc/bindings';
+import type { DropTarget } from '$lib/layout/drop-router';
 import type { Granularity, SortDir } from '$lib/screenshots/screenshots-view';
 import { SETTINGS_SEARCH, type SettingsAnchor } from './search-index';
 
@@ -86,11 +87,12 @@ export const cfKeyVersion = $state<{ value: number }>({ value: 0 });
 // ModBrowserTab honours the requested sub-view, then resets the rune
 // to null so subsequent in-tab clicks don't get hijacked.
 // `filter` deep-links a status view of the Installed list. The Overview's
-// "N incompatible mods" indicator sets it: navigating to 140 unfiltered rows
-// left the user with no way to tell WHICH mods the warning meant.
+// attention item sets it to «Проблемы» (`issues`, the one problem view —
+// «Несовместимые» was folded into it): navigating to 140 unfiltered rows left
+// the user with no way to tell WHICH mods the warning meant.
 export type ModBrowserNav = {
   view: 'browse' | 'installed';
-  filter?: 'incompatible';
+  filter?: 'issues';
 };
 export const modBrowserNav = $state<{ value: ModBrowserNav | null }>({ value: null });
 
@@ -113,37 +115,39 @@ export const modBrowseOpenProject = $state<{ value: ModBrowseOpenProject | null 
 export type ModpacksNav = { openDrawerForInstance: string };
 export const modpacksNav = $state<{ value: ModpacksNav | null }>({ value: null });
 
-// Files dropped onto the Mods tab, routed here by MainTabs' single
-// window-level drag-drop listener. Absolute `.jar` paths. ModBrowserTab
-// consumes this and resets it to null. Mirrors `modBrowserNav`.
+// Files dropped onto the Mods tab, routed here by the app's single
+// window-level drag-drop listener (`listenForFileDrops`). Absolute `.jar`
+// paths. AddonsTab consumes this and resets it to null. Mirrors `modBrowserNav`.
 export const droppedMods = $state<{ value: string[] | null }>({ value: null });
-// A modpack file (`.mrpack`/`.zip`) dropped onto the Modpacks tab,
-// routed here by MainTabs. ModpacksTab consumes this and resets it.
+// A modpack file (`.mrpack`/`.zip`) dropped while the Modpacks modal is open,
+// routed here by the window drop router. ModpacksTab consumes this and resets it.
 export const droppedModpack = $state<{ value: string | null }>({ value: null });
 
-// The Add-ons tab's currently active content kind, published so MainTabs'
-// single window-level drag-drop listener can route by kind: a `.jar` drop only
-// makes sense on the Mods segment, a `.zip` drop on the Resource-pack/Shader
-// segments. AddonsTab writes this on mount + kind change and resets it to 'mod'
-// on destroy.
+// The Add-ons tab's currently active content kind, published so the window
+// drop router can route by kind: a `.jar` drop only makes sense on the Mods
+// segment, a `.zip` drop on the Resource-pack/Shader segments. AddonsTab
+// writes this on mount + kind change and resets it to 'mod' on destroy.
 export const addonsKind = $state<{ value: ContentKind }>({ value: 'mod' });
 
 // Local `.zip` files dropped onto the Add-ons tab while a Resource-pack or
-// Shader segment is active, routed here by MainTabs. AddonsTab consumes this
-// (guarding that `kind` still matches its active segment) and resets it to null.
-// Mirrors `droppedMods`.
+// Shader segment is active, routed here by the window drop router. AddonsTab
+// consumes this (guarding that `kind` still matches its active segment) and
+// resets it to null. Mirrors `droppedMods`.
 export const droppedAssets = $state<{ value: { kind: ContentKind; paths: string[] } | null }>({
   value: null,
 });
 
 // Paths (a `.zip` or a world folder) dropped onto the Worlds tab, routed here
-// by MainTabs' single window-level drag-drop listener. WorldsTab consumes this
-// and resets it to null. Mirrors `droppedMods`.
+// by the window drop router. WorldsTab consumes this and resets it to null.
+// Mirrors `droppedMods`.
 export const droppedWorld = $state<{ value: string[] | null }>({ value: null });
 
 // MainTabs' active tab, mirrored for the window drop router in +page.svelte
-// (the router must know whether the client is on Add-ons or Worlds).
-export const clientActiveTab = $state<{ value: string }>({ value: 'overview' });
+// (the router must know whether the client is on Add-ons or Worlds). Null
+// while MainTabs is not mounted — compact mode unmounts the whole content
+// column, and a tab left behind here would route a drop into a list nobody
+// consumes (same lifecycle contract as `addonsKind` below).
+export const clientActiveTab = $state<{ value: string | null }>({ value: null });
 
 // ── Servers-mode add-ons drop routing ────────────────────────────────────────
 // The content kind currently shown by the servers Add-ons tab ('mod' |
@@ -162,19 +166,32 @@ export const droppedServerContent = $state<{
 }>({ value: null });
 
 // A server import source — a `.zip` or a server folder — dropped onto the open
-// Server-import view. Routed by the import view's OWN window-level listener (NOT
-// MainTabs), so this is consumed there. Mirrors `droppedWorld`.
+// Server-import view, routed here by the window drop router; the view consumes
+// it. Mirrors `droppedWorld`.
 export const droppedServer = $state<{ value: string[] | null }>({ value: null });
 
-// True while the Server-import view is mounted and owns drag-drop. MainTabs'
-// window-level listener checks this and early-returns so a drop on the import
-// modal isn't ALSO routed into the Worlds/Mods tabs underneath.
+// Surfaces that own every OS file drop while they are mounted (DESIGN.md §14),
+// read by the window drop router — so a drop is never ALSO routed into the tab
+// underneath, and only the owner's drop box lights up:
+//  - the Server-import view, in servers mode only: the servers panel stays
+//    mounted, hidden, in client mode, and there it owns nothing;
+//  - the Modpacks view (the Modpacks modal's body), which covers everything.
 export const serverImportActive = $state<{ value: boolean }>({ value: false });
+export const modpacksActive = $state<{ value: boolean }>({ value: false });
 
-// True while an OS file-drag is hovering an accepting tab. MainTabs'
-// drag-drop listener sets it; FileDropzone reads it to show its drag
-// highlight.
-export const dragActive = $state<{ value: boolean }>({ value: false });
+// The OS file drag over the window, as the window drop router sees it: set on
+// the drag's `enter`, cleared on `leave` (the drag left the window or was
+// cancelled) and `drop`. FileDropzone lights up only when it is `target`, the
+// box that takes the drop (null: nothing on screen takes files) — with the
+// promise to add when `adds` (some of the files fit), and `notes` saying why
+// the others would stay behind: all of them when nothing fits. Null while
+// nothing is dragged.
+export type DropPreview = {
+  target: DropTarget | null;
+  adds: boolean;
+  notes: string[];
+};
+export const dropPreview = $state<{ value: DropPreview | null }>({ value: null });
 
 // Bumped whenever a resource pack / shader is installed or uninstalled, so the
 // Browse badges and the Installed-assets list stay in sync (assets have no

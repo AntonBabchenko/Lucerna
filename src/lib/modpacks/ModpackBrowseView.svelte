@@ -228,9 +228,10 @@
   });
 </script>
 
+<!-- An open filter list lifts the bar above the sticky page switcher (DESIGN.md §14). -->
 <div
   data-tour-ctx="modpacks-filters"
-  class="pt-2 sticky top-0 z-10 bg-surface border-b border-border-subtle"
+  class="pt-2 sticky top-0 z-10 has-[[aria-expanded=true]]:z-[var(--z-popover)] bg-surface border-b border-border-subtle"
 >
   <BrowseFilterBar
     value={query}

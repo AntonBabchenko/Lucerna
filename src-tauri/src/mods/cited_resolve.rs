@@ -254,6 +254,9 @@ async fn resolve_one(
                             // that gets persisted is marked stale on every graph
                             // resolve, i.e. a permanent refetch.
                             loaders: None,
+                            // The same deliberate exception as `loaders` above:
+                            // synthesized locally, never reaches `summary_cache`.
+                            library: None,
                         };
                         return ResolveTier::Exact {
                             candidate: Box::new(make_candidate(&summary, v)),
@@ -390,6 +393,7 @@ mod tests {
             author: "a".into(),
             updated_at: None,
             loaders: None,
+            library: None,
         }
     }
 

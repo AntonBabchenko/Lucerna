@@ -169,7 +169,7 @@ const VIEW_ORDER: readonly KeyView[] = [
 /** Views that always render: they define the surface, so hiding one at zero
  *  would make the toolbar's shape depend on the data. Everything else appears
  *  only when it has something to show — the same rule InstalledToolbar applies
- *  to Updates / Issues / Incompatible. */
+ *  to Updates / Issues and the dependency-graph views. */
 const ANCHOR_VIEWS: ReadonlySet<KeyView> = new Set(['all', 'translated', 'missing']);
 
 /** The number one chip shows. State counts and origin counts stay in separate

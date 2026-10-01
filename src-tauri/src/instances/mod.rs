@@ -481,6 +481,9 @@ pub(crate) enum LoaderDecision {
 ///   empty → `LoaderUnavailable`).
 /// - `Err(LoaderUnavailable { .. })` → `ResetToVanilla` (loader not supported
 ///   for this MC version).
+/// - `Err(LoaderBuildsNotOffered | LoaderVersionsUnreadable)` fall under the
+///   next rule on purpose: builds exist but are not offered, or the list could
+///   not be read. Neither is "no build", so the change is refused, not reset.
 /// - Any other `Err` → propagate as `Error`.
 ///
 /// `_loader` is unused today (the decision is loader-agnostic) but kept in the
@@ -727,6 +730,26 @@ mod tests {
         };
         let decision = decide_loader(LoaderKind::Fabric, Err(err));
         assert!(matches!(decision, LoaderDecision::Error(_)));
+    }
+
+    #[test]
+    fn refuses_instead_of_resetting_when_the_list_cannot_answer() {
+        // Only a true "no build" may reset a profile to Vanilla. "Builds exist
+        // but are not offered" and "could not read the list" must leave the
+        // profile untouched.
+        for err in [
+            Error::LoaderBuildsNotOffered {
+                loader: "neoforge".to_string(),
+                mc_version: "26.1-snapshot-1".to_string(),
+            },
+            Error::LoaderVersionsUnreadable {
+                loader: "neoforge".to_string(),
+                mc_version: "26.4".to_string(),
+            },
+        ] {
+            let decision = decide_loader(LoaderKind::NeoForge, Err(err));
+            assert!(matches!(decision, LoaderDecision::Error(_)));
+        }
     }
 
     #[test]

@@ -225,8 +225,9 @@ fn list_cache() -> &'static Mutex<std::collections::HashMap<(Loader, String), Ca
 }
 
 /// Return the list of loader versions compatible with `mc_id`. Cached
-/// 5 minutes per `(loader, mc_id)` key. Empty list → propagate as
-/// `Error::LoaderUnavailable`.
+/// 5 minutes per `(loader, mc_id)` key; only a non-empty list is cached.
+/// Empty list → `Error::LoaderUnavailable`; for NeoForge, the flavor layer
+/// may answer `LoaderBuildsNotOffered` or `LoaderVersionsUnreadable`.
 pub async fn list_loaders(loader: Loader, mc_id: &str) -> Result<Vec<LoaderVersion>> {
     {
         let guard = list_cache().lock().expect("loader cache mutex poisoned");

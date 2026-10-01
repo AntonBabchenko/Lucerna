@@ -1,9 +1,10 @@
 /**
- * Two surfaces, one scan — and since spec D4, one COUNT. The offline scan
- * stays the network-free primitive (`offlineMismatchCount` — the Manage
- * summary and the offline fallback read it); the Installed chip and the
- * Overview row both show the union of offline mismatches and the keyed live
- * verdicts, so they can no longer disagree (locked C6).
+ * Two surfaces, one scan — and since spec D4, one set of flags. The offline
+ * scan stays the network-free primitive (`offlineMismatchCount`, on the
+ * predicate the Manage summary shares); the Installed tab (`incompatibleShas` + `hintFor`) and the
+ * Overview (`knownCompatHints`) both read the union of offline mismatches and
+ * the keyed live verdicts, each mod with the same reason, so they can no longer
+ * disagree (locked C6).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +25,7 @@ import {
   __resetLiveVerdictsForTests,
   createCompatCheck,
   ensureLiveCompat,
-  knownIncompatibleCount,
+  knownCompatHints,
 } from '$lib/mods/installed/compat-check.svelte';
 
 const entry = (sha1: string, mismatch: boolean, liveCheckable: boolean): ModLocalCompat => ({
@@ -98,8 +99,8 @@ describe('the Overview and the Installed tab over one shared scan', () => {
 
   it('re-checks loader mismatches on the manual button, not just platform verdicts', async () => {
     // `runLiveCheck` used to write only the live map, so a loader-family
-    // mismatch could never be surfaced by the button labelled
-    // "Check compatibility" — it answered "nothing found".
+    // mismatch could never be surfaced by the manual re-check (then a button
+    // labelled "Check compatibility") — it answered "nothing found".
     mocks.scanInstanceModCompat.mockResolvedValueOnce({
       status: 'ok',
       data: [entry('a', false, false)],
@@ -134,13 +135,37 @@ describe('the Overview and the Installed tab over one shared scan', () => {
     });
 
     await ensureCompatScan('i1', '1.21.1', 'neoforge');
-    // Pure read before the ensure: falls back to the offline count.
-    expect(knownIncompatibleCount('i1', '1.21.1', 'neoforge')).toBe(0);
+    // Pure read before the ensure: only what the offline scan decides.
+    expect(knownCompatHints('i1', '1.21.1', 'neoforge').size).toBe(0);
 
     await ensureLiveCompat('i1', '1.21.1', 'neoforge');
     expect(offlineMismatchCount()).toBe(0); // the primitive stays offline-only
-    expect(knownIncompatibleCount('i1', '1.21.1', 'neoforge')).toBe(1); // the Overview row
+    expect(knownCompatHints('i1', '1.21.1', 'neoforge').size).toBe(1); // the Overview's flags
     const compat = check();
     expect(compat.incompatibleCount).toBe(1); // …and the chip agrees
+  });
+
+  it("the Overview reads each flagged mod's reason — the one its row reads", async () => {
+    // The Overview decides «won't start» / «may not work» per mod with the rows' own statusOf,
+    // which needs the reason, not just a count: a platform flag is the pre-flight's fact.
+    const platform: ModLocalCompat = {
+      ...entry('platform', false, false),
+      platform_mismatch: true,
+      platform_axis: 'minecraft',
+      platform_declared: '1.20.1',
+    };
+    mocks.scanInstanceModCompat.mockResolvedValue({
+      status: 'ok',
+      data: [entry('bad', true, false), entry('fine', false, false), platform],
+    });
+    await ensureCompatScan('i1', '1.21.1', 'neoforge');
+    const hints = knownCompatHints('i1', '1.21.1', 'neoforge');
+    expect([...hints]).toEqual([
+      ['bad', { key: 'loader', detected: 'Fabric' }],
+      ['platform', { key: 'platformMc', declared: '1.20.1' }],
+    ]);
+    // The same set the Installed tab flags.
+    expect(new Set(hints.keys())).toEqual(check().incompatibleShas);
+    expect(check().hintFor('bad')).toEqual(hints.get('bad'));
   });
 });

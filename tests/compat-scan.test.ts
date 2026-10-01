@@ -81,7 +81,7 @@ describe('compat-scan store', () => {
   });
 
   it('still issues a forced scan while one is in flight', async () => {
-    // "Check compatibility" and the mod-change handlers must never be collapsed
+    // The manual re-check (⋯) and the mod-change handlers must never be collapsed
     // into an older run's answer.
     let release: (v: unknown) => void = () => {};
     mocks.scanInstanceModCompat.mockImplementationOnce(

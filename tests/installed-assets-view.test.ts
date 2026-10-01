@@ -2,6 +2,7 @@
 // shader sibling of the mods Installed view. Verifies: row render, Remove
 // wiring, Check-updates → Update wiring, and the pick-instance empty state.
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledAsset, ModVersion } from '$lib/ipc/bindings';
 import { assetsChanged } from '$lib/settings/state.svelte';
@@ -408,5 +409,44 @@ describe('InstalledAssetsView', () => {
 
     expect(await screen.findByText('Complementary Shaders')).toBeTruthy();
     expect(spies.assetsList).toHaveBeenCalledTimes(2);
+  });
+
+  // The dropzone rule (DESIGN.md §14): an empty list holds the host's full drop area and says so
+  // — the host hides its strip meanwhile. A list that could not be read is not empty.
+  const hostDropzone = () =>
+    createRawSnippet(() => ({ render: () => '<div data-testid="host-dropzone"></div>' }));
+
+  it('reports an empty list to its host and renders the host’s drop area in it', async () => {
+    spies.assetsList.mockResolvedValue(ok([] as InstalledAsset[]));
+    const onEmptyChange = vi.fn();
+    render(InstalledAssetsView, {
+      instanceId: 'inst-1',
+      kind: 'shader',
+      emptyDropzone: hostDropzone(),
+      onEmptyChange,
+    });
+    expect(await screen.findByTestId('host-dropzone')).toBeTruthy();
+    expect(screen.getByTestId('list-empty').textContent).toContain(
+      'Nothing installed in this instance yet.',
+    );
+    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('a list that could not be read claims nothing: no «nothing installed», no drop area', async () => {
+    spies.assetsList.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: 'shaderpacks', details: 'denied' },
+    });
+    const onEmptyChange = vi.fn();
+    render(InstalledAssetsView, {
+      instanceId: 'inst-1',
+      kind: 'shader',
+      emptyDropzone: hostDropzone(),
+      onEmptyChange,
+    });
+    expect(await screen.findByText(/denied/)).toBeTruthy();
+    expect(screen.queryByText('Nothing installed in this instance yet.')).toBeNull();
+    expect(screen.queryByTestId('host-dropzone')).toBeNull();
+    expect(onEmptyChange).not.toHaveBeenCalledWith(true);
   });
 });

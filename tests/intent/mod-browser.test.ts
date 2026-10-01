@@ -124,6 +124,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsLastUpdateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsListHolds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
@@ -169,7 +171,7 @@ import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import ModCard from '$lib/mods/ModCard.svelte';
 import ModDetailModal from '$lib/mods/ModDetailModal.svelte';
-import { updateCheckCache } from '$lib/mods/update-check-cache';
+import { __resetUpdateCheckStoreForTests } from '$lib/mods/update-check-store.svelte';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // ── Fixture factories ──────────────────────────────────────────────────────────
@@ -397,6 +399,24 @@ describe('ModBrowseView — filter bar structural elements', () => {
     });
     expect(screen.getByTestId('browse-show-installed')).not.toBeNull();
   });
+
+  // Plan §5d: the sticky bar's z-10 held its open lists at 10 — under the sticky page switcher
+  // after the results, which painted over them. While one is open the bar lifts itself to the
+  // popover tier (DESIGN.md §14); only a browser paints it, so this pins the class and its selector.
+  it('lifts the sticky filter bar above the page switcher while one of its lists is open', async () => {
+    render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    const select = screen.getByTestId('browse-loader-select');
+    const bar = select.closest('.sticky') as HTMLElement;
+    expect(bar.classList).toContain('has-[[aria-expanded=true]]:z-[var(--z-popover)]');
+    // What `:has([aria-expanded=true])` asks (happy-dom caches a `matches(':has(…)')` answer).
+    const lifted = () => bar.querySelector('[aria-expanded="true"]') !== null;
+    expect(lifted()).toBe(false);
+    await fireEvent.click(select);
+    expect(bar.contains(screen.getByRole('listbox'))).toBe(true);
+    expect(lifted()).toBe(true);
+  });
 });
 
 // ── ModBrowseView — pagination ────────────────────────────────────────────────
@@ -617,27 +637,33 @@ describe('InstalledModsView — Update all button is btn-warning btn-xs when upd
       status: 'ok',
       data: makeProject(),
     });
-    // Pre-seed the session cache so the component's $effect reads the
-    // update_available state on mount, without needing a button click.
-    updateCheckCache.set('inst-1', [
-      {
-        sha1: 'sha1mod',
-        name: 'Test Mod',
-        source: 'modrinth',
-        project_id: 'proj-abc',
-        current_version_id: 'v1.0',
-        current_version_number: '1.0',
-        state: { kind: 'update_available', target },
+    // The persisted check the view reads on mount carries the update_available
+    // state, so no button click is needed.
+    vi.mocked(commands.modsLastUpdateCheck).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        checked_at_secs: 1,
+        results: [
+          {
+            sha1: 'sha1mod',
+            name: 'Test Mod',
+            source: 'modrinth',
+            project_id: 'proj-abc',
+            current_version_id: 'v1.0',
+            current_version_number: '1.0',
+            state: { kind: 'update_available', target },
+          },
+        ],
       },
-    ]);
+    } as never);
     render(InstalledModsView, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const updateAllBtn = await screen.findByRole('button', { name: /update all/i });
     expect(updateAllBtn).toHaveBtnVariant('warning');
     expect(updateAllBtn).toHaveBtnSize('xs');
-    // Clean up cache so other tests start fresh.
-    updateCheckCache.delete('inst-1');
+    // The check is held once per profile for the app: later cases start from none.
+    __resetUpdateCheckStoreForTests();
   });
 });
 

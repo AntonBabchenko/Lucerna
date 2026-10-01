@@ -23,6 +23,32 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Removing a mod can be undone.** The notice that confirms a removal keeps an
+  undo button for ten seconds — the countdown pauses while you point at it or
+  it has the keyboard focus — and removing several mods at once is undone in
+  one step; mods the removal switched off come back on once everything is back.
+  A file whose name was taken in the meantime, or a mod installed again since,
+  is skipped and named, never overwritten.
+- **Disabling or removing a mod that others need asks first.** The launcher
+  names the mods that would stop loading and offers to switch them off too, or
+  to go ahead with just the one you picked; switching on a mod whose required
+  mods are off offers to switch them on together. When the check itself fails,
+  it says so and asks.
+- **Updates can be reviewed and held.** Updating all mods first lists every
+  pending update with its old and new version, and what's new where the
+  platform publishes it, all ticked; untick what should stay. A mod can be told
+  not to update from its menu: it shows a pin and every update leaves it out
+  until you allow updates again. After an update, the notice names the
+  dependencies it installed.
+- **The last update check is remembered** for each profile, with the time it
+  ran, so the update badges survive a restart and the Overview counts pending
+  updates right after a check.
+- **Two filters for libraries:** mods that other mods need, and libraries
+  nothing uses any more. The second stays hidden while any mod's dependencies
+  are unknown, so a library is never called unused on a guess.
+- **The mod menu shows the file in its folder and opens the mod's page** on
+  Modrinth or CurseForge, and search finds a mod by its file name or project
+  slug as well as by its name.
 - **The Add-ons tab explains what each kind of add-on is.** An (i) at the end
   of the row that switches between mods, resource packs, shaders and data
   packs explains the kind you are looking at: what it is, what it needs to
@@ -30,9 +56,102 @@ behaviour is worth knowing, it is stated as a property of the feature under
   pack explanation moved up into the same row, so it is there while you
   browse too, and it now says when a data pack is the better choice over a
   mod.
+- **Forge servers for Minecraft before 1.17 can be started.** Creating one
+  used to install it and then fail at the first start, because Lucerna only
+  knew how newer Forge versions are started. An older Forge server now starts
+  from the Forge server file in its folder, and if a file it needs is
+  missing, the message names it.
+
+### Changed
+
+- **One list of problems.** The Installed tab has one problems filter with two
+  levels — the game won't start, and the mod may not work — and a panel above
+  the list that names what stops the game, each with its fix and a way to fix
+  them all. A row with a problem gives its reason and one fix under its name.
+  Red means the game won't start, everywhere.
+- **Fixing before launch checks its own work.** The pre-launch dialog's main
+  action fixes what it can — switches disabled dependencies on, installs
+  missing ones with their own dependencies, applies a version fix that breaks
+  nothing else — then checks again and starts the game only if nothing that
+  stops it is left (if that check cannot run, the game starts as a plain
+  launch would). Otherwise the dialog stays open and says how many it fixed
+  and why the rest failed.
+- **A version conflict can be fixed from either side.** The fix looks for a
+  newer build of the mod that accepts the installed dependency and for a
+  version of the dependency the mod accepts, says whether each is an update or
+  a rollback when the version numbers tell, and names any other mod it would
+  break — such a change is never the default. The launcher asks the platforms only when you ask for a fix,
+  from the problems panel, the mod's row or the dependency tree.
+- **Installing a missing dependency brings its own dependencies**, like any
+  other install, and is remembered on the mod that needed it, so removing that
+  mod later offers to remove the dependency too when nothing else needs it.
+- **The dependency tree tells what the game needs.** Each missing dependency is
+  marked as one the game won't start without, one the platform lists but the
+  mod starts without, or one only the platform lists; a disabled one can be
+  switched on from the tree, and a version conflict offers the same fix as the
+  problems panel. Branches fold, the count is per project rather than per file,
+  the tree follows every switch on and off, and it works from the keyboard and
+  with a screen reader. The author-claim badge and its hide button are gone.
+- **Pointing at a mod no longer highlights it everywhere it appears.** Its row
+  and its mentions in other mods' dependency lists used to light up together;
+  the arrow beside a dependency or a dependent still takes you to its row.
+- **The Overview shows the active profile's problems and pending updates**:
+  mods that stop the game, or may not work, lead to the Installed tab's
+  problem list, and the Mods card counts problems and updates.
+- **The Installed tab is denser.** The toolbar and filters stay on screen while
+  you scroll; the compatibility and dependency re-checks moved into a menu
+  beside them, next to opening the mods folder; the counts line, the source
+  picker and a pager with a single page are gone; a row counts its
+  dependencies and dependents in a narrow column before its icon, lined up
+  from row to row, shows the file name when you point at the version, and its
+  update badge opens what's new.
+- **Add-ons remembers Browse or Installed for each content type** until the
+  launcher closes, and the first visit to mods opens the installed list when
+  the profile has any.
+- **One drop area rule everywhere.** A thin strip sits above every list and
+  catalog and grows into a large target while a file is dragged over the
+  window, saying where the file will go — or, when it doesn't fit, what the
+  area takes instead; the full-size box appears only in an empty list and in
+  server import.
+- **The Russian interface uses one word for each thing** — profile, loader and
+  modpack no longer alternate with slang — and the sidebar's folder buttons
+  now say that they open a folder.
 
 ### Fixed
 
+- **NeoForge is offered for Minecraft 1.21 and every 26.x release.** Lucerna
+  read NeoForge's version numbers the wrong way: `21.0.167` as a build for
+  Minecraft 1.21.0 instead of 1.21, and the year-based numbers such as
+  `26.2.0.59` as builds for 1.26.2 instead of 26.2. So the mod loader picker
+  said NeoForge did not support these versions, switching a NeoForge profile to
+  one of them reset it to Vanilla, and importing a NeoForge server for 26.x
+  filled in the wrong Minecraft version. If NeoForge changes its numbering
+  again, Lucerna says it could not read the version list and refuses the
+  Minecraft change instead of resetting the profile to Vanilla.
+- **Quilt servers can be created.** Creating a server on Quilt always failed
+  with a download error: Lucerna asked Quilt for a ready-made server file that
+  Quilt has never published. Lucerna now puts the Quilt server together itself,
+  the way Quilt's own installer does. The same fix covers re-downloading a
+  Quilt server's files and importing a Quilt server whose loader has to be
+  reinstalled. An imported Quilt server that would have started as plain
+  Minecraft, without Quilt and its mods, now says so instead of starting.
+- **Importing an older Forge server no longer turns it into a Vanilla
+  server.** A Forge server for Minecraft 1.7.10, for example, came in as
+  Vanilla, so it would have run without its mods. It is now recognised as
+  Forge, with its Minecraft version and Forge build.
+- **Server import fills in the version a server actually runs.** Updating a
+  server in place leaves the older version's files behind, and the import
+  could pick the older Minecraft or loader version: 1.21.9 for a server on
+  1.21.10, for example. It now reads what the server starts: its start
+  script, or the Fabric launcher's own record. Fabric servers for Minecraft
+  26.1 and later, which the import could only date from a log, now come in
+  with their version too. When the version cannot be told, the field stays
+  empty.
+- **A server with several Forge or NeoForge versions installed no longer
+  starts the oldest one.** Lucerna started whichever version folder came
+  first, usually the oldest. It now starts the one the server's start script
+  names; when nothing names one, it stops and lists the folders so you can
+  remove the ones you don't need.
 - **Updating a mod no longer installs a second copy of a library you already
   have.** An update used to install every library the new version needs, even
   one already there: a different version landed next to yours and the game
@@ -40,6 +159,63 @@ behaviour is worth knowing, it is stated as a property of the feature under
   same file name made the update fail halfway, and a library you had switched
   off came back on. A library you already have is now left as it is, the same
   way installing a mod treats it, so a switched-off one stays off.
+- **A disabled dependency is no longer reported as missing**, and fixing it
+  switches it on instead of installing a second copy. Installing a dependency
+  the profile already has, from a list that is out of date, is refused instead
+  of adding a duplicate that stops the game.
+- **The dependency tree no longer claims the loader doesn't need a
+  dependency** that the mod's own file requires.
+- **A mod's dependencies read as unknown when the platform can't tell, not as
+  none**, with the reason — offline, or when the platform doesn't know the
+  installed version — and the next visit asks again instead of keeping the
+  offline answer for the rest of the session.
+- **A modpack dropped on the Modpacks window is imported once**, instead of
+  also being installed into the Add-ons tab underneath. A server import left
+  open in the hidden servers panel no longer takes files dropped in client
+  mode, and a file dropped while another dialog is open goes nowhere and says
+  so, instead of landing in the tab behind it.
+- **A dropped file the launcher can't take is named, with the reason**, instead
+  of vanishing without a word: a file of the wrong type, a profile without a
+  mod loader, a running server, a world or modpack while the data folder is
+  unavailable, or a second modpack or server dropped at once. A file dropped on
+  the compact window is refused the same way instead of installing later,
+  unannounced.
+- **A mod change refused because a modpack update, a migration or a clone is
+  using the profile says so**, instead of suggesting that the game is running.
+- **A version conflict shows only under the mod that has it.** The dependency
+  tree marked a dependency as the wrong version under every mod that uses it,
+  including mods that are fine with the installed one.
+- **The launch check names the mods involved**, not their internal ids — on
+  the first launch after starting the launcher too. A missing dependency's
+  name fills in as soon as it is found, without holding up the dialog.
+- **The Overview no longer calls a profile ready to play while its mods stop
+  the game**, and claims nothing either way until the check has run.
+- **Problems read more clearly.** A version range reads as one range instead of
+  two phrases strung together, an optional dependency at the wrong version is
+  reported as a problem instead of as something the mod supports, a version
+  that starts with a letter no longer gets a stray "v", and in Russian no line
+  of a problem or of the reason a fix failed starts with a dash.
+- **Keyboard focus stays in sight in the mod lists.** Moving through Browse
+  results with the keyboard could land on one hidden under the filters or the
+  page switcher that stay on screen; the list now scrolls it clear of them.
+  After a mod is removed, focus moves to the next mod in the list instead of
+  being lost.
+- **Menus fit their longest item.** A long entry, such as creating a desktop
+  shortcut in Russian, wrapped over two lines and squeezed its icon; a menu now
+  grows to fit it and stays on screen.
+- **A modpack version that already starts with a "v" is no longer shown with a
+  second one** on the Overview, among the imported modpacks and in the import
+  window, and neither is a data pack's version in the library.
+- **The drop area's dashed outline is easier to see in the light theme.**
+- **In Russian, a profile that won't launch is no longer called a modpack**,
+  and neither is a profile's folder in the messages about it.
+- **A problem stays readable in a narrow window.** In the list of what stops
+  the game, a problem's fixes move under its text when they do not fit beside
+  it, instead of squeezing the text to a word per line.
+- **A mod's version no longer runs under its update badge in a narrow
+  window.** It ends in "…" while a few characters of it fit and steps aside
+  when they don't; only then is a long name shortened. Pointing at the version,
+  or at the name while the version is out of sight, shows it in full.
 - **Anything you open while a tour is running is shown clearly.** An
   explanation, a menu or a dialog opened during one of the short tours used
   to sit under the tour's dimming. The tour now steps aside while it is open
@@ -49,6 +225,21 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Escape closes only the topmost thing.** Closing an explanation with
   Escape no longer ends the tour behind it, and no longer closes the dialog it
   was opened from.
+- **A filter's list opens over the page switcher.** In a short window, a list
+  opened from the filters of the mod or modpack browser, such as the Minecraft
+  versions, went under the page switcher at the bottom, and its last entries
+  were hidden there.
+- **Tooltips keep their own width.** A tooltip shown right after one near the
+  right edge of the window took the width left there and wrapped its text into
+  a narrow column.
+- **A list opened by the window's right edge stays inside the window.** In a
+  narrow window, the list of sort orders for installed mods and the list of
+  Minecraft versions in the mod browser opened partly past the edge.
+- **The page switcher fits the launcher's default window.** Under a long list
+  of mods or modpacks, the choice of how many to show on a page sat past the
+  window's right edge. In a narrow window the buttons for the first, previous,
+  next and last page now show only their arrows, with their names in a
+  tooltip.
 - **Importing from another launcher no longer fills in a wrong Minecraft
   version or Forge build.** The import took a version from any text that
   looked like one: a `.minecraft` whose last played profile was Forge offered
@@ -58,6 +249,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   in as Minecraft `9999.0`, the version of an unrelated library. The version
   now comes only from where a profile actually records it; when it cannot be
   told, the field stays empty for you to fill in.
+- **Mod version requirements are read correctly for Minecraft 26.** Many mods put
+  the Minecraft version in front of their own, like `26.1.2-5.1.3`. When another
+  mod's requirement named a shorter Minecraft version, like `26.1`, the dependency
+  check and the version list compared the wrong parts and could call a new enough
+  mod too old, or a too new one fine. They now compare the mod's own version when
+  the requirement names that Minecraft version. A requirement written for a
+  different Minecraft version is judged by the Minecraft version, the way the game
+  does, instead of by the mod's own number.
 - **Importing a server no longer goes through without its Minecraft version.**
   When Lucerna could not read the version from the server's files, the import
   went ahead with the field left empty, and the server then refused to start

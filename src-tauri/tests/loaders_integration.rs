@@ -152,3 +152,54 @@ fn synth_id_parse_smoke_through_lib_surface() {
     let _ = list_manifest; // function pointer reference
     clear_manifest_cache_for_test();
 }
+
+#[tokio::test]
+async fn quilt_server_profile_is_fetched_from_server_json() {
+    let _g = test_lock();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v3/versions/loader/1.20.4/0.23.1/server/json"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{"launcherMainClass":"org.quiltmc.loader.impl.launch.server.QuiltServerLauncher","libraries":[]}"#,
+        ))
+        .mount(&server)
+        .await;
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+    ]);
+
+    let json = lucerna_lib::versions::loaders::quilt::server_profile("1.20.4", "0.23.1")
+        .await
+        .unwrap();
+    assert_eq!(
+        json["launcherMainClass"],
+        "org.quiltmc.loader.impl.launch.server.QuiltServerLauncher"
+    );
+}
+
+#[tokio::test]
+async fn quilt_server_profile_404_is_server_jar_unavailable() {
+    // Quilt meta is a static file store: no server build for a Minecraft /
+    // loader pair is a 404. It must read as "no server download", not as a
+    // raw network error — and not as "Quilt does not support Minecraft X",
+    // since an unknown loader version on a supported Minecraft 404s too.
+    let _g = test_lock();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v3/versions/loader/26.1/0.30.1/server/json"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+    ]);
+
+    let r = lucerna_lib::versions::loaders::quilt::server_profile("26.1", "0.30.1").await;
+    assert!(
+        matches!(&r, Err(Error::ServerJarUnavailable { loader, mc_version, .. })
+            if loader == "quilt" && mc_version == "26.1"),
+        "got {r:?}"
+    );
+}

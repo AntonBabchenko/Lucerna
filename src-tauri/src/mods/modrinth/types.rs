@@ -21,6 +21,10 @@ pub struct SearchHit {
     pub downloads: u64,
     pub author: String,
     pub date_modified: Option<String>,
+    /// Category AND loader tags, mixed (`["fabric", "library"]`). Read only for
+    /// `library`. `#[serde(default)]`: fixtures and drifted responses omit it.
+    #[serde(default)]
+    pub categories: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +51,13 @@ pub struct Project {
     /// error that would blank the whole batch.
     #[serde(default)]
     pub loaders: Vec<String>,
+    /// Primary and secondary category tags; `library` in either marks a library
+    /// project. Present on `/project/{id}` and the batched `/projects`.
+    /// `#[serde(default)]` for the reason `loaders` gives.
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub additional_categories: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

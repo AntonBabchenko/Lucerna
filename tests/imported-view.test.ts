@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { tick } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Bundle 2: ImportedView calls modpack_status per pack-instance on
@@ -118,6 +118,23 @@ describe('ImportedView', () => {
       props: { instances: [], onPick: () => {} },
     });
     expect(getByText(/No packs imported yet/)).toBeTruthy();
+  });
+
+  // The dropzone rule (DESIGN.md §14): the empty list holds the host's full drop area and says so
+  // — the host hides its strip meanwhile.
+  it('reports no pack to its host and renders the host’s drop area in the empty list', async () => {
+    const onEmptyChange = vi.fn();
+    const emptyDropzone = createRawSnippet(() => ({
+      render: () => '<div data-testid="host-dropzone"></div>',
+    }));
+    render(ImportedView, {
+      props: { instances: [], onPick: () => {}, emptyDropzone, onEmptyChange },
+    });
+    expect(await screen.findByTestId('host-dropzone')).toBeTruthy();
+    expect(screen.getByTestId('list-empty').contains(screen.getByTestId('host-dropzone'))).toBe(
+      true,
+    );
+    await waitFor(() => expect(onEmptyChange).toHaveBeenLastCalledWith(true));
   });
 
   it('search query filters by mrpack_name substring (case-insensitive)', async () => {

@@ -1,31 +1,15 @@
-import { commands, type LoaderKind } from '$lib/ipc/bindings';
+import { commands, type LoaderKind, type ModLocalCompat } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import {
-  compatScanEntries,
-  ensureCompatScan,
-  isOfflineMismatch,
-  offlineMismatchCount,
-} from '$lib/mods/compat-scan.svelte';
+import { compatScanEntries, ensureCompatScan } from '$lib/mods/compat-scan.svelte';
 
-// Tooltip hint descriptor. The component maps these to i18n strings (it owns the
-// instance loader/mc for interpolation).
+// Why compat flags a mod. The row's reason line words it (row-problem.ts, which
+// owns what a flag is WORTH: read off the jar vs. only the mod's page); the
+// platform keys are the pre-flight's to report (mod-status.ts).
 export type CompatHint =
   | { key: 'loader'; detected: string }
   | { key: 'noRelease' }
   | { key: 'platformMc'; declared: string }
   | { key: 'platformLoader'; declared: string };
-
-// What a flag is WORTH, for the row's wording. `proven` = read off the jar that
-// will be launched: the loader will reject or skip it. `noRelease` = only the
-// mod's page is the evidence, and only that it lists nothing for this
-// platform; the file itself makes no bounded statement. Probable, not proven —
-// so the row says what is known («No release»), not what is inferred.
-export type CompatKind = 'proven' | 'noRelease';
-
-export function compatKindOf(hint: CompatHint | null): CompatKind | null {
-  if (!hint) return null;
-  return hint.key === 'noRelease' ? 'noRelease' : 'proven';
-}
 
 type LiveVerdict = 'compatible' | 'incompatible' | 'unknown';
 
@@ -123,29 +107,62 @@ export async function ensureLiveCompat(
   }
 }
 
-/**
- * The union count the headline surfaces show: offline-decidable mismatches
- * plus live «no build for this platform» verdicts already in the store. A
- * PURE READ — the Overview renders it instantly and never blocks on the
- * network; pair with a fire-and-forget `ensureLiveCompat` to fill the live
- * half (the count is reactive, so the row updates when verdicts land).
- * Falls back to the plain offline count while the triple is unknown.
- */
-export function knownIncompatibleCount(
+/** The live verdict for `sha1` under this exact platform triple; none while the triple is unknown. */
+function liveOf(
   id: string | null,
   mc: string | null,
   loader: LoaderKind | null,
-): number {
-  if (!id || !loader || mc == null) return offlineMismatchCount();
-  let n = 0;
-  for (const lc of compatScanEntries()) {
-    if (
-      isOfflineMismatch(lc) ||
-      liveVerdicts.get(verdictKey(id, mc, loader, lc.sha1)) === 'incompatible'
-    )
-      n++;
+  sha1: string,
+): LiveVerdict | undefined {
+  return id && loader && mc != null
+    ? liveVerdicts.get(verdictKey(id, mc, loader, sha1))
+    : undefined;
+}
+
+/**
+ * Why compat flags a mod, or null — the ONE reading of a scan entry and its
+ * live verdict, shared by the Installed row (`hintFor`) and the Overview
+ * (`knownCompatHints`), so the two can never word or count one mod twice.
+ */
+function hintOf(lc: ModLocalCompat | undefined, live: LiveVerdict | undefined): CompatHint | null {
+  // Platform-range verdict is read off the jar itself — no live confirmation
+  // needed, and it is the more specific explanation, so it takes priority
+  // over both the loader-family suspect and any live verdict.
+  if (lc?.platform_mismatch) {
+    const declared = lc.platform_declared ?? '?';
+    return lc.platform_axis === 'minecraft'
+      ? { key: 'platformMc', declared }
+      : { key: 'platformLoader', declared };
   }
-  return n;
+  // Family mismatch beats the live hint: «собран под Fabric» names the
+  // actual problem with the FILE, which «нет сборки» would misdescribe.
+  if (lc?.loader_mismatch) return { key: 'loader', detected: lc.detected_loader ?? '?' };
+  if (live === 'incompatible') return { key: 'noRelease' };
+  return null;
+}
+
+/**
+ * Every mod compat flags, with the reason its Installed row reads: offline-
+ * decidable mismatches plus live «no build for this platform» verdicts already
+ * in the store — the same set as the Installed tab's `incompatibleShas`. A PURE
+ * READ: the Overview renders it instantly and never blocks on the network; pair
+ * with a fire-and-forget `ensureLiveCompat` to fill the live half (reactive, so
+ * the Overview updates when verdicts land). The Overview needs the reasons, not
+ * a count: it decides each mod's level with the rows' own `statusOf`, where a
+ * platform flag is the pre-flight's fact. Offline-only while the triple is
+ * unknown.
+ */
+export function knownCompatHints(
+  id: string | null,
+  mc: string | null,
+  loader: LoaderKind | null,
+): Map<string, CompatHint> {
+  const out = new Map<string, CompatHint>();
+  for (const lc of compatScanEntries()) {
+    const hint = hintOf(lc, liveOf(id, mc, loader, lc.sha1));
+    if (hint) out.set(lc.sha1, hint);
+  }
+  return out;
 }
 
 // Owns proactive compatibility state as a two-stage AUTO pipeline:
@@ -214,31 +231,9 @@ export function createCompatCheck(
   });
   const incompatibleCount = $derived(incompatibleShas.size);
 
+  // The same reading the Overview's `knownCompatHints` makes (`hintOf`).
   function hintFor(sha1: string): CompatHint | null {
-    // Platform-range verdict is read off the jar itself — no live confirmation
-    // needed, and it is the more specific explanation, so it takes priority
-    // over both the loader-family suspect and any live verdict.
-    const lc = offline.get(sha1);
-    if (lc?.platform_mismatch) {
-      const declared = lc.platform_declared ?? '?';
-      return lc.platform_axis === 'minecraft'
-        ? { key: 'platformMc', declared }
-        : { key: 'platformLoader', declared };
-    }
-    // Family mismatch beats the live hint: «собран под Fabric» names the
-    // actual problem with the FILE, which «нет сборки» would misdescribe.
-    if (lc?.loader_mismatch) return { key: 'loader', detected: lc.detected_loader ?? '?' };
-    const id = getInstanceId();
-    const mc = getMcVersion();
-    const loader = getLoader();
-    if (
-      id &&
-      loader &&
-      mc != null &&
-      liveVerdicts.get(verdictKey(id, mc, loader, sha1)) === 'incompatible'
-    )
-      return { key: 'noRelease' };
-    return null;
+    return hintOf(offline.get(sha1), liveOf(getInstanceId(), getMcVersion(), getLoader(), sha1));
   }
 
   // Stage 1: offline scan (shared store), then the once-per-triple full
@@ -264,13 +259,14 @@ export function createCompatCheck(
     await ensureLiveCompat(id, mc, loader);
   }
 
-  // Manual "Check compatibility" button — FULL re-check: the offline scan is
-  // re-run first, then every platform mod is queried.
+  // The manual re-check (the toolbar's ⋯ «Re-check compatibility and
+  // dependencies») — FULL re-check: the offline scan is re-run first, then every
+  // platform mod is queried. A failure lands in `error`, which the view says.
   //
   // It used to write only `live`. Both halves of `incompatibleShas` read the
   // offline scan, so a loader-family mismatch could never be surfaced by this
-  // button — pressing it on an affected instance answered "nothing found",
-  // which is worse than not offering the button at all.
+  // check — running it on an affected instance answered "nothing found",
+  // which is worse than not offering it at all.
   async function runLiveCheck() {
     const id = getInstanceId();
     const loader = getLoader();

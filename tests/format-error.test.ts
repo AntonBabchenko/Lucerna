@@ -41,6 +41,29 @@ describe('formatError', () => {
     expect(msg).toBe('NeoForge does not support Minecraft 1.20.1');
   });
 
+  it('says Lucerna does not install NeoForge builds for a snapshot', () => {
+    const msg = formatError({
+      kind: 'loader_builds_not_offered',
+      loader: 'neoforge',
+      mc_version: '26.1-snapshot-1',
+    });
+    expect(msg).toBe(
+      'Lucerna does not install NeoForge builds for Minecraft snapshots such as 26.1-snapshot-1',
+    );
+  });
+
+  it('says the NeoForge list could not be read, not that the version is unsupported', () => {
+    const msg = formatError({
+      kind: 'loader_versions_unreadable',
+      loader: 'neoforge',
+      mc_version: '26.4',
+    });
+    expect(msg).toBe(
+      'Lucerna could not read the NeoForge version list for Minecraft 26.4: it has version numbers Lucerna does not recognise',
+    );
+    expect(msg).not.toMatch(/does not support/);
+  });
+
   it('names both sides of a build that is not for this instance', () => {
     const msg = formatError({
       kind: 'mod_version_not_for_instance',
@@ -140,6 +163,11 @@ describe('formatError', () => {
       incoming_sha: '222',
     });
     expect(msg).toContain('jei.jar');
+  });
+
+  it('formats mods_already_installed with the installed mod’s name', () => {
+    const msg = formatError({ kind: 'mods_already_installed', name: 'Fabric API' });
+    expect(msg).toBe('Fabric API is already installed');
   });
 
   it('formats mods_unsafe_filename with the rejected filename', () => {
@@ -271,6 +299,16 @@ describe('formatError', () => {
       skin_library: { kind: 'skin_library', details: 'entry not found' },
       unknown_version: { kind: 'unknown_version', id: '1.21' },
       loader_unavailable: { kind: 'loader_unavailable', loader: 'fabric', mc_version: '1.21' },
+      loader_builds_not_offered: {
+        kind: 'loader_builds_not_offered',
+        loader: 'neoforge',
+        mc_version: '26.1-snapshot-1',
+      },
+      loader_versions_unreadable: {
+        kind: 'loader_versions_unreadable',
+        loader: 'neoforge',
+        mc_version: '26.4',
+      },
       unsupported_platform: { kind: 'unsupported_platform', os: 'plan9', arch: 'sparc' },
       io: { kind: 'io', path: 'p', details: 'd' },
       last_instance: { kind: 'last_instance' },
@@ -336,6 +374,7 @@ describe('formatError', () => {
         existing_sha: '1',
         incoming_sha: '2',
       },
+      mods_already_installed: { kind: 'mods_already_installed', name: 'Fabric API' },
       mods_unsafe_filename: { kind: 'mods_unsafe_filename', filename: '../../evil.jar' },
       mods_cache_io: { kind: 'mods_cache_io', details: 'd' },
       mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
@@ -486,6 +525,14 @@ describe('formatError', () => {
         details: 'exit 1',
       },
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
+      server_loader_ambiguous: {
+        kind: 'server_loader_ambiguous',
+        loader: 'Forge',
+        candidates: [
+          'libraries/net/minecraftforge/forge/1.20.1-47.2.0',
+          'libraries/net/minecraftforge/forge/1.20.1-47.3.0',
+        ],
+      },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
       server_world_not_created: { kind: 'server_world_not_created' },
       server_world_only_old: { kind: 'server_world_only_old' },

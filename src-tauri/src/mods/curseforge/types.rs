@@ -168,6 +168,10 @@ pub struct Mod {
     /// loader set when any entry is untagged. Do NOT read `mod_loader` directly.
     #[serde(default)]
     pub latest_files_indexes: Vec<FileIndex>,
+    /// The project's categories. Consumed only through `super::is_library_category`,
+    /// matched by slug or name — no category id is documented or discoverable here.
+    #[serde(default)]
+    pub categories: Vec<Category>,
 }
 
 /// An entry of [`Mod::latest_files_indexes`].
@@ -182,6 +186,17 @@ pub struct FileIndex {
     pub game_version: String,
     #[serde(default)]
     pub mod_loader: Option<u8>,
+}
+
+/// An entry of [`Mod::categories`] — only the two fields the library match
+/// reads. Both `Option`: they are read for that one match, so an absent or
+/// `null` field must not become a decode error that blanks the whole batch.
+#[derive(Debug, Deserialize)]
+pub struct Category {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub slug: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]

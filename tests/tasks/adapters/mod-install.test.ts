@@ -11,6 +11,7 @@ const listeners = vi.hoisted(() => ({
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsInstallWithDeps: vi.fn(),
+    modsInstallDependency: vi.fn(),
     modsUpdateOne: vi.fn(),
   },
   events: {
@@ -26,7 +27,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import { commands, events } from '$lib/ipc/bindings';
-import { installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
+import { installDependency, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
 import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 
 function emit(payload: unknown) {
@@ -86,6 +87,46 @@ describe('mod-install adapter', () => {
 
     await installModWithDeps('i', 'X', primary, []);
     expect(taskList()[0].details).toEqual([detail]);
+  });
+
+  // The tree's Install under a mod that declared the dependency (spec §5.6) is an install like any
+  // other in the operations centre: its own task, its per-mod report, the command's own Result.
+  it('runs a dependency install for a dependent as a mod-install task with its report', async () => {
+    const detail = {
+      name: 'Lib',
+      install_path: 'mods/lib.jar',
+      origin: 'modrinth',
+      host: null,
+      bytes: 1,
+      sha1: 'l',
+      outcome: 'installed',
+    };
+    const data = { primary_name: 'Lib', installed_dependencies: ['Api'], details: [detail] };
+    vi.mocked(commands.modsInstallDependency).mockResolvedValue({ status: 'ok', data } as never);
+
+    const result = await installDependency('i', 'Lib', 'dep-sha', 'modrinth', 'PL');
+
+    expect(commands.modsInstallDependency).toHaveBeenCalledWith('i', 'dep-sha', 'modrinth', 'PL');
+    expect(result).toEqual({ status: 'ok', data });
+    const task = taskList()[0];
+    expect(task.kind).toBe('mod-install');
+    expect(task.title).toBe('Lib');
+    expect(task.scope).toEqual({ instanceId: 'i' });
+    expect(task.state).toBe('ok');
+    expect(task.details).toEqual([detail]);
+  });
+
+  it('lands a refused dependency install as a failed task and hands back the raw error', async () => {
+    const error = { kind: 'mods_already_installed', name: 'Lib' } as const;
+    vi.mocked(commands.modsInstallDependency).mockResolvedValue({
+      status: 'error',
+      error,
+    } as never);
+
+    const result = await installDependency('i', 'Lib', 'dep-sha', 'modrinth', 'PL');
+
+    expect(result).toEqual({ status: 'error', error });
+    expect(taskList()[0].state).toBe('failed');
   });
 
   it('tags a mod UPDATE as mod-update, not mod-install — the whole point of this adapter', async () => {

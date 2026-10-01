@@ -49,12 +49,27 @@ describe('use:tooltip action', () => {
     expect(node.hasAttribute('aria-describedby')).toBe(false);
   });
 
-  it('hides and clears aria-describedby on blur', () => {
+  // A blur hides one microtask later, past the Svelte batch it may fire in (a focused trigger
+  // removed by a block — tests/tooltip/tooltip-teardown.test.ts).
+  it('hides and clears aria-describedby on blur', async () => {
     const { node } = mount('Grid view');
     node.dispatchEvent(new FocusEvent('focusin'));
     node.dispatchEvent(new FocusEvent('focusout'));
+    await Promise.resolve();
     expect(tooltipState.visible).toBe(false);
     expect(node.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  // Focus leaving and coming back — or moving between two controls inside a wrapper trigger —
+  // must not lose the tooltip to the blur's late hide.
+  it('keeps a tooltip shown again before the blur’s hide lands', async () => {
+    const { node } = mount('Grid view');
+    node.dispatchEvent(new FocusEvent('focusin'));
+    node.dispatchEvent(new FocusEvent('focusout'));
+    node.dispatchEvent(new FocusEvent('focusin'));
+    await Promise.resolve();
+    expect(tooltipState.visible).toBe(true);
+    expect(node.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
   });
 
   it('does nothing for a null / empty param', () => {
@@ -78,6 +93,41 @@ describe('use:tooltip action', () => {
     Object.defineProperty(node, 'clientWidth', { value: 50, configurable: true });
     node.dispatchEvent(new FocusEvent('focusin'));
     expect(tooltipState.visible).toBe(true);
+  });
+
+  // Plan §5c V3: a version cut short («v0.10…») keeps its file name as its tooltip, and the
+  // tooltip must then carry the version whole too — the text the node no longer shows.
+  it('clippedText stands in for the text while the node is clipped', () => {
+    const { node } = mount({ text: 'a.jar', clippedText: 'v0.102.0 · a.jar' });
+    Object.defineProperty(node, 'scrollWidth', { value: 50, configurable: true });
+    Object.defineProperty(node, 'clientWidth', { value: 50, configurable: true });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.text).toBe('a.jar');
+    node.dispatchEvent(new FocusEvent('focusout'));
+    Object.defineProperty(node, 'scrollWidth', { value: 200, configurable: true });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.text).toBe('v0.102.0 · a.jar');
+  });
+
+  // Plan §5d M1: a version with no room left wraps out of its row, and the name beside it then
+  // carries it. The node is not clipped itself; what its neighbour gave up is its to say.
+  it('alsoClipped counts the node as clipped while a neighbour it speaks for is gone', () => {
+    let versionGone = false;
+    const { node } = mount({
+      text: 'Alpha',
+      whenOverflowing: true,
+      clippedText: 'Alpha · v1.0',
+      alsoClipped: () => versionGone,
+    });
+    Object.defineProperty(node, 'scrollWidth', { value: 50, configurable: true });
+    Object.defineProperty(node, 'clientWidth', { value: 50, configurable: true });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.visible).toBe(false);
+    node.dispatchEvent(new FocusEvent('focusout'));
+    versionGone = true;
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Alpha · v1.0');
   });
 
   it('update(null) hides an open tooltip', () => {

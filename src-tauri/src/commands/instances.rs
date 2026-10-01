@@ -688,6 +688,30 @@ pub async fn open_mods_folder(
     Ok(())
 }
 
+/// Show an installed mod's jar in the OS file manager, selected — the file as
+/// it is on disk, `<file>` or `<file>.disabled`; `reveal_screenshot`'s shape.
+///
+/// Lives beside `open_mods_folder` rather than with the other `mods_*`
+/// commands: an opener call spawns the file manager, a process documented in
+/// `docs/PRINCIPLES.md` Appendix A and allowed only in the files on
+/// `structural_no_raw_spawn.rs`'s allowlist, which this file is on for the mods
+/// folder already. Takes no maintenance claim: the lookup is `installed::list`,
+/// whose reconcile persists registry metadata like every read of the list.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_reveal_file(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1: String,
+) -> Result<(), crate::error::Error> {
+    use tauri_plugin_opener::OpenerExt;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let path = crate::mods::installed::jar_path(&inst_root, &sha1).await?;
+    app.opener()
+        .reveal_item_in_dir(&path)
+        .map_err(|e| crate::error::Error::io(path.display().to_string(), format!("opener: {e}")))
+}
+
 /// Store a custom picture for an instance. `png_base64` is a PNG produced by
 /// the crop UI; it is normalized to 256x256 before it is written.
 #[tauri::command]

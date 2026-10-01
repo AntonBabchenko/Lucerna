@@ -270,64 +270,183 @@ pub(crate) fn build_loader_versions(
     (loader_versions, raw_by_fv)
 }
 
+// ---- NeoForge version → Minecraft version -------------------------
+
+/// What a NeoForge version number says about the Minecraft version it
+/// installs onto. See [`neoforge_mc_for`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NeoForgeMc {
+    /// Mojang's id of the Minecraft release this build installs onto. Offered.
+    Minecraft(String),
+    /// A build for this Minecraft snapshot, pre-release or April Fools id.
+    /// Lucerna does not offer these: their synthetic version ids do not
+    /// round-trip through `versions::loaders::parse_synth_id`. The id is still
+    /// derived so a caller can say why nothing is offered.
+    NotOffered(String),
+    /// A version shape Lucerna does not know. Never guessed at.
+    Unrecognized,
+}
+
+/// A non-empty run of ASCII digits with no leading zero (`0` itself is fine).
+/// `21.01.5` could be read two ways, so it is not read at all.
+fn canonical_decimal(s: &str) -> Option<u32> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if s.len() > 1 && s.starts_with('0') {
+        return None;
+    }
+    s.parse().ok()
+}
+
+/// Map a NeoForge version to the Minecraft version it installs onto.
+///
+/// NeoForge documents its numbering (neoforged/Documentation,
+/// `gettingstarted/versioning.md`). The rules below were checked against
+/// `install_profile.json` in real installers:
+///
+/// - Old scheme `A.B.C`, `A` 20–21: Minecraft `1.A.B`, or `1.A` when `B` is
+///   0 (`21.0.167` → `1.21`). It ended at `21.11` (Minecraft 1.21.11).
+/// - Year-based scheme `Y.R.P.N`, `Y` ≥ 26: Minecraft `Y.R.P`, or `Y.R` when
+///   `P` is 0 (`26.2.0.59` → `26.2`, `26.1.2.112` → `26.1.2`).
+/// - The only suffix on those is `-beta`.
+/// - `Y.R.P.N-alpha.<n>+<snapshot|pre|rc>-<k>` is a build for Minecraft
+///   `Y.R[.P]-<kind>-<k>`, and `0.<id>.<n>[-beta]` for the April Fools version
+///   `<id>`. Both are `NotOffered`.
+///
+/// The bounds are tight on purpose: any other shape means NeoForge changed
+/// its numbering again, and callers must be able to say so, not guess.
+pub(crate) fn neoforge_mc_for(version: &str) -> NeoForgeMc {
+    let split = version.find(['-', '+']).unwrap_or(version.len());
+    let (core, rest) = version.split_at(split);
+    let segments: Vec<&str> = core.split('.').collect();
+
+    if let Some(id) = april_fools_id(&segments, rest) {
+        return NeoForgeMc::NotOffered(id.to_string());
+    }
+    let Some(nums) = segments
+        .iter()
+        .map(|s| canonical_decimal(s))
+        .collect::<Option<Vec<u32>>>()
+    else {
+        return NeoForgeMc::Unrecognized;
+    };
+    let (base, year_based) = match nums.as_slice() {
+        [a @ 20..=21, 0, _] => (format!("1.{a}"), false),
+        [a @ 20..=21, b, _] => (format!("1.{a}.{b}"), false),
+        [y, r, 0, _] if *y >= 26 => (format!("{y}.{r}"), true),
+        [y, r, p, _] if *y >= 26 => (format!("{y}.{r}.{p}"), true),
+        _ => return NeoForgeMc::Unrecognized,
+    };
+    if rest.is_empty() || rest == "-beta" {
+        return NeoForgeMc::Minecraft(base);
+    }
+    match prerelease_mc_suffix(rest) {
+        Some(suffix) if year_based => NeoForgeMc::NotOffered(format!("{base}-{suffix}")),
+        _ => NeoForgeMc::Unrecognized,
+    }
+}
+
+/// `0.<id>.<n>`, optionally `-beta`: NeoForge's April Fools line
+/// (`0.25w14craftmine.3-beta` → `25w14craftmine`). The id must contain a
+/// letter, so a plain numeric `0.1.2` is not taken for one.
+fn april_fools_id<'a>(segments: &[&'a str], rest: &str) -> Option<&'a str> {
+    let &[zero, id, build] = segments else {
+        return None;
+    };
+    let is_id = !id.is_empty()
+        && id.bytes().all(|b| b.is_ascii_alphanumeric())
+        && id.bytes().any(|b| b.is_ascii_alphabetic());
+    (zero == "0" && is_id && canonical_decimal(build).is_some() && matches!(rest, "" | "-beta"))
+        .then_some(id)
+}
+
+/// `-alpha.<n>+<kind>-<k>` → `<kind>-<k>`: the Minecraft pre-release a
+/// year-based alpha build is for (`-alpha.1+snapshot-1` → `snapshot-1`).
+fn prerelease_mc_suffix(rest: &str) -> Option<&str> {
+    let (alpha, meta) = rest.strip_prefix("-alpha.")?.split_once('+')?;
+    let (kind, k) = meta.split_once('-')?;
+    (canonical_decimal(alpha).is_some()
+        && matches!(kind, "snapshot" | "pre" | "rc")
+        && canonical_decimal(k).is_some())
+    .then_some(meta)
+}
+
+/// True for a year-based Minecraft id (`26.2`, `26.1-snapshot-1`, `27.1`):
+/// the era a new NeoForge numbering can target. The 1.x era's numbering is
+/// closed and fully known, so an unrecognised NeoForge version is never taken
+/// to be a build for a `1.*` id, nor for a weekly-style id (`25w14craftmine`).
+pub(crate) fn is_year_based_mc(id: &str) -> bool {
+    let head = id.split(['.', '-']).next().unwrap_or("");
+    canonical_decimal(head).is_some_and(|year| year >= 26)
+}
+
+/// Why the list for `mc_id` came out empty, most certain answer first:
+/// - builds exist but Lucerna does not offer them;
+/// - the list holds versions Lucerna could not read, and `mc_id` is in the
+///   era they could belong to;
+/// - there is simply no build.
+///
+/// Only the last one may reset a profile to Vanilla (see
+/// `instances::decide_loader`).
+fn empty_list_error(
+    flavor: ForgeFlavor,
+    mc_id: &str,
+    not_offered_mc: &std::collections::BTreeSet<String>,
+    unrecognized: &[String],
+) -> Error {
+    let loader = flavor.as_str().to_string();
+    let mc_version = mc_id.to_string();
+    if not_offered_mc.contains(mc_id) {
+        Error::LoaderBuildsNotOffered { loader, mc_version }
+    } else if !unrecognized.is_empty() && is_year_based_mc(mc_id) {
+        Error::LoaderVersionsUnreadable { loader, mc_version }
+    } else {
+        Error::LoaderUnavailable { loader, mc_version }
+    }
+}
+
 // ---- NeoForge maven-metadata.xml parsing -------------------------
 
-/// Parse NeoForge's `maven-metadata.xml` into `MavenEntry` records.
-///
-/// NeoForge uses a **version-only** maven layout: each `<version>` tag
-/// is the NeoForge version alone (e.g. `20.4.167`, `21.10.64`,
-/// `20.4.0-beta`). The MC version is *encoded in the first two numeric
-/// segments* of the NeoForge version using the rule:
-///
-/// ```text
-/// NeoForge A.B.C[suffix]  →  MC 1.A.B
-/// ```
-///
-/// So `20.4.251` → MC `1.20.4`, `21.10.64` → MC `1.21.10`, etc.
-/// Entries where the first two segments cannot be parsed as integers
-/// are silently dropped.
-pub fn parse_neoforge_maven_metadata(xml: &str) -> Result<Vec<MavenEntry>> {
+/// NeoForge's `maven-metadata.xml`, each version read through
+/// [`neoforge_mc_for`].
+#[derive(Debug, Default)]
+pub struct NeoForgeListing {
+    /// Offered builds: `mc` is the mapped Minecraft id, `fv` and `raw` are
+    /// the NeoForge version (its maven layout is version-only, so there is
+    /// no `<mc>-<fv>-<mc>` quirk).
+    pub entries: Vec<MavenEntry>,
+    /// Minecraft ids with at least one build Lucerna does not offer
+    /// (snapshots, pre-releases, April Fools).
+    pub not_offered_mc: std::collections::BTreeSet<String>,
+    /// Version strings Lucerna does not recognise, in list order. Kept so an
+    /// empty result can say "could not tell" instead of "no build".
+    pub unrecognized: Vec<String>,
+}
+
+/// Parse NeoForge's `maven-metadata.xml`. Each `<version>` is the NeoForge
+/// version alone (`21.1.230`, `26.2.0.59`, `26.3.0.35-beta`); the Minecraft
+/// version it is for comes from [`neoforge_mc_for`].
+pub fn parse_neoforge_maven_metadata(xml: &str) -> Result<NeoForgeListing> {
     let parsed: MavenMetadata =
         xml_from_str(xml).map_err(|e| Error::ForgeMavenMetadataParseFailed {
             details: format!("{e}"),
         })?;
-    let mut out = Vec::with_capacity(parsed.versioning.versions.versions.len());
-    for entry in parsed.versioning.versions.versions {
-        if let Some(maven_entry) = parse_neoforge_entry(&entry) {
-            out.push(maven_entry);
+    let mut listing = NeoForgeListing::default();
+    for version in parsed.versioning.versions.versions {
+        match neoforge_mc_for(&version) {
+            NeoForgeMc::Minecraft(mc) => listing.entries.push(MavenEntry {
+                mc,
+                fv: version.clone(),
+                raw: version,
+            }),
+            NeoForgeMc::NotOffered(mc) => {
+                listing.not_offered_mc.insert(mc);
+            }
+            NeoForgeMc::Unrecognized => listing.unrecognized.push(version),
         }
     }
-    Ok(out)
-}
-
-/// Parse a single NeoForge maven version string into a `MavenEntry`.
-///
-/// Format: `<A>.<B>.<C>` or `<A>.<B>.<C>-beta` (and similar pre-release suffixes).
-/// Derives MC id as `1.<A>.<B>`. Returns `None` for malformed entries.
-fn parse_neoforge_entry(entry: &str) -> Option<MavenEntry> {
-    // Strip any pre-release suffix for the purpose of extracting A.B.
-    // We keep the full entry string as `fv` (including -beta/-rc) so the
-    // version dropdown shows pre-release markers to the user.
-    let numeric_part = match entry.find('-') {
-        Some(idx) => &entry[..idx],
-        None => entry,
-    };
-
-    let mut it = numeric_part.splitn(3, '.');
-    let a: u32 = it.next()?.parse().ok()?;
-    let b: u32 = it.next()?.parse().ok()?;
-    // Third segment may or may not be present — we only need A.B for the MC id.
-    // Discard: we already have it in `entry` as `fv`.
-    let _ = it.next();
-
-    let mc = format!("1.{a}.{b}");
-    // `fv` is the full NeoForge version string (including any -beta suffix).
-    // `raw` == `fv` for NeoForge: there is no `<mc>-<fv>-<mc>` quirk.
-    Some(MavenEntry {
-        mc,
-        fv: entry.to_string(),
-        raw: entry.to_string(),
-    })
+    Ok(listing)
 }
 
 // ---- public API: list_versions -----------------------------------
@@ -385,8 +504,10 @@ fn promotions_url_for(flavor: ForgeFlavor) -> Option<String> {
 
 /// Return Forge/NeoForge versions compatible with `mc_id`, sorted
 /// descending, with recommended versions tagged `stable: true`.
-/// 5-minute in-memory cache per `(flavor, mc_id)`. Empty list →
-/// `Error::LoaderUnavailable`.
+/// 5-minute in-memory cache per `(flavor, mc_id)`; only a non-empty list is
+/// cached. An empty list is `LoaderUnavailable`, or for NeoForge
+/// `LoaderBuildsNotOffered` / `LoaderVersionsUnreadable` (see
+/// [`empty_list_error`]).
 pub async fn list_versions(
     flavor: ForgeFlavor,
     mc_id: &str,
@@ -407,12 +528,32 @@ pub async fn list_versions(
     let xml = crate::network::get_text(&meta_url, "forge/meta")
         .await
         .map_err(|e| Error::network(meta_url.clone(), format!("{e:?}")))?;
-    // NeoForge uses a version-only maven layout (no `<mc>-<fv>` prefix).
-    // Forge uses the classic `<mc>-<fv>` format. Dispatch accordingly.
-    let pairs = match flavor {
-        ForgeFlavor::NeoForge => parse_neoforge_maven_metadata(&xml)?,
-        ForgeFlavor::Forge => parse_maven_metadata(&xml)?,
+    // NeoForge's maven layout is version-only: the Minecraft id comes from
+    // `neoforge_mc_for`. Forge's `<mc>-<fv>` layout names it directly.
+    let (pairs, not_offered_mc, unrecognized) = match flavor {
+        ForgeFlavor::NeoForge => {
+            let listing = parse_neoforge_maven_metadata(&xml)?;
+            (
+                listing.entries,
+                listing.not_offered_mc,
+                listing.unrecognized,
+            )
+        }
+        ForgeFlavor::Forge => (
+            parse_maven_metadata(&xml)?,
+            std::collections::BTreeSet::new(),
+            Vec::new(),
+        ),
     };
+    if !unrecognized.is_empty() {
+        let sample: Vec<&str> = unrecognized.iter().take(5).map(String::as_str).collect();
+        crate::diag!(
+            "forge/meta: the {} version list has {} version(s) Lucerna does not recognise (e.g. {}); asked for Minecraft {mc_id}",
+            flavor.as_str(),
+            unrecognized.len(),
+            sample.join(", ")
+        );
+    }
 
     // Fetch promotions (optional). Failure → empty promotions table
     // (versions still listed, just none marked recommended).
@@ -427,10 +568,12 @@ pub async fn list_versions(
     let (entries, raw_by_fv) = build_loader_versions(&pairs, mc_id, &promos);
 
     if entries.is_empty() {
-        return Err(Error::LoaderUnavailable {
-            loader: flavor.as_str().to_string(),
-            mc_version: mc_id.to_string(),
-        });
+        return Err(empty_list_error(
+            flavor,
+            mc_id,
+            &not_offered_mc,
+            &unrecognized,
+        ));
     }
 
     {
@@ -983,38 +1126,44 @@ mod tests {
     #[test]
     fn parse_neoforge_maven_metadata_decodes_mc_from_version() {
         let parsed = parse_neoforge_maven_metadata(NEOFORGE_FIXTURE).expect("parse");
-        assert_eq!(parsed.len(), 7);
+        assert_eq!(parsed.entries.len(), 7);
+        assert!(parsed.unrecognized.is_empty());
 
         // 20.4.x → MC 1.20.4
-        let e = parsed.iter().find(|e| e.fv == "20.4.167").unwrap();
+        let e = parsed.entries.iter().find(|e| e.fv == "20.4.167").unwrap();
         assert_eq!(e.mc, "1.20.4");
         assert_eq!(e.raw, "20.4.167");
 
-        let e = parsed.iter().find(|e| e.fv == "20.4.251").unwrap();
+        let e = parsed.entries.iter().find(|e| e.fv == "20.4.251").unwrap();
         assert_eq!(e.mc, "1.20.4");
 
         // Pre-release: fv retains -beta; mc still 1.20.4.
-        let e = parsed.iter().find(|e| e.fv == "20.4.0-beta").unwrap();
+        let e = parsed
+            .entries
+            .iter()
+            .find(|e| e.fv == "20.4.0-beta")
+            .unwrap();
         assert_eq!(e.mc, "1.20.4");
         assert_eq!(e.raw, "20.4.0-beta");
 
         // 21.10.x → MC 1.21.10
-        let e = parsed.iter().find(|e| e.fv == "21.10.64").unwrap();
+        let e = parsed.entries.iter().find(|e| e.fv == "21.10.64").unwrap();
         assert_eq!(e.mc, "1.21.10");
 
         // 21.11.x → MC 1.21.11
-        let e = parsed.iter().find(|e| e.fv == "21.11.42").unwrap();
+        let e = parsed.entries.iter().find(|e| e.fv == "21.11.42").unwrap();
         assert_eq!(e.mc, "1.21.11");
 
         // 21.1.x → MC 1.21.1
-        let e = parsed.iter().find(|e| e.fv == "21.1.230").unwrap();
+        let e = parsed.entries.iter().find(|e| e.fv == "21.1.230").unwrap();
         assert_eq!(e.mc, "1.21.1");
     }
 
     #[test]
     fn parse_neoforge_maven_metadata_filters_for_mc() {
         let parsed = parse_neoforge_maven_metadata(NEOFORGE_FIXTURE).expect("parse");
-        let (versions, _) = build_loader_versions(&parsed, "1.20.4", &Promotions::default());
+        let (versions, _) =
+            build_loader_versions(&parsed.entries, "1.20.4", &Promotions::default());
         // Expect 3 entries for 1.20.4: 20.4.251, 20.4.167, 20.4.0-beta.
         assert_eq!(versions.len(), 3, "should have 3 entries for 1.20.4");
         // Top non-beta (20.4.251) is stable.
@@ -1027,12 +1176,198 @@ mod tests {
     #[test]
     fn parse_neoforge_maven_metadata_filters_for_1_21_10() {
         let parsed = parse_neoforge_maven_metadata(NEOFORGE_FIXTURE).expect("parse");
-        let (versions, _) = build_loader_versions(&parsed, "1.21.10", &Promotions::default());
+        let (versions, _) =
+            build_loader_versions(&parsed.entries, "1.21.10", &Promotions::default());
         assert_eq!(versions.len(), 2);
         assert_eq!(versions[0].version, "21.10.64");
         assert!(versions[0].stable);
         assert_eq!(versions[1].version, "21.10.63");
         assert!(!versions[1].stable);
+    }
+
+    // Every shape the live list has had (2026-09-29), plus one it has not.
+    const NEOFORGE_MIXED_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>net.neoforged</groupId>
+  <artifactId>neoforge</artifactId>
+  <versioning>
+    <versions>
+      <version>0.25w14craftmine.3-beta</version>
+      <version>21.0.0-beta</version>
+      <version>21.0.167</version>
+      <version>21.1.230</version>
+      <version>26.1.0.0-alpha.1+snapshot-1</version>
+      <version>26.1.0.0-alpha.15+pre-3</version>
+      <version>26.1.0.19-beta</version>
+      <version>26.2.0.56-beta</version>
+      <version>26.2.0.9</version>
+      <version>26.2.0.59</version>
+      <version>26.4.0.0-rc.1</version>
+    </versions>
+  </versioning>
+</metadata>"#;
+
+    #[test]
+    fn neoforge_listing_files_each_build_under_its_minecraft_version() {
+        let listing = parse_neoforge_maven_metadata(NEOFORGE_MIXED_FIXTURE).expect("parse");
+        assert_eq!(listing.unrecognized, vec!["26.4.0.0-rc.1".to_string()]);
+        assert_eq!(
+            listing.not_offered_mc,
+            std::collections::BTreeSet::from([
+                "25w14craftmine".to_string(),
+                "26.1-pre-3".to_string(),
+                "26.1-snapshot-1".to_string(),
+            ])
+        );
+
+        // 26.2: numeric (not lexicographic) order, the top release is stable.
+        let (v, _) = build_loader_versions(&listing.entries, "26.2", &Promotions::default());
+        let names: Vec<&str> = v.iter().map(|l| l.version.as_str()).collect();
+        assert_eq!(names, ["26.2.0.59", "26.2.0.56-beta", "26.2.0.9"]);
+        assert!(v[0].stable);
+        assert_eq!(v.iter().filter(|l| l.stable).count(), 1);
+
+        // 26.1: the snapshot alphas are not listed under the release.
+        let (v, _) = build_loader_versions(&listing.entries, "26.1", &Promotions::default());
+        let names: Vec<&str> = v.iter().map(|l| l.version.as_str()).collect();
+        assert_eq!(names, ["26.1.0.19-beta"]);
+        assert!(!v[0].stable, "a beta is never the stable pick");
+
+        // 1.21: `21.0.*` is Minecraft 1.21, not 1.21.0.
+        let (v, _) = build_loader_versions(&listing.entries, "1.21", &Promotions::default());
+        let names: Vec<&str> = v.iter().map(|l| l.version.as_str()).collect();
+        assert_eq!(names, ["21.0.167", "21.0.0-beta"]);
+    }
+
+    // ---- neoforge_mc_for -------------------------------------------------
+
+    #[test]
+    fn neoforge_mc_for_maps_both_numbering_schemes() {
+        // Checked against `install_profile.json` in real installers: the old
+        // `A.B.C` scheme, then the year-based `Y.R.P.N` one. A zero patch is
+        // omitted, as in Mojang's own ids (`1.21`, `26.2`).
+        let cases = [
+            ("20.2.59", "1.20.2"),
+            ("20.4.251", "1.20.4"),
+            ("21.0.0-beta", "1.21"),
+            ("21.0.167", "1.21"),
+            ("21.1.230", "1.21.1"),
+            ("21.11.42", "1.21.11"),
+            ("26.1.0.19-beta", "26.1"),
+            ("26.1.1.15-beta", "26.1.1"),
+            ("26.1.2.112", "26.1.2"),
+            ("26.2.0.59", "26.2"),
+            ("26.3.0.35-beta", "26.3"),
+        ];
+        for (version, mc) in cases {
+            assert_eq!(
+                neoforge_mc_for(version),
+                NeoForgeMc::Minecraft(mc.to_string()),
+                "{version}"
+            );
+        }
+    }
+
+    #[test]
+    fn neoforge_mc_for_derives_but_does_not_offer_snapshot_and_april_fools_builds() {
+        let cases = [
+            ("26.1.0.0-alpha.1+snapshot-1", "26.1-snapshot-1"),
+            ("26.1.0.0-alpha.15+pre-3", "26.1-pre-3"),
+            ("0.25w14craftmine.3-beta", "25w14craftmine"),
+        ];
+        for (version, mc) in cases {
+            assert_eq!(
+                neoforge_mc_for(version),
+                NeoForgeMc::NotOffered(mc.to_string()),
+                "{version}"
+            );
+        }
+    }
+
+    #[test]
+    fn neoforge_mc_for_never_guesses_at_an_unknown_shape() {
+        for version in [
+            // wrong segment count or era
+            "26.1.0",
+            "19.4.1",
+            "22.1.3",
+            "21.1.0.5",
+            "26.1.0.0.1",
+            "27.1",
+            // not numbers
+            "abc",
+            "",
+            "26.x.0.1",
+            "0.x",
+            "0.1.2",
+            // leading zero: two readings, so no reading
+            "21.01.5",
+            // suffixes NeoForge has never used
+            "26.4.0.0-rc.1",
+            "26.4.0.0-alpha.3.snapshot-2",
+            "26.4.0.1+build.5",
+            "26.1.0.0+snapshot-1",
+            "26.2.0.59-foo",
+            // `+` outside the year-based scheme
+            "27.1+snapshot-1",
+            "22.1.0-alpha.1+snapshot-1",
+        ] {
+            assert_eq!(
+                neoforge_mc_for(version),
+                NeoForgeMc::Unrecognized,
+                "{version:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn year_based_minecraft_ids_are_the_ones_a_new_numbering_can_target() {
+        for id in ["26.2", "26.1-snapshot-1", "27.1"] {
+            assert!(is_year_based_mc(id), "{id}");
+        }
+        for id in ["1.21", "1.20.1", "25w14craftmine", "26w14a", ""] {
+            assert!(!is_year_based_mc(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn an_empty_list_says_why() {
+        let none = std::collections::BTreeSet::new();
+        let snapshot = std::collections::BTreeSet::from(["26.1-snapshot-1".to_string()]);
+        let unknown = ["26.4.0.0.0".to_string()];
+        let kind = |e: Error| match e {
+            Error::LoaderUnavailable { loader, .. } => ("unavailable", loader),
+            Error::LoaderBuildsNotOffered { loader, .. } => ("not_offered", loader),
+            Error::LoaderVersionsUnreadable { loader, .. } => ("unreadable", loader),
+            other => panic!("unexpected {other:?}"),
+        };
+        let nf = ForgeFlavor::NeoForge;
+        let neo = "neoforge".to_string();
+        // Nothing odd in the list: a plain "no build".
+        assert_eq!(
+            kind(empty_list_error(nf, "26.4", &none, &[])),
+            ("unavailable", neo.clone())
+        );
+        // An unknown string on a year-based id: could not tell.
+        assert_eq!(
+            kind(empty_list_error(nf, "26.4", &none, &unknown)),
+            ("unreadable", neo.clone())
+        );
+        // The 1.x era is closed: an unknown string is not a 1.20.1 build.
+        assert_eq!(
+            kind(empty_list_error(nf, "1.20.1", &none, &unknown)),
+            ("unavailable", neo.clone())
+        );
+        // Known not-offered builds beat "could not tell".
+        assert_eq!(
+            kind(empty_list_error(nf, "26.1-snapshot-1", &snapshot, &unknown)),
+            ("not_offered", neo.clone())
+        );
+        // A snapshot with no build at all is still "no build".
+        assert_eq!(
+            kind(empty_list_error(nf, "26.1-snapshot-5", &snapshot, &[])),
+            ("unavailable", neo)
+        );
     }
 
     // ---- ensure_forge_build_exists -------------------------------------------

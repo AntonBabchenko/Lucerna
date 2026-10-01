@@ -79,6 +79,15 @@ describe('i18n locale parity (en vs ru)', () => {
     expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
   });
 
+  it('carries none of the keys retired by the NeoForge 26.x fix', () => {
+    // The New-profile footer said "{loader} does not support Minecraft {mc}"
+    // for ANY missing loader version, a network error included. It now says
+    // "Choose a {loader} version first", and the picker's own alert names
+    // the cause.
+    const retired = ['instance.error.loaderNoSupport'];
+    expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
+  });
+
   // Batch 11a fixed one vocabulary for two concepts: the guided walkthrough is
   // "Tour" / «Тур», and the detail level is "Explanations" / «Объяснения».
   // The old names are kept ON PURPOSE as search keywords — someone who learned
@@ -109,6 +118,56 @@ describe('i18n locale parity (en vs ru)', () => {
         }
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  // D14 (installed-mods UX program): Russian says one word per thing — «профиль», «загрузчик»,
+  // «сборка» — and spells «ресурспак» one way. Search keywords are exempt on purpose, like the
+  // tour's legacy names above: someone who types the slang must still find the row.
+  it('uses one Russian word per thing: профиль, загрузчик, сборка, ресурспак', () => {
+    const BANNED = [/инстанс/i, /экземпляр/i, /лоадер/i, /модпак/i, /ресурс-пак/i];
+    const offenders = Object.entries(flatRu)
+      .filter(([key]) => !key.startsWith('settings.search.keywords.'))
+      .filter(([, value]) => typeof value === 'string' && BANNED.some((re) => re.test(value)))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+
+  // «Сборка» is the modpack (D14), so a BUILD — of a mod, a loader, OptiFine, the launcher — is
+  // never «сборка»: «Нет сборки Forge» read as "no Forge modpack". Found by what the English says:
+  // a build that is not a pack. Search keywords are exempt, as above.
+  it('never says «сборка» for a build', () => {
+    const offenders = Object.entries(flatRu)
+      .filter(([key]) => !key.startsWith('settings.search.keywords.'))
+      .filter(([key]) => /\bbuil[dt]/i.test(flatEn[key] ?? '') && !/pack/i.test(flatEn[key] ?? ''))
+      .filter(([, value]) => typeof value === 'string' && /сборк/i.test(value))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+
+  // The same collision for the profile: «Эта сборка не запустится» said a MODPACK would not
+  // launch where the English says the instance won't (plan §5b V2, carried from V1). An instance
+  // is «профиль» (D14). Found the same way: an instance that is not a pack. Search keywords exempt.
+  it('never says «сборка» for an instance', () => {
+    const offenders = Object.entries(flatRu)
+      .filter(([key]) => !key.startsWith('settings.search.keywords.'))
+      .filter(([key]) => /\binstance/i.test(flatEn[key] ?? '') && !/pack/i.test(flatEn[key] ?? ''))
+      .filter(([, value]) => typeof value === 'string' && /сборк/i.test(value))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+
+  // A version reaches a string already formatted (`displayVersion`: «v» only before a leading
+  // digit). A «v» written into the string itself doubled a version that has its own — «vv2.1.0»
+  // (plan §5b V2) — so no string glues a «v» to an argument.
+  it('never glues a «v» to an argument', () => {
+    const glued = /(^|[^\p{L}])v\{/u;
+    const offenders = [
+      ...Object.entries(flatEn).map(([k, v]) => [`en:${k}`, v] as const),
+      ...Object.entries(flatRu).map(([k, v]) => [`ru:${k}`, v] as const),
+    ]
+      .filter(([, value]) => typeof value === 'string' && glued.test(value))
+      .map(([key]) => key);
     expect(offenders).toEqual([]);
   });
 });

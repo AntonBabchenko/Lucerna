@@ -8,6 +8,9 @@
 //   <button aria-label={label} use:tooltip={label}><Icon .../></button>
 //   <span use:tooltip={{ text: reason, describe: false }}><button disabled>…</button></span>
 //   <span class="truncate" use:tooltip={{ text: name, whenOverflowing: true }}>{name}</span>
+//   <span class="truncate" use:tooltip={{ text: file, clippedText: `${version} · ${file}` }}>
+//   <span class="truncate" use:tooltip={{ text: name, whenOverflowing: true,
+//         clippedText: `${name} · ${version}`, alsoClipped: () => versionWrappedAway() }}>
 //
 // Only valid on DOM elements — wrap Svelte components (e.g. BusyButton) in a span.
 import type { Placement } from './position';
@@ -20,6 +23,12 @@ export type TooltipParam =
       placement?: Placement;
       whenOverflowing?: boolean;
       describe?: boolean;
+      /** Shown instead of `text` while the node is clipped: a tooltip that says something of
+       *  its own (a version's file name) must then also carry what the node no longer shows. */
+      clippedText?: string;
+      /** The node also counts as clipped while this says so: a neighbour it speaks for is gone
+       *  from sight (a mod's version wrapped out of its row), and `clippedText` carries it. */
+      alsoClipped?: () => boolean;
     }
   | null
   | undefined;
@@ -29,13 +38,22 @@ interface Normalized {
   placement: Placement;
   whenOverflowing: boolean;
   describe: boolean | undefined;
+  clippedText: string | null;
+  alsoClipped: (() => boolean) | null;
 }
 
 function normalize(param: TooltipParam): Normalized | null {
   if (param == null) return null;
   if (typeof param === 'string') {
     return param.trim()
-      ? { text: param, placement: 'top', whenOverflowing: false, describe: undefined }
+      ? {
+          text: param,
+          placement: 'top',
+          whenOverflowing: false,
+          describe: undefined,
+          clippedText: null,
+          alsoClipped: null,
+        }
       : null;
   }
   return param.text && param.text.trim()
@@ -44,6 +62,8 @@ function normalize(param: TooltipParam): Normalized | null {
         placement: param.placement ?? 'top',
         whenOverflowing: param.whenOverflowing ?? false,
         describe: param.describe,
+        clippedText: param.clippedText?.trim() ? param.clippedText : null,
+        alsoClipped: param.alsoClipped ?? null,
       }
     : null;
 }
@@ -51,7 +71,7 @@ function normalize(param: TooltipParam): Normalized | null {
 export function tooltip(node: HTMLElement, param: TooltipParam) {
   let opts = normalize(param);
 
-  const isClipped = () => node.scrollWidth > node.clientWidth;
+  const isClipped = () => (opts?.alsoClipped?.() ?? false) || node.scrollWidth > node.clientWidth;
   const shouldShow = () => !!opts && (!opts.whenOverflowing || isClipped());
   // Focus surfaces the tooltip only for genuine keyboard focus. Programmatic
   // focus — a modal's focus trap landing on its close button when it opens, or
@@ -78,9 +98,14 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
     return !node.hasAttribute('aria-label');
   };
 
+  // Showings so far: a blur's deferred hide (below) is cancelled by one that came after it.
+  let shows = 0;
+
   function open(immediate: boolean) {
     if (!opts || !shouldShow()) return;
-    showTooltip(node.getBoundingClientRect(), opts.text, {
+    shows += 1;
+    const text = opts.clippedText !== null && isClipped() ? opts.clippedText : opts.text;
+    showTooltip(node.getBoundingClientRect(), text, {
       placement: opts.placement,
       immediate,
       owner: node,
@@ -99,7 +124,18 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
     if (!isFocusVisible()) return;
     open(true);
   };
-  const onBlur = () => close();
+  // `focusout` also fires when the focused node is REMOVED — synchronously, inside the Svelte block
+  // that removes it (a toast's ×, any {#if}), where writing the tooltip's $state throws
+  // `state_unsafe_mutation` (plan §5e). So a blur hides one microtask later, past that batch — the
+  // Svelte 5 destroy-phase rule — unless the tooltip was shown again meanwhile: focus came back,
+  // or moved between two controls inside a wrapper trigger. Every other hide (pointer leave,
+  // update, destroy) runs outside a block and stays immediate.
+  const onBlur = () => {
+    const seen = shows;
+    queueMicrotask(() => {
+      if (shows === seen) close();
+    });
+  };
 
   node.addEventListener('mouseenter', onEnter);
   node.addEventListener('mouseleave', onLeave);

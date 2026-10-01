@@ -141,6 +141,14 @@ pub enum Error {
     #[error("{loader} does not support Minecraft {mc_version}")]
     LoaderUnavailable { loader: String, mc_version: String },
 
+    #[error(
+        "Lucerna does not install {loader} builds for Minecraft snapshots such as {mc_version}"
+    )]
+    LoaderBuildsNotOffered { loader: String, mc_version: String },
+
+    #[error("Could not read the {loader} version list for Minecraft {mc_version}: it contains versions Lucerna does not recognise")]
+    LoaderVersionsUnreadable { loader: String, mc_version: String },
+
     #[error("Unsupported platform: {os}/{arch}")]
     UnsupportedPlatform { os: String, arch: String },
 
@@ -313,6 +321,13 @@ pub enum Error {
         existing_sha: String,
         incoming_sha: String,
     },
+
+    /// The project is already in this instance, enabled or switched off: a
+    /// second jar of one mod stops the game on the duplicate mod id, so the
+    /// install is refused before its jar is downloaded. `name` is the installed
+    /// row's display name.
+    #[error("{name} is already installed")]
+    ModsAlreadyInstalled { name: String },
 
     #[error(
         "Mod filename {filename} is unsafe (path separator or traversal); refusing to install"
@@ -590,6 +605,15 @@ pub enum Error {
     /// The server process failed to spawn.
     #[error("server process spawn failed: {details}")]
     ServerSpawnFailed { details: String },
+
+    /// Several installs of the server's loader, and nothing (a run script,
+    /// a single launchable candidate) names the one the server runs.
+    /// `candidates` are paths relative to the server folder.
+    #[error("cannot tell which {loader} install the server runs: {candidates:?}")]
+    ServerLoaderAmbiguous {
+        loader: String,
+        candidates: Vec<String>,
+    },
 
     /// The server is already running.
     #[error("server already running: {id}")]
@@ -1126,6 +1150,36 @@ mod tests {
     }
 
     #[test]
+    fn loader_list_gap_errors_serialize_with_tags() {
+        let e = Error::LoaderBuildsNotOffered {
+            loader: "neoforge".into(),
+            mc_version: "26.1-snapshot-1".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"loader_builds_not_offered""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
+        assert!(
+            json.contains(r#""mc_version":"26.1-snapshot-1""#),
+            "got: {json}"
+        );
+
+        let e = Error::LoaderVersionsUnreadable {
+            loader: "neoforge".into(),
+            mc_version: "26.4".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"loader_versions_unreadable""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
+        assert!(json.contains(r#""mc_version":"26.4""#), "got: {json}");
+    }
+
+    #[test]
     fn last_instance_serializes_with_tag() {
         let e = Error::LastInstance;
         let json = serde_json::to_string(&e).unwrap();
@@ -1427,6 +1481,18 @@ mod tests {
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_filename_conflict""#));
         assert!(j.contains(r#""filename":"jei.jar""#));
+    }
+
+    #[test]
+    fn mods_already_installed_names_the_installed_mod() {
+        let e = Error::ModsAlreadyInstalled {
+            name: "Fabric API".into(),
+        };
+        let j = serde_json::to_string(&e).unwrap();
+        assert_eq!(
+            j,
+            r#"{"kind":"mods_already_installed","name":"Fabric API"}"#
+        );
     }
 
     #[test]

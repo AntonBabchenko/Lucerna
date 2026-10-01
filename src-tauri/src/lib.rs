@@ -103,6 +103,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::execute_repair,
             commands::share_log_to_mclogs,
             commands::open_mods_folder,
+            commands::mods_reveal_file,
             commands::list_worlds,
             commands::list_world_names,
             commands::backup_world,
@@ -195,7 +196,12 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_disable,
             commands::mods_enable,
             commands::mods_uninstall,
+            commands::mods_uninstall_many,
+            commands::mods_restore_uninstalled,
             commands::mods_check_updates,
+            commands::mods_list_holds,
+            commands::mods_set_hold,
+            commands::mods_last_update_check,
             commands::asset_install,
             commands::assets_list,
             commands::asset_uninstall,
@@ -213,7 +219,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_dependency_graph,
             commands::instance_dependency_preflight,
             commands::mods_install_missing_required,
+            commands::mods_install_dependency,
             commands::mods_resolve_dep_names,
+            commands::mods_removal_impact,
+            commands::mods_enable_impact,
+            commands::mods_plan_version_fix,
             commands::mods_inspect_local,
             commands::mods_install_local,
             commands::mods_get_curseforge_key_status,
@@ -796,6 +806,28 @@ pub fn run() {
             // restart until the user re-saves settings. Best-effort; spawns its
             // own tasks internally.
             crate::commands::rearm_backup_schedulers(app.handle());
+
+            // Empty every instance's mod trash of entries from EARLIER sessions:
+            // an uninstall stays undoable for the session that offered it, never
+            // past a restart (D2). Own task, no delay — unlike the webview sweep
+            // below it waits for nothing but the trash lock, which it takes like
+            // every other trash writer. The cutoff is this session's start, so an
+            // uninstall made while it runs keeps its undo window.
+            // `paths::instances_dir` is the throwaway root in a recovery session,
+            // so the unreachable data folder is never touched.
+            let session_start = std::time::SystemTime::now();
+            match crate::paths::instances_dir(app.handle()) {
+                Ok(dir) => {
+                    tauri::async_runtime::spawn(async move {
+                        let lines =
+                            crate::mods::trash::purge_earlier_sessions(dir, session_start).await;
+                        for line in lines {
+                            crate::diag!("{line}");
+                        }
+                    });
+                }
+                Err(e) => crate::diag!("[setup] mod trash purge skipped: instances_dir: {e}"),
+            }
 
             // Remove `webview/` profiles that an earlier data-root move left in
             // its old root (they were in use by that process). Delayed: the
