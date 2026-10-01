@@ -153,16 +153,29 @@ const CLAIM_SPELLINGS: &[&str] = &[
 /// `(file, fn, must-precede, why)` — claim takers for which rule 3's "before the
 /// first `.await`" cannot hold, and what is pinned in its place. A timer loop
 /// sleeps first by construction and claims once per tick, so "first `.await`"
-/// is the sleep. What has to hold instead is that the claim precedes everything
-/// that TICK does to the server — named here as call-site spellings, each of
-/// which must sit BELOW the claim. The claim must still be bound.
-const CLAIM_AFTER_AWAIT_OK: &[(&str, &str, &[&str], &str)] = &[(
-    "commands/servers_runtime.rs",
-    "spawn_backup_scheduler",
-    &["pause_saves_for_backup(", "spawn_blocking("],
-    "a timer loop: `sleep(interval).await` opens every iteration, and the claim is taken \
-     per tick, before the save pause and before the zip is handed to a blocking thread",
-)];
+/// is the sleep. An import checks its input online before it has an id to
+/// claim, so "first `.await`" is that read. What has to hold instead is that the
+/// claim precedes everything the fn does to the server — named here as
+/// call-site spellings, each of which must sit BELOW the claim. The claim must
+/// still be bound.
+const CLAIM_AFTER_AWAIT_OK: &[(&str, &str, &[&str], &str)] = &[
+    (
+        "commands/servers_runtime.rs",
+        "spawn_backup_scheduler",
+        &["pause_saves_for_backup(", "spawn_blocking("],
+        "a timer loop: `sleep(interval).await` opens every iteration, and the claim is taken \
+         per tick, before the save pause and before the zip is handed to a blocking thread",
+    ),
+    (
+        "commands/servers_runtime.rs",
+        "server_import_commit",
+        &["provision_loader(", "spawn_blocking("],
+        "its first `.await` is the Minecraft-version check against Mojang's version list, a \
+         read that runs before the id is even reserved, so there is no server to protect yet; \
+         the claim follows the reservation and precedes the provisioning and the copies that \
+         lay down runtime/ (the preserve path claims inside `commit_preserve`, listed itself)",
+    ),
+];
 
 /// `(path relative to src/, fn name, required spelling, why it needs the gate)`.
 const GATED: &[(&str, &str, &str, &str)] = &[

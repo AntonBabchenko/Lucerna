@@ -353,6 +353,10 @@ pub async fn server_create(
     created_from_instance: Option<String>,
 ) -> Result<ServerCreated> {
     crate::data_root::reject_if_root_unusable(&app)?;
+    // The Minecraft version must be one Mojang lists — the create-from-instance
+    // path passes an instance's version, which nothing else has checked. Done
+    // before the name check so validate_name → reserve stays one sync step.
+    let mc_version = crate::servers_runtime::mc_version::check_new(&mc_version).await?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Trim + reject empty/duplicate names at the boundary (the wizard also gates
     // this, but two concurrent creates could still collide on the same name).
@@ -1948,6 +1952,10 @@ async fn provision_loader(
     base: &std::path::Path,
     file: &mut ServerFile,
 ) -> Result<()> {
+    // A saved server with no version (imported before the import required one)
+    // gets its own error instead of a download failure for an empty id. New
+    // servers never reach this: create and import check the version first.
+    crate::servers_runtime::mc_version::saved_recorded(&file.mc_version)?;
     match file.loader {
         ServerCore::Vanilla => {
             let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
@@ -2074,6 +2082,11 @@ pub async fn server_import_commit(
 ) -> Result<ServerWithStatus> {
     crate::data_root::reject_if_root_unusable(&app)?;
     crate::servers_runtime::eula::require_accepted(eula_accepted)?;
+    // The Minecraft version must be one Mojang lists: Start resolves the
+    // server's Java runtime by this id, so any other value saves a server that
+    // can never start. Checked before anything is reserved or written, and
+    // before the name check so validate_name → reserve stays one sync step.
+    let mc_version = crate::servers_runtime::mc_version::check_new(&mc_version).await?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Enforce name validation at the IPC boundary (parity with server_create):
     // reject empty / control-char / duplicate names before committing the import.
@@ -3829,6 +3842,10 @@ pub async fn server_switch_core(
             reason: "unsupported core switch".into(),
         });
     }
+    // The new core's builds are looked up by Minecraft version; a server saved
+    // without one is told so before a backup is taken for a switch that cannot
+    // happen.
+    crate::servers_runtime::mc_version::saved_recorded(&file.mc_version)?;
     // Mandatory fresh backup before anything changes on disk.
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     backup::create_backup(&base, &id, &stamp)?;

@@ -145,6 +145,15 @@ describe('ServerSidebarSection', () => {
     expect(screen.queryByTestId('sidebar-server-stop')).toBeNull();
   });
 
+  it('leaves a blank Minecraft version out of the server label', async () => {
+    await load([{ ...makeServer('a', false), mc_version: '' }]);
+    serversUi.selectServer('a');
+    render(ServerSidebarSection);
+    const select = screen.getByTestId('sidebar-server-select');
+    expect(select.textContent).toContain('a · Vanilla');
+    expect(select.textContent).not.toContain('·  ·');
+  });
+
   it('switches to the Overview tab immediately on Start click, before the command resolves', async () => {
     await load([makeServer('a', false)]);
     serversUi.selectServer('a');

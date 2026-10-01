@@ -717,6 +717,31 @@ pub enum Error {
     #[error("Server import session expired or was already used: {token}")]
     ServerImportStagingExpired { token: String },
 
+    /// A new server (create or import) was given no Minecraft version.
+    #[error("No Minecraft version was given for the server")]
+    ServerMcVersionRequired,
+
+    /// A new server (create or import) was given a Minecraft version Mojang's
+    /// manifest does not list, so it could never resolve its Java runtime.
+    #[error("Minecraft {mc_version} is not in Mojang's version list")]
+    ServerMcVersionUnlisted { mc_version: String },
+
+    /// Mojang's version list could not be loaded while a new server's
+    /// Minecraft version was being checked; the server is refused rather than
+    /// saved with a version nobody checked.
+    #[error("Could not load Mojang's version list to check the Minecraft version")]
+    ServerMcVersionUnchecked,
+
+    /// A saved server has no Minecraft version recorded (it was imported
+    /// before the import required one).
+    #[error("This server has no Minecraft version recorded")]
+    ServerSavedMcVersionMissing,
+
+    /// A saved server records a Minecraft version Mojang's manifest does not
+    /// list.
+    #[error("This server records Minecraft {mc_version}, which is not in Mojang's version list")]
+    ServerSavedMcVersionUnknown { mc_version: String },
+
     /// Server SFTP upload is not configured (no `UploadConfig`).
     #[error("server upload not configured")]
     UploadNotConfigured,
