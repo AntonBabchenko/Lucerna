@@ -273,6 +273,9 @@
 
   function onSearchKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // Clearing a search is this press's job: consumed, so it does not also
+      // end a tour. With the field already empty it goes on as usual.
+      if (search !== '') e.preventDefault();
       search = '';
       debouncedSearch = ''; // flush so highlights/counter clear at once
     } else if (e.key === 'Enter') {

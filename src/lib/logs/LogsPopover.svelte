@@ -775,6 +775,9 @@
 
   function onSearchKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      // Clearing a search is this press's job: consumed, so the log viewer
+      // stays open. With the field already empty it goes on and closes it.
+      if (search !== '') e.preventDefault();
       search = '';
       // Flush the debounce so highlights and the match counter clear at once,
       // rather than lingering for the debounce window after the input blanks.

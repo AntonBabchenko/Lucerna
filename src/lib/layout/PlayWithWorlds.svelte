@@ -119,6 +119,10 @@
       openMenu(false);
       queueMicrotask(() => itemEls[itemEls.length - 1]?.focus());
     } else if (e.key === 'Escape') {
+      // An open list is what this press closes: consumed, so the layer router
+      // does not also close what lies underneath (its layer may already be
+      // released by the time a real key press reaches the router).
+      if (open) e.preventDefault();
       close();
     }
   }

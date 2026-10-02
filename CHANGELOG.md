@@ -222,9 +222,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   and comes back on the same step when you close it, and opening the
   translations editor from the Overview tour starts the editor's own tour
   straight away.
-- **Escape closes only the topmost thing.** Closing an explanation with
-  Escape no longer ends the tour behind it, and no longer closes the dialog it
-  was opened from.
+- **Escape closes only the topmost thing.** Closing an explanation or a list
+  with Escape no longer ends the tour behind it, and no longer closes the
+  dialog it was opened from: closing the list of Minecraft versions in the
+  import from another launcher used to close the whole import. In a search
+  field, Escape first clears the search, where the log viewer used to close
+  along with it.
 - **A filter's list opens over the page switcher.** In a short window, a list
   opened from the filters of the mod or modpack browser, such as the Minecraft
   versions, went under the page switcher at the bottom, and its last entries

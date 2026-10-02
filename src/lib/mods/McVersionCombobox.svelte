@@ -108,16 +108,22 @@
       } else {
         open = false;
       }
-    } else if (e.key === 'Escape') {
+    } else if (e.key === 'Escape' && open) {
+      // Closing the list is this press's whole job: consume it, so the layer
+      // router leaves the dialog or tour underneath alone. "The list is still
+      // the top layer when the router runs" cannot be relied on: an effect
+      // releases its layer, and for a real key press the browser runs pending
+      // microtasks — Svelte's flush among them — between this listener and
+      // the router's. With the list closed, the key goes on as usual.
+      e.preventDefault();
       open = false;
       activeIndex = -1;
     }
   }
 
   // The open dropdown is a layer in the app's layer stack: a contextual tour
-  // underneath steps aside while it is open, and the input's Escape — which
-  // closes the list without consuming the key — reaches the router with this
-  // layer still on top, so the dialog around the combobox stays open.
+  // underneath steps aside while it is open, and an Escape that reaches the
+  // router while the list is on top closes the list.
   useLayer(
     'popover',
     () => open,

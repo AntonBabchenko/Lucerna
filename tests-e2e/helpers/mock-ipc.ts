@@ -208,6 +208,12 @@ export type MockState = {
   migration_plan?: unknown;
   /** `mods_apply_mc_migration` result (McMigrationReport). Defaults to no outcomes. */
   migration_report?: unknown;
+  /**
+   * Contextual tours (ids of the contextual-tours `TOUR_VERSION` map, e.g. `'addons'`) left
+   * un-seeded, so they fire on their surface as on a first visit. Every other contextual tour is
+   * marked done. Defaults to none.
+   */
+  pending_tours?: string[];
 };
 
 /**
@@ -277,9 +283,14 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
       const s = arg.state;
       const tourVersion = arg.tourVersion;
       // Suppress every per-surface contextual tour so its popover never sits
-      // over a control a spec is clicking. Runs before the app mounts.
+      // over a control a spec is clicking — except the ones a spec asks to see
+      // (`pending_tours`). Runs before the app mounts.
+      const pending = s.pending_tours ?? [];
       try {
-        for (const k of arg.contextualTourKeys) localStorage.setItem(k, '1');
+        for (const k of arg.contextualTourKeys) {
+          if (pending.some((id) => k.startsWith(`ftl.tour.${id}.`))) continue;
+          localStorage.setItem(k, '1');
+        }
       } catch {
         /* localStorage unavailable (private mode) — acceptable, tours are non-blocking */
       }
@@ -310,6 +321,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
           unjudged: [],
         },
         migration_report: { outcomes: [] },
+        pending_tours: [],
       };
       const m = { ...defaults, ...s };
       // Fields the UI patched through app_settings_patch_general; served back by app_settings_get.
