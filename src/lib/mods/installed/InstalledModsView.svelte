@@ -34,7 +34,7 @@
   import { createInstalledData, type Row } from './installed-data.svelte';
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
-  import { createDepGraph } from './dep-graph.svelte';
+  import { createDepGraph, type RequiredByEntry } from './dep-graph.svelte';
   import {
     createPreflight,
     hasBlocking,
@@ -180,7 +180,7 @@
   // toggle the list is re-read before the re-resolved graph lands — so for that
   // moment the graph is stale. What the rows can tell is taken from the rows:
   // - a mod switched off since requires nothing at load time: only roots that
-  //   are enabled NOW count (`requiredByCount`);
+  //   are enabled NOW count (`rowRequiredBy`);
   // - a mod switched on since has no root yet, so what it requires is unknown:
   //   the graph views are no fact until the graph knows every enabled platform
   //   mod (`graphCoversEnabled`) — a library it needs could read as unused;
@@ -188,10 +188,19 @@
   //   rate-limited, an unidentified version) requires something unknown: while
   //   one is enabled no library is unused (`enabledDepsUnknown`). «Нужны другим»
   //   stays — every edge it counts is real, so its count is a lower bound.
-  const requiredByCount = (r: Row | undefined): number =>
-    (deps.requiredBy.get(r?.installed.project_id ?? '') ?? []).filter(
-      (e) => rowBySha.get(e.sha1)?.installed.enabled === true,
-    ).length;
+  // Who a row's jar serves: the mods enabled now that require its project — and
+  // nobody while the jar itself is switched off. `deps.requiredBy` is keyed by
+  // PROJECT, so a switched-off copy next to an enabled one read the enabled
+  // copy's dependents (2026-10-02 regression F03); a switched-off jar satisfies
+  // nobody, the same rule as the filters below. One rule for the row's figure
+  // and section, the column's width, and the filters.
+  const rowRequiredBy = (r: Row | undefined): RequiredByEntry[] =>
+    r?.installed.enabled
+      ? (deps.requiredBy.get(r.installed.project_id ?? '') ?? []).filter(
+          (e) => rowBySha.get(e.sha1)?.installed.enabled === true,
+        )
+      : [];
+  const requiredByCount = (r: Row | undefined): number => rowRequiredBy(r).length;
   const graphCoversEnabled = (): boolean =>
     deps.graph !== null &&
     data.rows.every(
@@ -259,8 +268,9 @@
     relationSlotDigits(
       data.rows.map((row) => {
         const root = deps.rootBySha.get(row.installed.sha1);
-        const dependents = deps.requiredBy.get(row.installed.project_id ?? '') ?? [];
-        return relationFigures(relationInput(root, deps.depCounts(root).total, dependents.length));
+        return relationFigures(
+          relationInput(root, deps.depCounts(root).total, requiredByCount(row)),
+        );
       }),
     ),
   );
@@ -1176,7 +1186,7 @@
         {@const rowKey = modKey(row.installed.source, row.installed.project_id, row.installed.sha1)}
         {@const root = deps.rootBySha.get(row.installed.sha1)}
         {@const counts = deps.depCounts(root)}
-        {@const reqBy = deps.requiredBy.get(row.installed.project_id ?? '') ?? []}
+        {@const reqBy = rowRequiredBy(row)}
         <InstalledModRow
           summary={row.summary}
           installed={row.installed}

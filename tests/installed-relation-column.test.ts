@@ -5,7 +5,7 @@
  * widest figure over the whole profile.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import InstalledModRow from '$lib/mods/installed/InstalledModRow.svelte';
 import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 import {
@@ -350,5 +350,67 @@ describe('the relation column across the list', () => {
     await fireEvent.input(search, { target: { value: 'Lib' } });
     await waitFor(() => expect(document.querySelectorAll('[data-mod-row]')).toHaveLength(1));
     expect(screen.getByTestId('installed-list').style.getPropertyValue('--rel-dep-ch')).toBe('2');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// ↑ counts for the jar that serves (2026-10-02 regression F03)
+// ---------------------------------------------------------------------------------------------
+// «Required by» is the graph's fact about a PROJECT; a row is a JAR. A switched-off copy of
+// Fabric API next to the enabled one read «↑8» — the enabled copy's dependents, clickable. A
+// switched-off jar satisfies nobody, the filters' rule already; the figure follows it.
+describe('the ↑ figure belongs to the jar that serves', () => {
+  const rowsWith = (name: string) =>
+    [...document.querySelectorAll<HTMLElement>('[data-mod-row]')].filter((r) =>
+      r.textContent?.includes(name),
+    );
+  const byFigure = (row: HTMLElement | undefined) =>
+    row?.querySelector('[data-testid="relation-by"]')?.textContent?.trim() ?? '';
+
+  async function renderWithRows(instanceId: string, rows: unknown[]) {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsListInstalled).mockResolvedValue({
+      status: 'ok',
+      data: rows,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+    render(InstalledModsView, {
+      props: { instanceId, mcVersion: '1.21.1', loader: 'fabric' as const },
+    });
+  }
+
+  afterEach(async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsListInstalled).mockResolvedValue({
+      status: 'ok',
+      data: v.rows,
+      // biome-ignore lint/suspicious/noExplicitAny: mocked IPC envelope
+    } as any);
+  });
+
+  it('a switched-off copy shows none of what the enabled copy serves', async () => {
+    const oldCopy = {
+      ...v.rows[1],
+      sha1: 'l-old',
+      filename: 'lib-0.9.jar',
+      name: 'Old Lib Copy',
+      version_number: '0.9',
+      enabled: false,
+    };
+    await renderWithRows('relcol-twin', [...v.rows, oldCopy]);
+    await waitFor(() => expect(rowsWith('Old Lib Copy')).toHaveLength(1));
+    const enabledCopy = rowsWith('Lib').find((r) => !r.textContent?.includes('Old Lib Copy'));
+    await waitFor(() => expect(byFigure(enabledCopy)).toBe('1'));
+    expect(byFigure(rowsWith('Old Lib Copy')[0])).toBe('');
+  });
+
+  it('a dependent switched off since the graph loaded no longer counts', async () => {
+    // The graph (mocked) still roots Alpha, as it does until it is resolved again.
+    await renderWithRows('relcol-off', [{ ...v.rows[0], enabled: false }, v.rows[1]]);
+    await waitFor(() => expect(rowsWith('Lib')).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByTestId('installed-list').style.getPropertyValue('--rel-dep-ch')).toBe('2'),
+    );
+    expect(byFigure(rowsWith('Lib')[0])).toBe('');
   });
 });
