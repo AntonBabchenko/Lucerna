@@ -46,7 +46,13 @@ function current(): readonly Layer[] {
 function commit(next: readonly Layer[]): void {
   layers = next;
   syncRouter(next.length > 0);
-  for (const fn of listeners) fn();
+  // A commit runs inside whatever pushed or released a layer — often an effect
+  // (useLayer). A listener that reads the stack must not make that effect
+  // depend on it, or the next change would re-run it: release and re-push its
+  // layer, reordering the stack.
+  untrack(() => {
+    for (const fn of listeners) fn();
+  });
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -129,6 +135,14 @@ export function tourAbove(id: LayerId): boolean {
   const index = layers.findIndex((l) => l.id === id);
   const top = layers.length - 1;
   return index !== -1 && top > index && layers[top].kind === 'tour';
+}
+
+/**
+ * A contextual tour hosted by `id` is in the stack — on top, or stepped aside under something
+ * opened over it. False when `id` hosts none. Reactive.
+ */
+export function hostsTour(id: LayerId): boolean {
+  return layers.some((l) => l.kind === 'tour' && l.host === id);
 }
 
 /** How many modals are open; 0 when none. Reactive. */

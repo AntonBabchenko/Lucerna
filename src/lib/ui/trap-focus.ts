@@ -10,7 +10,8 @@
 // first focusable descendant, else the node itself (give the node
 // `tabindex="-1"` so this fallback works).
 
-import { type LayerId, onLayersChange, tourAbove } from './layer-stack.svelte';
+import { untrack } from 'svelte';
+import { hostsTour, type LayerId, onLayersChange, tourAbove } from './layer-stack.svelte';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -40,20 +41,54 @@ function focusableDescendants(node: HTMLElement): HTMLElement[] {
 export function trapFocus(node: HTMLElement, layer: LayerId) {
   const restoreTo = document.activeElement as HTMLElement | null;
 
-  // Armed only on the yield path below; dropped on the first release and on
-  // destroy, so the common case (no tour up) subscribes to nothing.
-  let stopWaiting: (() => void) | null = null;
+  // The yield has to be GIVEN BACK. A tour hosted by this dialog moves the
+  // focus to its card, and ends by unmounting it, which drops focus to <body>;
+  // nothing else would ever move it into this panel, so the dialog would sit
+  // unfocused (never announced to a screen reader) with its node-scoped Tab
+  // handler unreachable — Tab would walk the application behind the open
+  // dialog instead of cycling inside it. So for as long as the trap is mounted
+  // it watches the stack: when a tour of this dialog arrives it notes where the
+  // focus was in the panel, and when the tour is gone it puts the focus back
+  // there (or on the initial target). For the trap's whole life, not only for a
+  // tour already up when the dialog opens: one also arrives later — once the
+  // dialog's content has loaded, or from a button inside it. A tour stepping
+  // aside under something opened over it is not an end: it is still hosted.
+  // Untracked: the action runs as its element mounts, and reading the stack
+  // must not make anything around it depend on the stack.
+  let touring = untrack(() => hostsTour(layer));
+  let resumeAt: HTMLElement | null = null;
+  let destroyed = false;
+  const stopWatching = onLayersChange(() => {
+    const now = hostsTour(layer);
+    if (now === touring) return;
+    touring = now;
+    if (now) {
+      const active = document.activeElement;
+      resumeAt = active instanceof HTMLElement && node.contains(active) ? active : null;
+    } else {
+      giveFocusBack();
+    }
+  });
 
-  function waitForTourToEnd() {
-    stopWaiting = onLayersChange(() => {
-      if (tourAbove(layer)) return;
-      stopWaiting?.();
-      stopWaiting = null;
-      // Not `focusInitial()` unconditionally: the user may have clicked into
-      // the panel while the tour was up, and pulling them to [data-autofocus]
-      // would undo their own choice.
-      if (!node.contains(document.activeElement)) focusInitial();
+  function giveFocusBack() {
+    if (!node.contains(document.activeElement)) {
+      resume();
+      return;
+    }
+    // Focus is still in the panel: the user clicked into it while the tour was
+    // up — theirs, keep it — or it sits on the tour's card, a child of this
+    // panel that may still be mounted when the tour's layer goes. Look again
+    // once that update is over: the card is gone then, and so is the focus.
+    queueMicrotask(() => {
+      if (!destroyed && !touring && !node.contains(document.activeElement)) resume();
     });
+  }
+
+  function resume() {
+    const at = resumeAt;
+    resumeAt = null;
+    if (at?.isConnected && node.contains(at)) at.focus();
+    else focusInitial();
   }
 
   function focusInitial() {
@@ -61,16 +96,9 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
     // with focus, from a banner): keep it. A plain open still lands on
     // [data-autofocus] below.
     if (node.contains(document.activeElement)) return;
-    // A tour on top of this dialog placed focus on its card: leave it there,
-    // and then GIVE THE YIELD BACK. A tour ends by unmounting, which drops
-    // focus to <body>; nothing else would ever move it into this panel, so the
-    // dialog would sit unfocused (never announced to a screen reader) with its
-    // node-scoped Tab handler unreachable — Tab would walk the application
-    // behind the open dialog instead of cycling inside it.
-    if (tourAbove(layer)) {
-      waitForTourToEnd();
-      return;
-    }
+    // A tour on top of this dialog keeps the focus on its card; the watcher
+    // above gives it back when the tour ends.
+    if (tourAbove(layer)) return;
     const preferred = node.querySelector<HTMLElement>('[data-autofocus]');
     (preferred ?? focusableDescendants(node)[0] ?? node).focus();
   }
@@ -123,8 +151,8 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
   return {
     destroy() {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
-      stopWaiting?.();
-      stopWaiting = null;
+      destroyed = true;
+      stopWatching();
       node.removeEventListener('keydown', onKeydown);
       // Restore focus to whatever was focused before the trap opened, if it is
       // still in the document and focusable.

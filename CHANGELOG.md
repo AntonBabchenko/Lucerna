@@ -284,6 +284,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   session: nothing more reached the server's page or its log file, and a backup
   of the running server could not see the world being saved. Such lines now
   read as text, and the console goes on.
+- **The keyboard stays in a dialog after its tour.** When a short tour inside a
+  dialog ended, such as the one in the translations editor or in profile
+  management, the keyboard focus left the dialog, and Tab moved through the
+  page behind it. The focus now goes back to where it was in the dialog.
 
 ## [0.25.0] — 2026-09-27
 

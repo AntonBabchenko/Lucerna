@@ -104,3 +104,69 @@ describe('trapFocus yields to a tour above its dialog, then takes focus back', (
     expect(document.activeElement).toBe(target);
   });
 });
+
+// 2026-10-02 regression F11: the give-back was armed only for a tour already on top when the
+// dialog took its initial focus, and not even then once the tour's card — a child of the panel —
+// held the focus by that time. A tour that arrives LATER (the dialog's content loaded first, or the
+// tour was started from inside it) moved the focus to its card and, ending, dropped it to <body>:
+// Tab then walked the page behind the open dialog (translations editor, Manage).
+describe('trapFocus gives focus back after a tour that arrived later', () => {
+  // The dialog is open with focus on a field the user was using; then its tour arrives and
+  // moves focus to the card, which is a child of the panel.
+  async function tourArrivesOverFocusedField(): Promise<{
+    target: HTMLButtonElement;
+    field: HTMLInputElement;
+    card: HTMLButtonElement;
+    endTour: () => void;
+  }> {
+    const dialog = newLayerId('dialog');
+    pushLayer(dialog, 'modal', noop);
+    const { panel, target } = mountPanel(dialog);
+    await frame();
+    expect(document.activeElement).toBe(target);
+    const field = document.createElement('input');
+    panel.appendChild(field);
+    field.focus();
+
+    const endTour = insertTour(newLayerId('tour'), dialog, noop);
+    if (!endTour) throw new Error('tour refused');
+    const card = document.createElement('button');
+    card.textContent = 'Next';
+    panel.appendChild(card);
+    card.focus();
+    return { target, field, card, endTour };
+  }
+
+  it('puts focus back where it was in the dialog when the tour ends', async () => {
+    const { field, card, endTour } = await tourArrivesOverFocusedField();
+    card.remove();
+    endTour();
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('also when the card that held the focus outlives the tour by an update', async () => {
+    const { field, card, endTour } = await tourArrivesOverFocusedField();
+    endTour(); // the layer goes first; the card is unmounted in the same update
+    card.remove();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('falls back to the initial target when that element is gone', async () => {
+    const { target, field, card, endTour } = await tourArrivesOverFocusedField();
+    field.remove();
+    card.remove();
+    endTour();
+    expect(document.activeElement).toBe(target);
+  });
+
+  it('a tour stepping aside under a popover is not an end', async () => {
+    const { card, endTour } = await tourArrivesOverFocusedField();
+    // A popover opened over the tour takes the top; the tour is still the dialog's.
+    const releasePopover = pushLayer(newLayerId('popover'), 'popover', noop);
+    expect(document.activeElement).toBe(card);
+    releasePopover();
+    expect(document.activeElement).toBe(card);
+    endTour();
+  });
+});
