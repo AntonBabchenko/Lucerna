@@ -42,6 +42,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     redownloadJar: vi.fn().mockResolvedValue({ ok: true }),
     disableMods: vi.fn().mockResolvedValue({ ok: true }),
     installMissingDep: vi.fn().mockResolvedValue({ ok: true }),
+    start: vi.fn().mockResolvedValue({ ok: true }),
     running: (id: string) => mockRunning[id] ?? false,
     refresh: vi.fn().mockResolvedValue(undefined),
     init: vi.fn(),
@@ -487,6 +488,101 @@ describe('ServerDiagnosisBanner', () => {
     // The regression this pins: formatError's default arm JSON.stringifies, and
     // a JS Error has no enumerable own properties, so the user saw empty braces.
     expect(err.textContent).not.toContain('{}');
+  });
+
+  // 2026-10-02 regression F08: «Перекачать файл сервера и повторить» re-downloaded the jar, the
+  // banner went away — and the server stayed crashed. Since #167 every fix whose label promises a
+  // start only diagnosed again. A fix that worked now starts the server the way the sidebar's
+  // Start does (Overview first); one that failed does not; a fix that promises nothing does not.
+  describe('a fix whose label promises a start', () => {
+    type Store = Record<string, ReturnType<typeof vi.fn>>;
+    async function store(): Promise<Store> {
+      const mod = await import('$lib/servers/server-state.svelte');
+      return mod.serverState as unknown as Store;
+    }
+
+    it.each([
+      ['server-fix-accept-eula', 'server-eula-not-accepted', 'accept_eula', 'acceptEula', {}],
+      [
+        'server-fix-stop-orphan',
+        'server-orphan-running',
+        'stop_orphan_and_retry',
+        'stopOrphan',
+        { orphan_pid: 4242 },
+      ],
+      [
+        'server-fix-raise-heap',
+        'server-out-of-memory',
+        'raise_heap',
+        'raiseHeap',
+        { suggested_heap_mb: 6144 },
+      ],
+      [
+        'server-fix-lower-heap',
+        'server-heap-too-big',
+        'lower_heap',
+        'lowerHeap',
+        { suggested_heap_mb: 4096 },
+      ],
+      [
+        'server-fix-redownload-jar',
+        'server-corrupt-jar',
+        'redownload_server_jar',
+        'redownloadJar',
+        { corrupt_jar: 'server.jar' },
+      ],
+    ] as const)('%s fixes, then starts the server on its Overview', async (testid, pattern, repair, fix, extra) => {
+      const s = await store();
+      s.start.mockClear();
+      s[fix].mockClear();
+      s[fix].mockResolvedValue({ ok: true });
+      const id = `srv-start-${repair}`;
+      mockDiagnoses[id] = makePreflightDiagnosis(pattern, repair, extra);
+      const { serversUi } = await import('$lib/servers/servers-ui.svelte');
+      serversUi.activeTab = 'settings';
+
+      render(ServerDiagnosisBanner, { props: { serverId: id } });
+      await fireEvent.click(screen.getByTestId(testid));
+
+      await vi.waitFor(() => expect(s.start).toHaveBeenCalledWith(id));
+      expect(s[fix]).toHaveBeenCalled();
+      expect(serversUi.activeTab).toBe('overview');
+    });
+
+    it('does not start when the fix itself failed', async () => {
+      const s = await store();
+      s.start.mockClear();
+      acceptEulaSpy.mockResolvedValueOnce({
+        ok: false,
+        error: { kind: 'io', path: 'eula.txt', details: 'denied' },
+      });
+      mockDiagnoses['srv-nostart'] = makePreflightDiagnosis(
+        'server-eula-not-accepted',
+        'accept_eula',
+      );
+
+      render(ServerDiagnosisBanner, { props: { serverId: 'srv-nostart' } });
+      await fireEvent.click(screen.getByTestId('server-fix-accept-eula'));
+
+      await screen.findByTestId('server-fix-error');
+      expect(s.start).not.toHaveBeenCalled();
+    });
+
+    it('a new port promises no start: it only diagnoses again', async () => {
+      const s = await store();
+      s.start.mockClear();
+      s.diagnose.mockClear();
+      mockDiagnoses['srv-port-only'] = makePreflightDiagnosis('server-port-in-use', 'change_port', {
+        port_in_use: 25565,
+        suggested_port: 25566,
+      });
+
+      render(ServerDiagnosisBanner, { props: { serverId: 'srv-port-only' } });
+      await fireEvent.click(screen.getByTestId('server-fix-change-port'));
+
+      await vi.waitFor(() => expect(s.diagnose).toHaveBeenCalledWith('srv-port-only'));
+      expect(s.start).not.toHaveBeenCalled();
+    });
   });
 
   it('shows the typed reason when the fix command returns an error Result', async () => {

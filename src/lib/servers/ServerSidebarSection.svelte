@@ -8,6 +8,7 @@
   import { navVisual } from '$lib/layout/nav-status';
   import { serverState, serverNavStatus } from '$lib/servers/server-state.svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
+  import { startShowingConsole } from '$lib/servers/start-server';
   import { displayCore, modCapable, pluginCapable } from '$lib/servers/core-display';
   import { compactState, setCompact } from '$lib/layout/compact.svelte';
   import { tooltip } from '$lib/ui/tooltip';
@@ -92,10 +93,7 @@
   async function startSelected(): Promise<void> {
     const id = selected?.id;
     if (!id) return;
-    // Show Overview first so startup lines (and any EULA/port failure
-    // banner) land on its console card — then run the shared helper.
-    serversUi.activeTab = 'overview';
-    await serverState.start(id);
+    await startShowingConsole(id);
   }
 
   async function stopSelected(): Promise<void> {

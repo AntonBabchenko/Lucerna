@@ -5,6 +5,7 @@
   import type { ClientModFinding } from '$lib/ipc/bindings';
   import { serverState, type ServerStoreFailure } from '$lib/servers/server-state.svelte';
   import EulaLink from '$lib/servers/EulaLink.svelte';
+  import { startShowingConsole } from '$lib/servers/start-server';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Banner from '$lib/ui/Banner.svelte';
@@ -121,14 +122,24 @@
   // own failure type instead of `{ ok: boolean; error?: unknown }` is what makes
   // `r.error` a typed IpcError below -- and what stops a future wrapper with a
   // different failure shape being passed here by accident.
-  async function runFix(fn: () => Promise<{ ok: true } | ServerStoreFailure>) {
+  //
+  // `thenStart`: the fix's label promises a start ("… & retry", "Accept EULA &
+  // start"), so a fix that worked starts the server — the way the sidebar's
+  // Start does, where a refusal or a crash reports itself. Until 2026-10-02
+  // every such fix only diagnosed again: the banner went away, the server stayed
+  // stopped. A fix that promises nothing (a new port) re-diagnoses.
+  async function runFix(
+    fn: () => Promise<{ ok: true } | ServerStoreFailure>,
+    { thenStart = false }: { thenStart?: boolean } = {},
+  ) {
     busyFix = true;
     fixError = null;
     installInfo = null; // a prior unresolved-deps hint must not outlive this action
     try {
       const r = await fn();
       if (r.ok) {
-        await serverState.diagnose(serverId);
+        if (thenStart) await startShowingConsole(serverId);
+        else await serverState.diagnose(serverId);
       } else {
         fixError = formatError(r.error);
       }
@@ -327,7 +338,7 @@
           data-testid="server-fix-accept-eula"
           busy={busyFix}
           aria-label={$t('servers.diagnose.fix.acceptEula')}
-          onclick={() => void runFix(() => serverState.acceptEula(serverId))}
+          onclick={() => void runFix(() => serverState.acceptEula(serverId), { thenStart: true })}
         >
           {$t('servers.diagnose.fix.acceptEula')}
         </BusyButton>
@@ -339,7 +350,10 @@
         data-testid="server-fix-stop-orphan"
         busy={busyFix}
         aria-label={$t('servers.diagnose.fix.stopOrphan')}
-        onclick={() => void runFix(() => serverState.stopOrphan(serverId, diag.orphan_pid ?? 0))}
+        onclick={() =>
+          void runFix(() => serverState.stopOrphan(serverId, diag.orphan_pid ?? 0), {
+            thenStart: true,
+          })}
       >
         {$t('servers.diagnose.fix.stopOrphan')}
       </BusyButton>
@@ -362,7 +376,9 @@
           mb: diag.suggested_heap_mb ?? 4096,
         })}
         onclick={() =>
-          void runFix(() => serverState.raiseHeap(serverId, diag.suggested_heap_mb ?? 4096))}
+          void runFix(() => serverState.raiseHeap(serverId, diag.suggested_heap_mb ?? 4096), {
+            thenStart: true,
+          })}
       >
         {$t('servers.diagnose.fix.raiseHeap', { mb: diag.suggested_heap_mb ?? 4096 })}
       </BusyButton>
@@ -375,7 +391,9 @@
           mb: diag.suggested_heap_mb ?? 2048,
         })}
         onclick={() =>
-          void runFix(() => serverState.lowerHeap(serverId, diag.suggested_heap_mb ?? 2048))}
+          void runFix(() => serverState.lowerHeap(serverId, diag.suggested_heap_mb ?? 2048), {
+            thenStart: true,
+          })}
       >
         {$t('servers.diagnose.fix.lowerHeap', { mb: diag.suggested_heap_mb ?? 2048 })}
       </BusyButton>
@@ -385,7 +403,7 @@
         data-testid="server-fix-redownload-jar"
         busy={busyFix}
         aria-label={$t('servers.diagnose.fix.redownloadJar')}
-        onclick={() => void runFix(() => serverState.redownloadJar(serverId))}
+        onclick={() => void runFix(() => serverState.redownloadJar(serverId), { thenStart: true })}
       >
         {$t('servers.diagnose.fix.redownloadJar')}
       </BusyButton>

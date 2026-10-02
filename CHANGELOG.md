@@ -311,6 +311,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A message about a refused change goes once the next change works.** In
   profile management, a refused change of the Minecraft version kept its red
   message under the form after the next change had gone through.
+- **The fixes that promise to retry start the server again.** Accepting the
+  EULA, stopping a leftover copy, raising or lowering the memory, or
+  downloading the server file again from a server's problem notice made the
+  fix and then left the server stopped. They now start it, as their buttons
+  say.
 
 ## [0.25.0] — 2026-09-27
 
