@@ -173,12 +173,8 @@
     </button>
   </div>
 
-  <!-- The scrollbar's gutter is reserved: the Add-ons browser reloads its list
-       on every query, and a list that turns shorter than the window drops the
-       scrollbar — the whole tab moved 15 px sideways and back, and an open
-       popover anchored in the filter bar was left behind (DESIGN.md §14). -->
   <div
-    class="flex-1 overflow-y-auto [scrollbar-gutter:stable] relative"
+    class="flex-1 overflow-y-auto relative"
     role="tabpanel"
     id="maintabpanel"
     aria-labelledby="maintab-{active}"

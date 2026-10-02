@@ -10,7 +10,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Banner from '$lib/ui/Banner.svelte';
   import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
-  import { serverDiagnosisSignature } from './server-diagnosis-view';
+  import { serverBannerEligible, serverDiagnosisSignature } from './server-diagnosis-view';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -204,7 +204,7 @@
   }
 
   // Install missing dependency mods — honest about partial/zero results instead
-  // of clearing the banner on a silent no-op.
+  // of clearing the banner on a silent no-op — and retry once all are in.
   async function runInstallMissingDep() {
     busyFix = true;
     fixError = null;
@@ -217,6 +217,14 @@
       }
       const installed = r.report.installed;
       const unresolved = r.report.unresolved;
+      // Everything the crash named is in now: the label promises a retry, so
+      // start (see runFix). With some left unresolved a start would crash
+      // again — those are named below, and the restart is left to the user.
+      if (installed.length > 0 && unresolved.length === 0) {
+        pushSuccess(get(t)('servers.diagnose.installReportOk', { count: installed.length }));
+        await startShowingConsole(serverId);
+        return;
+      }
       if (installed.length > 0) {
         pushSuccess(
           `${get(t)('servers.diagnose.installReportOk', { count: installed.length })} ${get(t)('servers.diagnose.restartHint')}`,
@@ -279,7 +287,7 @@
   }
 </script>
 
-{#if diag && diag.diagnosis && diag.status !== 'none' && diag.status !== 'handled' && !running && !dismissed}
+{#if diag?.diagnosis && serverBannerEligible(diag, running) && !dismissed}
   <!-- role="alert" so screen-reader users hear the diagnosis when it appears
        after a crash (it renders conditionally, not on mount). -->
   <Banner

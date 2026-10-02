@@ -549,6 +549,46 @@ describe('ServerDiagnosisBanner', () => {
       expect(serversUi.activeTab).toBe('overview');
     });
 
+    // «Install missing mods & retry» promises a retry too — once every mod the crash named is in.
+    it('installing every missing mod starts the server', async () => {
+      const s = await store();
+      s.start.mockClear();
+      s.installMissingDep.mockResolvedValueOnce({
+        ok: true,
+        report: { installed: ['jei'], unresolved: [] },
+      });
+      mockDiagnoses['srv-dep-all'] = makePreflightDiagnosis(
+        'server-missing-dep',
+        'install_missing_dep',
+        { conflict_mods: ['jei'] },
+      );
+
+      render(ServerDiagnosisBanner, { props: { serverId: 'srv-dep-all' } });
+      await fireEvent.click(screen.getByTestId('server-fix-install-dep'));
+
+      await vi.waitFor(() => expect(s.start).toHaveBeenCalledWith('srv-dep-all'));
+    });
+
+    it('a partial install names what is missing and does not start', async () => {
+      const s = await store();
+      s.start.mockClear();
+      s.installMissingDep.mockResolvedValueOnce({
+        ok: true,
+        report: { installed: ['jei'], unresolved: ['rei'] },
+      });
+      mockDiagnoses['srv-dep-part'] = makePreflightDiagnosis(
+        'server-missing-dep',
+        'install_missing_dep',
+        { conflict_mods: ['jei', 'rei'] },
+      );
+
+      render(ServerDiagnosisBanner, { props: { serverId: 'srv-dep-part' } });
+      await fireEvent.click(screen.getByTestId('server-fix-install-dep'));
+
+      expect((await screen.findByTestId('server-install-info')).textContent).toContain('rei');
+      expect(s.start).not.toHaveBeenCalled();
+    });
+
     it('does not start when the fix itself failed', async () => {
       const s = await store();
       s.start.mockClear();

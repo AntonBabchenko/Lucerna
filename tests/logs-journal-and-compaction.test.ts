@@ -47,6 +47,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import { commands } from '$lib/ipc/bindings';
 import LogsPopover from '$lib/logs/LogsPopover.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 const FILE: LogFileMeta = {
   path: 'C:/i/.minecraft/logs/latest.log',
@@ -206,6 +207,9 @@ describe('repeat collapse in the log body', () => {
   // router, which closed the whole log viewer. Clearing is the press's job; an empty field
   // lets the next Escape close the viewer, as before.
   it('Escape clears the search and keeps the viewer open; the next one closes it', async () => {
+    // The viewer hosts the logs tour, which would be the top layer on a first visit (this file
+    // clears localStorage) and take the second Escape itself.
+    markSeen('logs');
     const { findByText, getByPlaceholderText, queryByPlaceholderText } = render(LogsPopover, {
       props,
     });

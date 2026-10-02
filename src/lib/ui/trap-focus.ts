@@ -88,7 +88,8 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
     const at = resumeAt;
     resumeAt = null;
     if (at?.isConnected && node.contains(at)) at.focus();
-    else focusInitial();
+    // Gone, or no longer focusable (disabled or hidden meanwhile): the initial target.
+    if (document.activeElement !== at) focusInitial();
   }
 
   function focusInitial() {

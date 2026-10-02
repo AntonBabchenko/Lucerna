@@ -7,11 +7,10 @@ import type { Error as IpcError, ServerDiagnosis } from '$lib/ipc/bindings';
 import { isIpcError } from '$lib/ipc/format-error';
 
 /**
- * Whether the diagnosis banner is eligible to show. Mirrors the `{#if}` in
- * ServerDiagnosisBanner.svelte — keep the two in sync. (The banner keeps the
- * condition inline so Svelte narrows `diag` to non-null in its body; this helper
- * is the same predicate for surfaces that only need the boolean, e.g. the
- * restore badge.)
+ * Whether the diagnosis banner is eligible to show: ServerDiagnosisBanner's
+ * `{#if}` is this predicate and "not dismissed" (its `diag?.diagnosis` test is
+ * there for type narrowing only), and ServersPanel reads the same two for the
+ * restore badge and for whether the banner on screen covers an action error.
  */
 export function serverBannerEligible(
   diag: ServerDiagnosis | null | undefined,

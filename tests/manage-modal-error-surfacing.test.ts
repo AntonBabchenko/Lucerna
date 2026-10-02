@@ -154,9 +154,10 @@ describe('ManageInstancesModal — error surfacing', () => {
       },
     });
     await screen.findByDisplayValue('Default');
+    // Select commits an option on mousedown, as every other test of it drives it.
     const pickMc = async (id: string) => {
       await fireEvent.click(screen.getByRole('combobox', { name: 'Minecraft version' }));
-      await fireEvent.click(await screen.findByRole('option', { name: id }));
+      await fireEvent.mouseDown(await screen.findByRole('option', { name: id }));
     };
 
     await pickMc('1.21');
