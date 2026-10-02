@@ -288,6 +288,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   dialog ended, such as the one in the translations editor or in profile
   management, the keyboard focus left the dialog, and Tab moved through the
   page behind it. The focus now goes back to where it was in the dialog.
+- **A Fabric server that has never been started imports as Fabric.** Importing
+  one, such as a copy of a server Lucerna made before its first start, read it
+  as Vanilla with no Minecraft version, because the files Fabric adds on the
+  first start were not there yet. Its Minecraft and Fabric versions are now
+  read from the Fabric launcher it carries.
 
 ## [0.25.0] — 2026-09-27
 
