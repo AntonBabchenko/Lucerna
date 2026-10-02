@@ -308,6 +308,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   copy of the same mod, the switched-off one showed how many mods need it,
   which is the enabled copy's count, and opened their list. Only an enabled
   copy counts them now.
+- **A message about a refused change goes once the next change works.** In
+  profile management, a refused change of the Minecraft version kept its red
+  message under the form after the next change had gone through.
 
 ## [0.25.0] — 2026-09-27
 
