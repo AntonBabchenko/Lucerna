@@ -16,14 +16,10 @@
 
 use std::path::Path;
 
-/// `CP_ACP` — the system default ANSI code page. Defined here because
-/// windows-sys does not export the constant.
+// `CP_ACP` is the system default ANSI code page; `CP_UTF8` is where the "Beta:
+// Use Unicode UTF-8 for worldwide language support" setting puts the ACP.
 #[cfg(windows)]
-const CP_ACP: u32 = 0;
-/// Where the "Beta: Use Unicode UTF-8 for worldwide language support"
-/// setting puts the ACP. Everything is expressible there.
-#[cfg(windows)]
-const CP_UTF8: u32 = 65001;
+use windows_sys::Win32::Globalization::{CP_ACP, CP_UTF8};
 
 /// True if `path` survives a round trip through the system ANSI code page.
 #[cfg(windows)]

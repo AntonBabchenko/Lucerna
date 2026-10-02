@@ -783,7 +783,7 @@ mod tests {
         assert_eq!(got.len(), 5, "{got:?}");
         assert_eq!(got[0], "first");
         assert!(
-            !got[1].is_empty() && !got[1].contains(|c| c == '\r' || c == '\n'),
+            !got[1].is_empty() && !got[1].contains(['\r', '\n']),
             "{got:?}"
         );
         assert_eq!(got[2], "");

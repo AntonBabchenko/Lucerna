@@ -10,6 +10,7 @@ use crate::mods::platform::*;
 use std::collections::HashMap;
 
 const BASE_DEFAULT: &str = "https://api.modrinth.com";
+const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 
 /// Whether `id` can be a Modrinth project or version id at all: Modrinth reads
 /// every id it is handed as a base62 number that fits a u64 (`0-9A-Za-z`, at
@@ -32,7 +33,6 @@ pub(crate) fn is_modrinth_id(id: &str) -> bool {
         })
         .is_some()
 }
-const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 
 pub struct ModrinthClient {
     base: String,

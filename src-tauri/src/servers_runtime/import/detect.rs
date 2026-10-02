@@ -693,6 +693,20 @@ mod tests {
         assert!(can_launch_as_is(d.path(), ServerCore::Fabric));
     }
 
+    /// The launcher's own record names BOTH versions; a jar whose
+    /// `install.properties` lacks the game version is not taken for it.
+    #[test]
+    fn install_properties_without_a_game_version_is_no_fabric_launcher() {
+        use crate::servers_runtime::installed_loader::test_jars::jar;
+        let d = tempdir().unwrap();
+        jar(
+            &d.path().join("server.jar"),
+            &[("install.properties", "fabric-loader-version=0.16.5")],
+        );
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Vanilla));
+    }
+
     #[test]
     fn vanilla_when_only_server_jar_no_markers() {
         let d = tempdir().unwrap();

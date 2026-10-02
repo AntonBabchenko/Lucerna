@@ -302,8 +302,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
   number where Modrinth expects a version id. Modrinth then refused the whole
   request for the profile's versions, so the dependencies of every Modrinth mod
   read as unknown and the platform was called unavailable. Now only that one
-  mod's dependencies are unknown, and modpacks imported from now on do not
-  record such a number at all.
+  mod's dependencies are unknown.
 - **A switched-off copy of a mod no longer looks needed.** Next to an enabled
   copy of the same mod, the switched-off one showed how many mods need it,
   which is the enabled copy's count, and opened their list. Only an enabled
