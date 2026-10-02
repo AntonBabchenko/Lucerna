@@ -10,6 +10,28 @@ use crate::mods::platform::*;
 use std::collections::HashMap;
 
 const BASE_DEFAULT: &str = "https://api.modrinth.com";
+
+/// Whether `id` can be a Modrinth project or version id at all: Modrinth reads
+/// every id it is handed as a base62 number that fits a u64 (`0-9A-Za-z`, at
+/// most 11 characters) and answers a batch holding one that does not with HTTP
+/// 400. A version NUMBER recorded where an id belongs — `1.1.1+1.17` from an
+/// old file URL, `0.1.3` — fails it. A slug is not an id either.
+pub(crate) fn is_modrinth_id(id: &str) -> bool {
+    if id.is_empty() || id.len() > 11 {
+        return false;
+    }
+    id.bytes()
+        .try_fold(0u64, |value, b| {
+            let digit = match b {
+                b'0'..=b'9' => b - b'0',
+                b'A'..=b'Z' => b - b'A' + 10,
+                b'a'..=b'z' => b - b'a' + 36,
+                _ => return None,
+            };
+            value.checked_mul(62)?.checked_add(u64::from(digit))
+        })
+        .is_some()
+}
 const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 
 pub struct ModrinthClient {
@@ -638,8 +660,24 @@ impl ModPlatform for ModrinthClient {
     }
 
     async fn versions_by_ids(&self, version_ids: &[&str]) -> Result<Vec<ModVersion>, Error> {
-        let mut out = Vec::with_capacity(version_ids.len());
-        for chunk in version_ids.chunks(BATCH_CHUNK) {
+        // Only what can be a Modrinth id is asked for. Modrinth rejects the
+        // whole batch when one id does not parse (HTTP 400), so one version
+        // NUMBER stored where an id belongs left every other mod's version
+        // unknown. A skipped id is answered like an unknown one — absent —
+        // as the CurseForge sibling skips ids that cannot be file ids.
+        let (ids, skipped): (Vec<&str>, Vec<&str>) = version_ids
+            .iter()
+            .copied()
+            .partition(|id| is_modrinth_id(id));
+        if !skipped.is_empty() {
+            crate::diag!(
+                "[modrinth] not asking for {} version ids that are not Modrinth ids: {}",
+                skipped.len(),
+                skipped.join(", ")
+            );
+        }
+        let mut out = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(BATCH_CHUNK) {
             // Modrinth: GET /v2/versions?ids=["v1","v2",…] → array of Version
             // objects, each carrying its `dependencies`. Unknown ids omitted.
             // Serialising a slice of string ids to a JSON array is infallible.
@@ -1293,6 +1331,82 @@ mod tests {
         assert_eq!(out[0].project_id, "jei");
         assert_eq!(out[0].deps.len(), 1);
         assert_eq!(out[0].deps[0].kind, DepKind::Required);
+    }
+
+    #[test]
+    fn modrinth_ids_are_base62_numbers_that_fit_a_u64() {
+        for id in [
+            "IIJJKKLL",
+            "AANobbMI",
+            "vid1",
+            "0",
+            "zzzzzzzzzz",
+            "LygHa16AHYF",
+        ] {
+            assert!(is_modrinth_id(id), "{id}");
+        }
+        // Version numbers recorded where an id belongs, as old .mrpack file
+        // URLs carry them, and anything else Modrinth cannot parse as one.
+        for id in [
+            "",
+            "1.1.1%2B1.17",
+            "1.1.1+1.17",
+            "0.1.3",
+            "1.5.5",
+            "fabric-api",
+            "LygHa16AHYG", // u64::MAX + 1
+            "zzzzzzzzzzz", // 11 characters past u64
+            "AAAAAAAAAAAA",
+        ] {
+            assert!(!is_modrinth_id(id), "{id}");
+        }
+    }
+
+    // 2026-10-02 regression F02: BMC2 records MixinTrace's version as
+    // `1.1.1%2B1.17`; Modrinth answered the whole `ids=[…313 ids…]` batch with
+    // HTTP 400 and every Modrinth mod's dependencies read as unknown.
+    #[tokio::test]
+    async fn versions_by_ids_leaves_out_what_cannot_be_an_id() {
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/versions"))
+            .and(wiremock::matchers::query_param("ids", r#"["IIJJKKLL"]"#))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                  "id":"IIJJKKLL","project_id":"jei","name":"JEI 15","version_number":"15.0.0",
+                  "game_versions":["1.20.1"],"loaders":["fabric"],"date_published":"2026-05-01T00:00:00Z",
+                  "files":[{"url":"https://cdn/x.jar","filename":"jei.jar","hashes":{"sha1":"abc"},"size":1,"primary":true}],
+                  "dependencies":[]
+                }]"#,
+            ))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = c
+            .versions_by_ids(&["1.1.1%2B1.17", "IIJJKKLL", "0.1.3"])
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].version_id, "IIJJKKLL");
+    }
+
+    #[tokio::test]
+    async fn versions_by_ids_asks_nothing_when_no_id_can_be_one() {
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/versions"))
+            .respond_with(ResponseTemplate::new(400))
+            .expect(0)
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let out = c.versions_by_ids(&["0.1.3", "1.5.5"]).await.unwrap();
+        assert!(out.is_empty());
     }
 
     #[tokio::test]

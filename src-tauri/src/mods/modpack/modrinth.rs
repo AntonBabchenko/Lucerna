@@ -234,13 +234,23 @@ fn resolve_loader(
 }
 
 /// `https://cdn.modrinth.com/data/<project_id>/versions/<version_id>/<filename>`.
+///
+/// Old uploads are served under their version NUMBER instead of an id
+/// (`…/versions/1.1.1%2B1.17/…`). That is no version id, so the version is left
+/// unknown rather than recorded as one: Modrinth rejects any batch it joins.
 fn parse_modrinth_cdn_url(url: &str) -> (String, String) {
     let parts: Vec<&str> = url.split('/').collect();
     let data_idx = parts.iter().position(|p| *p == "data");
     let versions_idx = parts.iter().position(|p| *p == "versions");
     match (data_idx, versions_idx) {
         (Some(d), Some(v)) if v > d + 1 && parts.len() > v + 1 => {
-            (parts[d + 1].to_string(), parts[v + 1].to_string())
+            let version = parts[v + 1];
+            let version_id = if crate::mods::modrinth::is_modrinth_id(version) {
+                version.to_string()
+            } else {
+                String::new()
+            };
+            (parts[d + 1].to_string(), version_id)
         }
         _ => (String::new(), String::new()),
     }
@@ -297,6 +307,20 @@ mod tests {
         assert_eq!(s.files[0].sha1, "abc123");
         assert_eq!(s.files[0].project_id, "AANobbMI");
         assert_eq!(s.files[0].version_id, "abcdef");
+    }
+
+    /// Old Modrinth uploads are served under their version number, not an id
+    /// (BMC2's MixinTrace: `…/versions/1.1.1%2B1.17/…`). Recorded as the
+    /// version id, it made Modrinth reject every batch it joined (2026-10-02
+    /// regression F02): the version stays unknown, the project id stays.
+    #[test]
+    fn a_version_number_in_the_file_url_is_not_taken_for_a_version_id() {
+        let json = SAMPLE_INDEX.replace("/versions/abcdef/", "/versions/1.1.1%2B1.17/");
+        let zip = make_mrpack(&json, &[]);
+        let s = parse(&zip).unwrap();
+        assert_eq!(s.files.len(), 1);
+        assert_eq!(s.files[0].project_id, "AANobbMI");
+        assert_eq!(s.files[0].version_id, "");
     }
 
     #[test]

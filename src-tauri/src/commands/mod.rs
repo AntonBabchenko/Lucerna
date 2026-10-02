@@ -1190,14 +1190,15 @@ mod tests {
         )
     }
 
-    /// The build the platform lists for a NeoForge 1.21.1 instance.
+    /// The build the platform lists for a NeoForge 1.21.1 instance. Version ids
+    /// are base62, like Modrinth's: the client asks for nothing else.
     fn fits_build() -> String {
-        mr_version_json("fits-build", "ferrite", "1.21.1", "neoforge")
+        mr_version_json("fitsBuild", "ferrite", "1.21.1", "neoforge")
     }
 
     /// A build of the SAME project made for another Minecraft and loader.
     fn foreign_build() -> String {
-        mr_version_json("foreign-build", "ferrite", "1.20.1", "fabric")
+        mr_version_json("foreignBld", "ferrite", "1.20.1", "fabric")
     }
 
     fn json_list(items: &[String]) -> wiremock::ResponseTemplate {
@@ -1261,7 +1262,7 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
-        let err = resolve_ferrite(&server, "foreign-build", false)
+        let err = resolve_ferrite(&server, "foreignBld", false)
             .await
             .unwrap_err();
 
@@ -1288,12 +1289,10 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
-        let v = resolve_ferrite(&server, "foreign-build", true)
-            .await
-            .unwrap();
+        let v = resolve_ferrite(&server, "foreignBld", true).await.unwrap();
 
         // The platform's own record of that id — not whatever the caller sent.
-        assert_eq!(v.version_id, "foreign-build");
+        assert_eq!(v.version_id, "foreignBld");
         assert_eq!(v.project_id, "ferrite");
         assert_eq!(v.mc_versions, vec!["1.20.1".to_string()]);
     }
@@ -1310,7 +1309,7 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
-        let err = resolve_ferrite(&server, "foreign-build", true)
+        let err = resolve_ferrite(&server, "foreignBld", true)
             .await
             .unwrap_err();
 
@@ -1325,7 +1324,7 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
-        let err = resolve_ferrite(&server, "no-such-build", true)
+        let err = resolve_ferrite(&server, "noSuchBld", true)
             .await
             .unwrap_err();
 
@@ -1336,12 +1335,12 @@ mod tests {
     async fn an_id_that_belongs_to_another_project_is_not_found_even_with_consent() {
         // (pin) Consent covers «another Minecraft», never «another mod»: a ref
         // whose version id resolves to a different project is a wrong ref.
-        let stranger = mr_version_json("foreign-build", "some-other-project", "1.20.1", "fabric");
+        let stranger = mr_version_json("foreignBld", "some-other-project", "1.20.1", "fabric");
         let server = ferrite_server(json_list(&[fits_build()]), json_list(&[stranger])).await;
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
-        let err = resolve_ferrite(&server, "foreign-build", true)
+        let err = resolve_ferrite(&server, "foreignBld", true)
             .await
             .unwrap_err();
 
@@ -1369,9 +1368,9 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
-        let v = resolve_ferrite(&server, "fits-build", false).await.unwrap();
+        let v = resolve_ferrite(&server, "fitsBuild", false).await.unwrap();
 
-        assert_eq!(v.version_id, "fits-build");
+        assert_eq!(v.version_id, "fitsBuild");
         // `expect(0)` is verified when `server` drops at the end of the test.
     }
 
@@ -1387,7 +1386,7 @@ mod tests {
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
-        let err = resolve_ferrite(&server, "foreign-build", true)
+        let err = resolve_ferrite(&server, "foreignBld", true)
             .await
             .unwrap_err();
 

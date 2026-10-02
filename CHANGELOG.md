@@ -297,6 +297,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
   Each search moved the whole page 15 px to the side and back as the list
   reloaded, and an open list of Minecraft versions was left 15 px off its
   field.
+- **One old file in a modpack no longer hides every mod's dependencies.** A
+  modpack with a mod from an old Modrinth upload recorded that file's version
+  number where Modrinth expects a version id. Modrinth then refused the whole
+  request for the profile's versions, so the dependencies of every Modrinth mod
+  read as unknown and the platform was called unavailable. Now only that one
+  mod's dependencies are unknown, and modpacks imported from now on do not
+  record such a number at all.
 
 ## [0.25.0] — 2026-09-27
 
