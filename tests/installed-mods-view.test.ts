@@ -438,7 +438,9 @@ describe('InstalledModsView', () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/from modpack/)).toBeTruthy();
-    const packChip = screen.getByText('Parasites Reloaded');
+    // The chip, not its label: a long pack name is cut inside its own span.
+    const packChip = screen.getByTestId('mod-pack-chip');
+    expect(packChip.textContent).toContain('Parasites Reloaded');
     expect(packChip.querySelector('.lucide-package')).toBeTruthy();
   });
 

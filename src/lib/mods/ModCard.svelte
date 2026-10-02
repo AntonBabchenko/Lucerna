@@ -122,6 +122,13 @@
         : null,
   );
   const hasUpdate = $derived(!packChip && !!updateState && updateState.kind === 'update_available');
+  // A list row's badges keep their width — except a modpack's name, which can be any length: it
+  // gives way before the mod's own name does, capped and cut with «…» (its tooltip names the pack
+  // in full). Uncapped, a long pack name squeezed the mod's name to one letter in the default
+  // 820 px window. The pack chip never shares the slot with another badge.
+  const listBadgesClass = $derived(
+    `flex items-center gap-1 flex-shrink-0${packChip ? ' min-w-0 max-w-[30%]' : ''}`,
+  );
 
   const statusKind = $derived.by((): CardStatusKind => {
     if (!installed) return 'none';
@@ -343,6 +350,7 @@
       icon="package"
       title={$t('mods.card.fromModpackTitle', { name: packChip })}
       testid="mod-pack-chip"
+      truncate
     >
       {packChip}
     </StatusBadge>
@@ -413,7 +421,7 @@
           {@render heldPin('align-middle')}
         {/if}
       </div>
-      <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      <div class={listBadgesClass}>{@render badges()}</div>
       {#if installed}
         <div class="flex items-center gap-1 flex-shrink-0">
           {#if canToggle}
@@ -568,7 +576,7 @@
           >
         {/if}
       </button>
-      <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      <div class={listBadgesClass}>{@render badges()}</div>
       <div class="flex items-center gap-1 flex-shrink-0">{@render iconActions()}</div>
     </CardShell>
   </ContextMenu>
