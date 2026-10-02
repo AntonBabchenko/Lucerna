@@ -521,8 +521,7 @@ where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(r).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        let ended = pump_lines(r, |line| {
             if let Ok(mut f) = log.lock() {
                 let _ = writeln!(f, "{line}");
             }
@@ -540,8 +539,44 @@ where
                 line,
             }
             .emit(&app);
+        })
+        .await;
+        // The end of the stream is the process closing it; anything else means
+        // the console, the log file and every line watcher go quiet from here.
+        if let Err(e) = ended {
+            crate::diag!("servers: stopped reading the console of {id}: {e}");
         }
     });
+}
+
+/// Read `r` until it ends, handing each line to `on_line` as text. A line ends
+/// at `\n`, and a `\r` before it is dropped too (as `Lines` does). Each line is
+/// decoded on its own ([`crate::platform::encoding::decode_console_line`]): a
+/// JVM's own messages come in the system code page while log4j writes UTF-8,
+/// and a line that is not UTF-8 must not end the reading — `Lines::next_line`
+/// answers `InvalidData` there, which once stopped the console for the rest of
+/// the session. Returns at the end of the stream, or with the read error that
+/// ended it.
+async fn pump_lines<R, F>(r: R, mut on_line: F) -> std::io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    F: FnMut(String),
+{
+    let mut reader = BufReader::new(r);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        if reader.read_until(b'\n', &mut buf).await? == 0 {
+            return Ok(());
+        }
+        if buf.last() == Some(&b'\n') {
+            buf.pop();
+            if buf.last() == Some(&b'\r') {
+                buf.pop();
+            }
+        }
+        on_line(crate::platform::encoding::decode_console_line(&buf));
+    }
 }
 
 /// Write `line` + newline to the running server's stdin (a console command,
@@ -735,6 +770,32 @@ mod tests {
         );
         // A missing servers root is a no-op (must not panic).
         kill_persisted_orphans(&dir.path().join("does-not-exist"));
+    }
+
+    #[tokio::test]
+    async fn pump_lines_keeps_reading_after_a_line_that_is_not_utf8() {
+        // A JVM's own message in CP1251 (`Не удается`) between log4j's UTF-8
+        // lines, CRLF and LF endings, an empty line, and a last line with no
+        // newline. `Lines::next_line` stopped at the second line for good.
+        let stream: &[u8] = b"first\r\n\xcd\xe5 \xf3\xe4\xe0\xe5\xf2\xf1\xff\n\nthird\nlast";
+        let mut got = Vec::new();
+        pump_lines(stream, |line| got.push(line)).await.unwrap();
+        assert_eq!(got.len(), 5, "{got:?}");
+        assert_eq!(got[0], "first");
+        assert!(
+            !got[1].is_empty() && !got[1].contains(|c| c == '\r' || c == '\n'),
+            "{got:?}"
+        );
+        assert_eq!(got[2], "");
+        assert_eq!(got[3], "third");
+        assert_eq!(got[4], "last");
+    }
+
+    #[tokio::test]
+    async fn pump_lines_ends_quietly_on_an_empty_stream() {
+        let mut got = Vec::new();
+        pump_lines(&b""[..], |line| got.push(line)).await.unwrap();
+        assert!(got.is_empty());
     }
 
     #[tokio::test]

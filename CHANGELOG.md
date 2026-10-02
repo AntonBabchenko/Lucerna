@@ -275,6 +275,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   also next to a notice about an earlier run. Only when the EULA has not been
   accepted is the reason still left to the EULA notice, which comes with a
   button that accepts it.
+- **The server console no longer goes quiet.** A line the server's Java printed
+  in the system's own encoding — on a Russian Windows, for example, its message
+  about a file it could not find — stopped the console for the rest of the
+  session: nothing more reached the server's page or its log file, and a backup
+  of the running server could not see the world being saved. Such lines now
+  read as text, and the console goes on.
 
 ## [0.25.0] — 2026-09-27
 
