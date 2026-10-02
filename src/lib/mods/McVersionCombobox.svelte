@@ -200,6 +200,22 @@
     };
   });
 
+  // And placed again whenever the box the field is laid out in changes size without a keystroke:
+  // results reloading under the Browse filter bar shortened the page, its scroll container dropped
+  // the scrollbar and the bar widened by 15 px, then narrowed as the results came back ~200 ms
+  // later — moving the field and leaving the list behind. The scroll containers reserve the
+  // scrollbar's gutter now (DESIGN.md §14); this covers a platform without `scrollbar-gutter`, and
+  // any other change to that box's width. A ResizeObserver answers after layout, before the paint.
+  $effect(() => {
+    if (!open || !inputEl || !listEl || typeof ResizeObserver === 'undefined') return;
+    const box = inputEl.offsetParent;
+    if (!(box instanceof HTMLElement)) return;
+    const list = listEl;
+    const observer = new ResizeObserver(() => placeList(list.offsetWidth));
+    observer.observe(box);
+    return () => observer.disconnect();
+  });
+
   // Fixed, it does not follow the input when the page scrolls or the window resizes: it closes.
   // Scrolling the list itself does not.
   $effect(() => {

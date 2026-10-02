@@ -293,6 +293,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   as Vanilla with no Minecraft version, because the files Fabric adds on the
   first start were not there yet. Its Minecraft and Fabric versions are now
   read from the Fabric launcher it carries.
+- **The mod and modpack browsers no longer shift sideways while results load.**
+  Each search moved the whole page 15 px to the side and back as the list
+  reloaded, and an open list of Minecraft versions was left 15 px off its
+  field.
 
 ## [0.25.0] — 2026-09-27
 

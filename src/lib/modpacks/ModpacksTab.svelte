@@ -353,7 +353,9 @@
 
     <ContextualTour id="modpacks" steps={MODPACKS_STEPS} />
 
-    <div class="flex-1 overflow-y-auto">
+    <!-- Reserved scrollbar gutter: the browser reloads its list on every query,
+         and a shorter list must not move the page sideways (DESIGN.md §14). -->
+    <div class="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
       {#if error}
         <div class="m-4 p-3 bg-danger-bg border border-danger rounded text-sm text-danger">
           {error}
