@@ -267,6 +267,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   is not in Mojang's version list. A server imported that way before shows its
   version as not recorded, and starting it explains how to bring it back with
   the version set.
+- **A server that cannot start says why.** When Lucerna refused to start a
+  server before its process ran — no Minecraft version recorded, several loader
+  installs in its folder, missing files, no Quilt launcher, or Java that could
+  not be downloaded — the reason was shown nowhere, and starting the server
+  seemed to do nothing. The reason now shows at the top of the server's page,
+  also next to a notice about an earlier run. Only when the EULA has not been
+  accepted is the reason still left to the EULA notice, which comes with a
+  button that accepts it.
 
 ## [0.25.0] — 2026-09-27
 

@@ -93,6 +93,7 @@ import ServersPanel from '$lib/servers/ServersPanel.svelte';
 import { serverState } from '$lib/servers/server-state.svelte';
 import { serversUi } from '$lib/servers/servers-ui.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
+import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
 
 function dataLocationStatus(fellBack: boolean) {
   return {
@@ -253,38 +254,108 @@ describe('ServersPanel', () => {
     expect(screen.queryByTestId('sidebar-server-stop')).toBeNull();
   });
 
-  // Ported from the retired ServerManageView test (server-action-error-fallback):
-  // lifecycle busy/error state now lives in the store and is shared with
-  // the sidebar, but the render gate — suppress the inline fallback once a rich
-  // diagnosis banner exists for the server — is unique to this panel and had no
-  // ServersPanel-level coverage yet.
+  // The render gate is unique to this panel: a refused start / stop / restart
+  // answers the click inline, unless the banner ON SCREEN says the same thing
+  // with its fix attached (a start refused for the EULA). The banner describes
+  // the last run or a pre-spawn blocker — never the refusal itself — and a
+  // "none" diagnosis draws no banner at all, so neither may hide the error
+  // (2026-10-02 regression F06: «Запустить» did nothing visible).
   describe('inline action error vs diagnosis banner', () => {
-    it('suppresses the inline action error once the server has a diagnosis banner', async () => {
+    function diagnosisOf(
+      patternId: string | null,
+      overrides: Partial<ServerDiagnosis> = {},
+    ): ServerDiagnosis {
+      return {
+        status: patternId === null ? 'none' : 'actionable',
+        diagnosis:
+          patternId === null
+            ? null
+            : {
+                pattern_id: patternId,
+                title: '',
+                explanation: '',
+                recommendation: '',
+                matched_excerpt: '',
+                repair: null,
+              },
+        client_mods: [],
+        forge_skip_count: null,
+        log_signature: null,
+        server_repair: null,
+        port_in_use: null,
+        orphan_pid: null,
+        corrupt_jar: null,
+        suggested_heap_mb: null,
+        conflict_mods: [],
+        suggested_port: null,
+        exit_code: null,
+        ...overrides,
+      };
+    }
+
+    // Selects a stopped server, lets the on-select diagnose() land, then runs a
+    // start the backend refuses before spawning.
+    async function refusedStart(id: string, diag: ServerDiagnosis, error: { kind: string }) {
+      await load([makeServer(id, false)]);
+      serverDiagnose.mockResolvedValue({ status: 'ok', data: diag });
+      serverStart.mockResolvedValue({ status: 'error', error });
+      serversUi.selectServer(id);
+      render(ServersPanel, baseProps());
+      await vi.waitFor(() => expect(serverState.diagnosisFor(id)).toBeDefined());
+      await serverState.start(id);
+      await vi.waitFor(() => expect(serverStart).toHaveBeenCalled());
+    }
+
+    it('shows a refused start when the diagnosis is "none" (no banner at all)', async () => {
+      await refusedStart('refuse-none', diagnosisOf(null), {
+        kind: 'server_saved_mc_version_missing',
+      });
+      expect(screen.getByTestId('server-action-error').textContent).toContain(
+        'This server has no Minecraft version recorded',
+      );
+    });
+
+    it('shows a refused start next to a banner about an earlier crash', async () => {
+      await refusedStart(
+        'refuse-stale',
+        diagnosisOf('server-out-of-memory', { log_signature: 'old-run' }),
+        { kind: 'server_saved_mc_version_missing' },
+      );
+      expect(screen.getByTestId('server-action-error').textContent).toContain(
+        'This server has no Minecraft version recorded',
+      );
+    });
+
+    it('leaves out a refused start the EULA banner on screen already states', async () => {
+      await refusedStart(
+        'refuse-eula',
+        diagnosisOf('server-eula-not-accepted', { server_repair: 'accept_eula' }),
+        { kind: 'server_eula_not_accepted' },
+      );
+      expect(screen.queryByTestId('server-action-error')).toBeNull();
+    });
+
+    it('shows the EULA refusal once its banner has been dismissed', async () => {
+      diagnosisDismiss.dismiss('server:refuse-eula-dismissed', 'server-eula-not-accepted|');
+      await refusedStart(
+        'refuse-eula-dismissed',
+        diagnosisOf('server-eula-not-accepted', { server_repair: 'accept_eula' }),
+        { kind: 'server_eula_not_accepted' },
+      );
+      expect(screen.getByTestId('server-action-error').textContent).toContain(
+        'You must accept the Minecraft EULA',
+      );
+    });
+
+    it('shows a refused restart of a running server — no banner shows while it runs', async () => {
       await load([makeServer('banner-a', true)]);
       serverDiagnose.mockResolvedValue({
         status: 'ok',
-        data: {
-          status: 'actionable',
-          diagnosis: {
-            pattern_id: 'server-port-in-use',
-            title: '',
-            explanation: '',
-            recommendation: '',
-            matched_excerpt: '',
-            repair: null,
-          },
-          client_mods: [],
-          forge_skip_count: null,
-          log_signature: null,
+        data: diagnosisOf('server-port-in-use', {
           server_repair: 'change_port',
           port_in_use: 25565,
-          orphan_pid: null,
-          corrupt_jar: null,
-          suggested_heap_mb: null,
-          conflict_mods: [],
           suggested_port: 25566,
-          exit_code: null,
-        } as ServerDiagnosis,
+        }),
       });
       serverRestart.mockResolvedValue({
         status: 'error',
@@ -293,13 +364,15 @@ describe('ServersPanel', () => {
       serversUi.selectServer('banner-a');
       render(ServersPanel, baseProps());
 
-      // Wait for the on-select diagnose() (a real store call here) to populate
-      // the banner state before triggering the failing action.
+      // Wait for the on-select diagnose() (a real store call here) to land
+      // before triggering the failing action.
       await vi.waitFor(() => expect(serverState.diagnosisFor('banner-a')).toBeDefined());
 
       await fireEvent.click(screen.getByText('Restart'));
       await vi.waitFor(() => expect(serverRestart).toHaveBeenCalled());
-      expect(screen.queryByTestId('server-action-error')).toBeNull();
+      expect(screen.getByTestId('server-action-error').textContent).toContain(
+        'This server is already running',
+      );
     });
 
     it('shows the inline action error when there is no diagnosis banner (fallback)', async () => {
