@@ -219,7 +219,8 @@ async function removeClientMods(
 }
 
 /// One-click pre-spawn fixes (class A). Each clears the diagnosis on success;
-/// the caller re-runs `diagnose` (or the user retries Start) afterwards.
+/// the banner then starts the server when its label promises a start
+/// (`startShowingConsole`), and re-runs `diagnose` otherwise.
 async function acceptEula(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverAcceptEula(id);
   if (r.status === 'ok') {

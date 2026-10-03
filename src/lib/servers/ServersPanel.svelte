@@ -18,7 +18,11 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import DiagnosisRestoreButton from '$lib/ui/DiagnosisRestoreButton.svelte';
   import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
-  import { serverBannerEligible, serverDiagnosisSignature } from './server-diagnosis-view';
+  import {
+    bannerExplainsActionError,
+    serverBannerEligible,
+    serverDiagnosisSignature,
+  } from './server-diagnosis-view';
   import ServerOverviewTab from '$lib/servers/overview/ServerOverviewTab.svelte';
   import ServerSettingsTab from '$lib/servers/settings/ServerSettingsTab.svelte';
   import ServerAddonsTab from '$lib/servers/addons/ServerAddonsTab.svelte';
@@ -66,12 +70,15 @@
   // overview's attention-restore badge).
   const diagnosis = $derived(serverId !== null ? serverState.diagnosisFor(serverId) : undefined);
   const diagSignature = $derived(serverDiagnosisSignature(diagnosis));
-  const showDiagnosisRestore = $derived(
+  const bannerEligible = $derived(serverId !== null && serverBannerEligible(diagnosis, running));
+  const diagDismissed = $derived(
     serverId !== null &&
-      serverBannerEligible(diagnosis, running) &&
       diagSignature !== null &&
       diagnosisDismiss.isDismissed(`server:${serverId}`, diagSignature),
   );
+  const showDiagnosisRestore = $derived(bannerEligible && diagDismissed);
+  // The banner on screen right now — ServerDiagnosisBanner's own condition.
+  const bannerShown = $derived(bannerEligible && !diagDismissed);
 
   // Lifecycle busy/error state lives in the store (shared with the sidebar's
   // Start/Stop) — a start failure triggered from the sidebar surfaces here.
@@ -271,10 +278,12 @@
         </div>
       </div>
 
-      <!-- Inline action error is the UNCLASSIFIED fallback only: when a failed
-           start's diagnose() produced a rich banner for this server, the banner
-           owns the message and we suppress this duplicate. -->
-      {#if actionError !== undefined && !serverState.diagnosisFor(server.id)}
+      <!-- A refused start, stop or restart answers the click here. The banner
+           below describes the last run or a blocker found before the next one,
+           not the refusal (and a "none" diagnosis draws no banner at all), so
+           the error is left out only while the banner on screen says the same
+           thing with its fix attached: a start refused for the EULA. -->
+      {#if actionError !== undefined && !(bannerShown && bannerExplainsActionError(diagnosis, actionError))}
         <p class="px-4 pt-2 text-sm text-danger" role="alert" data-testid="server-action-error">
           {describeStoreError(actionError)}
         </p>

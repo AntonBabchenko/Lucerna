@@ -168,7 +168,14 @@
     }
   });
 
+  // The form's one message slot, about the LATEST attempt: every change the
+  // user makes clears it as it starts (`clearForAttempt`), and its failure, if
+  // any, writes it. A refused Minecraft change used to keep its red message
+  // under the form after the next change had worked.
   let modalError = $state<string | null>(null);
+  function clearForAttempt(): void {
+    modalError = null;
+  }
   // The instance the delete confirm is about (null = closed). An id rather than
   // "the selected one": the row menu deletes without moving the selection, so
   // the dialog has to name its own target.
@@ -486,6 +493,7 @@
       return;
     }
     createPending = true;
+    clearForAttempt();
     try {
       const result = await commands.createInstance(
         draftName.trim(),
@@ -521,6 +529,7 @@
       return;
     }
     const id = selected.id;
+    clearForAttempt();
     const result = await commands.setInstanceName(id, nameDraft.trim());
     if (isStale(id)) return;
     if (result.status === 'ok') {
@@ -612,6 +621,7 @@
   // switch can't redirect this change's side effects onto another instance.
   async function applyMcChange(id: string, mc: string) {
     await enqueueCfgChange(async () => {
+      clearForAttempt();
       const result = await commands.changeInstanceMc(id, mc);
       // Overtaken by a newer click while awaiting: whatever this change did
       // is being overwritten right now — every side effect would only flap
@@ -653,6 +663,7 @@
       void enqueueCfgChange(
         async () => {
           try {
+            clearForAttempt();
             const result = await commands.setInstanceLoader(id, kind, version);
             resolve(result.status === 'ok');
             // See applyMcChange: an overtaken change is silenced entirely.
@@ -725,6 +736,7 @@
     const change = takePending(true);
     if (!change) return;
     const id = change.instanceId;
+    clearForAttempt();
     try {
       const detachResult = await commands.detachInstancePack(id);
       // Not detached (or no longer on screen): the change it gated does not
@@ -758,6 +770,7 @@
   async function setMemory(mb: number) {
     if (!selected) return;
     const id = selected.id;
+    clearForAttempt();
     const result = await commands.setInstanceMemory(id, mb);
     if (isStale(id)) return;
     if (result.status === 'ok') {
@@ -771,6 +784,7 @@
   async function setJvmArgs(args: string) {
     if (!selected) return;
     const id = selected.id;
+    clearForAttempt();
     const result = await commands.setInstanceJvmArgs(id, args);
     if (isStale(id)) return;
     if (result.status === 'ok') {
@@ -790,6 +804,7 @@
     const value = raw === null ? null : Math.min(raw, heapDraft);
     minHeapDraft = value; // reflect the clamp/clear back into the field
     if (value === selected.min_heap_mb) return; // unchanged — no write
+    clearForAttempt();
     const result = await commands.setInstanceMinHeap(id, value);
     if (isStale(id)) return;
     if (result.status === 'ok') onChanged();
@@ -821,6 +836,7 @@
   }
 
   async function activate(id: string) {
+    clearForAttempt();
     const failure = await onActivateRequest?.(id);
     if (failure) modalError = failure;
   }
@@ -870,6 +886,7 @@
 
   async function deleteInstanceById(id: string) {
     if (instances.length <= 1) return; // belt-and-braces; both entry points are also disabled
+    clearForAttempt();
     const result = await commands.deleteInstance(id);
     if (result.status === 'ok') {
       // Only a deleted SELECTION needs re-seeding; deleting another row from

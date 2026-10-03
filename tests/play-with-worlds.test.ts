@@ -82,6 +82,26 @@ describe('PlayWithWorlds', () => {
     expect(screen.queryByTestId('play-worlds-menu')).toBeNull();
   });
 
+  // F05 (2026-10-02): a hover-opened list keeps the keyboard focus on the trigger, where Escape
+  // closed the list without consuming the key — the layer router then closed what lay underneath
+  // as well. The press that closes the list is consumed; with it closed, Escape passes.
+  it('Escape on the trigger closes an open list and consumes the key', async () => {
+    vi.useFakeTimers();
+    render(PlayWithWorlds, { props: base() });
+    const trigger = screen.getByRole('button', { name: 'Play' });
+    await fireEvent.mouseEnter(trigger.parentElement as HTMLElement);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(screen.getByTestId('play-worlds-menu')).toBeTruthy();
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    trigger.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(screen.queryByTestId('play-worlds-menu')).toBeNull());
+
+    const idle = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    trigger.dispatchEvent(idle);
+    expect(idle.defaultPrevented).toBe(false);
+  });
+
   it('ArrowUp opens the menu', async () => {
     render(PlayWithWorlds, { props: base() });
     await fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'ArrowUp' });

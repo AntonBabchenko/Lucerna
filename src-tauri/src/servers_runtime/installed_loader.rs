@@ -481,16 +481,7 @@ fn bundled_launcher_versions(
     loaders: &mut BTreeSet<String>,
 ) -> Result<(), Unreadable> {
     for name in root_jar_names(root)? {
-        let props = match read_jar_text(&root.join(&name), "install.properties") {
-            Ok(Some(text)) => text,
-            Ok(None) => continue,
-            // A jar this process cannot read cannot be the launcher the
-            // server runs either (same user, same file).
-            Err(Unreadable) => continue,
-        };
-        let game = property(&props, "game-version").filter(|v| !v.is_empty());
-        let loader = property(&props, "fabric-loader-version");
-        if let (Some(game), Some(loader)) = (game, loader) {
+        if let Some((game, loader)) = bundled_launcher_props(&root.join(&name)) {
             mcs.insert(game);
             if !loader.is_empty() {
                 loaders.insert(loader);
@@ -498,6 +489,35 @@ fn bundled_launcher_versions(
         }
     }
     Ok(())
+}
+
+/// Whether a jar in `root` is Fabric's bundled server launcher. Until a Fabric
+/// server Lucerna made has started once, that jar is all of Fabric there is:
+/// the first start downloads `.fabric/` and `libraries/` beside it, the other
+/// signs of a Fabric tree. A folder that cannot be listed vouches for nothing.
+pub(crate) fn has_bundled_fabric_launcher(root: &Path) -> bool {
+    match root_jar_names(root) {
+        Ok(names) => names
+            .iter()
+            .any(|name| bundled_launcher_props(&root.join(name)).is_some()),
+        Err(Unreadable) => false,
+    }
+}
+
+/// `(game-version, fabric-loader-version)` from `jar`'s `install.properties`,
+/// when `jar` is the bundled Fabric server launcher. The loader version may be
+/// empty; the game version may not.
+fn bundled_launcher_props(jar: &Path) -> Option<(String, String)> {
+    let props = match read_jar_text(jar, "install.properties") {
+        Ok(Some(text)) => text,
+        Ok(None) => return None,
+        // A jar this process cannot read cannot be the launcher the server
+        // runs either (same user, same file).
+        Err(Unreadable) => return None,
+    };
+    let game = property(&props, "game-version").filter(|v| !v.is_empty())?;
+    let loader = property(&props, "fabric-loader-version")?;
+    Some((game, loader))
 }
 
 /// The installer-style launch jar's `Class-Path`, matched by path and never

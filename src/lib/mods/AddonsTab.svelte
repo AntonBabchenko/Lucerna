@@ -745,10 +745,13 @@
   {/if}
 
   <!-- The strip's drag overlay covers this box — the strip and the content under it (DESIGN.md
-       §14). The scroll container inside stays the sticky toolbars' context. -->
+       §14). The scroll container inside stays the sticky toolbars' context, and reserves the
+       scrollbar's gutter: Browse reloads its list on every query, and a list that turns shorter
+       than the window drops the scrollbar — the whole view moved 15 px sideways and back, and an
+       open popover anchored in the filter bar was left behind. -->
   <div class="relative flex-1 min-h-0 flex flex-col">
     {#if !(view === 'installed' && installedEmpty)}{@render dropzoneBox('strip')}{/if}
-    <div class="flex-1 overflow-y-auto relative">
+    <div class="flex-1 overflow-y-auto [scrollbar-gutter:stable] relative">
       <div class:hidden={view !== 'browse'}>
         <!-- Re-key per kind so switching content type resets the browse
            filters/results instead of leaking the previous kind's state. -->

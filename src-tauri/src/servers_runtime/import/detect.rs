@@ -288,6 +288,8 @@ fn fabric_marker(root: &Path) -> bool {
         || root.join("fabric-server-launch.jar").exists()
         || root.join("fabric-server-launcher.jar").exists()
         || root.join("libraries/net/fabricmc").is_dir()
+        // A Fabric server that never started: the bundled launcher is all of it.
+        || installed_loader::has_bundled_fabric_launcher(root)
 }
 
 fn quilt_marker(root: &Path) -> bool {
@@ -665,6 +667,44 @@ mod tests {
         touch(&d.path().join(".quilt/x"));
         let r = detect(d.path());
         assert_eq!(r.loader, Some(ServerCore::Quilt));
+    }
+
+    /// What Lucerna's own Fabric server is until its first start: Fabric's
+    /// bundled server launcher saved as `server.jar` and nothing it downloads
+    /// yet (no `.fabric/`, no `libraries/`). It imported as Vanilla with an
+    /// empty version (2026-10-02 regression F09).
+    #[test]
+    fn a_fabric_server_that_never_started_is_fabric() {
+        use crate::servers_runtime::installed_loader::test_jars::jar;
+        let d = tempdir().unwrap();
+        jar(
+            &d.path().join("server.jar"),
+            &[(
+                "install.properties",
+                "fabric-loader-version=0.16.5\ngame-version=1.20.4",
+            )],
+        );
+        fs::write(d.path().join("eula.txt"), "eula=true\n").unwrap();
+        fs::write(d.path().join("server.properties"), "server-port=25565\n").unwrap();
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Fabric));
+        assert_eq!(r.mc_version.as_deref(), Some("1.20.4"));
+        assert_eq!(r.loader_version.as_deref(), Some("0.16.5"));
+        assert!(can_launch_as_is(d.path(), ServerCore::Fabric));
+    }
+
+    /// The launcher's own record names BOTH versions; a jar whose
+    /// `install.properties` lacks the game version is not taken for it.
+    #[test]
+    fn install_properties_without_a_game_version_is_no_fabric_launcher() {
+        use crate::servers_runtime::installed_loader::test_jars::jar;
+        let d = tempdir().unwrap();
+        jar(
+            &d.path().join("server.jar"),
+            &[("install.properties", "fabric-loader-version=0.16.5")],
+        );
+        let r = detect(d.path());
+        assert_eq!(r.loader, Some(ServerCore::Vanilla));
     }
 
     #[test]

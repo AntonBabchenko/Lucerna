@@ -12,12 +12,17 @@
     icon = undefined,
     title = undefined,
     testid = undefined,
+    truncate = false,
     children,
   }: {
     variant?: BadgeVariant;
     icon?: IconName;
     title?: string | undefined;
     testid?: string | undefined;
+    /** A label of any length (a modpack's name): the pill may shrink to the
+        room it is given, its label cut with «…» while the icon stays whole.
+        Give it a `title` that says the label in full. */
+    truncate?: boolean;
     children: Snippet;
   } = $props();
 
@@ -32,10 +37,14 @@
 </script>
 
 <span
-  class={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${CLASS[variant]}`}
+  class={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${CLASS[variant]}${truncate ? ' min-w-0 max-w-full' : ''}`}
   use:tooltip={title}
   data-testid={testid}
 >
-  {#if icon}<Icon name={icon} size={12} />{/if}
-  {@render children()}
+  {#if icon}<Icon name={icon} size={12} class={truncate ? 'shrink-0' : ''} />{/if}
+  {#if truncate}
+    <span class="min-w-0 truncate">{@render children()}</span>
+  {:else}
+    {@render children()}
+  {/if}
 </span>

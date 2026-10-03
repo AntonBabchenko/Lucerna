@@ -54,6 +54,29 @@ describe('ServerConsole filter + search (#14)', () => {
     expect(screen.getByText('[12:00:02] [Server thread/ERROR]: Failed to load mod')).toBeTruthy();
   });
 
+  // F05 (2026-10-02): Escape in the search field cleared the search AND went on to the layer
+  // router, which ended a running tour. Clearing is the press's job; an empty field lets it pass.
+  it('Escape clears a search and consumes the key; on an empty field it passes', async () => {
+    mockLines['flt-esc'] = ['[12:00:00] [Server thread/INFO]: alpha here'];
+    mockRunning['flt-esc'] = true;
+    render(ServerConsole, { props: { serverId: 'flt-esc' } });
+
+    const search = screen.getByTestId('server-console-search') as HTMLInputElement;
+    await fireEvent.input(search, { target: { value: 'alpha' } });
+    const clearing = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    search.dispatchEvent(clearing);
+    expect(clearing.defaultPrevented).toBe(true);
+    await waitFor(() => expect(search.value).toBe(''));
+
+    const idle = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    search.dispatchEvent(idle);
+    expect(idle.defaultPrevented).toBe(false);
+  });
+
   it('counts and navigates search matches', async () => {
     mockLines['flt-2'] = [
       '[12:00:00] [Server thread/INFO]: alpha here',

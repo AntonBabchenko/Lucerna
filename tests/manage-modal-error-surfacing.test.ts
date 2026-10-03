@@ -129,6 +129,45 @@ describe('ManageInstancesModal — error surfacing', () => {
     expect(msg.closest('[role="alert"]')).not.toBeNull();
   });
 
+  // 2026-10-02 regression F10: a refused Minecraft change (a snapshot NeoForge does not build
+  // for) kept its red message under the form after the next change had worked. The form's one
+  // message slot is about the latest attempt: each change clears it as it starts.
+  it("clears a refused change's message once the next change works", async () => {
+    m.changeInstanceMc
+      .mockResolvedValueOnce({ status: 'error', error: { kind: 'instance_busy' } })
+      .mockResolvedValueOnce({
+        status: 'ok',
+        data: {
+          instance: makeInstance({ mc_version: '1.21.1' }),
+          loader_outcome: { kind: 'unchanged' },
+        },
+      });
+    const inst = makeInstance();
+    const release = (id: string): VersionEntry => ({ ...version, id });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version, release('1.21'), release('1.21.1')],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Default');
+    // Select commits an option on mousedown, as every other test of it drives it.
+    const pickMc = async (id: string) => {
+      await fireEvent.click(screen.getByRole('combobox', { name: 'Minecraft version' }));
+      await fireEvent.mouseDown(await screen.findByRole('option', { name: id }));
+    };
+
+    await pickMc('1.21');
+    expect(await screen.findByText(/already in progress/i)).toBeTruthy();
+
+    await pickMc('1.21.1');
+    await waitFor(() => expect(m.changeInstanceMc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/already in progress/i)).toBeNull());
+  });
+
   it('keeps an error live region present before any error (announce-on-change)', async () => {
     renderOne();
     await screen.findByDisplayValue('Default');

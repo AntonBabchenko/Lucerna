@@ -923,6 +923,33 @@ describe('ModCard — packChip shows bg-accent-soft text-accent badge', () => {
     expect(cls).toContain('bg-accent-soft');
     expect(cls).toContain('text-accent');
   });
+
+  // 2026-10-02 regression F01: at the default 820 px window a long pack name
+  // (红石生电优化【Redstone Survival Optimization】) kept its whole width and squeezed
+  // the mod's name to one letter. The chip gives way first: its slot is capped,
+  // and the pack name is cut with «…» while the icon stays.
+  it('a long pack name is cut, in a capped slot, before the mod name is', () => {
+    render(ModCard, {
+      props: {
+        summary: makeSummary(),
+        installed: makeInstalled({ enabled: true }),
+        onInstall: () => {},
+        onOpenDetail: () => {},
+        onToggle: () => {},
+        onUninstall: () => {},
+        packChip: '红石生电优化【Redstone Survival Optimization】',
+        layout: 'list',
+      },
+    });
+    const chip = screen.getByTestId('mod-pack-chip');
+    expect(chip.className).toContain('min-w-0');
+    expect(chip.className).toContain('max-w-full');
+    const label = chip.querySelector('.truncate');
+    expect(label?.textContent?.trim()).toBe('红石生电优化【Redstone Survival Optimization】');
+    const slot = chip.parentElement as HTMLElement;
+    expect(slot.className).toContain('max-w-[30%]');
+    expect(slot.className).toContain('min-w-0');
+  });
 });
 
 // ── ModCard — card body button not a .btn-* ───────────────────────────────────

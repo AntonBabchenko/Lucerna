@@ -405,7 +405,9 @@ describe('InstalledModsView', () => {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     await new Promise((r) => setTimeout(r, 0));
-    const coolChip = screen.getByText('Cool Pack');
+    // The chip, not its label: a long pack name is cut inside its own span.
+    const coolChip = screen.getByTestId('mod-pack-chip');
+    expect(coolChip.textContent).toContain('Cool Pack');
     expect(coolChip.querySelector('.lucide-package')).toBeTruthy();
   });
 
@@ -438,7 +440,9 @@ describe('InstalledModsView', () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/from modpack/)).toBeTruthy();
-    const packChip = screen.getByText('Parasites Reloaded');
+    // The chip, not its label: a long pack name is cut inside its own span.
+    const packChip = screen.getByTestId('mod-pack-chip');
+    expect(packChip.textContent).toContain('Parasites Reloaded');
     expect(packChip.querySelector('.lucide-package')).toBeTruthy();
   });
 

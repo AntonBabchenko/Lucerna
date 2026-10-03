@@ -47,6 +47,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import { commands } from '$lib/ipc/bindings';
 import LogsPopover from '$lib/logs/LogsPopover.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 const FILE: LogFileMeta = {
   path: 'C:/i/.minecraft/logs/latest.log',
@@ -200,5 +201,37 @@ describe('repeat collapse in the log body', () => {
     // One match, not four: hidden repeat members are not searched, exactly as
     // hidden stack-fold frames are not.
     expect(await findByText('1 / 1')).toBeTruthy();
+  });
+
+  // F05 (2026-10-02): Escape in the search field cleared the search AND reached the layer
+  // router, which closed the whole log viewer. Clearing is the press's job; an empty field
+  // lets the next Escape close the viewer, as before.
+  it('Escape clears the search and keeps the viewer open; the next one closes it', async () => {
+    // The viewer hosts the logs tour, which would be the top layer on a first visit (this file
+    // clears localStorage) and take the second Escape itself.
+    markSeen('logs');
+    const { findByText, getByPlaceholderText, queryByPlaceholderText } = render(LogsPopover, {
+      props,
+    });
+    await fireEvent.click(await findByText('latest.log'));
+    const search = getByPlaceholderText(/find in file/i) as HTMLInputElement;
+    await fireEvent.input(search, { target: { value: 'keep up' } });
+
+    const clearing = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    search.dispatchEvent(clearing);
+    expect(clearing.defaultPrevented).toBe(true);
+    await waitFor(() => expect(search.value).toBe(''));
+    expect(queryByPlaceholderText(/find in file/i)).not.toBeNull();
+
+    // With nothing left to clear, Escape reaches the layer router, and the
+    // viewer — the top layer — closes.
+    search.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await waitFor(() => expect(queryByPlaceholderText(/find in file/i)).toBeNull());
   });
 });

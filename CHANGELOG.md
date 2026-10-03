@@ -222,9 +222,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   and comes back on the same step when you close it, and opening the
   translations editor from the Overview tour starts the editor's own tour
   straight away.
-- **Escape closes only the topmost thing.** Closing an explanation with
-  Escape no longer ends the tour behind it, and no longer closes the dialog it
-  was opened from.
+- **Escape closes only the topmost thing.** Closing an explanation or a list
+  with Escape no longer ends the tour behind it, and no longer closes the
+  dialog it was opened from: closing the list of Minecraft versions in the
+  import from another launcher used to close the whole import. In a search
+  field, Escape first clears the search, where the log viewer used to close
+  along with it.
 - **A filter's list opens over the page switcher.** In a short window, a list
   opened from the filters of the mod or modpack browser, such as the Minecraft
   versions, went under the page switcher at the bottom, and its last entries
@@ -267,6 +270,51 @@ behaviour is worth knowing, it is stated as a property of the feature under
   is not in Mojang's version list. A server imported that way before shows its
   version as not recorded, and starting it explains how to bring it back with
   the version set.
+- **A server that cannot start says why.** When Lucerna refused to start a
+  server before its process ran — no Minecraft version recorded, several loader
+  installs in its folder, missing files, no Quilt launcher, or Java that could
+  not be downloaded — the reason was shown nowhere, and starting the server
+  seemed to do nothing. The reason now shows at the top of the server's page,
+  also next to a notice about an earlier run. Only when the EULA has not been
+  accepted is the reason still left to the EULA notice, which comes with a
+  button that accepts it.
+- **The server console no longer goes quiet.** A line the server's Java printed
+  in the system's own encoding — on a Russian Windows, for example, its message
+  about a file it could not find — stopped the console for the rest of the
+  session: nothing more reached the server's page or its log file, and a backup
+  of the running server could not see the world being saved. Such lines now
+  read as text, and the console goes on.
+- **The keyboard stays in a dialog after its tour.** When a short tour inside a
+  dialog ended, such as the one in the translations editor or in profile
+  management, the keyboard focus left the dialog, and Tab moved through the
+  page behind it. The focus now goes back to where it was in the dialog.
+- **A Fabric server that has never been started imports as Fabric.** Importing
+  one, such as a copy of a server Lucerna made before its first start, read it
+  as Vanilla with no Minecraft version, because the files Fabric adds on the
+  first start were not there yet. Its Minecraft and Fabric versions are now
+  read from the Fabric launcher it carries.
+- **The mod and modpack browsers no longer shift sideways while results load.**
+  Each search moved the whole page 15 px to the side and back as the list
+  reloaded, and an open list of Minecraft versions was left 15 px off its
+  field.
+- **One old file in a modpack no longer hides every mod's dependencies.** A
+  modpack with a mod from an old Modrinth upload recorded that file's version
+  number where Modrinth expects a version id. Modrinth then refused the whole
+  request for the profile's versions, so the dependencies of every Modrinth mod
+  read as unknown and the platform was called unavailable. Now only that one
+  mod's dependencies are unknown.
+- **A switched-off copy of a mod no longer looks needed.** Next to an enabled
+  copy of the same mod, the switched-off one showed how many mods need it,
+  which is the enabled copy's count, and opened their list. Only an enabled
+  copy counts them now.
+- **A message about a refused change goes once the next change works.** In
+  profile management, a refused change of the Minecraft version kept its red
+  message under the form after the next change had gone through.
+- **The fixes that promise to retry start the server again.** Accepting the
+  EULA, stopping a leftover copy, raising or lowering the memory, or
+  downloading the server file again from a server's problem notice made the
+  fix and then left the server stopped. They now start it, as their buttons
+  say.
 
 ## [0.25.0] — 2026-09-27
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ServerDiagnosis } from '$lib/ipc/bindings';
-import { serverBannerEligible, serverDiagnosisSignature } from '$lib/servers/server-diagnosis-view';
+import {
+  bannerExplainsActionError,
+  serverBannerEligible,
+  serverDiagnosisSignature,
+} from '$lib/servers/server-diagnosis-view';
 
 function diag(overrides: Partial<ServerDiagnosis> = {}): ServerDiagnosis {
   return {
@@ -81,5 +85,48 @@ describe('serverDiagnosisSignature', () => {
   it('is null when there is no diagnosis', () => {
     expect(serverDiagnosisSignature(diag({ diagnosis: null }))).toBeNull();
     expect(serverDiagnosisSignature(null)).toBeNull();
+  });
+});
+
+describe('bannerExplainsActionError', () => {
+  const eulaBanner = diag({
+    diagnosis: {
+      pattern_id: 'server-eula-not-accepted',
+      title: 't',
+      explanation: 'e',
+      recommendation: 'r',
+      matched_excerpt: '',
+      repair: null,
+    },
+    log_signature: null,
+    server_repair: 'accept_eula',
+  });
+
+  it('is true only for the refusal the banner states: a start refused for the EULA', () => {
+    expect(bannerExplainsActionError(eulaBanner, { kind: 'server_eula_not_accepted' })).toBe(true);
+  });
+
+  it('is false for a refusal no banner states, whatever the banner says', () => {
+    // A server refused before it starts keeps the previous run's log, so the
+    // banner may describe an old crash; it never describes this refusal.
+    expect(bannerExplainsActionError(diag(), { kind: 'server_saved_mc_version_missing' })).toBe(
+      false,
+    );
+    expect(bannerExplainsActionError(eulaBanner, { kind: 'server_loader_ambiguous' })).toBe(false);
+  });
+
+  it('is false for the EULA refusal under a banner about something else', () => {
+    expect(bannerExplainsActionError(diag(), { kind: 'server_eula_not_accepted' })).toBe(false);
+  });
+
+  it('is false without a diagnosis, or for a thrown (non-IPC) failure', () => {
+    expect(
+      bannerExplainsActionError(diag({ status: 'none', diagnosis: null }), {
+        kind: 'server_eula_not_accepted',
+      }),
+    ).toBe(false);
+    expect(bannerExplainsActionError(undefined, { kind: 'server_eula_not_accepted' })).toBe(false);
+    expect(bannerExplainsActionError(eulaBanner, new Error('transport'))).toBe(false);
+    expect(bannerExplainsActionError(eulaBanner, 'boom')).toBe(false);
   });
 });

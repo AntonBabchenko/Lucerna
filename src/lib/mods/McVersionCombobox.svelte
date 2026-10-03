@@ -108,16 +108,22 @@
       } else {
         open = false;
       }
-    } else if (e.key === 'Escape') {
+    } else if (e.key === 'Escape' && open) {
+      // Closing the list is this press's whole job: consume it, so the layer
+      // router leaves the dialog or tour underneath alone. "The list is still
+      // the top layer when the router runs" cannot be relied on: an effect
+      // releases its layer, and for a real key press the browser runs pending
+      // microtasks — Svelte's flush among them — between this listener and
+      // the router's. With the list closed, the key goes on as usual.
+      e.preventDefault();
       open = false;
       activeIndex = -1;
     }
   }
 
   // The open dropdown is a layer in the app's layer stack: a contextual tour
-  // underneath steps aside while it is open, and the input's Escape — which
-  // closes the list without consuming the key — reaches the router with this
-  // layer still on top, so the dialog around the combobox stays open.
+  // underneath steps aside while it is open, and an Escape that reaches the
+  // router while the list is on top closes the list.
   useLayer(
     'popover',
     () => open,
@@ -192,6 +198,22 @@
     return () => {
       live = false;
     };
+  });
+
+  // And placed again whenever the box the field is laid out in changes size without a keystroke:
+  // results reloading under the Browse filter bar shortened the page, its scroll container dropped
+  // the scrollbar and the bar widened by 15 px, then narrowed as the results came back ~200 ms
+  // later — moving the field and leaving the list behind. The scroll containers reserve the
+  // scrollbar's gutter now (DESIGN.md §14); this covers a platform without `scrollbar-gutter`, and
+  // any other change to that box's width. A ResizeObserver answers after layout, before the paint.
+  $effect(() => {
+    if (!open || !inputEl || !listEl || typeof ResizeObserver === 'undefined') return;
+    const box = inputEl.offsetParent;
+    if (!(box instanceof HTMLElement)) return;
+    const list = listEl;
+    const observer = new ResizeObserver(() => placeList(list.offsetWidth));
+    observer.observe(box);
+    return () => observer.disconnect();
   });
 
   // Fixed, it does not follow the input when the page scrolls or the window resizes: it closes.

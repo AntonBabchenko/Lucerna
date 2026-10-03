@@ -1,3 +1,5 @@
+import { render } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetLayers,
@@ -10,6 +12,7 @@ import {
   pushLayer,
   tourAbove,
 } from '$lib/ui/layer-stack.svelte';
+import OpenPopoverLayer from './fixtures/OpenPopoverLayer.svelte';
 
 afterEach(() => __resetLayers());
 
@@ -219,6 +222,22 @@ describe('Escape router', () => {
 });
 
 describe('onLayersChange', () => {
+  // A popover pushes its layer from an effect (`useLayer`); the push notifies the listeners in
+  // the middle of that effect. A listener that reads the stack (the focus trap watches for a tour
+  // of its dialog) must not make the effect depend on the stack: the next change would re-run it,
+  // releasing and re-pushing the popover's layer — on top of whatever was opened after it.
+  it('a listener reading the stack does not tie a pushing effect to it', async () => {
+    const off = onLayersChange(() => void tourAbove(newLayerId('probe')));
+    const { unmount } = render(OpenPopoverLayer);
+    await tick();
+    const modal = newLayerId('modal');
+    pushLayer(modal, 'modal', noop);
+    await tick();
+    expect(isTopmost(modal)).toBe(true);
+    off();
+    unmount();
+  });
+
   it('notifies on every change and stops after unsubscribe', () => {
     const fn = vi.fn();
     const off = onLayersChange(fn);
