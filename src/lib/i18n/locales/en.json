@@ -4088,7 +4088,7 @@
       "eula": {
         "title": "The Minecraft EULA is not accepted",
         "explanation": "The server won't run until the Minecraft EULA is accepted.",
-        "recommendation": "Recreate the server with the EULA checkbox ticked."
+        "recommendation": "Accept the Minecraft EULA, then start the server."
       },
       "orphan": {
         "title": "A leftover copy of this server is still running",

@@ -4088,7 +4088,7 @@
       "eula": {
         "title": "Minecraft EULA не принят",
         "explanation": "Сервер не запустится, пока не принят Minecraft EULA.",
-        "recommendation": "Пересоздайте сервер с отмеченной галочкой EULA."
+        "recommendation": "Примите Minecraft EULA, затем запустите сервер."
       },
       "orphan": {
         "title": "Прежняя копия этого сервера ещё работает",

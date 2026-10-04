@@ -329,6 +329,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A long profile name stays readable in profile management.** The Active
   badge beside the name left it a letter or two in the list; it now sits on
   the line below, after the loader and the version.
+- **A server's EULA notice no longer says to re-create the server.** Its
+  button accepts the EULA and starts the server, and the advice above it now
+  says the same.
 
 ## [0.25.0] — 2026-09-27
 
