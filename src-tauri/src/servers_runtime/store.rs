@@ -38,6 +38,15 @@ pub fn list_all(base: &Path) -> Result<Vec<ServerFile>> {
         Err(e) => return Err(Error::io(servers.display().to_string(), e)),
     };
     for entry in entries.flatten() {
+        // An import in flight stages under `servers/` with no `server.json` yet:
+        // not a server to read, and not a malformed one to warn about.
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(crate::servers_runtime::import::is_staging_dir_name)
+        {
+            continue;
+        }
         let json = entry.path().join("server.json");
         match read_server_json(&json) {
             Ok(s) => out.push(s),
@@ -263,6 +272,21 @@ mod tests {
         let all = list_all(dir.path()).unwrap();
         let ids: Vec<_> = all.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["Alpha", "Bravo"]);
+    }
+
+    #[test]
+    fn list_all_passes_over_an_import_in_flight() {
+        let dir = tempdir().unwrap();
+        let p = crate::paths::server_paths(dir.path(), "Alpha");
+        write_server_json(&p.json, &sample("Alpha")).unwrap();
+        // The staging dir of an import in flight: never read as a server, even
+        // with a server.json that parses in it.
+        let staging = crate::servers_runtime::import::staging_dir(dir.path(), "tok-1");
+        write_server_json(&staging.join("server.json"), &sample("Staged")).unwrap();
+
+        let all = list_all(dir.path()).unwrap();
+        let ids: Vec<_> = all.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["Alpha"]);
     }
 
     #[test]

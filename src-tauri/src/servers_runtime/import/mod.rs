@@ -35,8 +35,18 @@ struct StagingMeta {
     source: String,
 }
 
+/// The name every import's staging dir under `servers/` starts with: an import
+/// in flight, never a server — the scan of saved servers skips it.
+const STAGING_PREFIX: &str = ".tmp-import-";
+
 pub(crate) fn staging_dir(base: &Path, token: &str) -> PathBuf {
-    base.join("servers").join(format!(".tmp-import-{token}"))
+    base.join("servers")
+        .join(format!("{STAGING_PREFIX}{token}"))
+}
+
+/// Whether an entry of `servers/` is an import's staging dir.
+pub(crate) fn is_staging_dir_name(name: &str) -> bool {
+    name.starts_with(STAGING_PREFIX)
 }
 
 fn write_meta(dir: &Path, meta: &StagingMeta) -> Result<()> {
@@ -211,7 +221,7 @@ pub fn sweep_stale(base: &Path) {
     for e in rd.flatten() {
         let name = e.file_name();
         let Some(n) = name.to_str() else { continue };
-        if !n.starts_with(".tmp-import-") {
+        if !is_staging_dir_name(n) {
             continue;
         }
         let old = e
@@ -312,6 +322,19 @@ mod tests {
     use std::io::Write as _;
     use tempfile::tempdir;
     use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn a_staging_dir_is_known_by_its_name_and_no_server_folder_takes_it() {
+        let staged = staging_dir(std::path::Path::new("/data"), "tok-1");
+        assert!(is_staging_dir_name(
+            staged.file_name().unwrap().to_str().unwrap()
+        ));
+        // A server's folder is derived from its name and never starts with a
+        // dot, so the scan's skip can never hide a real server.
+        let folder = crate::naming::derive_base(".tmp-import-evil", None, "server");
+        assert!(!is_staging_dir_name(&folder), "{folder}");
+        assert!(!is_staging_dir_name("My-Server"));
+    }
 
     fn make_zip(entries: &[(&str, &[u8])]) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempdir().unwrap();
