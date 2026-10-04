@@ -119,6 +119,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Quilt profiles install the mods their authors publish for Quilt as a Fabric
+  build.** Most Fabric mods ship one file for both loaders and mark it for
+  Quilt — Sodium, Lithium, Jade and recent Iris builds among them. Lucerna
+  treated the `fabric` in the file name as proof the file was not for Quilt, so
+  a Quilt profile saw no versions of such a mod, was offered an outdated
+  Quilt-only build where one once existed, or was told a mod it already had
+  no build for its version. A file that carries no loader mark from its
+  author is still left out.
 - **NeoForge is offered for Minecraft 1.21 and every 26.x release.** Lucerna
   read NeoForge's version numbers the wrong way: `21.0.167` as a build for
   Minecraft 1.21.0 instead of 1.21, and the year-based numbers such as
