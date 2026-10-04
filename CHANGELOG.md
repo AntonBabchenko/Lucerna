@@ -320,6 +320,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   never start; the import now refuses it under the version field and keeps the
   dialog open. Without a connection, a version already installed is accepted.
   A disabled Import button now says what it is waiting for.
+- **Notices that confirm an import, a copy or a new shortcut go away by
+  themselves.** They stayed until closed by hand and, piled up top right,
+  covered the buttons under them. They now go after seven seconds and wait
+  while you point at them or they have the keyboard focus. A notice that lists
+  what an import left out still stays until closed.
 
 ## [0.25.0] — 2026-09-27
 
