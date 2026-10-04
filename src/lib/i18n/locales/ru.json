@@ -918,6 +918,7 @@
       "statePlatformOnly": "не установлен · по данным платформы; мод запускается и без него",
       "stateUnknown": "не установлен · по данным платформы",
       "disabledStatus": "отключён",
+      "optionalMark": "необязательный",
       "enableBtn": "Включить",
       "enableAriaLabel": "Включить {name}",
       "fixConflictAriaLabel": "Исправить конфликт версий с {name}",

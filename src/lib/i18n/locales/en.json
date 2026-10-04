@@ -918,6 +918,7 @@
       "statePlatformOnly": "not installed · per the platform; the mod starts without it",
       "stateUnknown": "not installed · per the platform",
       "disabledStatus": "disabled",
+      "optionalMark": "optional",
       "enableBtn": "Enable",
       "enableAriaLabel": "Enable {name}",
       "fixConflictAriaLabel": "Fix the version conflict with {name}",

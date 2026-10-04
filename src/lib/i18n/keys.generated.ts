@@ -1402,6 +1402,7 @@ export type TranslationKey =
   | 'mods.deps.installedStatus'
   | 'mods.deps.jumpToTitle'
   | 'mods.deps.notInstalledStatus'
+  | 'mods.deps.optionalMark'
   | 'mods.deps.stateLoaderRequired'
   | 'mods.deps.statePlatformOnly'
   | 'mods.deps.stateUnknown'

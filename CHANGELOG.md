@@ -89,9 +89,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   marked as one the game won't start without, one the platform lists but the
   mod starts without, or one only the platform lists; a disabled one can be
   switched on from the tree, and a version conflict offers the same fix as the
-  problems panel. Branches fold, the count is per project rather than per file,
-  the tree follows every switch on and off, and it works from the keyboard and
-  with a screen reader. The author-claim badge and its hide button are gone.
+  problems panel. Deeper in the tree, a dependency its mod only offers is marked
+  optional. Branches fold, the count is per project rather than per file, the
+  tree follows every switch on and off, and it works from the keyboard and with
+  a screen reader. The author-claim badge and its hide button are gone.
 - **Pointing at a mod no longer highlights it everywhere it appears.** Its row
   and its mentions in other mods' dependency lists used to light up together;
   the arrow beside a dependency or a dependent still takes you to its row.
