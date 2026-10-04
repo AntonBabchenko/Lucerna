@@ -213,7 +213,12 @@
     }),
   );
   const bulkGhosts = $derived(pendingBulkRemove?.filter((r) => !r.present).length ?? 0);
-  const bulkBusy = $derived(bulkAction !== null || removing || updatingAll || checkingUpdates);
+  // Every write here rewrites level.dat, so a bulk run and a per-row change never overlap: the
+  // bar waits for a row's update, and the rows' own controls wait for the bar (below).
+  const bulkBusy = $derived(
+    bulkAction !== null || removing || updatingAll || checkingUpdates || updatingKeys.size > 0,
+  );
+  const bulkRunning = $derived(bulkAction !== null);
   // The pane's lasting gates first (a running server, a world with only level.dat_old), each
   // with its own text; otherwise an action is off when no selected row can take it.
   function bulkGate(action: BulkBarAction, none: boolean, noneReason: string): BulkBarAction {
@@ -518,7 +523,7 @@
       class="btn-warning btn-sm"
       data-testid="server-datapacks-update-all"
       busy={updatingAll}
-      disabled={disabled || worldBlock !== null || updatableCount === 0}
+      disabled={disabled || worldBlock !== null || bulkRunning || updatableCount === 0}
       onclick={() => void updateAll()}
     >
       {$t('mods.installed.updateAll', { count: updatableCount })}
@@ -527,7 +532,7 @@
       type="button"
       class="btn-secondary btn-sm"
       data-testid="server-open-vt-builder"
-      disabled={disabled || worldBlock !== null}
+      disabled={disabled || worldBlock !== null || bulkRunning}
       onclick={() => (vtOpen = true)}
     >
       {$t('addons.datapacks.vt.open')}
@@ -665,6 +670,7 @@
                   worldBlock !== null ||
                   checkingUpdates ||
                   updatingAll ||
+                  bulkRunning ||
                   rowBusy}
                 onclick={() => void updateOne(row)}
                 aria-label={$t('addons.installed.update')}
@@ -693,7 +699,7 @@
                 type="button"
                 class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
                 data-testid="server-datapack-toggle"
-                disabled={disabled || toggleBlock !== null}
+                disabled={disabled || toggleBlock !== null || bulkRunning}
                 onclick={() => void toggle(row)}
                 aria-label={toggleLabel}
               >
@@ -715,7 +721,7 @@
               type="button"
               class="btn-icon btn-icon-sm btn-icon-danger"
               data-testid="server-datapack-remove"
-              disabled={disabled || worldBlock !== null}
+              disabled={disabled || worldBlock !== null || bulkRunning}
               onclick={() => {
                 actionError = null;
                 pendingRemove = row;
