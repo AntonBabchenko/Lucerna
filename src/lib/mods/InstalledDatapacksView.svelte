@@ -51,8 +51,14 @@
   import VanillaTweaksBuilder from '$lib/vanillatweaks/VanillaTweaksBuilder.svelte';
   import { installedVtPacks } from '$lib/vanillatweaks/vt-selection';
   import DatapackRemoveDialog from './DatapackRemoveDialog.svelte';
+  import DatapackBulkRemoveDialog, { type LibraryEntry } from './DatapackBulkRemoveDialog.svelte';
   import { warnFailedRefresh, warnUpdateIncomplete } from './datapack-refresh-warning';
-  import type { Snippet } from 'svelte';
+  import BulkActionBar, { type BulkBarAction } from '$lib/ui/BulkActionBar.svelte';
+  import SelectRowCheckbox from '$lib/ui/SelectRowCheckbox.svelte';
+  import { reportBulk, runBulk } from '$lib/ui/bulk-run';
+  import { createListSelection } from '$lib/ui/list-selection.svelte';
+  import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
+  import { onDestroy, type Snippet } from 'svelte';
 
   let {
     instanceId,
@@ -197,6 +203,7 @@
       // instance's pack name and world list.
       removeFor = null;
       removeFromWorldFor = null;
+      bulkRemoveFor = null;
       pickerFor = null;
       detail = null;
       detailFor = null;
@@ -461,6 +468,125 @@
         return { variant: 'neutral', label: get(t)('addons.datapacks.stateUnknown') };
     }
   }
+
+  // The bulk bar (DESIGN.md §8): keys are pack filenames, the selection is cleared on a profile switch.
+  const selection = createListSelection(
+    () => (view?.entries ?? []).map((e) => e.pack.filename),
+    () => instanceId,
+  );
+  onDestroy(() => selection.dispose());
+  type BulkAction = 'update' | 'remove';
+  let bulkAction = $state<BulkAction | null>(null);
+  let bulkRemoveFor = $state<LibraryEntry[] | null>(null);
+  // Where the first removed row was, for the focus rule after the dialog's run.
+  let bulkRemoveIndex = 0;
+  let listEl = $state<HTMLElement | null>(null);
+  let emptyListEl = $state<HTMLElement | null>(null);
+
+  const selectedEntries = $derived(
+    (view?.entries ?? []).filter((e) => selection.selected.has(e.pack.filename)),
+  );
+  const bulkToUpdate = $derived(
+    selectedEntries.flatMap((e) => {
+      const latest = updatable(e.pack.filename);
+      return latest ? [{ entry: e, latest }] : [];
+    }),
+  );
+  // The gate note's own text is the reason while the profile runs or a change is in flight.
+  function bulkGate(action: BulkBarAction, none: boolean, noneReason: string): BulkBarAction {
+    if (disabledKey !== null) return { ...action, disabled: true, disabledReason: $t(disabledKey) };
+    return { ...action, disabled: none, disabledReason: noneReason };
+  }
+  const bulkActions = $derived<BulkBarAction[]>([
+    bulkGate(
+      { id: 'update', label: $t('addons.installed.update') },
+      bulkToUpdate.length === 0,
+      $t('ui.bulk.updateNeedsCheck'),
+    ),
+    bulkGate(
+      { id: 'remove', label: $t('addons.installed.remove'), intent: 'danger' },
+      selectedEntries.length === 0,
+      $t('ui.bulk.noneApplicable'),
+    ),
+  ]);
+  function onBulkAction(id: string): void {
+    if (id === 'update') void bulkUpdate();
+    else if (id === 'remove') requestBulkRemove();
+  }
+
+  // The single row's per-outcome rule, per pack: an IPC error fails it; an outcome that kept the
+  // OLD library copy names the worlds left behind (a retry can finish, the badge stays) and counts
+  // as failed; otherwise the new version is in the library, any world not refreshed is named, and
+  // the badge goes.
+  async function applyOneUpdate(
+    id: string,
+    entry: DatapackLibraryEntry,
+    latest: ModVersion,
+  ): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: string }> {
+    const res = await commands.datapacksUpdateOne(id, entry.pack.filename, latest);
+    if (res.status === 'error') return { status: 'error', error: formatError(res.error) };
+    if (!res.data.completed && res.data.old_copy_kept) {
+      warnUpdateIncomplete(res.data.pack.name, res.data.migrations);
+      return { status: 'error', error: get(t)('addons.datapacks.bulkUpdateKeptOld') };
+    }
+    warnFailedRefresh(res.data.pack.name, res.data.migrations);
+    const next = new Map(updateStates);
+    next.delete(entry.pack.filename);
+    updateStates = next;
+    return { status: 'ok', data: null };
+  }
+
+  async function bulkUpdate(): Promise<void> {
+    const id = instanceId;
+    const targets = bulkToUpdate;
+    if (id === null || gated || targets.length === 0) return;
+    bulkAction = 'update';
+    busy = true;
+    error = null;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (tg) => applyOneUpdate(id, tg.entry, tg.latest),
+        (reason) => reason,
+        (tg) => tg.entry.pack.name,
+      );
+      await refresh();
+      datapacksChanged.value++;
+      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
+    } finally {
+      busy = false;
+      bulkAction = null;
+    }
+    selection.clear();
+  }
+
+  function requestBulkRemove(): void {
+    if (instanceId === null || gated || selectedEntries.length === 0) return;
+    bulkRemoveIndex = Math.max(
+      0,
+      (view?.entries ?? []).findIndex((e) => selection.selected.has(e.pack.filename)),
+    );
+    bulkRemoveFor = selectedEntries.map((e) => ({
+      filename: e.pack.filename,
+      name: e.pack.name,
+      inLibrary: e.in_library,
+      placements: e.placements,
+    }));
+  }
+
+  async function afterBulkRemove(): Promise<void> {
+    selection.clear();
+    await refresh();
+    datapacksChanged.value++;
+    await refocusAfterRemoval({
+      index: bulkRemoveIndex,
+      listEl,
+      rows: (list) => [
+        ...list.querySelectorAll<HTMLElement>('[data-testid="datapack-library-row"]'),
+      ],
+      emptyEl: emptyListEl,
+    });
+  }
 </script>
 
 <div class="p-3" data-testid="installed-datapacks">
@@ -527,13 +653,32 @@
     <!-- A library that could not be read shows its error above, never «no datapacks». The host's
          full drop area replaces its strip once the read says empty (DESIGN.md §14). -->
     {#if view !== null}
-      <div class="pt-6 flex flex-col gap-3" data-testid="list-empty">
+      <!-- Focus lands here after the last removal (`refocusAfterRemoval`): a parking place that
+           reads the message, not a control. -->
+      <div
+        bind:this={emptyListEl}
+        tabindex="-1"
+        class="pt-6 flex flex-col gap-3 outline-none"
+        data-testid="list-empty"
+      >
         <p class="text-muted text-sm text-center">{$t('addons.datapacks.empty')}</p>
         {#if listEmpty}{@render emptyDropzone?.()}{/if}
       </div>
     {/if}
   {:else if view}
-    <div class="border border-border-subtle rounded-lg overflow-hidden">
+    <div class="border border-border-subtle rounded-lg overflow-hidden" bind:this={listEl}>
+      <BulkActionBar
+        allSelected={selection.allSelected}
+        indeterminate={selection.indeterminate}
+        selectedCount={selection.count}
+        busy={gated || bulkAction !== null}
+        busyAction={bulkAction}
+        hint={$t('addons.datapacks.bulkHint')}
+        actions={bulkActions}
+        onToggleAll={selection.toggleAll}
+        onAction={onBulkAction}
+        onClear={selection.clear}
+      />
       {#each view.entries as entry (entry.pack.filename)}
         {@const latest = updatable(entry.pack.filename)}
         {@const summary = datapackWorldSummary(entry.placements)}
@@ -544,7 +689,13 @@
           <CardShell
             variant="compact-row"
             accent={compatWarn !== null || latest ? 'warning' : 'none'}
+            testid="datapack-library-row"
           >
+            <SelectRowCheckbox
+              checked={selection.selected.has(entry.pack.filename)}
+              name={entry.pack.name}
+              onChange={(c) => selection.toggle(entry.pack.filename, c)}
+            />
             <button
               type="button"
               class="btn-icon btn-icon-sm"
@@ -809,6 +960,19 @@
         void refresh();
         datapacksChanged.value++;
       }}
+    />
+  {/if}
+
+  {#if bulkRemoveFor && instanceId}
+    <DatapackBulkRemoveDialog
+      {instanceId}
+      mode={{ kind: 'library', entries: bulkRemoveFor }}
+      onRunning={(running) => {
+        busy = running;
+        bulkAction = running ? 'remove' : null;
+      }}
+      onClose={() => (bulkRemoveFor = null)}
+      onRemoved={() => void afterBulkRemove()}
     />
   {/if}
 
