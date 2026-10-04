@@ -3,11 +3,11 @@
 //! given, and one Lucerna can install — Mojang lists it (`versions::check`).
 //!
 //! When Mojang's list cannot be loaded, a version already installed on this
-//! machine is accepted: a launch reads an installed version's JSON from disk
-//! without the list (the disk fast path of `versions::install`), so that profile
-//! starts offline. Anything else is refused as unchecked rather than saved
-//! unchecked. A server keeps the strict rule (`servers_runtime::mc_version`):
-//! its start needs the list anyway.
+//! machine — its JSON and its client jar, what `ready_status` asks of it — is
+//! accepted: it came from Mojang's list, so it is a real version, and an
+//! offline user who has it is not locked out of importing. Anything else is
+//! refused as unchecked rather than saved unchecked. A server keeps the strict
+//! rule (`servers_runtime::mc_version`): its start needs the list anyway.
 
 use std::path::Path;
 
@@ -24,16 +24,16 @@ pub async fn check(versions_dir: &Path, input: &str) -> Result<String> {
 }
 
 /// The decision apart from the fetch and the disk: `list` is what loading
-/// Mojang's list gave; `installed` is asked only when it could not be loaded.
+/// Mojang's list gave; `is_installed` is asked only when it could not be loaded.
 fn decide(
     mc: &str,
     list: Result<Vec<VersionEntry>>,
-    installed: impl FnOnce() -> bool,
+    is_installed: impl FnOnce() -> bool,
 ) -> Result<()> {
     match list {
         Ok(known) => listed(mc, &known),
         Err(e) => match manifest_unreachable(e) {
-            Error::McVersionUnchecked if installed() => {
+            Error::McVersionUnchecked if is_installed() => {
                 crate::diag!(
                     "instances: accepted Minecraft {mc} for an import without Mojang's version list: it is installed here"
                 );
@@ -44,15 +44,35 @@ fn decide(
     }
 }
 
-/// Whether this version's JSON is on disk, where the launch reads it. A stat
-/// that fails reads as "not installed" — the restrictive answer, since the
-/// caller only asks when it could not check. A Mojang id never holds a path
-/// separator; one that does is not looked up.
+/// Whether this exact version is installed here: a folder of `versions/` named
+/// `mc` exactly, holding the version's JSON and client jar
+/// (`versions::install::vanilla_installed_in`). Asked only when Mojang's list
+/// could not be loaded, so anything it cannot tell reads as "not installed" —
+/// the restrictive answer.
+/// - A Mojang id is one plain folder name: anything that could name another
+///   path — a separator, a drive prefix (`C:x` replaces the base it is joined
+///   to on Windows), `..`, a reserved device name — is never looked up.
+/// - The folder is matched by its own name, so a case-insensitive disk cannot
+///   accept `24W14A` for an installed `24w14a` and store a spelling Mojang
+///   never uses.
 fn installed(versions_dir: &Path, mc: &str) -> bool {
-    if mc.contains(['/', '\\']) || mc == "." || mc == ".." {
+    if crate::pathsafe::validate_segment(mc).is_err() {
         return false;
     }
-    crate::versions::install::version_json_in(versions_dir, mc).is_file()
+    let named = match std::fs::read_dir(versions_dir) {
+        Ok(entries) => entries
+            .flatten()
+            .any(|e| e.file_name().to_str() == Some(mc)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => {
+            crate::diag!(
+                "instances: could not read {} to look for Minecraft {mc}: {e}",
+                versions_dir.display()
+            );
+            false
+        }
+    };
+    named && crate::versions::install::vanilla_installed_in(versions_dir, mc)
 }
 
 #[cfg(test)]
@@ -114,29 +134,57 @@ mod tests {
         ));
     }
 
+    /// `<dir>/<id>/<id>.json` and `.jar`, as an install leaves them.
+    fn plant(dir: &Path, id: &str, jar: bool) {
+        let folder = dir.join(id);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(format!("{id}.json")), "{}").unwrap();
+        if jar {
+            std::fs::write(folder.join(format!("{id}.jar")), "PK").unwrap();
+        }
+    }
+
     #[test]
-    fn installed_means_the_json_the_launch_reads() {
+    fn installed_means_the_json_and_the_client_jar() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!installed(dir.path(), "1.20.1"));
-        // The version's folder alone is not an installed version.
-        std::fs::create_dir_all(dir.path().join("1.20.1")).unwrap();
+        // The JSON alone — an install that stopped after it, a repair scan, a
+        // Forge installer's parent, a loader profile — is not an installed version.
+        plant(dir.path(), "1.20.1", false);
         assert!(!installed(dir.path(), "1.20.1"));
-        std::fs::write(dir.path().join("1.20.1").join("1.20.1.json"), "{}").unwrap();
+        plant(dir.path(), "1.20.1", true);
         assert!(installed(dir.path(), "1.20.1"));
     }
 
     #[test]
-    fn an_id_with_a_path_in_it_is_never_looked_up() {
+    fn only_the_folder_s_own_spelling_counts() {
         let dir = tempfile::tempdir().unwrap();
-        let inner = dir.path().join("inner");
-        // Asked for "../x" under `inner`, the layout would read
-        // `inner/../x/../x.json`, which is `<dir>/x.json` — planted, so only
-        // the guard keeps it from counting.
-        std::fs::create_dir_all(dir.path().join("x")).unwrap();
+        plant(dir.path(), "24w14a", true);
+        assert!(installed(dir.path(), "24w14a"));
+        // On a case-insensitive disk the files would be found under this spelling too.
+        assert!(!installed(dir.path(), "24W14A"));
+    }
+
+    #[test]
+    fn an_id_that_names_another_path_is_never_looked_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let versions = dir.path().join("versions");
+        std::fs::create_dir_all(&versions).unwrap();
+        // Joined as paths these would reach planted installs: "../x" reads
+        // `versions/../x/../x.json` (= `<dir>/x.json`), "a/b" and "a\\b" read
+        // `versions/a/b/a/b.json` (on Windows for the backslash).
+        plant(dir.path(), "x", true);
         std::fs::write(dir.path().join("x.json"), "{}").unwrap();
-        std::fs::create_dir_all(&inner).unwrap();
-        for id in ["../x", "..\\x", "a/b", ".", ".."] {
-            assert!(!installed(&inner, id), "{id} must not be looked up");
+        std::fs::write(dir.path().join("x.jar"), "PK").unwrap();
+        let ab = versions.join("a").join("b").join("a");
+        std::fs::create_dir_all(&ab).unwrap();
+        std::fs::write(ab.join("b.json"), "{}").unwrap();
+        std::fs::write(ab.join("b.jar"), "PK").unwrap();
+        for id in [
+            "../x", "..\\x", "a/b", "a\\b", ".", "..", "", "C:x", "C:", "C:\\x", "\\x", "/etc",
+            "NUL", "CON",
+        ] {
+            assert!(!installed(&versions, id), "{id:?} must not be looked up");
         }
     }
 

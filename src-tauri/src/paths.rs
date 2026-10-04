@@ -208,6 +208,21 @@ pub fn servers_root(base: &Path) -> PathBuf {
     base.join("servers")
 }
 
+/// The name every server import's staging dir under `servers/` starts with:
+/// an import in flight, never a server. A server's own folder is derived from
+/// its name (`naming::derive_base`) and never starts with a dot.
+const SERVER_IMPORT_STAGING_PREFIX: &str = ".tmp-import-";
+
+/// `<base>/servers/.tmp-import-<token>` — a server import's staging dir.
+pub fn server_import_staging(base: &Path, token: &str) -> PathBuf {
+    servers_root(base).join(format!("{SERVER_IMPORT_STAGING_PREFIX}{token}"))
+}
+
+/// Whether an entry of `servers/` is a server import's staging dir.
+pub fn is_server_import_staging(name: &str) -> bool {
+    name.starts_with(SERVER_IMPORT_STAGING_PREFIX)
+}
+
 pub fn server_paths(base: &Path, id: &str) -> ServerPaths {
     let root = servers_root(base).join(id);
     let runtime = root.join("runtime");

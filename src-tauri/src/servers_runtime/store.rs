@@ -43,7 +43,7 @@ pub fn list_all(base: &Path) -> Result<Vec<ServerFile>> {
         if entry
             .file_name()
             .to_str()
-            .is_some_and(crate::servers_runtime::import::is_staging_dir_name)
+            .is_some_and(crate::paths::is_server_import_staging)
         {
             continue;
         }
