@@ -23,6 +23,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Several items at once, in every installed list.** Resource packs, shaders, the
+  data pack library, a world's data packs and a server's mods, plugins and data
+  packs now have the checkboxes the mods list had: select some or all, then
+  enable, disable, update or remove them together. A removal of several asks
+  first and names what it removes; one notice per run says how many of how many
+  succeeded and why the rest did not. An action that none of the selected rows
+  can take is off and says why, and whatever stops a single row (a running
+  server, a world without its `level.dat`) stops the batch too.
 - **Removing a mod can be undone.** The notice that confirms a removal keeps an
   undo button for ten seconds — the countdown pauses while you point at it or
   it has the keyboard focus — and removing several mods at once is undone in
