@@ -103,6 +103,16 @@ const ALLOWLIST: &[&str] = &[
     // never opens the file, so a hardlinked jar stays one inode with the store —
     // and moved back the same way. Same temp-then-rename shape as above.
     "mods/trash.rs",
+    // `{instance}/lucerna/txn/<token>/record.json` (and its `json.tmp.<pid>.<seq>`
+    // sibling) plus an empty `closed` marker beside it — the plan and the
+    // closing of a content transaction (an update that can be undone). Writes
+    // no content bytes: the path is built from `installed::registry_dir`, the
+    // instance's `lucerna/` METADATA directory, a sibling of `.minecraft/`. The
+    // content it protects is MOVED with `fs::rename` into `<token>/files/` and
+    // back — a directory-entry change that never opens the file, so a
+    // hardlinked jar stays one inode with the store. Same temp-then-rename
+    // shape as `mods/trash.rs` above.
+    "mods/txn.rs",
     // `{instance}/lucerna/holds.json` — the per-project "don't update" list.
     // Same class, same `lucerna/` directory, same temp-then-rename shape as
     // `mods/hash_cache.rs`; never a path inside `.minecraft/`.
