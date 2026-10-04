@@ -7,6 +7,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import SelectRowCheckbox from '$lib/ui/SelectRowCheckbox.svelte';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
@@ -403,14 +404,7 @@
       {below}
     >
       {#if selectable && installed}
-        <input
-          type="checkbox"
-          class="flex-shrink-0"
-          checked={selected}
-          aria-label={$t('mods.installed.selectModAriaLabel', { filename: installed.filename })}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
-        />
+        <SelectRowCheckbox checked={selected} name={installed.filename} onChange={onSelectChange} />
       {/if}
       {#if relation}{@render relationCell()}{/if}
       <CardMedia iconUrl={null} placeholder={isPlatform ? 'circleX' : placeholderIcon} size="sm" />
@@ -493,14 +487,7 @@
       {below}
     >
       {#if selectable}
-        <input
-          type="checkbox"
-          class="flex-shrink-0"
-          checked={selected}
-          aria-label={$t('mods.card.selectAriaLabel', { name: summary.name })}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
-        />
+        <SelectRowCheckbox checked={selected} name={summary.name} onChange={onSelectChange} />
       {/if}
       {#if relation}{@render relationCell()}{/if}
       <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="sm" />

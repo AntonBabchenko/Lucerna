@@ -68,7 +68,8 @@
   import { relationFigures, relationInput, relationSlotDigits } from './relation-cell';
   import { modKey, rowDisplayName } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
-  import BulkActionBar from './BulkActionBar.svelte';
+  import BulkActionBar, { type BulkBarAction } from '$lib/ui/BulkActionBar.svelte';
+  import { refocusAfterRemoval as refocusInList } from '$lib/ui/refocus-after-removal';
   import InstalledModRow from './InstalledModRow.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
@@ -939,17 +940,12 @@
   const pagedIndexOf = (hit: (r: Row) => boolean): number =>
     Math.max(0, filters.paged.findIndex(hit));
   async function refocusAfterRemoval(index: number): Promise<void> {
-    await tick();
-    if (typeof document === 'undefined') return;
-    const active = document.activeElement;
-    if (active !== null && active !== document.body && active.isConnected) return;
-    const rows = listEl ? [...listEl.querySelectorAll<HTMLElement>('[data-mod-row]')] : [];
-    const row = rows[Math.min(index, rows.length - 1)];
-    // A row's first control (its checkbox), else the list's own first (select all), else the
-    // empty list, which says there is nothing left.
-    const into = (el: HTMLElement | null | undefined) =>
-      el?.querySelector<HTMLElement>('input, button') ?? null;
-    (into(row) ?? into(listEl) ?? emptyListEl)?.focus();
+    await refocusInList({
+      index,
+      listEl,
+      rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-mod-row]')],
+      emptyEl: emptyListEl,
+    });
   }
 
   // «Перепроверить совместимость и зависимости» (⋯): the live compat check (it forces the
@@ -1023,6 +1019,26 @@
     const id = instanceId;
     const updated = await selection.bulkUpdate();
     updates.forget(updated, id);
+  }
+
+  // The bulk bar's actions (DESIGN.md §9). Update is off until a selected mod has a pending
+  // update; the rest stay on, as before.
+  const bulkActions = $derived<BulkBarAction[]>([
+    { id: 'enable', label: $t('mods.card.enable') },
+    { id: 'disable', label: $t('mods.card.disable') },
+    {
+      id: 'update',
+      label: $t('mods.card.update'),
+      disabled: selection.selectedUpdatable.length === 0,
+      disabledReason: $t('mods.installed.bulkUpdateTitle'),
+    },
+    { id: 'uninstall', label: $t('mods.card.uninstall'), intent: 'danger' },
+  ]);
+  function onBulkAction(id: string): void {
+    if (id === 'enable') void selection.bulkSetEnabled(true);
+    else if (id === 'disable') void selection.bulkSetEnabled(false);
+    else if (id === 'update') void bulkUpdate();
+    else if (id === 'uninstall') void bulkUninstall();
   }
 
   // Event listeners (belt-and-suspenders; also call refresh directly). The
@@ -1174,12 +1190,10 @@
         indeterminate={selection.selected.size > 0 && !selection.allSelected}
         {busy}
         busyAction={selection.busyAction}
-        canUpdate={selection.selectedUpdatable.length > 0}
+        hint={$t('mods.installed.bulkHint')}
+        actions={bulkActions}
         onToggleAll={selection.toggleSelectAll}
-        onEnable={() => selection.bulkSetEnabled(true)}
-        onDisable={() => selection.bulkSetEnabled(false)}
-        onUpdate={bulkUpdate}
-        onUninstall={() => void bulkUninstall()}
+        onAction={onBulkAction}
         onClear={selection.clear}
       />
       {#each filters.paged as row (row.installed.sha1)}

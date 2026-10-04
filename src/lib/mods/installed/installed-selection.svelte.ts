@@ -7,6 +7,7 @@ import {
   type ModOpTarget,
   uninstallMods,
 } from '$lib/mods/mod-ops.svelte';
+import { createListSelection } from '$lib/ui/list-selection.svelte';
 import type { Row } from './installed-data.svelte';
 import { rowDisplayName } from './row-utils';
 import { pushUpdatesReport, runUpdates, type UpdateTarget, updatedShas } from './update-review';
@@ -17,14 +18,14 @@ export type BulkAction = 'enable' | 'disable' | 'update' | 'uninstall';
 
 const toTarget = (r: Row): ModOpTarget => ({ sha1: r.installed.sha1, name: rowDisplayName(r) });
 
-// Owns bulk-action selection state and the bulk operations themselves. The
-// `selected` Set is always reassigned whole (never mutated in place). Selections
-// for rows hidden by a filter/search change are dropped. `getUpdateChecks` lets
-// bulk Update target only rows with a pending update (a held project has none);
-// `onMutated` is called after install-set changes (uninstall) so the caller can
-// invalidate the graph. Enable, disable and removal go through the guarded path
-// (mod-ops), which asks about dependents, requirements and unneeded libraries
-// and reports the outcome; every operation here reports through a toast.
+// Owns the bulk operations of the installed mods list. The selection itself — the keys, select
+// all, pruning to the filtered rows, the clear on an instance switch — is the shared model every
+// bulk bar uses (`createListSelection`); this composable adds the mod operations on top of it.
+// `getUpdateChecks` lets bulk Update target only rows with a pending update (a held project has
+// none); `onMutated` is called after install-set changes (uninstall) so the caller can
+// invalidate the graph. Enable, disable and removal go through the guarded path (mod-ops), which
+// asks about dependents, requirements and unneeded libraries and reports the outcome; every
+// operation here reports through a toast.
 export function createInstalledSelection(
   getFiltered: () => Row[],
   getInstanceId: () => string | null,
@@ -34,70 +35,25 @@ export function createInstalledSelection(
   // What a guarded operation captures (instance, profile name, row names); the view supplies it.
   scopeFor: (instanceId: string) => ModOpScope = (instanceId) => ({ instanceId }),
 ) {
-  let selected = $state<Set<string>>(new Set());
+  const sel = createListSelection(() => getFiltered().map((r) => r.installed.sha1), getInstanceId);
   let busy = $state(false);
   // The specific bulk action in flight (drives per-button spinners); `busy`
   // stays the aggregate gate that disables the whole bar.
   let busyAction = $state<BulkAction | null>(null);
 
-  const selectedRows = $derived(getFiltered().filter((r) => selected.has(r.installed.sha1)));
-  const allSelected = $derived.by(() => {
-    const rows = getFiltered();
-    return rows.length > 0 && rows.every((r) => selected.has(r.installed.sha1));
-  });
+  const selectedRows = $derived(getFiltered().filter((r) => sel.selected.has(r.installed.sha1)));
   const selectedUpdatable = $derived(
     selectedRows.filter(
       (r) => getUpdateChecks().get(r.installed.sha1)?.state.kind === 'update_available',
     ),
   );
 
-  // Drop selections for rows no longer visible (filter/search change), and clear
-  // selection on instance switch. Wrapped in $effect.root for unit-testability
-  // and torn down via dispose() on component unmount.
-  let stopEffects: (() => void) | null = null;
-  try {
-    stopEffects = $effect.root(() => {
-      // Both effects below write `selected`. They are order-safe: on an instance
-      // switch the clear effect empties the set, then the drop-hidden effect sees
-      // size 0 === size 0 and skips its write. Keep the clear effect last so a
-      // switch always wins; do not reorder.
-      $effect(() => {
-        // Drop selections for rows no longer visible (filter/search change).
-        const visible = new Set(getFiltered().map((r) => r.installed.sha1));
-        const next = new Set([...selected].filter((sha) => visible.has(sha)));
-        if (next.size !== selected.size) selected = next;
-      });
-      $effect(() => {
-        // Clear selection on instance switch.
-        void getInstanceId();
-        selected = new Set();
-      });
-    });
-  } catch {
-    /* no reactive runtime to root the effects in — they stay inert. Under vitest the runtime IS
-       there: the effects make their first run (the instance-switch clear) at a test's first
-       await, so a test that selects must let them run first. */
-  }
-
-  function toggleSelect(sha1: string, checked: boolean) {
-    const next = new Set(selected);
-    if (checked) next.add(sha1);
-    else next.delete(sha1);
-    selected = next;
-  }
-  function toggleSelectAll(checked: boolean) {
-    selected = checked ? new Set(getFiltered().map((r) => r.installed.sha1)) : new Set();
-  }
-  function clear() {
-    selected = new Set();
-  }
-
   // Through the guarded path (spec §6.1): one impact check for the selection, one dialog, then
   // the flips, which report their own outcome. Rows already in the wanted state are left alone;
   // a cancelled dialog keeps the selection so the user can adjust it.
   async function bulkSetEnabled(enable: boolean) {
     const id = getInstanceId();
-    if (!id || selected.size === 0) return;
+    if (!id || sel.count === 0) return;
     const targets = selectedRows.filter((r) => r.installed.enabled !== enable).map(toTarget);
     busy = true;
     busyAction = enable ? 'enable' : 'disable';
@@ -112,7 +68,7 @@ export function createInstalledSelection(
       busyAction = null;
     }
     if (outcome === 'cancelled' && targets.length > 0) return;
-    selected = new Set();
+    sel.clear();
     await refresh();
   }
 
@@ -140,7 +96,7 @@ export function createInstalledSelection(
       busy = false;
       busyAction = null;
     }
-    selected = new Set();
+    sel.clear();
     await refresh();
     const profile = getInstanceId() !== id ? (scope.profileName ?? null) : null;
     pushUpdatesReport(attempts, { profile });
@@ -151,7 +107,7 @@ export function createInstalledSelection(
   // unneeded-libraries question if any, then one `mods_uninstall_many` → one token → one toast.
   async function requestBulkUninstall() {
     const id = getInstanceId();
-    if (!id || selected.size === 0) return;
+    if (!id || sel.count === 0) return;
     const targets = selectedRows.map(toTarget);
     busy = true;
     busyAction = 'uninstall';
@@ -163,7 +119,7 @@ export function createInstalledSelection(
       busyAction = null;
     }
     if (outcome === 'cancelled') return;
-    selected = new Set();
+    sel.clear();
     // Removed mods would otherwise linger as stale roots in the dep tree.
     onMutated();
     await refresh();
@@ -171,10 +127,10 @@ export function createInstalledSelection(
 
   return {
     get selected() {
-      return selected;
+      return sel.selected;
     },
     get allSelected() {
-      return allSelected;
+      return sel.allSelected;
     },
     get selectedUpdatable() {
       return selectedUpdatable;
@@ -185,14 +141,12 @@ export function createInstalledSelection(
     get busyAction() {
       return busyAction;
     },
-    toggleSelect,
-    toggleSelectAll,
-    clear,
+    toggleSelect: sel.toggle,
+    toggleSelectAll: sel.toggleAll,
+    clear: sel.clear,
     bulkSetEnabled,
     bulkUpdate,
     requestBulkUninstall,
-    dispose() {
-      stopEffects?.();
-    },
+    dispose: sel.dispose,
   };
 }

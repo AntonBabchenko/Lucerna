@@ -85,14 +85,14 @@ describe('InstalledModsView selection', () => {
     await screen.findByText('Alpha');
     const selectAll = await screen.findByLabelText(/select all/i);
     await fireEvent.click(selectAll);
-    const boxes = screen.getAllByRole('checkbox', { name: /select mod/i });
+    const boxes = screen.getAllByRole('checkbox', { name: /^select (?!all$)/i });
     expect(boxes.every((b) => (b as HTMLInputElement).checked)).toBe(true);
   });
 
   it('shows the bulk bar with a count when a row is selected', async () => {
     render(InstalledModsView, { props });
     await screen.findByText('Alpha');
-    const first = screen.getAllByRole('checkbox', { name: /select mod/i })[0];
+    const first = screen.getAllByRole('checkbox', { name: /^select (?!all$)/i })[0];
     await fireEvent.click(first);
     expect(screen.getByText(/1 selected/i)).toBeTruthy();
   });
@@ -100,7 +100,7 @@ describe('InstalledModsView selection', () => {
   it('bulk Update is disabled until a selected mod has a pending update', async () => {
     render(InstalledModsView, { props });
     await screen.findByText('Alpha');
-    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]);
+    await fireEvent.click(screen.getAllByRole('checkbox', { name: /^select (?!all$)/i })[0]);
     const update = screen.getByRole('button', { name: /^Update$/i });
     expect((update as HTMLButtonElement).disabled).toBe(true);
   });
@@ -133,7 +133,7 @@ describe('InstalledModsView selection', () => {
     render(InstalledModsView, { props });
     render(ModOpsHost, { props: { activeInstanceId: 'inst1' } });
     await screen.findByText('Alpha');
-    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]); // Alpha
+    await fireEvent.click(screen.getAllByRole('checkbox', { name: /^select (?!all$)/i })[0]); // Alpha
     await fireEvent.click(
       within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /remove/i }),
     );
@@ -164,7 +164,7 @@ describe('InstalledModsView selection', () => {
     render(InstalledModsView, { props });
     render(ModOpsHost, { props: { activeInstanceId: 'inst1' } });
     await screen.findByText('Alpha');
-    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]);
+    await fireEvent.click(screen.getAllByRole('checkbox', { name: /^select (?!all$)/i })[0]);
     await fireEvent.click(
       within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /remove/i }),
     );
@@ -200,10 +200,10 @@ describe('InstalledModsView selection', () => {
     await screen.findByText('Mod0');
     // Switch to 20 per page → first page shows 20, with a "Page 1 of 2" pager.
     await fireEvent.click(screen.getByRole('button', { name: '20' }));
-    expect(screen.getAllByRole('checkbox', { name: /select mod/i }).length).toBe(20);
+    expect(screen.getAllByRole('checkbox', { name: /^select (?!all$)/i }).length).toBe(20);
     expect(screen.getByText(/page 1 of 2/i)).toBeTruthy();
     // Next → second page shows the remaining 5.
     await fireEvent.click(screen.getByRole('button', { name: /next/i }));
-    expect(screen.getAllByRole('checkbox', { name: /select mod/i }).length).toBe(5);
+    expect(screen.getAllByRole('checkbox', { name: /^select (?!all$)/i }).length).toBe(5);
   });
 });
