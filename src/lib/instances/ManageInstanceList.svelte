@@ -139,12 +139,21 @@
                 />
               </span>
             {/if}
-            {#if i.id === activeId}
-              <ActiveBadge />
-            {/if}
           </div>
-          <div class="text-xs text-muted truncate">
-            {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
+          <!-- The Active badge rides the second line, after what the profile runs: on the first
+               it took the room a name needs (a letter or two in the default 220 px list). The
+               loader and version give way first; -my-0.5 keeps the pill from making the active
+               row taller than the others. -->
+          <div
+            class="flex items-center gap-1.5 text-xs text-muted"
+            data-testid="manage-row-meta-{i.id}"
+          >
+            <span class="truncate min-w-0">
+              {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
+            </span>
+            {#if i.id === activeId}
+              <span class="-my-0.5 flex shrink-0"><ActiveBadge /></span>
+            {/if}
           </div>
         </button>
       </ContextMenu>

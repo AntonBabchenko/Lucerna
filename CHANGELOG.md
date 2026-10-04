@@ -326,6 +326,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   covered the buttons under them. They now go after seven seconds and wait
   while you point at them or they have the keyboard focus. A notice that lists
   what an import left out still stays until closed.
+- **A long profile name stays readable in profile management.** The Active
+  badge beside the name left it a letter or two in the list; it now sits on
+  the line below, after the loader and the version.
 
 ## [0.25.0] — 2026-09-27
 
