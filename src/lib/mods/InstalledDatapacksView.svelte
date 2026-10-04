@@ -671,7 +671,7 @@
         allSelected={selection.allSelected}
         indeterminate={selection.indeterminate}
         selectedCount={selection.count}
-        busy={gated || bulkAction !== null}
+        busy={gated || checking || bulkAction !== null}
         busyAction={bulkAction}
         hint={$t('addons.datapacks.bulkHint')}
         actions={bulkActions}
