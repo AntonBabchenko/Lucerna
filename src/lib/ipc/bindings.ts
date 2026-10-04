@@ -1411,11 +1411,19 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	launcherImportInspectFolder: (path: string) => typedError<ForeignInstance, Error>(__TAURI_INVOKE("launcher_import_inspect_folder", { path })),
 	/**
+	 *  The Minecraft version check of [`launcher_import_run`], asked by the dialog
+	 *  before it queues the import, so a version Mojang does not list is refused
+	 *  under its field while the dialog is still open — not in a notice after it
+	 *  closed. Returns the trimmed id to send.
+	 */
+	launcherImportCheckMcVersion: (mcVersion: string) => typedError<string, Error>(__TAURI_INVOKE("launcher_import_check_mc_version", { mcVersion })),
+	/**
 	 *  Run the import. The wizard shows pre-filled, editable version/loader
 	 *  fields for every source, so `mc_version_override` / `loader_override`
 	 *  arrive populated (seeded from the detected values, possibly user-edited)
-	 *  and are applied when present. They are blank only for a bare `.minecraft`
-	 *  the user never filled — guarded below by the empty-version check.
+	 *  and are applied when present. The version is checked before anything is
+	 *  written: given, and one Lucerna can install (`instances::import::mc_version`)
+	 *  — a bare `.minecraft` arrives blank, and a typed one can be a typo.
 	 */
 	launcherImportRun: (foreign: ForeignInstance, selected: ContentCategory[], targetName: string, mcVersionOverride: string | null, loaderOverride: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, loaderVersionOverride: string | null, onProgress: Channel<ImportProgress>) => typedError<LauncherImportOutcome, Error>(__TAURI_INVOKE("launcher_import_run", { foreign, selected, targetName, mcVersionOverride, loaderOverride, loaderVersionOverride, onProgress })),
 	/**
@@ -3890,19 +3898,23 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  a file written here first would switch that recovery off.
  */
 { kind: "server_world_only_old" } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
-/**  A new server (create or import) was given no Minecraft version. */
-{ kind: "server_mc_version_required" } | 
 /**
- *  A new server (create or import) was given a Minecraft version Mojang's
- *  manifest does not list, so it could never resolve its Java runtime.
+ *  Something new — a server (create or import) or a profile imported from
+ *  another launcher — was given no Minecraft version (`versions::check`).
  */
-{ kind: "server_mc_version_unlisted"; mc_version: string } | 
+{ kind: "mc_version_required" } | 
 /**
- *  Mojang's version list could not be loaded while a new server's
- *  Minecraft version was being checked; the server is refused rather than
- *  saved with a version nobody checked.
+ *  Something new was given a Minecraft version Mojang's manifest does not
+ *  list, so it could never be installed (a server could never resolve its
+ *  Java runtime, a profile never start).
  */
-{ kind: "server_mc_version_unchecked" } | 
+{ kind: "mc_version_unlisted"; mc_version: string } | 
+/**
+ *  Mojang's version list could not be loaded while a new Minecraft version
+ *  was being checked; it is refused rather than saved unchecked (an
+ *  imported profile's version that is installed here is accepted instead).
+ */
+{ kind: "mc_version_unchecked" } | 
 /**
  *  A saved server has no Minecraft version recorded (it was imported
  *  before the import required one).

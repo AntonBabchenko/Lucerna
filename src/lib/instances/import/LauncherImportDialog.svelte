@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import type { ContentCategory, ForeignInstance, LoaderKind } from '$lib/ipc/bindings';
   import { commands } from '$lib/ipc/bindings';
@@ -15,6 +15,7 @@
   import Select from '$lib/ui/Select.svelte';
   import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { dataLocation } from '$lib/settings/data-location.svelte';
@@ -191,14 +192,42 @@
     return $t(key as Parameters<typeof $t>[0]);
   }
 
+  // True while the version is checked, before the import is queued.
   let importing = $state(false);
+  // The backend's refusal of the typed version (Mojang does not list it, or
+  // its list could not be loaded and the version is not installed here),
+  // shown under the field. An edit takes it back.
+  let versionError = $state<string | null>(null);
+  $effect(() => {
+    void mcVersionInput;
+    versionError = null;
+  });
+  let formEl = $state<HTMLDivElement | undefined>();
+  const MC_VERSION_FIELD_ID = 'launcher-import-mc-version';
+  // Cancel stays live while the check runs (a list that will not load can take
+  // a while); a plain flag, not $state, so it still reads true after teardown.
+  let gone = false;
+  onDestroy(() => {
+    gone = true;
+  });
 
-  // §7 fallback gating: the import creates a new instance, which would write
-  // it into the wrong (temporary default) root while the configured data
-  // root is unavailable. See data-root-gating.ts.
-  const importDisabledReason = $derived.by(() => {
+  // Why Import is off, in `canImport`'s order so the first missing requirement
+  // is the one named — beside the button: a disabled button's hover tooltip
+  // never reaches the keyboard. §7 fallback gating comes first: the import
+  // creates a new instance, which would write it into the wrong (temporary
+  // default) root while the configured data root is unavailable. See
+  // data-root-gating.ts.
+  const importBlockedReason = $derived.by(() => {
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
-    return key === null ? null : $t(key);
+    if (key !== null) return $t(key);
+    if (targetName.trim() === '') return $t('instances.import.disabledReason.name');
+    if (mcVersionInput.trim() === '') return $t('instances.import.disabledReason.version');
+    if (selected.size === 0) {
+      return availableCategories.length === 0
+        ? $t('instances.import.noContent')
+        : $t('instances.import.disabledReason.content');
+    }
+    return null;
   });
 
   const canImport = $derived(
@@ -210,27 +239,48 @@
       !dataLocation.fellBack,
   );
 
-  function doImport() {
+  // The version is checked by the backend before the import is queued — against
+  // Mojang's current list, never the one this window loaded at startup — so a
+  // typo is refused under its field while the dialog is still open.
+  async function doImport() {
     if (!chosen || !canImport) return;
-    // Belt-and-braces: the button is also disabled via importDisabledReason.
+    // Belt-and-braces: the button is also disabled via importBlockedReason.
     if (dataLocation.fellBack) return;
+    const foreign = chosen;
+    const asked = mcVersionInput;
+    // The busy button turns disabled under the focus: park it on the form, or
+    // Tab would walk the page behind the dialog (DESIGN.md §8).
+    formEl?.focus();
     importing = true;
-    // Preserve the reader-detected loader build when the user keeps the
-    // detected loader; the backend applies loaderVersionOverride verbatim, so
-    // sending null here would wipe a detected build (e.g. NeoForge 20.4.251)
-    // and leave a modded import unlaunchable. A changed loader has no known
-    // build → null (resolution picks one later).
-    const loaderVersionOverride =
-      loaderInput === chosen.loader ? (chosen.loader_version ?? null) : null;
-    enqueueLauncherImport(targetName.trim(), {
-      foreign: chosen,
-      selected: [...selected],
-      targetName: targetName.trim(),
-      mcVersionOverride: mcVersionInput.trim(),
-      loaderOverride: loaderInput,
-      loaderVersionOverride,
-    });
-    onClose();
+    try {
+      const res = await commands.launcherImportCheckMcVersion(asked);
+      // Closed, sent back to the list, or edited while it was checked: the
+      // answer is about an import no longer asked for.
+      if (gone || step !== 'configure' || chosen !== foreign || mcVersionInput !== asked) return;
+      if (res.status !== 'ok') {
+        versionError = formatError(res.error);
+        document.getElementById(MC_VERSION_FIELD_ID)?.focus();
+        return;
+      }
+      // Preserve the reader-detected loader build when the user keeps the
+      // detected loader; the backend applies loaderVersionOverride verbatim, so
+      // sending null here would wipe a detected build (e.g. NeoForge 20.4.251)
+      // and leave a modded import unlaunchable. A changed loader has no known
+      // build → null (resolution picks one later).
+      const loaderVersionOverride =
+        loaderInput === foreign.loader ? (foreign.loader_version ?? null) : null;
+      enqueueLauncherImport(targetName.trim(), {
+        foreign,
+        selected: [...selected],
+        targetName: targetName.trim(),
+        mcVersionOverride: res.data,
+        loaderOverride: loaderInput,
+        loaderVersionOverride,
+      });
+      onClose();
+    } finally {
+      importing = false;
+    }
   }
 </script>
 
@@ -382,7 +432,12 @@
       </h2>
     </header>
 
-    <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+    <!-- tabindex=-1: where the focus waits while Import checks the version. -->
+    <div
+      bind:this={formEl}
+      tabindex="-1"
+      class="flex-1 overflow-y-auto px-5 py-4 space-y-4 outline-none"
+    >
       <!-- Name -->
       <label class="block">
         <span class="text-sm font-medium text-secondary">{$t('instances.import.nameLabel')}</span>
@@ -394,22 +449,34 @@
         />
       </label>
 
-      <!-- Version + loader: always shown pre-filled; raw_minecraft arrives blank. -->
-      <label class="block">
-        <span class="text-sm font-medium text-secondary"
-          >{$t('instances.import.mcVersionInputLabel')}</span
-        >
-        <div class="mt-1">
-          <McVersionCombobox
-            bind:value={mcVersionInput}
-            placeholder={$t('instances.import.mcVersionPlaceholder')}
-            dataTestid="mc-version-input"
-          />
-        </div>
-        {#if chosen?.source === 'raw_minecraft'}
-          <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span>
-        {/if}
-      </label>
+      <!-- Version + loader: always shown pre-filled; raw_minecraft arrives blank.
+           The refusal sits outside the label, which would make it part of the
+           field's name. -->
+      <div>
+        <label class="block">
+          <span class="text-sm font-medium text-secondary"
+            >{$t('instances.import.mcVersionInputLabel')}</span
+          >
+          <div class="mt-1">
+            <McVersionCombobox
+              bind:value={mcVersionInput}
+              id={MC_VERSION_FIELD_ID}
+              placeholder={$t('instances.import.mcVersionPlaceholder')}
+              dataTestid="mc-version-input"
+            />
+          </div>
+          {#if chosen?.source === 'raw_minecraft'}
+            <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span
+            >
+          {/if}
+        </label>
+        <StatusMessage
+          tone="danger"
+          message={versionError}
+          class="mt-1"
+          dataTestid="mc-version-error"
+        />
+      </div>
       <div class="block">
         <span class="text-sm font-medium text-secondary"
           >{$t('instances.import.loaderInputLabel')}</span
@@ -492,21 +559,29 @@
       </div>
     </div>
 
-    <footer class="flex justify-between gap-2 border-t border-border-subtle px-5 py-3">
+    <footer class="flex items-center justify-between gap-2 border-t border-border-subtle px-5 py-3">
       <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
         {$t('common.cancel')}
       </button>
-      <span class="inline-flex" use:tooltip={{ text: importDisabledReason ?? '', describe: false }}>
-        <button
-          type="button"
-          class="btn-primary btn-sm"
+      <div class="flex min-w-0 items-center gap-3">
+        {#if importBlockedReason}
+          <span
+            id="launcher-import-blocked-reason"
+            class="text-xs text-secondary"
+            data-testid="import-blocked-reason">{importBlockedReason}</span
+          >
+        {/if}
+        <BusyButton
+          class="btn-primary btn-sm shrink-0"
+          busy={importing}
           disabled={!canImport}
-          onclick={doImport}
+          aria-describedby={importBlockedReason ? 'launcher-import-blocked-reason' : undefined}
+          onclick={() => void doImport()}
           data-testid="import-btn"
         >
           {$t('instances.import.importBtn')}
-        </button>
-      </span>
+        </BusyButton>
+      </div>
     </footer>
   {/if}
 </Modal>

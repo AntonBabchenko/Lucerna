@@ -11,6 +11,9 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     launcherImportDiscover: vi.fn(),
     launcherImportInspectFolder: vi.fn(),
+    // The backend's version check before the import is queued: by default it
+    // accepts and hands back the trimmed id, as the command does.
+    launcherImportCheckMcVersion: vi.fn(async (v: string) => ({ status: 'ok', data: v.trim() })),
   },
 }));
 
@@ -199,6 +202,8 @@ describe('LauncherImportDialog', () => {
 
     fireEvent.click(getByTestId('import-btn'));
     await waitFor(() => expect(enqueueLauncherImport).toHaveBeenCalledOnce());
+    // The version went past the backend's check before the import was queued.
+    expect(commands.launcherImportCheckMcVersion).toHaveBeenCalledWith(mockForeign.mc_version);
     // The seeded (detected) version/loader flow through to the enqueue payload
     // even for a reliable source like Prism — pre-filled + always sent.
     expect(enqueueLauncherImport).toHaveBeenCalledWith(
@@ -349,5 +354,144 @@ describe('LauncherImportDialog', () => {
     fireEvent.click(getByTestId('browse-folder-btn'));
     await waitFor(() => expect(queryByTestId('import-btn')).toBeNull());
     expect(getByTestId('discover-btn')).toBeTruthy();
+  });
+});
+
+// The import used to take any typed version: «1.20.l» made a profile that could
+// never start, and a disabled Import never said why (2026-10-02 regression, O2).
+describe('LauncherImportDialog — the version and why Import is off', () => {
+  const check = () => commands.launcherImportCheckMcVersion as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.mocked(enqueueLauncherImport).mockClear();
+    check().mockClear();
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { instances: [mockForeign], empty_launchers: [] },
+    });
+  });
+
+  async function toStep2(onClose = vi.fn()) {
+    const view = render(LauncherImportDialog, { props: { onClose } });
+    fireEvent.click(await view.findByTestId('instance-row'));
+    await view.findByTestId('import-btn');
+    return view;
+  }
+
+  function typeVersion(view: Awaited<ReturnType<typeof toStep2>>, value: string) {
+    fireEvent.input(view.getByTestId('mc-version-input'), { target: { value } });
+  }
+
+  it('a version Mojang does not list is refused under its field, and nothing is queued', async () => {
+    check().mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'mc_version_unlisted', mc_version: '1.20.l' },
+    });
+    const onClose = vi.fn();
+    const view = await toStep2(onClose);
+    typeVersion(view, '1.20.l');
+
+    fireEvent.click(view.getByTestId('import-btn'));
+
+    await waitFor(() =>
+      expect(view.getByTestId('mc-version-error').textContent?.trim()).toBe(
+        'err:mc_version_unlisted',
+      ),
+    );
+    expect(check()).toHaveBeenCalledWith('1.20.l');
+    expect(enqueueLauncherImport).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // The focus goes back to the field to fix, not to the page behind the dialog.
+    expect(document.activeElement).toBe(view.getByTestId('mc-version-input'));
+  });
+
+  it('an edit takes the refusal back', async () => {
+    check().mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'mc_version_unlisted', mc_version: '1.20.l' },
+    });
+    const view = await toStep2();
+    typeVersion(view, '1.20.l');
+    fireEvent.click(view.getByTestId('import-btn'));
+    const error = () => view.getByTestId('mc-version-error').textContent?.trim();
+    await waitFor(() => expect(error()).toBe('err:mc_version_unlisted'));
+
+    typeVersion(view, '1.20.1');
+
+    await waitFor(() => expect(error()).toBe(''));
+  });
+
+  it('a dialog closed while the version is checked queues nothing', async () => {
+    let answer: (v: unknown) => void = () => {};
+    check().mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const view = await toStep2();
+
+    fireEvent.click(view.getByTestId('import-btn'));
+    await waitFor(() => expect(check()).toHaveBeenCalledOnce());
+    view.unmount();
+    answer({ status: 'ok', data: '1.20.4' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(enqueueLauncherImport).not.toHaveBeenCalled();
+  });
+
+  it('queues the id the check handed back', async () => {
+    const view = await toStep2();
+    typeVersion(view, ' 1.20.4 ');
+
+    fireEvent.click(view.getByTestId('import-btn'));
+
+    await waitFor(() => expect(enqueueLauncherImport).toHaveBeenCalledOnce());
+    expect(enqueueLauncherImport).toHaveBeenCalledWith(
+      mockForeign.name,
+      expect.objectContaining({ mcVersionOverride: '1.20.4' }),
+    );
+  });
+
+  it('a blank version: Import is off and says so beside it', async () => {
+    const view = await toStep2();
+    typeVersion(view, '');
+
+    await waitFor(() =>
+      expect(view.getByTestId('import-blocked-reason').textContent).toBe(
+        'instances.import.disabledReason.version',
+      ),
+    );
+    const button = view.getByTestId('import-btn') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-describedby')).toBe(
+      view.getByTestId('import-blocked-reason').id,
+    );
+  });
+
+  it('a blank name is named first', async () => {
+    const view = await toStep2();
+    fireEvent.input(view.getByTestId('name-input'), { target: { value: '  ' } });
+    typeVersion(view, '');
+
+    await waitFor(() =>
+      expect(view.getByTestId('import-blocked-reason').textContent).toBe(
+        'instances.import.disabledReason.name',
+      ),
+    );
+  });
+
+  it('nothing ticked is named', async () => {
+    const view = await toStep2();
+    // Everything starts ticked; the select-all toggle unticks it all.
+    fireEvent.click(view.getByTestId('toggle-all-btn'));
+
+    await waitFor(() =>
+      expect(view.getByTestId('import-blocked-reason').textContent).toBe(
+        'instances.import.disabledReason.content',
+      ),
+    );
+  });
+
+  it('a ready form shows no reason', async () => {
+    const view = await toStep2();
+    expect(view.queryByTestId('import-blocked-reason')).toBeNull();
+    expect((view.getByTestId('import-btn') as HTMLButtonElement).disabled).toBe(false);
   });
 });

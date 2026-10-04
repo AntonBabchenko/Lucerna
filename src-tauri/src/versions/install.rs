@@ -281,7 +281,19 @@ pub(crate) fn version_json_path(
     version_id: &str,
 ) -> Result<std::path::PathBuf> {
     let dir = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
-    Ok(dir.join(version_id).join(format!("{version_id}.json")))
+    Ok(version_json_in(&dir, version_id))
+}
+
+/// The layout under a versions directory: `<versions_dir>/<id>/<id>.json`.
+/// One place for it, so a check that asks whether a version is installed reads
+/// the file the launch reads.
+pub(crate) fn version_json_in(
+    versions_dir: &std::path::Path,
+    version_id: &str,
+) -> std::path::PathBuf {
+    versions_dir
+        .join(version_id)
+        .join(format!("{version_id}.json"))
 }
 
 #[async_recursion::async_recursion]

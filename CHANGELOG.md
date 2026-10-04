@@ -315,6 +315,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   downloading the server file again from a server's problem notice made the
   fix and then left the server stopped. They now start it, as their buttons
   say.
+- **Importing from another launcher checks the Minecraft version.** A version
+  Mojang doesn't list, such as a typo, was taken and made a profile that could
+  never start; the import now refuses it under the version field and keeps the
+  dialog open. Without a connection, a version already installed is accepted.
+  A disabled Import button now says what it is waiting for.
 
 ## [0.25.0] — 2026-09-27
 
