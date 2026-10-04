@@ -401,8 +401,11 @@ describe('LauncherImportDialog — the version and why Import is off', () => {
     expect(check()).toHaveBeenCalledWith('1.20.l');
     expect(enqueueLauncherImport).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    // The focus goes back to the field to fix, not to the page behind the dialog.
-    expect(document.activeElement).toBe(view.getByTestId('mc-version-input'));
+    // The focus waits in the dialog, not on the page behind it — and not in the
+    // field, whose version list would open over the refusal.
+    const dialog = view.getByTestId('launcher-import-dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(view.getByTestId('mc-version-input'));
   });
 
   it('an edit takes the refusal back', async () => {

@@ -203,7 +203,6 @@
     versionError = null;
   });
   let formEl = $state<HTMLDivElement | undefined>();
-  const MC_VERSION_FIELD_ID = 'launcher-import-mc-version';
   // Cancel stays live while the check runs (a list that will not load can take
   // a while); a plain flag, not $state, so it still reads true after teardown.
   let gone = false;
@@ -258,8 +257,9 @@
       // answer is about an import no longer asked for.
       if (gone || step !== 'configure' || chosen !== foreign || mcVersionInput !== asked) return;
       if (res.status !== 'ok') {
+        // Announced (role=alert) where the focus waits, on the form: in the field
+        // it would open the field's version list over the refusal.
         versionError = formatError(res.error);
-        document.getElementById(MC_VERSION_FIELD_ID)?.focus();
         return;
       }
       // Preserve the reader-detected loader build when the user keeps the
@@ -460,7 +460,6 @@
           <div class="mt-1">
             <McVersionCombobox
               bind:value={mcVersionInput}
-              id={MC_VERSION_FIELD_ID}
               placeholder={$t('instances.import.mcVersionPlaceholder')}
               dataTestid="mc-version-input"
             />
