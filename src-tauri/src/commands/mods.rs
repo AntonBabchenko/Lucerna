@@ -2394,6 +2394,12 @@ pub async fn mods_update_one(
                         error: e.clone(),
                     }
                     .emit(&app);
+                    // The update was undone (`update_one` rolls its swap back):
+                    // any view that read the instance mid-swap reads it again.
+                    let _ = ModsReconciled {
+                        instance_id: instance_id.clone(),
+                    }
+                    .emit(&app);
                     Err(e)
                 }
             }

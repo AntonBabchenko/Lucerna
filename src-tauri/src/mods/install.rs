@@ -728,9 +728,17 @@ pub async fn uninstall(instance_root: &Path, sha1: &str) -> Result<(), Error> {
 ///
 /// Order is "warm the cache, then swap": every download (target + deps)
 /// is fetched into the shared cache FIRST, so a network failure aborts
-/// before the instance is touched. Only then is the old jar removed and
-/// the new files installed from the warm cache. Mirrors the two-phase
-/// shape of `modpack_apply_update`.
+/// before the instance is touched. Only then is the old jar swapped for
+/// the new files from the warm cache. Mirrors the two-phase shape of
+/// `modpack_apply_update`.
+///
+/// The swap runs in a content transaction (`mods::txn`): the old jar is set
+/// aside, not deleted, until the update commits, so any failure after that —
+/// a name taken by another file, a registry write, a cache entry evicted
+/// between the phases — puts the old version back, enabled state and row
+/// included, and returns the original error. A crash mid-swap is undone at
+/// the next start. With the old jar out of the way first, a same-named update
+/// (`mod.jar` → `mod.jar`) never meets a filename conflict.
 ///
 /// `count` drives the "N of M" counter the caller stamps onto its progress
 /// events. The total (`1 + required_deps.len()`) is known up front — unlike
@@ -748,14 +756,6 @@ pub async fn update_one(
     progress: &ProgressFn,
     count: &ProgressCount,
 ) -> Result<UpdateOutcome, Error> {
-    // Remember the old mod's enabled state before anything is removed.
-    let was_enabled = installed::list(instance_root)
-        .await?
-        .iter()
-        .find(|m| m.sha1.eq_ignore_ascii_case(old_sha1))
-        .map(|m| m.enabled)
-        .unwrap_or(true);
-
     // Phase 1 — warm the cache. Filename- and distribution-check then fetch
     // each file; nothing on the instance is touched, so any failure aborts
     // cleanly. The filename guard runs before `fetch_to_cache` so a hostile
@@ -786,29 +786,81 @@ pub async fn update_one(
         .await?;
     }
 
-    // Phase 2 — swap. Remove the old jar, then install from the warm
-    // cache (install_one's internal fetch_to_cache is now a cache hit).
-    // Deliberately does NOT touch `count.current` again: every item already
-    // advanced it during phase 1 above, so every Copying tick from here on
-    // reads `current == total` — a second 1..N pass here would make the
-    // counter run backwards from the UI's point of view.
-    uninstall(instance_root, old_sha1).await?;
-    let primary = install_one(data_dir, instance_root, target, None, progress).await?;
-    let mut deps = Vec::new();
-    for d in required_deps {
-        deps.push(install_one(data_dir, instance_root, d, None, progress).await?);
+    // Phase 2 — swap, inside a content transaction. Set the old jar aside,
+    // then install from the warm cache (install_one's internal fetch_to_cache
+    // is now a cache hit). Deliberately does NOT touch `count.current` again:
+    // every item already advanced it during phase 1 above, so every Copying
+    // tick from here on reads `current == total` — a second 1..N pass here
+    // would make the counter run backwards from the UI's point of view.
+    //
+    // The registry is read here, under the transaction's lock, so the old row,
+    // its enabled state and the plan all come from one read. No row for
+    // `old_sha1` (a concurrent writer removed it first) is not an error: there
+    // is simply nothing to set aside, as `uninstall` used to no-op.
+    let lock = crate::mods::txn::lock(instance_root).await;
+    let rows = installed::list(instance_root).await?;
+    let old_row = rows
+        .iter()
+        .find(|m| m.sha1.eq_ignore_ascii_case(old_sha1))
+        .cloned();
+    let was_enabled = old_row.as_ref().map(|m| m.enabled).unwrap_or(true);
+    let stage: Vec<crate::mods::txn::StageEntry> = old_row
+        .iter()
+        .map(|row| crate::mods::txn::StageEntry {
+            rel: format!("mods/{}", installed::on_disk_name(row)),
+            sha1: row.sha1.to_ascii_lowercase(),
+            row: Some(row.clone()),
+        })
+        .collect();
+    let staged: std::collections::HashSet<String> =
+        stage.iter().map(|s| s.rel.to_ascii_lowercase()).collect();
+    let mut create = Vec::with_capacity(1 + required_deps.len());
+    for v in std::iter::once(&target).chain(required_deps.iter()) {
+        create.push(
+            crate::mods::txn::plan_create(
+                instance_root,
+                &rows,
+                format!("mods/{}", v.primary_file.filename),
+                guard_version(v)?,
+                Some(v.project_id.clone()),
+                &staged,
+            )
+            .await?,
+        );
     }
-
-    // install_one always lands a mod enabled — restore a disabled state.
-    if !was_enabled {
-        disable(instance_root, &primary.sha1).await?;
+    let plan = crate::mods::txn::Plan {
+        kind: crate::mods::txn::TxnKind::ModUpdate {
+            name: target.name.clone(),
+            from: old_row.as_ref().and_then(|r| r.version_number.clone()),
+            to: target.version_number.clone(),
+        },
+        stage,
+        create,
+        prior_pack_origin: None,
+        prior_instance: None,
+    };
+    let txn = crate::mods::txn::begin(lock, plan).await?;
+    let outcome: Result<UpdateOutcome, Error> = async {
+        for entry in &txn.plan().stage {
+            txn.stage(entry).await?;
+        }
+        let primary = install_one(data_dir, instance_root, target, None, progress).await?;
+        let mut deps = Vec::new();
+        for d in required_deps {
+            deps.push(install_one(data_dir, instance_root, d, None, progress).await?);
+        }
+        // install_one always lands a mod enabled — restore a disabled state.
+        if !was_enabled {
+            disable(instance_root, &primary.sha1).await?;
+        }
+        Ok(UpdateOutcome {
+            primary,
+            deps,
+            removed_sha1: old_sha1.to_ascii_lowercase(),
+        })
     }
-
-    Ok(UpdateOutcome {
-        primary,
-        deps,
-        removed_sha1: old_sha1.to_ascii_lowercase(),
-    })
+    .await;
+    txn.finish(outcome).await
 }
 
 /// Apply one asset (resource pack / shader) update with replace semantics.
@@ -1651,6 +1703,169 @@ mod tests {
         assert!(installed::mods_dir(td_inst.path()).join("dep.jar").exists());
         let list = installed::list(td_inst.path()).await.unwrap();
         assert_eq!(list.len(), 2);
+    }
+
+    /// Serve `files` (path, bytes) from one mock server; returns it with the
+    /// SHA-1 of each body, in order.
+    async fn serve(files: &[(&str, &[u8])]) -> (MockServer, Vec<String>) {
+        let s = MockServer::start().await;
+        let mut shas = Vec::new();
+        for (p, body) in files {
+            Mock::given(method("GET"))
+                .and(path(*p))
+                .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+                .mount(&s)
+                .await;
+            shas.push(hex::encode(Sha1::digest(body)));
+        }
+        (s, shas)
+    }
+
+    #[tokio::test]
+    async fn update_one_puts_the_old_version_back_when_a_dependency_cannot_be_placed() {
+        let (s, shas) = serve(&[("/v1.jar", b"v1"), ("/v2.jar", b"v2"), ("/d.jar", b"d")]).await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let root = td_inst.path();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v1 = fake_version(format!("{}/v1.jar", s.uri()), shas[0].clone(), 2, "v1.jar");
+        install_one(td_data.path(), root, v1, None, &nop_progress())
+            .await
+            .unwrap();
+        // Another file already holds the dependency's name.
+        std::fs::write(installed::mods_dir(root).join("d.jar"), b"users-own").unwrap();
+        let v2 = fake_version(format!("{}/v2.jar", s.uri()), shas[1].clone(), 2, "v2.jar");
+        let dep = fake_version(format!("{}/d.jar", s.uri()), shas[2].clone(), 1, "d.jar");
+
+        let r = update_one(
+            td_data.path(),
+            root,
+            &shas[0],
+            v2,
+            vec![dep],
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await;
+
+        assert!(
+            matches!(r, Err(Error::ModsFilenameConflict { .. })),
+            "the original error, unchanged: {:?}",
+            r.err()
+        );
+        let mods = installed::mods_dir(root);
+        assert!(mods.join("v1.jar").exists(), "the old version is back");
+        assert!(!mods.join("v2.jar").exists(), "the new version is gone");
+        assert_eq!(std::fs::read(mods.join("d.jar")).unwrap(), b"users-own");
+        let rows = installed::list(root).await.unwrap();
+        assert!(rows.iter().any(|m| m.sha1 == shas[0]));
+        assert!(!rows.iter().any(|m| m.sha1 == shas[1]));
+    }
+
+    #[tokio::test]
+    async fn update_one_keeps_a_disabled_old_version_disabled_on_the_way_back() {
+        let (s, shas) = serve(&[("/v1.jar", b"v1"), ("/v2.jar", b"v2"), ("/d.jar", b"d")]).await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let root = td_inst.path();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v1 = fake_version(format!("{}/v1.jar", s.uri()), shas[0].clone(), 2, "v1.jar");
+        install_one(td_data.path(), root, v1, None, &nop_progress())
+            .await
+            .unwrap();
+        disable(root, &shas[0]).await.unwrap();
+        std::fs::write(installed::mods_dir(root).join("d.jar"), b"users-own").unwrap();
+        let v2 = fake_version(format!("{}/v2.jar", s.uri()), shas[1].clone(), 2, "v2.jar");
+        let dep = fake_version(format!("{}/d.jar", s.uri()), shas[2].clone(), 1, "d.jar");
+
+        let r = update_one(
+            td_data.path(),
+            root,
+            &shas[0],
+            v2,
+            vec![dep],
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await;
+
+        assert!(r.is_err());
+        assert!(installed::mods_dir(root).join("v1.jar.disabled").exists());
+        let rows = installed::list(root).await.unwrap();
+        let old = rows.iter().find(|m| m.sha1 == shas[0]).unwrap();
+        assert!(!old.enabled);
+    }
+
+    #[tokio::test]
+    async fn update_one_replaces_a_same_named_file_without_a_conflict() {
+        let (s, shas) = serve(&[("/a/mod.jar", b"old-bytes"), ("/b/mod.jar", b"new-bytes")]).await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let root = td_inst.path();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v1 = fake_version(
+            format!("{}/a/mod.jar", s.uri()),
+            shas[0].clone(),
+            9,
+            "mod.jar",
+        );
+        install_one(td_data.path(), root, v1, None, &nop_progress())
+            .await
+            .unwrap();
+        let v2 = fake_version(
+            format!("{}/b/mod.jar", s.uri()),
+            shas[1].clone(),
+            9,
+            "mod.jar",
+        );
+
+        update_one(
+            td_data.path(),
+            root,
+            &shas[0],
+            v2,
+            vec![],
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(installed::mods_dir(root).join("mod.jar")).unwrap(),
+            b"new-bytes"
+        );
+        let rows = installed::list(root).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].sha1, shas[1]);
+    }
+
+    #[tokio::test]
+    async fn update_one_proceeds_when_the_old_row_is_gone() {
+        let (s, shas) = serve(&[("/v2.jar", b"v2")]).await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let root = td_inst.path();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v2 = fake_version(format!("{}/v2.jar", s.uri()), shas[0].clone(), 2, "v2.jar");
+
+        update_one(
+            td_data.path(),
+            root,
+            "0000000000000000000000000000000000000000",
+            v2,
+            vec![],
+            &nop_progress(),
+            &ProgressCount::default(),
+        )
+        .await
+        .unwrap();
+
+        assert!(installed::mods_dir(root).join("v2.jar").exists());
     }
 
     /// Unlike `install_batch`, `mods_update_one` has no manifest-extras
