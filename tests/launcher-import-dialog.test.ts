@@ -37,6 +37,7 @@ vi.mock('$lib/i18n', () => ({
 import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
 import { commands } from '$lib/ipc/bindings';
 import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
+import { describedText } from './test-utils/aria';
 
 const mockForeign = {
   source: 'prism' as const,
@@ -391,6 +392,7 @@ describe('LauncherImportDialog — the version and why Import is off', () => {
     const view = await toStep2(onClose);
     typeVersion(view, '1.20.l');
 
+    view.getByTestId('import-btn').focus();
     fireEvent.click(view.getByTestId('import-btn'));
 
     await waitFor(() =>
@@ -401,11 +403,91 @@ describe('LauncherImportDialog — the version and why Import is off', () => {
     expect(check()).toHaveBeenCalledWith('1.20.l');
     expect(enqueueLauncherImport).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    // The focus waits in the dialog, not on the page behind it — and not in the
-    // field, whose version list would open over the refusal.
-    const dialog = view.getByTestId('launcher-import-dialog');
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    expect(document.activeElement).not.toBe(view.getByTestId('mc-version-input'));
+    // The focus left the button before it turned busy, for the form, and stays
+    // there — not on the page behind the dialog, and not in the field, whose
+    // version list would open over the refusal.
+    expect(document.activeElement).toBe(view.getByTestId('launcher-import-form'));
+    // The field is described by the refusal while it shows.
+    const field = view.getByTestId('mc-version-input');
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(describedText(field)).toBe('err:mc_version_unlisted');
+  });
+
+  it('brings the refusal into view: the field may have been scrolled away', async () => {
+    const original = Element.prototype.scrollIntoView;
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    try {
+      check().mockResolvedValueOnce({
+        status: 'error',
+        error: { kind: 'mc_version_unlisted', mc_version: '1.20.l' },
+      });
+      const view = await toStep2();
+      typeVersion(view, '1.20.l');
+      fireEvent.click(view.getByTestId('import-btn'));
+
+      await waitFor(() => expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' }));
+      expect(scrolled.mock.contexts).toContain(view.getByTestId('mc-version-error'));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it('a refusal that comes back is cleared while it is checked, then announced again', async () => {
+    const unchecked = { status: 'error', error: { kind: 'mc_version_unchecked' } };
+    let answer: (v: unknown) => void = () => {};
+    check()
+      .mockResolvedValueOnce(unchecked)
+      .mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const view = await toStep2();
+    const error = () => view.getByTestId('mc-version-error').textContent?.trim();
+    fireEvent.click(view.getByTestId('import-btn'));
+    await waitFor(() => expect(error()).toBe('err:mc_version_unchecked'));
+
+    fireEvent.click(view.getByTestId('import-btn'));
+    await waitFor(() => expect(check()).toHaveBeenCalledTimes(2));
+    expect(error()).toBe('');
+
+    answer(unchecked);
+    await waitFor(() => expect(error()).toBe('err:mc_version_unchecked'));
+  });
+
+  it('a form emptied while the version is checked queues nothing, and says why', async () => {
+    let answer: (v: unknown) => void = () => {};
+    check().mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const view = await toStep2();
+    fireEvent.click(view.getByTestId('import-btn'));
+    await waitFor(() => expect(check()).toHaveBeenCalledOnce());
+
+    fireEvent.input(view.getByTestId('name-input'), { target: { value: '' } });
+    answer({ status: 'ok', data: '1.20.4' });
+
+    await waitFor(() =>
+      expect(view.getByTestId('import-btn').getAttribute('aria-busy')).toBe('false'),
+    );
+    expect(enqueueLauncherImport).not.toHaveBeenCalled();
+    expect(view.getByTestId('import-blocked-reason').textContent).toBe(
+      'instances.import.disabledReason.name',
+    );
+  });
+
+  it('Back while the version is checked leaves no busy Import and queues nothing', async () => {
+    let answer: (v: unknown) => void = () => {};
+    check().mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const view = await toStep2();
+    fireEvent.click(view.getByTestId('import-btn'));
+    await waitFor(() => expect(check()).toHaveBeenCalledOnce());
+
+    fireEvent.click(view.getByTestId('back-btn'));
+    fireEvent.click(await view.findByTestId('instance-row'));
+    const button = await view.findByTestId('import-btn');
+    expect(button.getAttribute('aria-busy')).toBe('false');
+
+    answer({ status: 'ok', data: '1.20.4' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(enqueueLauncherImport).not.toHaveBeenCalled();
+    expect(view.getByTestId('import-btn').getAttribute('aria-busy')).toBe('false');
   });
 
   it('an edit takes the refusal back', async () => {
@@ -439,16 +521,18 @@ describe('LauncherImportDialog — the version and why Import is off', () => {
     expect(enqueueLauncherImport).not.toHaveBeenCalled();
   });
 
-  it('queues the id the check handed back', async () => {
+  it('queues the id the check handed back, not the field', async () => {
+    check().mockResolvedValueOnce({ status: 'ok', data: 'id-from-the-check' });
     const view = await toStep2();
     typeVersion(view, ' 1.20.4 ');
 
     fireEvent.click(view.getByTestId('import-btn'));
 
     await waitFor(() => expect(enqueueLauncherImport).toHaveBeenCalledOnce());
+    expect(check()).toHaveBeenCalledWith(' 1.20.4 ');
     expect(enqueueLauncherImport).toHaveBeenCalledWith(
       mockForeign.name,
-      expect.objectContaining({ mcVersionOverride: '1.20.4' }),
+      expect.objectContaining({ mcVersionOverride: 'id-from-the-check' }),
     );
   });
 

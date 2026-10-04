@@ -79,11 +79,18 @@
   }
 
   function selectInstance(inst: ForeignInstance) {
+    // A check still running for the form left behind answers nobody now.
+    dropPendingCheck();
     chosen = inst;
     // Seed the category set and name
     seededFor = null; // force re-seed
     targetName = inst.name;
     step = 'configure';
+  }
+
+  function backToList() {
+    dropPendingCheck();
+    step = 'discover';
   }
 
   // ── step 2: category selection ─────────────────────────────────────────────
@@ -196,26 +203,49 @@
   let importing = $state(false);
   // The backend's refusal of the typed version (Mojang does not list it, or
   // its list could not be loaded and the version is not installed here),
-  // shown under the field. An edit takes it back.
+  // shown under the field. An edit takes it back, and so does the next
+  // attempt, so a refusal that comes back is announced again.
   let versionError = $state<string | null>(null);
   $effect(() => {
     void mcVersionInput;
     versionError = null;
   });
+  // The refusal sits under the version field, near the top of a body that
+  // scrolls: it is brought into view as it appears (the Manage form's rule),
+  // or a user who scrolled down to the content list would see Import stop and
+  // nothing else.
+  let versionErrorEl = $state<HTMLElement | null>(null);
+  // Names the refusal in the field's description while it shows.
+  const MC_VERSION_ERROR_ID = 'launcher-import-mc-version-error';
+  let lastShownError: string | null = null;
+  $effect(() => {
+    if (versionError && !lastShownError && versionErrorEl) {
+      versionErrorEl.scrollIntoView?.({ block: 'nearest' });
+    }
+    lastShownError = versionError;
+  });
   let formEl = $state<HTMLDivElement | undefined>();
+  // Which check is the live one. Another attempt, another instance or Back
+  // replaces it: its answer is then about an import no longer asked for.
+  let checkSeq = 0;
+  function dropPendingCheck() {
+    checkSeq += 1;
+    importing = false;
+    versionError = null;
+  }
   // Cancel stays live while the check runs (a list that will not load can take
-  // a while); a plain flag, not $state, so it still reads true after teardown.
+  // a while): a dialog closed meanwhile queues nothing. A plain flag — nothing
+  // renders it.
   let gone = false;
   onDestroy(() => {
     gone = true;
   });
 
-  // Why Import is off, in `canImport`'s order so the first missing requirement
-  // is the one named — beside the button: a disabled button's hover tooltip
-  // never reaches the keyboard. §7 fallback gating comes first: the import
-  // creates a new instance, which would write it into the wrong (temporary
-  // default) root while the configured data root is unavailable. See
-  // data-root-gating.ts.
+  // Why Import is off — the first missing requirement, named beside the
+  // button: a disabled button's hover tooltip never reaches the keyboard. §7
+  // fallback gating comes first: the import creates a new instance, which would
+  // write it into the wrong (temporary default) root while the configured data
+  // root is unavailable. See data-root-gating.ts.
   const importBlockedReason = $derived.by(() => {
     const key = dataRootCreateDisabledKey(dataLocation.fellBack);
     if (key !== null) return $t(key);
@@ -247,21 +277,27 @@
     if (dataLocation.fellBack) return;
     const foreign = chosen;
     const asked = mcVersionInput;
+    const seq = ++checkSeq;
     // The busy button turns disabled under the focus: park it on the form, or
     // Tab would walk the page behind the dialog (DESIGN.md §8).
     formEl?.focus();
+    versionError = null;
     importing = true;
     try {
       const res = await commands.launcherImportCheckMcVersion(asked);
-      // Closed, sent back to the list, or edited while it was checked: the
-      // answer is about an import no longer asked for.
-      if (gone || step !== 'configure' || chosen !== foreign || mcVersionInput !== asked) return;
+      // Replaced, closed, or edited while it was checked: the answer is about
+      // an import no longer asked for.
+      if (gone || seq !== checkSeq || mcVersionInput !== asked) return;
       if (res.status !== 'ok') {
         // Announced (role=alert) where the focus waits, on the form: in the field
         // it would open the field's version list over the refusal.
         versionError = formatError(res.error);
         return;
       }
+      // The form stayed editable while the version was checked: a name blanked
+      // or every box unticked meanwhile stops here, and the reason beside
+      // Import says why.
+      if (importBlockedReason !== null) return;
       // Preserve the reader-detected loader build when the user keeps the
       // detected loader; the backend applies loaderVersionOverride verbatim, so
       // sending null here would wipe a detected build (e.g. NeoForge 20.4.251)
@@ -279,7 +315,7 @@
       });
       onClose();
     } finally {
-      importing = false;
+      if (seq === checkSeq) importing = false;
     }
   }
 </script>
@@ -419,7 +455,7 @@
         class="btn-icon"
         aria-label={$t('instances.import.back')}
         use:tooltip={$t('instances.import.back')}
-        onclick={() => (step = 'discover')}
+        onclick={backToList}
         data-testid="back-btn"
       >
         <Icon name="arrowLeft" size={18} />
@@ -437,6 +473,7 @@
       bind:this={formEl}
       tabindex="-1"
       class="flex-1 overflow-y-auto px-5 py-4 space-y-4 outline-none"
+      data-testid="launcher-import-form"
     >
       <!-- Name -->
       <label class="block">
@@ -462,6 +499,8 @@
               bind:value={mcVersionInput}
               placeholder={$t('instances.import.mcVersionPlaceholder')}
               dataTestid="mc-version-input"
+              describedby={versionError ? MC_VERSION_ERROR_ID : undefined}
+              invalid={versionError !== null}
             />
           </div>
           {#if chosen?.source === 'raw_minecraft'}
@@ -470,10 +509,12 @@
           {/if}
         </label>
         <StatusMessage
+          id={MC_VERSION_ERROR_ID}
           tone="danger"
           message={versionError}
           class="mt-1"
           dataTestid="mc-version-error"
+          bind:element={versionErrorEl}
         />
       </div>
       <div class="block">

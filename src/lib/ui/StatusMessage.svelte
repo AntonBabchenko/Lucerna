@@ -11,6 +11,7 @@
     reserveSpace = false,
     class: className = '',
     dataTestid,
+    id,
     element = $bindable(null),
   }: {
     /**
@@ -37,6 +38,8 @@
     class?: string;
     /** Test hook on the live region itself — never wrap the component for one. */
     dataTestid?: string;
+    /** The region's id, for a field that names it in `aria-describedby` while it shows. */
+    id?: string;
     /** The live region element, for a caller that scrolls it into view. */
     element?: HTMLElement | null;
   } = $props();
@@ -66,6 +69,7 @@
 -->
 <div
   bind:this={element}
+  {id}
   role={effectiveLive === 'assertive' ? 'alert' : 'status'}
   aria-atomic="true"
   data-testid={dataTestid}
