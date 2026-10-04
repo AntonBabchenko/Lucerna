@@ -14,6 +14,9 @@
     canToggle = true,
     updateState = null,
     checking = false,
+    selectable = false,
+    selected = false,
+    onSelectChange = (_checked: boolean) => {},
     onOpenDetail = () => {},
     onToggle,
     onUninstall,
@@ -24,6 +27,10 @@
     canToggle?: boolean;
     updateState?: ModUpdateState | null;
     checking?: boolean;
+    /** The pane's bulk bar: a leading checkbox (ModCard's `selectable`). */
+    selectable?: boolean;
+    selected?: boolean;
+    onSelectChange?: (checked: boolean) => void;
     onOpenDetail?: () => void;
     onToggle: () => void;
     onUninstall: () => void;
@@ -39,7 +46,8 @@
   );
 </script>
 
-<div>
+<!-- `data-bulk-row`: the element a bulk removal moves focus into (refocusAfterRemoval). -->
+<div data-bulk-row>
   <ModCard
     layout="list"
     summary={card.summary}
@@ -52,6 +60,9 @@
     {updateState}
     {onUpdate}
     {checking}
+    {selectable}
+    {selected}
+    {onSelectChange}
   />
   {#if reasonLabel}
     <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
