@@ -1213,7 +1213,9 @@
         "manyNoWorlds": "None of them is in a world; they are removed from the library.",
         "manyWorldsOnlyNote": "{count, plural, one {# of them is no longer in the library, so it is deleted permanently from every world Lucerna can change. It can't be restored.} other {# of them are no longer in the library, so they are deleted permanently from every world Lucerna can change. They can't be restored.}}",
         "manyKeptNotOurs": "Kept, because the copy there is not the library's:",
-        "manyFailedWorlds": "Could not be cleaned:"
+        "manyFailedWorlds": "Could not be cleaned:",
+        "manyLeftUnchanged": "Left as they are:",
+        "keptInLibrary": "The library copy was kept so a retry can finish the removal"
       },
       "vt": {
         "open": "Vanilla Tweaks…",
@@ -4410,7 +4412,9 @@
       "updated": "Updated {ok} of {total}",
       "updatedFailed": "Updated {ok} of {total}, {failed} failed",
       "removed": "Removed {ok} of {total}",
-      "removedFailed": "Removed {ok} of {total}, {failed} failed"
+      "removedFailed": "Removed {ok} of {total}, {failed} failed",
+      "running": "Another change is still running",
+      "updateExternalOnly": "The selected updates can only be downloaded from their pages"
     }
   },
   "tray": {

@@ -172,4 +172,40 @@ describe('InstalledAssetsView — bulk actions', () => {
     await waitFor(() => expect(assetUninstall).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Update' })).toHaveLength(1));
   });
+
+  it('a pack removed elsewhere (Browse) drops out of «Update all», so it is never reinstalled', async () => {
+    assetsCheckUpdates.mockResolvedValue(
+      ok([
+        {
+          filename: 'a.zip',
+          name: 'a',
+          state: { kind: 'update_available', latest: version('a.zip') },
+        },
+        {
+          filename: 'b.zip',
+          name: 'b',
+          state: { kind: 'update_available', latest: version('b.zip') },
+        },
+      ]),
+    );
+    await mountWith([asset('a.zip'), asset('b.zip')]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    expect(await screen.findByRole('button', { name: 'Update all (2)' })).toBeTruthy();
+    // Browse removed a.zip and bumped the shared signal; this view only re-lists.
+    assetsList.mockResolvedValue(ok([asset('b.zip')]));
+    assetsChanged.value++;
+    expect(await screen.findByRole('button', { name: 'Update all (1)' })).toBeTruthy();
+  });
+
+  it('removing every row parks focus on the empty list, not on <body>', async () => {
+    await mountWith([asset('a.zip'), asset('b.zip')]);
+    await fireEvent.click(screen.getByTestId('bulk-select-all'));
+    await fireEvent.click(
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Remove' }),
+    );
+    assetsList.mockResolvedValue(ok([]));
+    await fireEvent.click(await screen.findByTestId('assets-bulk-remove-confirm'));
+    await waitFor(() => expect(assetUninstall).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('list-empty')));
+  });
 });

@@ -942,9 +942,9 @@
   async function refocusAfterRemoval(index: number): Promise<void> {
     await refocusInList({
       index,
-      listEl,
+      listEl: () => listEl,
       rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-mod-row]')],
-      emptyEl: emptyListEl,
+      emptyEl: () => emptyListEl,
     });
   }
 

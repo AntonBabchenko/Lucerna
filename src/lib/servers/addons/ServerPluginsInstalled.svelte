@@ -210,7 +210,16 @@
         : [];
     }),
   );
-  const bulkBusy = $derived(bulkAction !== null || deleting || updatingAll || checkingUpdates);
+  // A bulk run and any other writer of the plugins folder never overlap: the bar waits for a
+  // row's update, «Update all» and a check, and they (and the rows) wait for the bar.
+  const bulkBusy = $derived(
+    bulkAction !== null || deleting || updatingAll || checkingUpdates || updatingShas.size > 0,
+  );
+  // Selected rows whose only pending updates are Hangar-hosted: they open a page each, so the
+  // remedy is not another check.
+  const bulkExternalOnly = $derived(
+    bulkToUpdate.length === 0 && selectedRows.some((r) => hasUpdate(updateChecks.get(r.sha1))),
+  );
   // Every action is off while the server runs (the plugins folder is the server's then);
   // otherwise an action is off when no selected row can take it, and says so.
   function bulkGate(action: BulkBarAction, none: boolean, noneReason: string): BulkBarAction {
@@ -232,7 +241,7 @@
     bulkGate(
       { id: 'update', label: $t('mods.card.update') },
       bulkToUpdate.length === 0,
-      $t('ui.bulk.updateNeedsCheck'),
+      bulkExternalOnly ? $t('ui.bulk.updateExternalOnly') : $t('ui.bulk.updateNeedsCheck'),
     ),
     bulkGate(
       { id: 'remove', label: $t('servers.plugins.delete'), intent: 'danger' },
@@ -450,9 +459,9 @@
     await data.refresh();
     await refocusAfterRemoval({
       index,
-      listEl,
+      listEl: () => listEl,
       rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-bulk-row]')],
-      emptyEl: emptyListEl,
+      emptyEl: () => emptyListEl,
     });
   }
 
@@ -484,7 +493,7 @@
         class="btn-secondary btn-sm"
         data-testid="server-plugins-check-updates"
         busy={checkingUpdates}
-        disabled={!canManage}
+        disabled={!canManage || bulkAction !== null}
         onclick={() => void checkUpdates()}
       >
         {$t('servers.plugins.checkUpdates')}
@@ -493,7 +502,7 @@
         class="btn-warning btn-sm"
         data-testid="server-plugins-update-all"
         busy={updatingAll}
-        disabled={!canManage || updatableCount === 0}
+        disabled={!canManage || bulkAction !== null || updatableCount === 0}
         onclick={() => void updateAll()}
       >
         {$t('mods.installed.updateAll', { count: updatableCount })}
@@ -519,7 +528,7 @@
     {:else if data.rows.length === 0 && !data.error}
       <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
       <div
-        class="flex flex-col gap-3"
+        class="flex flex-col gap-3 outline-none"
         data-testid="list-empty"
         tabindex="-1"
         bind:this={emptyListEl}
@@ -578,6 +587,7 @@
               selectable={true}
               selected={selection.selected.has(row.sha1)}
               onSelectChange={(c) => selection.toggle(row.sha1, c)}
+              actionsBlockedReason={bulkAction !== null ? $t('ui.bulk.running') : null}
               canToggle={canManage}
               checking={checkingUpdates}
               updateState={canManage ? (updateChecks.get(row.sha1) ?? null) : null}

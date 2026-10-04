@@ -9,21 +9,27 @@ import { tick } from 'svelte';
 export async function refocusAfterRemoval(opts: {
   /** The index of the removed row (the first of them for a batch) in the rows as rendered. */
   index: number;
-  listEl: HTMLElement | null;
+  /** The list's container. Read after the removal has rendered: the last removal may have
+   *  replaced the list with its empty state. */
+  listEl: () => HTMLElement | null;
   /** The row elements of the list, in render order. */
   rows: (list: HTMLElement) => HTMLElement[];
-  /** The element the empty list renders (tabindex -1), when the last row went. */
-  emptyEl?: HTMLElement | null;
+  /** The element the empty list renders (tabindex -1), read after the removal has rendered. */
+  emptyEl?: () => HTMLElement | null;
 }): Promise<void> {
   await tick();
   if (typeof document === 'undefined') return;
   const active = document.activeElement;
   if (active !== null && active !== document.body && active.isConnected) return;
-  const rows = opts.listEl ? opts.rows(opts.listEl) : [];
+  // A node the removal took out of the page takes no focus — and a list container that is gone
+  // still holds its old select-all, which would win over the empty state.
+  const live = (el: HTMLElement | null | undefined) => (el?.isConnected ? el : null);
+  const list = live(opts.listEl());
+  const rows = list ? opts.rows(list) : [];
   const row = rows[Math.min(opts.index, rows.length - 1)];
   // A row's first control (its checkbox), else the list's own first (select all), else the
   // empty list.
   const into = (el: HTMLElement | null | undefined) =>
     el?.querySelector<HTMLElement>('input, button') ?? null;
-  (into(row) ?? into(opts.listEl) ?? opts.emptyEl ?? null)?.focus();
+  (into(row) ?? into(list) ?? live(opts.emptyEl?.()))?.focus();
 }

@@ -212,8 +212,15 @@
         : [];
     }),
   );
+  // A bulk run and any other writer of the mods folder never overlap: the bar waits for a row's
+  // update, «Update all», a check and the quarantine, and they (and the rows) wait for the bar.
   const bulkBusy = $derived(
-    bulkAction !== null || deleting || updatingAll || checkingUpdates || busyQuarantine,
+    bulkAction !== null ||
+      deleting ||
+      updatingAll ||
+      checkingUpdates ||
+      busyQuarantine ||
+      updatingShas.size > 0,
   );
   // Every action is off while the server runs (the mods folder is the server's then); otherwise
   // an action is off when no selected row can take it, and says so.
@@ -452,9 +459,9 @@
     await data.refresh();
     await refocusAfterRemoval({
       index,
-      listEl,
+      listEl: () => listEl,
       rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-bulk-row]')],
-      emptyEl: emptyListEl,
+      emptyEl: () => emptyListEl,
     });
   }
 
@@ -511,7 +518,7 @@
         class="btn-secondary btn-sm"
         data-testid="server-mods-check-updates"
         busy={checkingUpdates}
-        disabled={!canManageMods}
+        disabled={!canManageMods || bulkAction !== null}
         onclick={() => void checkUpdates()}
       >
         {$t('servers.mods.checkUpdates')}
@@ -520,7 +527,7 @@
         class="btn-warning btn-sm"
         data-testid="server-mods-update-all"
         busy={updatingAll}
-        disabled={!canManageMods || updatableCount === 0}
+        disabled={!canManageMods || bulkAction !== null || updatableCount === 0}
         onclick={() => void updateAll()}
       >
         {$t('mods.installed.updateAll', { count: updatableCount })}
@@ -529,7 +536,7 @@
         class="btn-secondary btn-sm"
         data-testid="server-mods-quarantine"
         busy={busyQuarantine}
-        disabled={!canManageMods}
+        disabled={!canManageMods || bulkAction !== null}
         onclick={() => void quarantineClientMods()}
       >
         {$t('servers.diagnose.quarantineClientMods')}
@@ -559,7 +566,7 @@
     {:else if data.rows.length === 0 && !data.error}
       <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
       <div
-        class="flex flex-col gap-3"
+        class="flex flex-col gap-3 outline-none"
         data-testid="list-empty"
         tabindex="-1"
         bind:this={emptyListEl}
@@ -619,6 +626,7 @@
               selectable={true}
               selected={selection.selected.has(row.sha1)}
               onSelectChange={(c) => selection.toggle(row.sha1, c)}
+              actionsBlockedReason={bulkAction !== null ? $t('ui.bulk.running') : null}
               canToggle={canManageMods}
               checking={checkingUpdates}
               updateState={canManageMods ? (updateChecks.get(row.sha1) ?? null) : null}

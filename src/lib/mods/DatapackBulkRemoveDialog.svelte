@@ -36,6 +36,7 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { bulkNameLines, runBulk } from '$lib/ui/bulk-run';
+  import { levelDatBlockedKey } from '$lib/worlds/datapacks-gating';
   import { splitPlacements } from './datapack-remove-model';
 
   let {
@@ -109,8 +110,15 @@
     return c;
   });
   // Only the library's copy LEAVES the world; a missing file deletes nothing either. Everything
-  // else — including "couldn't check" — is a deletion.
-  const deletes = $derived(counts.own + counts.unchecked > 0);
+  // else — including "couldn't check" — is a deletion. Until every verdict is in, the button reads
+  // as the deletion it may be (the single dialog's rule).
+  const deletes = $derived(verdicts === null || counts.own + counts.unchecked > 0);
+
+  /** A world Lucerna leaves as it is, with why (D2), the way the single dialog lists it. */
+  function unchangedLine(pack: string, p: DatapackPlacementView): string {
+    const why = levelDatBlockedKey(p.level_dat);
+    return why === null ? `${pack}: ${p.world}` : `${pack}: ${p.world} — ${get(t)(why)}`;
+  }
 
   const lib = $derived.by(() => {
     if (mode.kind !== 'library') return null;
@@ -125,7 +133,26 @@
       for (const p of s.unchecked) unchecked.add(p.world);
       anyOnlyOld = anyOnlyOld || s.anyOnlyOld;
     }
-    return { inLib, worldsOnly, affected: [...affected], unchecked: [...unchecked], anyOnlyOld };
+    // A pack no longer in the library goes world by world through the world writers, which never
+    // change a folder with no level.dat or only level.dat_old: those worlds keep it, and the
+    // dialog says so before anything runs.
+    const unchangedLines = worldsOnly.flatMap((e) =>
+      splitPlacements('worlds-only', e.placements).unchanged.map((p) => unchangedLine(e.name, p)),
+    );
+    // Nothing in the library, and no world any of the packs is in can be changed: there is nothing
+    // to remove, so Confirm is off (the single dialog's `nothingToRemove`).
+    const nothingToRemove =
+      inLib.length === 0 &&
+      worldsOnly.every((e) => splitPlacements('worlds-only', e.placements).tried.length === 0);
+    return {
+      inLib,
+      worldsOnly,
+      affected: [...affected],
+      unchecked: [...unchecked],
+      anyOnlyOld,
+      unchangedLines,
+      nothingToRemove,
+    };
   });
 
   const count = $derived(mode.entries.length);
@@ -161,13 +188,26 @@
     else pushWarning(get(t)('worlds.datapacks.bulkRemovedFailed', values), outcome.reasons);
   }
 
+  // A thrown invoke is that pack's (or world's) failure, worded by its message — never the end of
+  // the run, which would leave the packs already removed unreported and the owner's list stale.
+  function thrownReason(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+  }
+
   async function removeFromLibrary(to: string, entries: LibraryEntry[], withCascade: boolean) {
     const failures: { name: string; reason: string }[] = [];
     const kept: string[] = [];
+    const left: string[] = [];
     let ok = 0;
     for (const e of entries) {
       if (e.inLibrary) {
-        const res = await commands.datapacksRemoveFromLibrary(to, e.filename, withCascade);
+        let res: Awaited<ReturnType<typeof commands.datapacksRemoveFromLibrary>>;
+        try {
+          res = await commands.datapacksRemoveFromLibrary(to, e.filename, withCascade);
+        } catch (err) {
+          failures.push({ name: e.name, reason: thrownReason(err) });
+          continue;
+        }
         if (res.status !== 'ok') {
           failures.push({ name: e.name, reason: formatError(res.error) });
           continue;
@@ -181,12 +221,32 @@
             kept.push(`${e.name}: ${w.world}`);
           }
         }
+        // The backend keeps the library copy whenever a world could not be cleaned, and says so
+        // with a failed world today; a kept copy with none is still not a removal.
+        if (!res.data.removed_from_library && !packFailed) {
+          packFailed = true;
+          failures.push({
+            name: e.name,
+            reason: get(t)('addons.datapacks.remove.keptInLibrary'),
+          });
+        }
         if (!packFailed) ok += 1;
       } else {
-        // No library copy is left: the only thing a removal can do is clear the tried worlds.
-        let packFailed = false;
-        for (const p of splitPlacements('worlds-only', e.placements).tried) {
-          const res = await commands.datapacksRemoveFromWorld(to, p.world, e.filename);
+        // No library copy is left: the only thing a removal can do is clear the tried worlds. A
+        // world it never tries (D2) still holds the pack, so the pack is not removed — said with
+        // the world and why, never counted as done.
+        const split = splitPlacements('worlds-only', e.placements);
+        let packFailed = split.unchanged.length > 0;
+        for (const p of split.unchanged) left.push(unchangedLine(e.name, p));
+        for (const p of split.tried) {
+          let res: Awaited<ReturnType<typeof commands.datapacksRemoveFromWorld>>;
+          try {
+            res = await commands.datapacksRemoveFromWorld(to, p.world, e.filename);
+          } catch (err) {
+            packFailed = true;
+            failures.push({ name: `${e.name}: ${p.world}`, reason: thrownReason(err) });
+            continue;
+          }
           if (res.status !== 'ok') {
             packFailed = true;
             failures.push({ name: `${e.name}: ${p.world}`, reason: formatError(res.error) });
@@ -202,6 +262,7 @@
         ? [get(t)('addons.datapacks.remove.manyFailedWorlds'), ...reasonLines(failures)]
         : []),
       ...(kept.length > 0 ? [get(t)('addons.datapacks.remove.manyKeptNotOurs'), ...kept] : []),
+      ...(left.length > 0 ? [get(t)('addons.datapacks.remove.manyLeftUnchanged'), ...left] : []),
     ];
     if (values.failed > 0) pushWarning(get(t)('ui.bulk.removedFailed', values), lines);
     else if (lines.length > 0) pushWarning(get(t)('ui.bulk.removed', values), lines);
@@ -232,7 +293,8 @@
   {confirmLabel}
   variant="danger"
   {busy}
-  confirmDisabled={mode.kind === 'this-world' && verdicts === null}
+  confirmDisabled={(mode.kind === 'this-world' && verdicts === null) ||
+    (lib?.nothingToRemove ?? false)}
   confirmTestid="datapack-bulk-remove-confirm"
   panelClass="w-[520px] max-w-full p-5 flex flex-col gap-3"
   onCancel={onClose}
@@ -314,7 +376,26 @@
             </span>
           </label>
         {/if}
-        {#if lib.worldsOnly.length > 0}
+        {#if lib.unchangedLines.length > 0}
+          <div class="text-sm text-secondary" data-testid="datapack-bulk-remove-unchanged">
+            <p>
+              {$t('addons.datapacks.remove.unchangedWorlds', {
+                count: lib.unchangedLines.length,
+              })}
+            </p>
+            <!-- Wraps, never an ellipsis: a cut mark read "…from the backu…". -->
+            <ul class="mt-1 list-disc list-inside text-primary">
+              {#each lib.unchangedLines as line, i (i)}<li class="break-words">{line}</li>{/each}
+            </ul>
+          </div>
+        {/if}
+        {#if lib.nothingToRemove}
+          <!-- Every listed world is one Lucerna won't change: no deletion to warn about, and this
+               line is why Confirm is off. -->
+          <p class="text-xs text-muted" data-testid="datapack-bulk-remove-nothing">
+            {$t('addons.datapacks.remove.worldsOnlyNothing')}
+          </p>
+        {:else if lib.worldsOnly.length > 0}
           <p class="text-xs text-muted" data-testid="datapack-bulk-remove-worlds-only">
             {$t('addons.datapacks.remove.manyWorldsOnlyNote', { count: lib.worldsOnly.length })}
           </p>

@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModVersion, ServerCore } from '$lib/ipc/bindings';
 import ServerPluginsInstalled from '$lib/servers/addons/ServerPluginsInstalled.svelte';
+import { tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { revealTooltip } from './test-utils/reveal-tooltip';
 
 const {
   mockListEnriched,
@@ -171,5 +173,38 @@ describe('ServerPluginsInstalled — bulk actions', () => {
     const bar = screen.getByTestId('bulk-bar');
     for (const name of ['Enable', 'Disable', 'Update', 'Remove'])
       expect(within(bar).getByRole('button', { name }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('while a bulk run is in flight the rows and the toolbar wait for it', async () => {
+    let finish: (v: unknown) => void = () => {};
+    mockDisablePlugin.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    await mountWith([pluginRow('a.jar'), pluginRow('b.jar')]);
+    await fireEvent.click(screen.getByTestId('bulk-select-all'));
+    await fireEvent.click(
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Disable' }),
+    );
+    await waitFor(() => expect(mockDisablePlugin).toHaveBeenCalledTimes(1));
+    for (const id of ['server-plugins-check-updates', 'server-plugins-update-all'])
+      expect(screen.getByTestId(id).hasAttribute('disabled')).toBe(true);
+    for (const row of document.querySelectorAll<HTMLElement>('[data-bulk-row]'))
+      expect(within(row).getByTestId('card-actions-blocked')).toBeTruthy();
+    finish({ status: 'ok', data: null });
+    await waitFor(() => expect(toasts.pushSuccess).toHaveBeenCalledWith('Disabled 2 of 2'));
+    expect(document.querySelector('[data-testid="card-actions-blocked"]')).toBeNull();
+  });
+
+  it('a selection whose only updates are Hangar-hosted says why Update is off', async () => {
+    mockCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [{ sha1: 'b.jar', state: { kind: 'update_available', target: version(false) } }],
+    });
+    await mountWith([pluginRow('b.jar')]);
+    await fireEvent.click(screen.getByTestId('server-plugins-check-updates'));
+    await waitFor(() => expect(mockCheckUpdates).toHaveBeenCalled());
+    await fireEvent.click(screen.getByTestId('bulk-select-all'));
+    const update = within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Update' });
+    expect(update.hasAttribute('disabled')).toBe(true);
+    revealTooltip(update.parentElement as HTMLElement);
+    expect(tooltipState.text).toBe('The selected updates can only be downloaded from their pages');
   });
 });

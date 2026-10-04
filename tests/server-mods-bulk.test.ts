@@ -177,4 +177,28 @@ describe('ServerModsInstalled — bulk actions', () => {
       false,
     );
   });
+
+  it('while a bulk run is in flight the rows and the toolbar wait for it', async () => {
+    let finish: (v: unknown) => void = () => {};
+    mockDisableMod.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    await mountWith([modRow('a.jar'), modRow('b.jar')]);
+    await fireEvent.click(screen.getByTestId('bulk-select-all'));
+    await fireEvent.click(
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Disable' }),
+    );
+    await waitFor(() => expect(mockDisableMod).toHaveBeenCalledTimes(1));
+    // The mods folder is being written: nothing else may write it meanwhile.
+    for (const id of [
+      'server-mods-check-updates',
+      'server-mods-update-all',
+      'server-mods-quarantine',
+    ])
+      expect(screen.getByTestId(id).hasAttribute('disabled')).toBe(true);
+    for (const row of document.querySelectorAll<HTMLElement>('[data-bulk-row]'))
+      expect(within(row).getByTestId('card-actions-blocked')).toBeTruthy();
+    finish({ status: 'ok', data: null });
+    await waitFor(() => expect(toasts.pushSuccess).toHaveBeenCalledWith('Disabled 2 of 2'));
+    expect(screen.getByTestId('server-mods-check-updates').hasAttribute('disabled')).toBe(false);
+    expect(document.querySelector('[data-testid="card-actions-blocked"]')).toBeNull();
+  });
 });

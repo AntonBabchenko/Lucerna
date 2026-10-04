@@ -114,7 +114,8 @@
     void assetsChanged.value;
     const gen = ++generation;
     const key = id === null ? null : `${id}\u0000${k}`;
-    if (key !== lastKey) {
+    const switched = key !== lastKey;
+    if (switched) {
       updateStates = new Map();
       summaries = new Map();
     }
@@ -125,7 +126,11 @@
       error = null;
       return;
     }
-    loading = true;
+    // Only a first read for this (profile, kind) shows the loading panel. A re-read after a change
+    // keeps what is on screen until the answer comes — the empty list included, where focus may
+    // just have been parked after the last removal (`refocusAfterRemoval`), and the host's drop
+    // area, which would otherwise flicker between its strip and its full size.
+    if (switched) loading = true;
     error = null;
     void (async () => {
       const res = await commands.assetsList(id, k);
@@ -135,11 +140,21 @@
         assets = [];
       } else {
         assets = res.data;
+        keepListedStates(res.data);
         void enrich(res.data, gen);
       }
       loading = false;
     })();
   });
+
+  // A re-read keeps the badges (above), but only of packs still installed: a pack removed
+  // elsewhere (the Browse view) must not linger as a pending update that «Update all» counts and
+  // would install again.
+  function keepListedStates(list: InstalledAsset[]): void {
+    const listed = new Set(list.map((a) => a.filename));
+    if ([...updateStates.keys()].every((f) => listed.has(f))) return;
+    updateStates = new Map([...updateStates].filter(([f]) => listed.has(f)));
+  }
 
   // Empty is reported, never assumed: no profile, a list still loading or a read that failed is
   // not an empty list — the host keeps its strip until the list says it is empty.
@@ -191,6 +206,7 @@
     if (res.status === 'error') error = formatError(res.error);
     else {
       assets = res.data;
+      keepListedStates(res.data);
       void enrich(res.data, gen);
     }
   }
@@ -344,7 +360,7 @@
     return s?.kind === 'check_failed' ? s.reason : null;
   }
 
-  // The bulk bar (DESIGN.md §8). Keys are filenames, the row identity of this list; the selection
+  // The bulk bar (DESIGN.md §9). Keys are filenames, the row identity of this list; the selection
   // is cleared when the profile or the kind changes.
   const selection = createListSelection(
     () => assets.map((a) => a.filename),
@@ -401,14 +417,15 @@
           updateStates = next;
         },
       );
+      // Said and cleared before the re-read: a re-read that throws must not swallow the notice.
+      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
+      selection.clear();
       await refresh();
       assetsChanged.value++;
-      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
     } finally {
       busy = false;
       bulkAction = null;
     }
-    selection.clear();
   }
 
   function requestBulkRemove(): void {
@@ -445,19 +462,19 @@
         },
       );
       pendingBulkRemove = null;
+      reportBulk(outcome, { done: 'ui.bulk.removed', partial: 'ui.bulk.removedFailed' });
+      selection.clear();
       // Notify the Browse view so its "Installed" badges clear.
       assetsChanged.value++;
-      reportBulk(outcome, { done: 'ui.bulk.removed', partial: 'ui.bulk.removedFailed' });
     } finally {
       busy = false;
       bulkAction = null;
     }
-    selection.clear();
     await refocusAfterRemoval({
       index,
-      listEl,
+      listEl: () => listEl,
       rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-testid="asset-row"]')],
-      emptyEl: emptyListEl,
+      emptyEl: () => emptyListEl,
     });
   }
 </script>

@@ -17,6 +17,7 @@
     selectable = false,
     selected = false,
     onSelectChange = (_checked: boolean) => {},
+    actionsBlockedReason = null,
     onOpenDetail = () => {},
     onToggle,
     onUninstall,
@@ -31,6 +32,9 @@
     selectable?: boolean;
     selected?: boolean;
     onSelectChange?: (checked: boolean) => void;
+    /** Why no action on this row can run right now (a bulk run holds the folder), or null —
+     *  ModCard's own `actionsBlockedReason`. */
+    actionsBlockedReason?: string | null;
     onOpenDetail?: () => void;
     onToggle: () => void;
     onUninstall: () => void;
@@ -63,6 +67,7 @@
     {selectable}
     {selected}
     {onSelectChange}
+    {actionsBlockedReason}
   />
   {#if reasonLabel}
     <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">

@@ -91,6 +91,8 @@ describe('DatapackBulkRemoveDialog — this-world', () => {
     });
     expect(screen.getByText('Remove 3 data packs from this world?')).toBeTruthy();
     expect(confirmBtn().disabled).toBe(true);
+    // Until every verdict is in, the button reads as the deletion it may be (the single dialog's rule).
+    expect(confirmBtn().textContent).toMatch(/Delete/);
     const body = await screen.findByTestId('datapack-bulk-remove-body');
     expect(within(body).getByText(/1 is removed from this world only/)).toBeTruthy();
     expect(
@@ -199,6 +201,14 @@ describe('DatapackBulkRemoveDialog — library', () => {
     expect(screen.getByTestId('datapack-bulk-remove-worlds-only').textContent).toMatch(
       /1 of them is no longer in the library/,
     );
+    // Its only_old world is never tried, and the dialog says so before anything runs.
+    const unchanged = screen.getByTestId('datapack-bulk-remove-unchanged');
+    expect(within(unchanged).getByText(/1 world won't be changed:/)).toBeTruthy();
+    expect(
+      within(unchanged)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.trim()),
+    ).toEqual(['Gamma: W4 — Open this world in Minecraft and restore it from the backup']);
     const cascade = screen.getByTestId('datapack-bulk-remove-cascade') as HTMLInputElement;
     expect(cascade.checked).toBe(true);
     await fireEvent.click(cascade);
@@ -209,7 +219,88 @@ describe('DatapackBulkRemoveDialog — library', () => {
     // The worlds-only pack: per tried world, never the only_old one.
     expect(cmd.datapacksRemoveFromWorld).toHaveBeenCalledTimes(1);
     expect(cmd.datapacksRemoveFromWorld).toHaveBeenCalledWith('inst-1', 'W3', 'c.zip');
-    expect(toasts.pushSuccess).toHaveBeenCalledWith('Removed 3 of 3');
+    // Gamma still loads in W4: it is not removed, and the notice names the world it left.
+    await waitFor(() => expect(toasts.pushWarning).toHaveBeenCalledTimes(1));
+    expect(toasts.pushSuccess).not.toHaveBeenCalled();
+    expect(toasts.pushWarning.mock.calls[0]).toEqual([
+      'Removed 2 of 3, 1 failed',
+      [
+        'Left as they are:',
+        'Gamma: W4 — Open this world in Minecraft and restore it from the backup',
+      ],
+    ]);
+  });
+
+  it('a pack no longer in the library whose every world Lucerna will not change: nothing to remove', () => {
+    render(DatapackBulkRemoveDialog, {
+      props: {
+        instanceId: 'inst-1',
+        mode: {
+          kind: 'library',
+          entries: [
+            {
+              filename: 'd.zip',
+              name: 'Delta',
+              inLibrary: false,
+              placements: [placement('W5', { level_dat: 'only_old' })],
+            },
+          ],
+        },
+        onRemoved: vi.fn(),
+        onClose: vi.fn(),
+      },
+    });
+    expect(screen.getByTestId('datapack-bulk-remove-nothing').textContent).toMatch(
+      /nothing to remove/,
+    );
+    expect(confirmBtn().disabled).toBe(true);
+  });
+
+  it('a thrown invoke fails only its own pack; the run goes on and reports it', async () => {
+    cmd.datapacksRemoveFromLibrary
+      .mockRejectedValueOnce(new Error('transport down'))
+      .mockResolvedValueOnce({ status: 'ok', data: { worlds: [], removed_from_library: true } });
+    const onRemoved = vi.fn();
+    render(DatapackBulkRemoveDialog, {
+      props: {
+        instanceId: 'inst-1',
+        mode: { kind: 'library', entries: entries.slice(0, 2) },
+        onRemoved,
+        onClose: vi.fn(),
+      },
+    });
+    await fireEvent.click(confirmBtn());
+    await waitFor(() => expect(toasts.pushWarning).toHaveBeenCalledTimes(1));
+    expect(cmd.datapacksRemoveFromLibrary).toHaveBeenCalledTimes(2);
+    expect(toasts.pushWarning.mock.calls[0]).toEqual([
+      'Removed 1 of 2, 1 failed',
+      ['Could not be cleaned:', { names: 'Alpha', reason: 'transport down' }],
+    ]);
+    expect(onRemoved).toHaveBeenCalledTimes(1);
+  });
+
+  it('a pack the backend kept in the library is not counted as removed, even with no failed world', async () => {
+    cmd.datapacksRemoveFromLibrary.mockResolvedValueOnce({
+      status: 'ok',
+      data: { worlds: [], removed_from_library: false },
+    });
+    render(DatapackBulkRemoveDialog, {
+      props: {
+        instanceId: 'inst-1',
+        mode: { kind: 'library', entries: entries.slice(0, 1) },
+        onRemoved: vi.fn(),
+        onClose: vi.fn(),
+      },
+    });
+    await fireEvent.click(confirmBtn());
+    await waitFor(() => expect(toasts.pushWarning).toHaveBeenCalledTimes(1));
+    expect(toasts.pushWarning.mock.calls[0]).toEqual([
+      'Removed 0 of 1, 1 failed',
+      [
+        'Could not be cleaned:',
+        { names: 'Alpha', reason: 'The library copy was kept so a retry can finish the removal' },
+      ],
+    ]);
   });
 
   it('a world that could not be cleaned fails its pack, named under the reason; kept copies are listed apart', async () => {

@@ -94,10 +94,10 @@
 
   // Build, install into the world, then report honestly: a partly-failed
   // build must not read as a success.
-  async function buildVt(selection: [string, string[]][]) {
+  async function buildVt(picked: [string, string[]][]) {
     vtBusy = true;
     try {
-      const res = await commands.vtInstallToServer(serverId, selection);
+      const res = await commands.vtInstallToServer(serverId, picked);
       if (res.status === 'error') {
         actionError = formatError(res.error);
         return;
@@ -213,8 +213,10 @@
     }),
   );
   const bulkGhosts = $derived(pendingBulkRemove?.filter((r) => !r.present).length ?? 0);
-  // Every write here rewrites level.dat, so a bulk run and a per-row change never overlap: the
-  // bar waits for a row's update, and the rows' own controls wait for the bar (below).
+  // Every write here rewrites level.dat. The backend serializes those writes, so what this keeps
+  // apart is the pane's own picture of the world: the bar waits for a row's update, «Update all»
+  // and a check, and the rows' controls, «Update all», a check and the Vanilla Tweaks builder wait
+  // for the bar (below).
   const bulkBusy = $derived(
     bulkAction !== null || removing || updatingAll || checkingUpdates || updatingKeys.size > 0,
   );
@@ -244,7 +246,7 @@
       $t('ui.bulk.updateNeedsCheck'),
     ),
     bulkGate(
-      { id: 'remove', label: $t('servers.datapacks.remove'), intent: 'danger' },
+      { id: 'remove', label: $t('addons.installed.remove'), intent: 'danger' },
       selectedRows.length === 0,
       $t('ui.bulk.noneApplicable'),
     ),
@@ -496,11 +498,11 @@
     await load();
     await refocusAfterRemoval({
       index,
-      listEl,
+      listEl: () => listEl,
       rows: (list) => [
         ...list.querySelectorAll<HTMLElement>('[data-testid="server-datapack-row"]'),
       ],
-      emptyEl: emptyListEl,
+      emptyEl: () => emptyListEl,
     });
   }
 
@@ -514,7 +516,7 @@
       class="btn-secondary btn-sm"
       data-testid="server-datapacks-check-updates"
       busy={checkingUpdates}
-      {disabled}
+      disabled={disabled || bulkRunning}
       onclick={() => void checkUpdates()}
     >
       {$t('servers.datapacks.checkUpdates')}

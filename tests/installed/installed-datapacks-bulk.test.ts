@@ -38,7 +38,7 @@ const V2: ModVersion = {
   name: 'VeinMiner',
   version_number: '2.0',
   mc_versions: ['1.21.1'],
-  loaders: ['datapack'],
+  loaders: [],
   primary_file: {
     filename: 'vm-2.zip',
     url: 'https://x/vm-2.zip',

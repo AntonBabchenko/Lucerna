@@ -284,7 +284,7 @@
     }
   }
 
-  // The bulk bar (DESIGN.md §8): keys are filenames; the selection is cleared when the world or
+  // The bulk bar (DESIGN.md §9): keys are filenames; the selection is cleared when the world or
   // the profile changes.
   const selection = createListSelection(
     () => packs.map((p) => p.filename),
@@ -355,12 +355,12 @@
               partial: 'worlds.datapacks.bulkDisabledFailed',
             },
       );
+      selection.clear();
       await reload();
     } finally {
       busy = false;
       bulkAction = null;
     }
-    selection.clear();
   }
 
   // One «copied, not linked» note for the run, however many answered `copied`.
@@ -389,12 +389,12 @@
         done: 'worlds.datapacks.bulkAdded',
         partial: 'worlds.datapacks.bulkAddedFailed',
       });
+      selection.clear();
       await reload();
     } finally {
       busy = false;
       bulkAction = null;
     }
-    selection.clear();
   }
 
   function requestBulkRemove(): void {
@@ -417,9 +417,9 @@
     await reload();
     await refocusAfterRemoval({
       index: bulkRemoveIndex,
-      listEl,
+      listEl: () => listEl,
       rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-testid="world-datapack-row"]')],
-      emptyEl: emptyListEl,
+      emptyEl: () => emptyListEl,
     });
   }
 </script>

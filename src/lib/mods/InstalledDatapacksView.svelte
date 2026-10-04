@@ -110,11 +110,11 @@
 
   // Build the selection, install it into the library, then report honestly:
   // a partly-failed build must not read as a success.
-  async function buildVt(selection: [string, string[]][]) {
+  async function buildVt(picked: [string, string[]][]) {
     if (!instanceId) return;
     vtBusy = true;
     try {
-      const res = await commands.vtInstallToInstance(instanceId, selection);
+      const res = await commands.vtInstallToInstance(instanceId, picked);
       if (res.status === 'error') {
         error = formatError(res.error);
         return;
@@ -469,7 +469,7 @@
     }
   }
 
-  // The bulk bar (DESIGN.md §8): keys are pack filenames, the selection is cleared on a profile switch.
+  // The bulk bar (DESIGN.md §9): keys are pack filenames, the selection is cleared on a profile switch.
   const selection = createListSelection(
     () => (view?.entries ?? []).map((e) => e.pack.filename),
     () => instanceId,
@@ -550,14 +550,15 @@
         (reason) => reason,
         (tg) => tg.entry.pack.name,
       );
+      // Said and cleared before the re-read: a re-read that throws must not swallow the notice.
+      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
+      selection.clear();
       await refresh();
       datapacksChanged.value++;
-      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
     } finally {
       busy = false;
       bulkAction = null;
     }
-    selection.clear();
   }
 
   function requestBulkRemove(): void {
@@ -580,11 +581,11 @@
     datapacksChanged.value++;
     await refocusAfterRemoval({
       index: bulkRemoveIndex,
-      listEl,
+      listEl: () => listEl,
       rows: (list) => [
         ...list.querySelectorAll<HTMLElement>('[data-testid="datapack-library-row"]'),
       ],
-      emptyEl: emptyListEl,
+      emptyEl: () => emptyListEl,
     });
   }
 </script>

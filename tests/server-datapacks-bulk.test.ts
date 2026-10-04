@@ -102,7 +102,7 @@ describe('ServerDatapacksInstalled — bulk actions', () => {
     mount();
     await fireEvent.click(await screen.findByTestId('bulk-select-all'));
     await fireEvent.click(
-      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Remove data pack' }),
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Remove' }),
     );
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText("Remove 2 data packs from this server's world?")).toBeTruthy();
@@ -119,7 +119,7 @@ describe('ServerDatapacksInstalled — bulk actions', () => {
     mount();
     await fireEvent.click(await screen.findByTestId('bulk-select-all'));
     const bar = screen.getByTestId('bulk-bar');
-    for (const name of ['Enable', 'Disable', 'Update', 'Remove data pack']) {
+    for (const name of ['Enable', 'Disable', 'Update', 'Remove']) {
       const btn = within(bar).getByRole('button', { name });
       expect(btn.hasAttribute('disabled')).toBe(true);
       expect(btn.parentElement?.getAttribute('tabindex')).toBe('0');
