@@ -413,7 +413,7 @@ describe('LauncherImportDialog — the version and why Import is off', () => {
     expect(describedText(field)).toBe('err:mc_version_unlisted');
   });
 
-  it('brings the refusal into view: the field may have been scrolled away', async () => {
+  it('brings the field and its refusal into view: they may have been scrolled away', async () => {
     const original = Element.prototype.scrollIntoView;
     const scrolled = vi.fn();
     Element.prototype.scrollIntoView = scrolled;
@@ -427,7 +427,11 @@ describe('LauncherImportDialog — the version and why Import is off', () => {
       fireEvent.click(view.getByTestId('import-btn'));
 
       await waitFor(() => expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' }));
-      expect(scrolled.mock.contexts).toContain(view.getByTestId('mc-version-error'));
+      // The block that holds both, so the refusal never shows without its field.
+      const block = view.getByTestId('mc-version-block');
+      expect(scrolled.mock.contexts).toContain(block);
+      expect(block.contains(view.getByTestId('mc-version-input'))).toBe(true);
+      expect(block.contains(view.getByTestId('mc-version-error'))).toBe(true);
     } finally {
       Element.prototype.scrollIntoView = original;
     }

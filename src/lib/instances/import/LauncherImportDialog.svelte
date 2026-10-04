@@ -211,16 +211,17 @@
     versionError = null;
   });
   // The refusal sits under the version field, near the top of a body that
-  // scrolls: it is brought into view as it appears (the Manage form's rule),
-  // or a user who scrolled down to the content list would see Import stop and
-  // nothing else.
-  let versionErrorEl = $state<HTMLElement | null>(null);
+  // scrolls: the field and the refusal are brought into view together as it
+  // appears, or a user who scrolled down to the content list would see Import
+  // stop and nothing else — and the refusal alone would name a field they
+  // cannot see.
+  let versionBlockEl = $state<HTMLDivElement | null>(null);
   // Names the refusal in the field's description while it shows.
   const MC_VERSION_ERROR_ID = 'launcher-import-mc-version-error';
   let lastShownError: string | null = null;
   $effect(() => {
-    if (versionError && !lastShownError && versionErrorEl) {
-      versionErrorEl.scrollIntoView?.({ block: 'nearest' });
+    if (versionError && !lastShownError && versionBlockEl) {
+      versionBlockEl.scrollIntoView?.({ block: 'nearest' });
     }
     lastShownError = versionError;
   });
@@ -489,7 +490,7 @@
       <!-- Version + loader: always shown pre-filled; raw_minecraft arrives blank.
            The refusal sits outside the label, which would make it part of the
            field's name. -->
-      <div>
+      <div bind:this={versionBlockEl} data-testid="mc-version-block">
         <label class="block">
           <span class="text-sm font-medium text-secondary"
             >{$t('instances.import.mcVersionInputLabel')}</span
@@ -514,7 +515,6 @@
           message={versionError}
           class="mt-1"
           dataTestid="mc-version-error"
-          bind:element={versionErrorEl}
         />
       </div>
       <div class="block">
