@@ -2293,9 +2293,9 @@
         },
         "searchSortFilter": {
           "title": "Search, sort, and filter",
-          "body": "Search and sort are always here. Click \"Filters\" to pick a Minecraft version, mod loader, or source. Your choices show as removable chips, and \"Clear all\" resets them.",
+          "body": "Search and sort sit in this bar, next to the filters for the mod loader and the Minecraft version. Once a filter is set, a \"Clear all\" button appears to reset them at once.",
           "titleBasic": "Search, sort, and filter",
-          "bodyBasic": "Search and sort are always here. Click \"Filters\" to choose a Minecraft version, mod system, or website. Your choices appear as little tags you can remove, and \"Clear all\" resets them."
+          "bodyBasic": "Search, sort, and narrow the list by mod system or Minecraft version, right in this bar. Once you narrow it, a \"Clear all\" button appears to put everything back."
         }
       },
       "worlds": {

@@ -332,6 +332,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A server's EULA notice no longer says to re-create the server.** Its
   button accepts the EULA and starts the server, and the advice above it now
   says the same.
+- **The modpack browser's tour shows the filters as they are.** It pointed to
+  a Filters button that is no longer there; it now describes the filters in
+  the search bar and names the button that resets them.
 
 ## [0.25.0] — 2026-09-27
 
