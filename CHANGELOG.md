@@ -23,6 +23,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Several items at once, in every installed list.** Resource packs, shaders, the
+  data pack library, a world's data packs and a server's mods, plugins and data
+  packs now have the checkboxes the mods list had: select some or all, then
+  enable, disable, update or remove them together. A removal of several asks
+  first and names what it removes; one notice per run says how many of how many
+  succeeded and why the rest did not. An action that none of the selected rows
+  can take is off and says why, and whatever stops a single row (a running
+  server, a world without its `level.dat`) stops the batch too.
 - **Removing a mod can be undone.** The notice that confirms a removal keeps an
   undo button for ten seconds — the countdown pauses while you point at it or
   it has the keyboard focus — and removing several mods at once is undone in
@@ -241,6 +249,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   versions in the mod browser opened partly past the window's right edge. The
   list of Minecraft versions was also cut off at the bottom when the page
   under it was short, for example when a search found nothing.
+- **Tab moves on from the Minecraft version field.** In the mod and modpack
+  browsers and in the import from another launcher, Tab stepped into the
+  field's list of versions, one version at a time, and the list stayed open
+  over the controls below the field after the focus had left it. Tab now goes
+  to the next control, taking along a version picked with the arrow keys, and
+  the list closes when the focus leaves the field. The arrow keys keep the
+  picked version in view, and choosing one with Enter leaves the focus in the
+  field.
 - **The page switcher fits the launcher's default window.** Under a long list
   of mods or modpacks, the choice of how many to show on a page sat past the
   window's right edge. In a narrow window the buttons for the first, previous,

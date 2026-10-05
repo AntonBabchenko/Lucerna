@@ -23,6 +23,16 @@
   import { worldDatapacksDisabledKey, worldRowKind } from '$lib/worlds/datapacks-gating';
   import DatapackRemoveDialog from '$lib/mods/DatapackRemoveDialog.svelte';
   import { warnFailedRefresh } from '$lib/mods/datapack-refresh-warning';
+  import { onDestroy } from 'svelte';
+  import BulkActionBar, { type BulkBarAction } from '$lib/ui/BulkActionBar.svelte';
+  import SelectRowCheckbox from '$lib/ui/SelectRowCheckbox.svelte';
+  import { reportBulk, runBulk } from '$lib/ui/bulk-run';
+  import { createListSelection } from '$lib/ui/list-selection.svelte';
+  import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
+  import DatapackBulkRemoveDialog, {
+    type ThisWorldEntry,
+  } from '$lib/mods/DatapackBulkRemoveDialog.svelte';
+  import { type WorldBulkAction, worldBulkApplies } from '$lib/worlds/datapack-bulk';
 
   // Per-world datapack manager. Library ∪ on-disk ∪ level.dat names, each row
   // carrying its own state. A "ghost" (a level.dat name whose file is gone) is
@@ -106,6 +116,7 @@
     // failed reload.
     actionError = null;
     removeTarget = null;
+    bulkRemoveFor = null;
     // The previous world's level.dat note must not stand over this one, and
     // neither must its rows: until this world's listing arrives they would
     // act on this world under the previous world's names.
@@ -272,6 +283,136 @@
       busy = false;
     }
   }
+
+  // The bulk bar (DESIGN.md §9): keys are filenames; the selection is cleared when the world or
+  // the profile changes.
+  const selection = createListSelection(
+    () => packs.map((p) => p.filename),
+    () => `${instanceId}\u0000${world}`,
+  );
+  onDestroy(() => selection.dispose());
+  let bulkAction = $state<WorldBulkAction | null>(null);
+  let bulkRemoveFor = $state<ThisWorldEntry[] | null>(null);
+  let bulkRemoveIndex = 0;
+  let listEl = $state<HTMLElement | null>(null);
+  let emptyListEl = $state<HTMLElement | null>(null);
+
+  const selectedPacks = $derived(packs.filter((p) => selection.selected.has(p.filename)));
+  const applicable = (action: WorldBulkAction) =>
+    selectedPacks.filter((p) => worldBulkApplies(p, action));
+  // The world's own gate (running, level.dat, busy) first, with its text; otherwise an action is
+  // off when no selected row can take it.
+  function bulkGate(action: BulkBarAction, none: boolean): BulkBarAction {
+    if (disabledKey !== null) return { ...action, disabled: true, disabledReason: $t(disabledKey) };
+    return { ...action, disabled: none, disabledReason: $t('ui.bulk.noneApplicable') };
+  }
+  const bulkActions = $derived<BulkBarAction[]>([
+    bulkGate({ id: 'enable', label: $t('mods.card.enable') }, applicable('enable').length === 0),
+    bulkGate({ id: 'disable', label: $t('mods.card.disable') }, applicable('disable').length === 0),
+    bulkGate({ id: 'add', label: $t('worlds.datapacks.bulkAdd') }, applicable('add').length === 0),
+    bulkGate(
+      { id: 'remove', label: $t('worlds.datapacks.bulkRemove'), intent: 'danger' },
+      applicable('remove').length === 0,
+    ),
+  ]);
+  function onBulkAction(id: string): void {
+    if (id === 'enable') void bulkSetEnabled(true);
+    else if (id === 'disable') void bulkSetEnabled(false);
+    else if (id === 'add') void bulkAdd();
+    else if (id === 'remove') requestBulkRemove();
+  }
+
+  async function bulkSetEnabled(enable: boolean): Promise<void> {
+    const reqInstance = instanceId;
+    const reqWorld = world;
+    const targets = applicable(enable ? 'enable' : 'disable');
+    if (disabledKey !== null || targets.length === 0) return;
+    bulkAction = enable ? 'enable' : 'disable';
+    busy = true;
+    actionError = null;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (p) => commands.datapacksSetEnabledInWorld(reqInstance, reqWorld, p.filename, enable),
+        formatError,
+        (p) => p.filename,
+      );
+      reportBulk(
+        outcome,
+        enable
+          ? { done: 'worlds.datapacks.bulkEnabled', partial: 'worlds.datapacks.bulkEnabledFailed' }
+          : {
+              done: 'worlds.datapacks.bulkDisabled',
+              partial: 'worlds.datapacks.bulkDisabledFailed',
+            },
+      );
+      selection.clear();
+      await reload();
+    } finally {
+      busy = false;
+      bulkAction = null;
+    }
+  }
+
+  // One «copied, not linked» note for the run, however many answered `copied`.
+  async function bulkAdd(): Promise<void> {
+    const reqInstance = instanceId;
+    const reqWorld = world;
+    const targets = applicable('add');
+    if (disabledKey !== null || targets.length === 0) return;
+    bulkAction = 'add';
+    busy = true;
+    actionError = null;
+    let copied = false;
+    try {
+      const outcome = await runBulk(
+        targets,
+        async (p) => {
+          const res = await commands.datapacksAddToWorld(reqInstance, reqWorld, p.filename);
+          if (res.status === 'ok' && res.data === 'copied') copied = true;
+          return res;
+        },
+        formatError,
+        (p) => p.filename,
+      );
+      if (copied) pushInfo($t('worlds.datapacks.copyNotLinked'));
+      reportBulk(outcome, {
+        done: 'worlds.datapacks.bulkAdded',
+        partial: 'worlds.datapacks.bulkAddedFailed',
+      });
+      selection.clear();
+      await reload();
+    } finally {
+      busy = false;
+      bulkAction = null;
+    }
+  }
+
+  function requestBulkRemove(): void {
+    const targets = applicable('remove');
+    if (disabledKey !== null || targets.length === 0) return;
+    actionError = null;
+    bulkRemoveIndex = Math.max(
+      0,
+      packs.findIndex((p) => selection.selected.has(p.filename)),
+    );
+    bulkRemoveFor = targets.map((p) => ({
+      filename: p.filename,
+      name: p.filename,
+      ghost: worldRowKind(p) === 'ghost',
+    }));
+  }
+
+  async function afterBulkRemove(): Promise<void> {
+    selection.clear();
+    await reload();
+    await refocusAfterRemoval({
+      index: bulkRemoveIndex,
+      listEl: () => listEl,
+      rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-testid="world-datapack-row"]')],
+      emptyEl: () => emptyListEl,
+    });
+  }
 </script>
 
 <div class="flex flex-col gap-2" data-testid="world-datapacks">
@@ -340,14 +481,40 @@
     <!-- For a folder with no level.dat the note above replaces "No datapacks
          yet" (§3 L.8): the game loads nothing from it at all. -->
     {#if levelDat !== 'absent'}
-      <p class="text-sm text-muted">{$t('worlds.datapacks.empty')}</p>
+      <!-- Focus lands here after the last removal (`refocusAfterRemoval`): a parking place
+           that reads the message, not a control. -->
+      <p class="text-sm text-muted outline-none" tabindex="-1" bind:this={emptyListEl}>
+        {$t('worlds.datapacks.empty')}
+      </p>
     {/if}
   {:else}
-    <div class="overflow-hidden rounded-lg border border-border-subtle">
+    <div class="overflow-hidden rounded-lg border border-border-subtle" bind:this={listEl}>
+      <BulkActionBar
+        allSelected={selection.allSelected}
+        indeterminate={selection.indeterminate}
+        selectedCount={selection.count}
+        busy={disabledKey !== null || bulkAction !== null}
+        busyAction={bulkAction}
+        hint={$t('worlds.datapacks.bulkHint')}
+        actions={bulkActions}
+        onToggleAll={selection.toggleAll}
+        onAction={onBulkAction}
+        onClear={selection.clear}
+      />
       {#each packs as pack (pack.filename)}
         {@const kind = worldRowKind(pack)}
         {@const compatWarn = rowCompatLine(pack)}
-        <CardShell variant="compact-row" accent={rowAccent(pack)} dim={rowDim(pack)}>
+        <CardShell
+          variant="compact-row"
+          accent={rowAccent(pack)}
+          dim={rowDim(pack)}
+          testid="world-datapack-row"
+        >
+          <SelectRowCheckbox
+            checked={selection.selected.has(pack.filename)}
+            name={pack.filename}
+            onChange={(c) => selection.toggle(pack.filename, c)}
+          />
           <CardMedia placeholder="package" size="sm" />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -533,6 +700,19 @@
       mode={{ kind: 'this-world', world }}
       onClose={() => (removeTarget = null)}
       onRemoved={() => void reload()}
+    />
+  {/if}
+
+  {#if bulkRemoveFor !== null}
+    <DatapackBulkRemoveDialog
+      {instanceId}
+      mode={{ kind: 'this-world', world, entries: bulkRemoveFor }}
+      onRunning={(running) => {
+        busy = running;
+        bulkAction = running ? 'remove' : null;
+      }}
+      onClose={() => (bulkRemoveFor = null)}
+      onRemoved={() => void afterBulkRemove()}
     />
   {/if}
 </div>

@@ -7,6 +7,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import SelectRowCheckbox from '$lib/ui/SelectRowCheckbox.svelte';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
@@ -319,6 +320,31 @@
   {/if}
 {/snippet}
 
+<!-- The degraded row's two actions (a jar with no platform identity: no update to offer). Under
+     `actionsBlockedReason` they are off behind the same one wrapper as the list row's, so a manual
+     jar is never the one row a block forgot. -->
+{#snippet degradedButtons(m: InstalledMod)}
+  {#if canToggle}
+    <button
+      type="button"
+      class={`btn-icon btn-icon-sm ${m.enabled ? 'btn-icon-success' : '!text-muted'}`}
+      disabled={blocked}
+      onclick={onToggle}
+      aria-label={m.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+      use:tooltip={m.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+      ><Icon name="power" size={15} /></button
+    >
+  {/if}
+  <button
+    type="button"
+    class="btn-icon btn-icon-sm btn-icon-danger"
+    disabled={blocked}
+    onclick={onUninstall}
+    aria-label={$t('mods.card.uninstall')}
+    use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
+  >
+{/snippet}
+
 {#snippet heldPin(klass: string)}
   {#if held}
     <!-- Beside the version it keeps: updates for this project are held (row menu). -->
@@ -403,14 +429,7 @@
       {below}
     >
       {#if selectable && installed}
-        <input
-          type="checkbox"
-          class="flex-shrink-0"
-          checked={selected}
-          aria-label={$t('mods.installed.selectModAriaLabel', { filename: installed.filename })}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
-        />
+        <SelectRowCheckbox checked={selected} name={installed.filename} onChange={onSelectChange} />
       {/if}
       {#if relation}{@render relationCell()}{/if}
       <CardMedia iconUrl={null} placeholder={isPlatform ? 'circleX' : placeholderIcon} size="sm" />
@@ -424,23 +443,19 @@
       <div class={listBadgesClass}>{@render badges()}</div>
       {#if installed}
         <div class="flex items-center gap-1 flex-shrink-0">
-          {#if canToggle}
-            <button
-              type="button"
-              class={`btn-icon btn-icon-sm ${installed.enabled ? 'btn-icon-success' : '!text-muted'}`}
-              onclick={onToggle}
-              aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-              use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-              ><Icon name="power" size={15} /></button
+          {#if blocked}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <span
+              class="inline-flex items-center gap-1"
+              tabindex="0"
+              data-testid="card-actions-blocked"
+              use:tooltip={{ text: actionsBlockedReason ?? '', describe: false }}
             >
+              {@render degradedButtons(installed)}
+            </span>
+          {:else}
+            {@render degradedButtons(installed)}
           {/if}
-          <button
-            type="button"
-            class="btn-icon btn-icon-sm btn-icon-danger"
-            onclick={onUninstall}
-            aria-label={$t('mods.card.uninstall')}
-            use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
-          >
         </div>
       {/if}
     </CardShell>
@@ -493,14 +508,7 @@
       {below}
     >
       {#if selectable}
-        <input
-          type="checkbox"
-          class="flex-shrink-0"
-          checked={selected}
-          aria-label={$t('mods.card.selectAriaLabel', { name: summary.name })}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
-        />
+        <SelectRowCheckbox checked={selected} name={summary.name} onChange={onSelectChange} />
       {/if}
       {#if relation}{@render relationCell()}{/if}
       <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="sm" />

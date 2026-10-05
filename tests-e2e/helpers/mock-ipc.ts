@@ -214,6 +214,11 @@ export type MockState = {
    * marked done. Defaults to none.
    */
   pending_tours?: string[];
+  /**
+   * `list_versions` result (VersionEntry[]) — the Minecraft versions the version fields list.
+   * Defaults to empty.
+   */
+  versions?: unknown[];
 };
 
 /**
@@ -322,6 +327,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         },
         migration_report: { outcomes: [] },
         pending_tours: [],
+        versions: [],
       };
       const m = { ...defaults, ...s };
       // Fields the UI patched through app_settings_patch_general; served back by app_settings_get.
@@ -388,8 +394,8 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
           general: { hide_to_tray_during_game: false, game_start_window: 'keep', theme: m.theme, ...patchedGeneral },
         }),
 
-        // Version manifest — return empty list; UI guards on versionsError.
-        list_versions: () => [],
+        // Version manifest — `versions` (empty by default); UI guards on versionsError.
+        list_versions: () => m.versions,
 
         // Per-instance commands that fire immediately on instance switch.
         // Reflects installs recorded by mods_install_with_deps (defaults []).

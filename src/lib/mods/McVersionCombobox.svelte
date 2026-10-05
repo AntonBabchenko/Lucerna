@@ -22,6 +22,9 @@
   // reader read whatever row the cursor sat on as "selected", so the user could
   // never hear which version was actually chosen. Home/End jump to first/last
   // match, matching Select.
+  //
+  // Focus stays in the field (DESIGN.md §6): the options are out of the Tab order, the arrows move
+  // `aria-activedescendant`, and the list lives while the focus is in the field.
 
   let {
     value = $bindable(''),
@@ -75,18 +78,44 @@
     value ? releases.filter((id) => id.toLowerCase().includes(value.toLowerCase())) : releases,
   );
 
-  function pick(v: string) {
-    value = v;
+  function close() {
     open = false;
     activeIndex = -1;
+  }
+
+  // A version chosen from the keyboard: the focus stays in the field, as Select's stays on its
+  // trigger. (Enter used to blur the field, dropping the focus — and a screen reader's place — to
+  // the page.)
+  function commit(v: string) {
+    value = v;
+    close();
+  }
+
+  // A version, or "Any version" (''), chosen with the pointer.
+  //
+  // The click is canceled first. The hosts wrap the field in a <label>, which hands a click on its
+  // content to its control, the input — except a click on interactive content, such as a button.
+  // WebKit before 318827@main (2026-08, bug 321257) dropped that exception when the button left the
+  // document during the click, as an option does: the list closes here, and Svelte's flush removes
+  // it before the default handlers run. The label would then focus the input, which opens the list
+  // again (read from WebKit's fix and its WPT; not reproduced here — Chromium checks the event
+  // path). A canceled click activates no label in any engine.
+  //
+  // Then the field gives the focus up, as before: a text field keeps its focus ring however it got
+  // the focus, and the list opens again on the next click either way.
+  function pickWithPointer(e: MouseEvent, v: string) {
+    e.preventDefault();
+    commit(v);
     inputEl?.blur();
   }
 
-  function clear() {
-    value = '';
-    open = false;
-    activeIndex = -1;
-    inputEl?.blur();
+  // The list lives while the focus is in the field: Tab, Shift+Tab, a click into another control, a
+  // tour or the window taking the focus — each closes it, and so does a focus that went nowhere
+  // (`relatedTarget` null). A press in the list does not move the focus (its onmousedown).
+  function onFocusOut(e: FocusEvent) {
+    const next = e.relatedTarget;
+    if (next instanceof Node && (inputEl?.contains(next) || listEl?.contains(next))) return;
+    close();
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -110,10 +139,14 @@
     } else if (e.key === 'Enter') {
       if (activeIndex >= 0 && activeIndex < filtered.length) {
         e.preventDefault();
-        pick(filtered[activeIndex]);
+        commit(filtered[activeIndex]);
       } else {
         open = false;
       }
+    } else if (e.key === 'Tab') {
+      // Tab takes the highlighted version along, as Select's Tab does, and is not prevented: the
+      // focus moves on, and leaving the field closes the list. Nothing highlighted: it only moves on.
+      if (open && activeIndex >= 0 && activeIndex < filtered.length) commit(filtered[activeIndex]);
     } else if (e.key === 'Escape' && open) {
       // Closing the list is this press's whole job: consume it, so the layer
       // router leaves the dialog or tour underneath alone. "The list is still
@@ -122,22 +155,22 @@
       // microtasks — Svelte's flush among them — between this listener and
       // the router's. With the list closed, the key goes on as usual.
       e.preventDefault();
-      open = false;
-      activeIndex = -1;
+      close();
     }
   }
 
   // The open dropdown is a layer in the app's layer stack: a contextual tour
   // underneath steps aside while it is open, and an Escape that reaches the
   // router while the list is on top closes the list.
-  useLayer(
-    'popover',
-    () => open,
-    () => {
-      open = false;
-      activeIndex = -1;
-    },
-  );
+  useLayer('popover', () => open, close);
+
+  // The highlighted option is kept in view as the arrows move it, as in Select: the list shows about
+  // eight of some eighty releases, and the arrows are the keyboard's only way through it. Scrolling
+  // the list does not dismiss it (`ignoreScrollWithin` below).
+  $effect(() => {
+    if (!open || activeIndex < 0 || !listEl) return;
+    document.getElementById(optionId(activeIndex))?.scrollIntoView?.({ block: 'nearest' });
+  });
 
   // Click-outside collapses the dropdown without committing the
   // highlighted row. mousedown (not click) so re-clicking the input
@@ -147,8 +180,7 @@
     function onMouseDown(e: MouseEvent) {
       const t = e.target as Node;
       if (inputEl?.contains(t) || listEl?.contains(t)) return;
-      open = false;
-      activeIndex = -1;
+      close();
     }
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
@@ -227,16 +259,13 @@
   $effect(() => {
     if (!open) return;
     return attachPopoverDismiss({
-      onDismiss: () => {
-        open = false;
-        activeIndex = -1;
-      },
+      onDismiss: close,
       ignoreScrollWithin: () => listEl,
     });
   });
 </script>
 
-<div>
+<div onfocusout={onFocusOut}>
   <input
     bind:this={inputEl}
     {id}
@@ -254,6 +283,12 @@
       if (disabled) return;
       open = true;
     }}
+    onclick={() => {
+      // The field can hold the focus with the list closed (after Enter or Escape), where no focus
+      // event comes to open it: a click on the field does.
+      if (disabled) return;
+      open = true;
+    }}
     onkeydown={onKeyDown}
     class="filter-control filter-control-narrow disabled:opacity-50 disabled:cursor-not-allowed"
     autocomplete="off"
@@ -268,20 +303,26 @@
       : undefined}
   />
   {#if open}
+    <!-- A press anywhere in the list (an option, the "No match" line, the scrollbar) keeps the focus
+         in the field. Left alone it moves it — Chromium to the option, WebKit to nothing — and a
+         focus leaving the field closes the list before the click lands. -->
     <div
       id={listboxId}
       bind:this={listEl}
       role="listbox"
+      tabindex="-1"
       class="fixed z-[var(--z-popover)] w-32 overflow-y-auto bg-surface border border-border-subtle rounded shadow"
       style={listStyle}
+      onmousedown={(e) => e.preventDefault()}
     >
       <button
         type="button"
         id={anyOptionId}
         role="option"
+        tabindex="-1"
         aria-selected={value === ''}
         class="block w-full text-left px-3 py-1 btn-tertiary text-sm italic"
-        onclick={clear}
+        onclick={(e) => pickWithPointer(e, '')}
       >
         {$t('mods.mcVersion.anyVersion')}
       </button>
@@ -290,10 +331,11 @@
           type="button"
           id={optionId(i)}
           role="option"
+          tabindex="-1"
           aria-selected={id === value}
           class="block w-full text-left px-3 py-1 text-sm hover:bg-subtle"
           class:bg-accent-soft={activeIndex === i}
-          onclick={() => pick(id)}
+          onclick={(e) => pickWithPointer(e, id)}
         >
           {id}
         </button>

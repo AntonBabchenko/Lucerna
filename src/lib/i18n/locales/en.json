@@ -791,7 +791,6 @@
       "enable": "Enable",
       "uninstall": "Remove",
       "update": "Update",
-      "selectAriaLabel": "Select mod {name}",
       "fromModpackTitle": "From modpack: {name}",
       "byAuthorDownloads": "by {author} · {downloads, number} dl",
       "details": "Details",
@@ -884,8 +883,6 @@
       "pickInstanceFirst": "Pick an instance first.",
       "loading": "Loading installed mods…",
       "empty": "No mods installed in this instance yet.",
-      "selectedCount": "{count} selected",
-      "bulkClear": "Clear",
       "bulkUpdateTitle": "Run \"Check for updates\" first; only mods with a pending update can be updated",
       "bulkHint": "Select mods to enable, disable, update or uninstall in bulk",
       "resolvingShort": "loading…",
@@ -900,7 +897,6 @@
       "manualMod": "manual mod",
       "enabledStatus": "Enabled",
       "disabledStatus": "Disabled",
-      "selectModAriaLabel": "Select mod {filename}",
       "toastEnabled": "{count, plural, one {Enabled # mod} other {Enabled # mods}}",
       "toastDisabled": "{count, plural, one {Disabled # mod} other {Disabled # mods}}",
       "toastEnabledFailed": "{count, plural, one {Enabled # mod} other {Enabled # mods}}, {failed} failed",
@@ -1212,7 +1208,20 @@
         "toastFailedWorldsOnly": "{count, plural, one {# world could not be cleaned} other {# worlds could not be cleaned}}",
         "toastKeptNotOurs": "{count, plural, one {# world kept its copy — the file there does not match the library's, so it was not touched} other {# worlds kept their copies — the files there do not match the library's, so they were not touched}}",
         "worldsOnlyNote": "This pack isn't in the library, so removing it deletes it permanently from every world Lucerna can change. It can't be restored.",
-        "worldsOnlyNothing": "Lucerna won't change any of these worlds, so there is nothing to remove."
+        "worldsOnlyNothing": "Lucerna won't change any of these worlds, so there is nothing to remove.",
+        "manyTitle": "{count, plural, one {Remove # data pack?} other {Remove # data packs?}}",
+        "manyTitleThisWorld": "{count, plural, one {Remove # data pack from this world?} other {Remove # data packs from this world?}}",
+        "manyLibraryCopies": "{count, plural, one {# is removed from this world only; its copy in the library stays.} other {# are removed from this world only; their copies in the library stay.}}",
+        "manyOwnFiles": "{count, plural, one {# isn't the library's copy and is deleted permanently. It can't be restored.} other {# aren't the library's copies and are deleted permanently. They can't be restored.}}",
+        "manyMissing": "{count, plural, one {# file is already gone; its entry is cleared from this world.} other {# files are already gone; their entries are cleared from this world.}}",
+        "manyUnchecked": "{count, plural, one {# couldn't be checked. If it isn't the library's copy, removing it deletes it permanently.} other {# couldn't be checked. If they aren't the library's copies, removing them deletes them permanently.}}",
+        "manyUsedIn": "{count, plural, one {Together they are used in # world:} other {Together they are used in # worlds:}}",
+        "manyNoWorlds": "None of them is in a world; they are removed from the library.",
+        "manyWorldsOnlyNote": "{count, plural, one {# of them is no longer in the library, so it is deleted permanently from every world Lucerna can change. It can't be restored.} other {# of them are no longer in the library, so they are deleted permanently from every world Lucerna can change. They can't be restored.}}",
+        "manyKeptNotOurs": "Kept, because the copy there is not the library's:",
+        "manyFailedWorlds": "Could not be cleaned:",
+        "manyLeftUnchanged": "Left as they are:",
+        "keptInLibrary": "The library copy was kept so a retry can finish the removal"
       },
       "vt": {
         "open": "Vanilla Tweaks…",
@@ -1225,7 +1234,9 @@
         "empty": "Vanilla Tweaks has no packs for this Minecraft version yet.",
         "someFailed": "{count, plural, one {# pack could not be added} other {# packs could not be added}}"
       },
-      "libraryReadFailed": "Couldn't read this instance's data pack library, so the results may not show which packs are already installed."
+      "libraryReadFailed": "Couldn't read this instance's data pack library, so the results may not show which packs are already installed.",
+      "bulkHint": "Select data packs to update or remove several at once",
+      "bulkUpdateKeptOld": "The old version was kept so a retry can finish"
     },
     "install": {
       "toastInstalled": "{count, plural, one {Installed # add-on} other {Installed # add-ons}}",
@@ -1258,7 +1269,9 @@
       "removedToast": "Removed {name}",
       "installFailedToast": "Install failed",
       "updateFailedToast": "Update failed",
-      "removeFailedToast": "Remove failed"
+      "removeFailedToast": "Remove failed",
+      "bulkHint": "Select add-ons to update or remove several at once",
+      "removeManyConfirm": "{count, plural, one {Remove # add-on?} other {Remove # add-ons?}}"
     }
   },
   "modpacks": {
@@ -1657,7 +1670,18 @@
       "onlyOldLevelDat": "This world's level.dat is missing — only the backup copy level.dat_old is left. Open the world in Minecraft; if it says the world failed to load, choose Attempt to Restore and Minecraft rebuilds level.dat from the backup. Until then its data packs can't be changed here.",
       "blockedNoLevelDat": "Not a world: this folder has no level.dat",
       "blockedOnlyOld": "Open this world in Minecraft and restore it from the backup",
-      "blockedUntilListed": "Available once this world's data pack list has been read"
+      "blockedUntilListed": "Available once this world's data pack list has been read",
+      "bulkHint": "Select data packs to enable, disable, add or remove several at once",
+      "bulkEnabled": "Enabled in this world {ok} of {total}",
+      "bulkEnabledFailed": "Enabled in this world {ok} of {total}, {failed} failed",
+      "bulkDisabled": "Disabled in this world {ok} of {total}",
+      "bulkDisabledFailed": "Disabled in this world {ok} of {total}, {failed} failed",
+      "bulkAdded": "Added to this world {ok} of {total}",
+      "bulkAddedFailed": "Added to this world {ok} of {total}, {failed} failed",
+      "bulkRemoved": "Removed from this world {ok} of {total}",
+      "bulkRemovedFailed": "Removed from this world {ok} of {total}, {failed} failed",
+      "bulkAdd": "Add",
+      "bulkRemove": "Remove"
     },
     "restore": {
       "title": "Restore \"{world}\" from {timestamp}",
@@ -3650,7 +3674,10 @@
       "remove": "Remove data pack",
       "removeConfirm": "Remove {name} from this server's world?",
       "removeGhostConfirm": "The world still lists {name}, but its file is gone. Minecraft drops the entry by itself the next time the server saves the world. Clear it now?",
-      "pinnedFacets": "Minecraft {mcVersion}"
+      "pinnedFacets": "Minecraft {mcVersion}",
+      "bulkHint": "Select data packs to enable, disable, update or remove several at once",
+      "removeManyConfirm": "{count, plural, one {Remove # data pack from this server's world?} other {Remove # data packs from this server's world?}}",
+      "removeManyGhostNote": "{count, plural, one {# of them is only a leftover entry: its file is gone, and Minecraft would drop it by itself the next time the server saves the world.} other {# of them are only leftover entries: their files are gone, and Minecraft would drop them by itself the next time the server saves the world.}}"
     },
     "settings": {
       "launchSection": "Launch"
@@ -3969,7 +3996,9 @@
       "datapacksEmpty": "No datapacks",
       "datapackInstalled": "Installed datapack {name}",
       "removeDatapackConfirm": "Remove {name}?",
-      "remove": "Remove"
+      "remove": "Remove",
+      "bulkHint": "Select mods to enable, disable, update or remove several at once",
+      "deleteManyConfirm": "{count, plural, one {Remove # mod?} other {Remove # mods?}}"
     },
     "plugins": {
       "empty": "No plugins",
@@ -3989,7 +4018,9 @@
       "restore": "Restore",
       "delete": "Remove",
       "deleteConfirm": "Remove {name}?",
-      "setAside": "set aside"
+      "setAside": "set aside",
+      "bulkHint": "Select plugins to enable, disable, update or remove several at once",
+      "deleteManyConfirm": "{count, plural, one {Remove # plugin?} other {Remove # plugins?}}"
     },
     "contentDetail": {
       "tabOverview": "Overview",
@@ -4374,7 +4405,25 @@
     }
   },
   "ui": {
-    "selectAll": "Select all"
+    "selectAll": "Select all",
+    "bulk": {
+      "selectedCount": "{count} selected",
+      "clear": "Clear",
+      "selectRow": "Select {name}",
+      "noneApplicable": "None of the selected items can take this action",
+      "updateNeedsCheck": "Run \"Check for updates\" first; only items with a pending update can be updated",
+      "andMore": "and {count} more",
+      "enabled": "Enabled {ok} of {total}",
+      "enabledFailed": "Enabled {ok} of {total}, {failed} failed",
+      "disabled": "Disabled {ok} of {total}",
+      "disabledFailed": "Disabled {ok} of {total}, {failed} failed",
+      "updated": "Updated {ok} of {total}",
+      "updatedFailed": "Updated {ok} of {total}, {failed} failed",
+      "removed": "Removed {ok} of {total}",
+      "removedFailed": "Removed {ok} of {total}, {failed} failed",
+      "running": "Another change is still running",
+      "updateExternalOnly": "The selected updates can only be downloaded from their pages"
+    }
   },
   "tray": {
     "open": "Open Lucerna",

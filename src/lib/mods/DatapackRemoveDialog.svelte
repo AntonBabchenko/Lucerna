@@ -10,6 +10,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { levelDatBlockedKey } from '$lib/worlds/datapacks-gating';
+  import { splitPlacements } from './datapack-remove-model';
 
   // The ONE removal confirmation for datapacks, shared by the library screen
   // and the catalog card's trash action (slice-2 design §7.6) — the catalog
@@ -70,40 +71,20 @@
 
   const placements = $derived(mode.kind === 'this-world' ? [] : mode.placements);
 
-  // Unknown state in a folder that has a level file (or whose level file could
-  // not be told): could not check. A folder with neither level file has no list
-  // to hold a state (`absent`) — it is an affected world the cascade unlinks.
-  // An `unreadable` entry is Lucerna failing to read it, not the game ignoring
-  // it: the cascade cannot compare it with the library copy either. The same
-  // mark with no state is a placement Lucerna could not check at all (the
-  // world's datapacks/ unreadable, or R2 could not tell), in any folder — the
-  // one predicate covers both.
-  function isUnchecked(p: DatapackPlacementView): boolean {
-    return (p.state === null && p.level_dat !== 'absent') || p.ignored_reason === 'unreadable';
-  }
-  // D2: every world writer refuses a folder with no level.dat or only
-  // level.dat_old. A worlds-only removal goes world by world through those
-  // writers, so such worlds are listed apart as left unchanged and never
-  // tried. The library cascade differs: it unlinks the file in a folder with
-  // no level file (A3) and fails an only-old world, which the only-old note
-  // says up front.
-  const unchanged = $derived(
-    mode.kind === 'worlds-only'
-      ? placements.filter((p) => p.level_dat === 'absent' || p.level_dat === 'only_old')
-      : [],
-  );
-  const tried = $derived(placements.filter((p) => !unchanged.includes(p)));
+  // The D2 partition and the could-not-check rule live in datapack-remove-model.ts, shared with
+  // the batch dialog.
+  const split = $derived(splitPlacements(mode.kind, placements));
+  const unchanged = $derived(split.unchanged);
+  const tried = $derived(split.tried);
   // Worlds-only, and every listed world is one Lucerna won't change: Confirm
   // is off, and the body says why instead of warning of a deletion.
   const nothingToRemove = $derived(
     mode.kind === 'worlds-only' && placements.length > 0 && tried.length === 0,
   );
   const NOTHING_ID = 'datapack-remove-nothing';
-  const affected = $derived(tried.filter((p) => !isUnchecked(p)));
-  const unchecked = $derived(tried.filter(isUnchecked));
-  // D2: the cascade refuses a world with only level.dat_old and reports it
-  // Failed, which keeps the library copy. Said up front, not only in the toast.
-  const anyOnlyOld = $derived(placements.some((p) => p.level_dat === 'only_old'));
+  const affected = $derived(split.affected);
+  const unchecked = $derived(split.unchecked);
+  const anyOnlyOld = $derived(split.anyOnlyOld);
 
   type Verdict = WorldEntryKind['kind'] | 'unchecked';
   const BODY: Record<Verdict, TranslationKey> = {
