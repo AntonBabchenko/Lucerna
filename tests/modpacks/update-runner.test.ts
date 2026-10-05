@@ -42,7 +42,7 @@ describe('runUpdate', () => {
         details: [row],
       },
     });
-    const out = await runUpdate('i1', '/tmp/p.mrpack', 'v2', () => {});
+    const out = await runUpdate('i1', '/tmp/p.mrpack', 'v2', false, () => {});
     expect(out).toEqual({
       status: 'ok',
       inst: { id: 'i1', name: 'Pack' },
@@ -53,15 +53,15 @@ describe('runUpdate', () => {
 
   it('maps an error result via formatError', async () => {
     modpackApplyUpdate.mockResolvedValue({ status: 'error', error: { kind: 'io' } });
-    const out = await runUpdate('i1', '/tmp/p.mrpack', 'v2', () => {});
+    const out = await runUpdate('i1', '/tmp/p.mrpack', 'v2', false, () => {});
     expect(out).toEqual({ status: 'error', message: 'formatted:io' });
   });
 
   it('streams phase + bytes to onProgress (latest-wins, reset first)', async () => {
     const seen: Array<[unknown, unknown]> = [];
     modpackApplyUpdate.mockImplementation(async (...args: unknown[]) => {
-      const phaseCh = args[3] as { onmessage: (m: unknown) => void };
-      const tickCh = args[4] as { onmessage: (m: unknown) => void };
+      const phaseCh = args[4] as { onmessage: (m: unknown) => void };
+      const tickCh = args[5] as { onmessage: (m: unknown) => void };
       phaseCh.onmessage({ phase: 'installing_file', current: 3, total: 12, file_name: 'Sodium' });
       tickCh.onmessage({ phase: 'downloading', current: 5, total: 10 });
       return {
@@ -69,7 +69,9 @@ describe('runUpdate', () => {
         data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] },
       };
     });
-    await runUpdate('i1', '/tmp/p.mrpack', 'v2', (phase, bytes) => seen.push([phase, bytes]));
+    await runUpdate('i1', '/tmp/p.mrpack', 'v2', false, (phase, bytes) =>
+      seen.push([phase, bytes]),
+    );
     expect(seen[0]).toEqual([null, null]);
     expect(seen).toContainEqual([
       { phase: 'installing_file', current: 3, total: 12, file_name: 'Sodium' },
@@ -79,5 +81,15 @@ describe('runUpdate', () => {
       { phase: 'installing_file', current: 3, total: 12, file_name: 'Sodium' },
       { phase: 'downloading', current: 5, total: 10 },
     ]);
+  });
+
+  it('passes the backup choice to the command, before the two channels', async () => {
+    modpackApplyUpdate.mockResolvedValue({
+      status: 'ok',
+      data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] },
+    });
+    await runUpdate('i1', '/tmp/p.mrpack', 'v2', true, () => {});
+    const args = modpackApplyUpdate.mock.calls[0];
+    expect(args.slice(0, 4)).toEqual(['i1', '/tmp/p.mrpack', 'v2', true]);
   });
 });

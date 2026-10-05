@@ -5,13 +5,16 @@ import type { InstanceWithStatus, ModpackUpdateDiff, ModpackVersionEntry } from 
 
 // vi.mock is hoisted above top-level consts, so the mock fns must come from
 // vi.hoisted or collection fails with "Cannot access '…' before initialization".
-const { getVersions, fetchToTemp, computeUpdate, applyUpdate, changelog } = vi.hoisted(() => ({
-  getVersions: vi.fn(),
-  fetchToTemp: vi.fn(),
-  computeUpdate: vi.fn(),
-  applyUpdate: vi.fn(),
-  changelog: vi.fn(),
-}));
+const { getVersions, fetchToTemp, computeUpdate, applyUpdate, changelog, worldNames } = vi.hoisted(
+  () => ({
+    getVersions: vi.fn(),
+    fetchToTemp: vi.fn(),
+    computeUpdate: vi.fn(),
+    applyUpdate: vi.fn(),
+    changelog: vi.fn(),
+    worldNames: vi.fn(),
+  }),
+);
 
 // The apply path builds Tauri progress Channels, which need the IPC runtime.
 // Same stub the other modpack tests use.
@@ -28,6 +31,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackComputeUpdate: computeUpdate,
     modpackApplyUpdate: applyUpdate,
     modsChangelog: changelog,
+    listWorldNames: worldNames,
   },
 }));
 
@@ -88,6 +92,7 @@ beforeEach(() => {
     data: { instance: inst, inert_loader_jars: [], details: [] },
   });
   changelog.mockResolvedValue({ status: 'ok', data: { sections: [], truncated: null } });
+  worldNames.mockResolvedValue({ status: 'ok', data: [] });
 });
 
 async function openAndPick(id: string) {
@@ -245,5 +250,33 @@ describe('ModpackVersionSwitchDialog', () => {
     await fireEvent.click(screen.getByTestId('switch-back'));
     await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
     expect(screen.queryByTestId('update-diff-list')).toBeNull();
+  });
+
+  it('offers a world backup at review and passes the choice on', async () => {
+    worldNames.mockResolvedValue({
+      status: 'ok',
+      data: [
+        { folder_name: 'A', modified_unix_ms: 0 },
+        { folder_name: 'B', modified_unix_ms: 0 },
+      ],
+    });
+    await openAndPick('v1');
+    const box = (await screen.findByTestId('switch-backup-worlds')) as HTMLInputElement;
+    // No Minecraft change and nothing removed: offered, not preselected.
+    expect(box.checked).toBe(false);
+    expect(box.closest('label')?.textContent).toContain('(2)');
+    await fireEvent.click(box);
+    await fireEvent.click(screen.getByTestId('switch-confirm'));
+    await waitFor(() => expect(applyUpdate).toHaveBeenCalled());
+    expect(applyUpdate.mock.calls[0][3]).toBe(true);
+  });
+
+  it('hides the backup choice on a profile without worlds', async () => {
+    await openAndPick('v1');
+    await waitFor(() => expect(screen.getByTestId('switch-confirm')).toBeTruthy());
+    expect(screen.queryByTestId('switch-backup-worlds')).toBeNull();
+    await fireEvent.click(screen.getByTestId('switch-confirm'));
+    await waitFor(() => expect(applyUpdate).toHaveBeenCalled());
+    expect(applyUpdate.mock.calls[0][3]).toBe(false);
   });
 });

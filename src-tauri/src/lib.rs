@@ -274,6 +274,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::app_version,
             commands::app_build_info,
             commands::changelog_mark_seen,
+            commands::take_update_recovery_report,
             // Own server (Plan 1: vanilla create / list / delete):
             commands::server_create,
             commands::server_list,
@@ -829,6 +830,27 @@ pub fn run() {
                 }
                 Err(e) => crate::diag!("[setup] mod trash purge skipped: instances_dir: {e}"),
             }
+
+            // Undo the content updates an earlier session left unfinished (a
+            // crash or a kill mid-update). The instances are claimed HERE,
+            // synchronously — `setup` completes before the webview's first IPC,
+            // so neither Play nor any writer can act on a half-updated profile;
+            // the undo runs on the async runtime and the frontend reads its
+            // outcome through `take_update_recovery_report`. Not in a recovery
+            // session: its root is a throwaway with nothing of the user's.
+            let recovery_dir = match crate::paths::instances_dir(app.handle()) {
+                Ok(dir) => Some(dir),
+                Err(e) => {
+                    crate::diag!("[setup] update recovery: instances_dir: {e}");
+                    None
+                }
+            };
+            crate::commands::start_update_recovery(
+                app.handle(),
+                recovery_dir,
+                seed_allowed,
+                session_start,
+            );
 
             // Remove `webview/` profiles that an earlier data-root move left in
             // its old root (they were in use by that process). Delayed: the

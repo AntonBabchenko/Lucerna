@@ -31,6 +31,8 @@ export async function runUpdate(
   instanceId: string,
   tempPath: string,
   newVersionId: string,
+  /** Zip every world before anything changes (spec 2026-10-04 §4.5). */
+  backupWorlds: boolean,
   onProgress: UpdateProgressCb,
 ): Promise<UpdateOutcome> {
   let latestPhase: ModpackProgress | null = null;
@@ -52,6 +54,7 @@ export async function runUpdate(
     instanceId,
     tempPath,
     newVersionId,
+    backupWorlds,
     phaseChannel,
     tickChannel,
   );

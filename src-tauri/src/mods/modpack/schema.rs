@@ -208,6 +208,17 @@ pub enum ModpackProgress {
         current: u32,
         total: u32,
     },
+    /// A pack update zipping world `current` of `total` into the instance's
+    /// backups before it changes anything (`modpack_apply_update` with
+    /// `backup_worlds`).
+    BackingUpWorld {
+        current: u32,
+        total: u32,
+        world_name: String,
+    },
+    /// A pack update moving the new files in, after its downloads and world
+    /// backups: the all-or-nothing step, which has no count of its own.
+    ApplyingChanges,
     Enriching,
     /// Terminal phase marker — deliberately **payload-free**.
     ///
@@ -261,8 +272,8 @@ pub struct ModpackUpdateOutcome {
     /// The mods dir is re-classified by an update, so a switch that changes
     /// the loader family reports which bundled jars have stopped loading.
     pub inert_loader_jars: Vec<InertLoaderJar>,
-    /// Per-file rows for the removals + installs the update performed,
-    /// including per-file failures (this path continues past them).
+    /// Per-file rows for the files the update placed. A committed update only:
+    /// one that fails is undone and returns an error instead.
     pub details: Vec<crate::tasks::TaskDetail>,
 }
 

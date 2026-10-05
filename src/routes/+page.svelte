@@ -110,6 +110,7 @@
   import { pushActionToast, pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { showUpdateToast, updateState } from '$lib/update/state.svelte';
   import { checkWhatsNew } from '$lib/changelog/whats-new.svelte';
+  import { announceUpdateRecovery } from '$lib/modpacks/update-recovery.svelte';
   import WhatsNewModal from '$lib/changelog/WhatsNewModal.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { importTitle } from '$lib/modpacks/import-request';
@@ -912,6 +913,9 @@
     // setting — it's fully offline (embedded changelog, no network).
     // Fire-and-forget; never gate core init on it.
     void checkWhatsNew(data.changelog_seen_version ?? null);
+    // What the startup recovery undid (an update a crash interrupted). Once per
+    // launch; the retry path calling this again is a no-op.
+    void announceUpdateRecovery();
 
     // Fire-and-forget: this is a best-effort, error-swallowing check, so it
     // must NOT gate core init. Awaiting it here would stall accounts +

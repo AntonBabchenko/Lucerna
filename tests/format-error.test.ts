@@ -12,6 +12,22 @@ import {
 describe('formatError', () => {
   beforeAll(() => locale.set('en'));
 
+  it('says where a rolled-back pack update stopped, and that nothing changed', () => {
+    const atFile = formatError({
+      kind: 'modpack_update_rolled_back',
+      file_name: 'c.jar',
+      details: 'name taken',
+    });
+    expect(atFile).toContain('c.jar');
+    expect(atFile).toContain('Nothing was changed');
+    const atRecord = formatError({
+      kind: 'modpack_update_rolled_back',
+      file_name: null,
+      details: 'disk full',
+    });
+    expect(atRecord).toContain("could not write the pack's record");
+  });
+
   it('formats network as a clean actionable message — no url/detail leak', () => {
     const msg = formatError({
       kind: 'network',
@@ -378,6 +394,17 @@ describe('formatError', () => {
       mods_unsafe_filename: { kind: 'mods_unsafe_filename', filename: '../../evil.jar' },
       mods_cache_io: { kind: 'mods_cache_io', details: 'd' },
       mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
+      modpack_update_rolled_back: {
+        kind: 'modpack_update_rolled_back',
+        file_name: 'c.jar',
+        details: 'd',
+      },
+      content_update_rollback_incomplete: {
+        kind: 'content_update_rollback_incomplete',
+        folder: 'f-kept',
+        details: 'd',
+      },
+      content_update_unfinished: { kind: 'content_update_unfinished', folder: 'f' },
       modpack_invalid_archive: { kind: 'modpack_invalid_archive', details: 'd' },
       modpack_format_unknown: { kind: 'modpack_format_unknown' },
       import_url_invalid: { kind: 'import_url_invalid', reason: 'unsupported scheme' },

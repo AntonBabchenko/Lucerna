@@ -22,4 +22,46 @@ describe('ModpackUpdateProgress', () => {
     expect(label.textContent).toContain('Sodium');
     expect(getByTestId('imported-detail-update-bar').getAttribute('style')).toContain('width: 25%');
   });
+
+  it('names the world being backed up', () => {
+    const { getByTestId } = render(ModpackUpdateProgress, {
+      props: {
+        progress: { current: 1, total: 2, fileName: 'Survival', phase: 'backing_up_world' },
+      },
+    });
+    const label = getByTestId('imported-detail-updating').textContent ?? '';
+    expect(label).toContain('Backing up world');
+    expect(label).toContain('Survival');
+  });
+
+  it('fills the bar with the worlds already backed up, not the one being zipped', () => {
+    // The only world of a profile used to show a full bar the whole time it was zipped.
+    const only = render(ModpackUpdateProgress, {
+      props: {
+        progress: { current: 1, total: 1, fileName: 'Survival', phase: 'backing_up_world' },
+      },
+    });
+    expect(only.getByTestId('imported-detail-update-bar').getAttribute('style')).toContain(
+      'width: 0%',
+    );
+    only.unmount();
+    const second = render(ModpackUpdateProgress, {
+      props: {
+        progress: { current: 2, total: 2, fileName: 'Creative', phase: 'backing_up_world' },
+      },
+    });
+    expect(second.getByTestId('imported-detail-update-bar').getAttribute('style')).toContain(
+      'width: 50%',
+    );
+  });
+
+  it('says the changes are being applied, with no bar, once the files move in', () => {
+    const { getByTestId, queryByTestId } = render(ModpackUpdateProgress, {
+      props: { progress: { phase: 'applying_changes' } },
+    });
+    const label = getByTestId('imported-detail-updating').textContent ?? '';
+    expect(label).toContain('Applying the changes');
+    expect(label).not.toContain('Backing up');
+    expect(queryByTestId('imported-detail-update-bar')).toBeNull();
+  });
 });

@@ -417,27 +417,26 @@ pub fn set_instance_handled_log_sig(
     mutate(app, id, |i| i.handled_log_sig = sig)
 }
 
-/// Rewrite an instance's modpack-version metadata after an in-place
-/// update, optionally also bumping the Minecraft / loader version.
-pub fn set_instance_pack_update(
-    app: &tauri::AppHandle,
-    id: &str,
+/// The pack-update fields of an instance record, as an in-place pack update
+/// writes them (`mods::modpack::apply`, inside the content transaction). The
+/// rule lives here, beside the record: a Vanilla loader never keeps a loader
+/// version.
+pub fn apply_pack_update_fields(
+    i: &mut InstanceFile,
     mrpack_version: String,
     mc_version: String,
     loader: LoaderKind,
     loader_version: Option<String>,
     mrpack_version_id: String,
-) -> Result<InstanceWithStatus> {
-    mutate(app, id, |i| {
-        i.mrpack_version = Some(mrpack_version);
-        i.mrpack_version_id = Some(mrpack_version_id);
-        i.mc_version = mc_version;
-        i.loader = loader;
-        i.loader_version = match loader {
-            LoaderKind::Vanilla => None,
-            _ => loader_version,
-        };
-    })
+) {
+    i.mrpack_version = Some(mrpack_version);
+    i.mrpack_version_id = Some(mrpack_version_id);
+    i.mc_version = mc_version;
+    i.loader = loader;
+    i.loader_version = match loader {
+        LoaderKind::Vanilla => None,
+        _ => loader_version,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -650,6 +649,34 @@ mod tests {
             created_from_server: None,
             handled_log_sig: None,
         }
+    }
+
+    #[test]
+    fn apply_pack_update_fields_clears_loader_version_for_vanilla() {
+        let mut vanilla = pack_instance();
+        apply_pack_update_fields(
+            &mut vanilla,
+            "2.0".into(),
+            "1.21.1".into(),
+            schema::LoaderKind::Vanilla,
+            Some("0.16.0".into()),
+            "newId".into(),
+        );
+        assert_eq!(vanilla.loader_version, None);
+        assert_eq!(vanilla.mc_version, "1.21.1");
+        assert_eq!(vanilla.mrpack_version.as_deref(), Some("2.0"));
+        assert_eq!(vanilla.mrpack_version_id.as_deref(), Some("newId"));
+
+        let mut fabric = pack_instance();
+        apply_pack_update_fields(
+            &mut fabric,
+            "2.0".into(),
+            "1.21.1".into(),
+            schema::LoaderKind::Fabric,
+            Some("0.16.0".into()),
+            "newId".into(),
+        );
+        assert_eq!(fabric.loader_version.as_deref(), Some("0.16.0"));
     }
 
     fn plain_instance() -> schema::InstanceFile {

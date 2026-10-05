@@ -103,6 +103,16 @@ const ALLOWLIST: &[&str] = &[
     // never opens the file, so a hardlinked jar stays one inode with the store —
     // and moved back the same way. Same temp-then-rename shape as above.
     "mods/trash.rs",
+    // `{instance}/lucerna/txn/<token>/record.json` (and its `json.tmp.<pid>.<seq>`
+    // sibling) plus an empty `closed` marker beside it — the plan and the
+    // closing of a content transaction (an update that can be undone). Writes
+    // no content bytes: the path is built from `installed::registry_dir`, the
+    // instance's `lucerna/` METADATA directory, a sibling of `.minecraft/`. The
+    // content it protects is MOVED with `fs::rename` into `<token>/files/` and
+    // back — a directory-entry change that never opens the file, so a
+    // hardlinked jar stays one inode with the store. Same temp-then-rename
+    // shape as `mods/trash.rs` above.
+    "mods/txn.rs",
     // `{instance}/lucerna/holds.json` — the per-project "don't update" list.
     // Same class, same `lucerna/` directory, same temp-then-rename shape as
     // `mods/hash_cache.rs`; never a path inside `.minecraft/`.
@@ -129,10 +139,11 @@ const ALLOWLIST: &[&str] = &[
     // `src/worlds/` — writes into the `saves/` tree, but never in place onto
     // a live world's own files or a datapack hardlink living inside it.
     //
-    // `File::create` writes only: (1) a freshly timestamped backup `.zip`
-    // under `backups/<world>/` (`zip_dir`, called from
-    // `worlds::backup::backup_world` via `pick_unused_filename`, which
-    // guarantees an unused destination name), and (2) an entry path inside
+    // `File::create` writes only: (1) a freshly timestamped backup
+    // `<stamp>.zip.part` under `backups/<world>/` (`zip_dir`, called from
+    // `worlds::backup::zip_world_into`, which picks an unused `<stamp>.zip`
+    // with `pick_unused_filename`, zips into its `.part` sibling and renames
+    // that into place only once complete), and (2) an entry path inside
     // `extract_zip_capped`'s `dest_dir` — every production caller
     // (`worlds::restore`'s `restore_replace` / `restore_as_copy`,
     // `worlds::import`'s `import_from_zip`, and the unrelated
