@@ -183,6 +183,53 @@ describe('createModpackUpdateFlow', () => {
     expect(applyUpdate).not.toHaveBeenCalled();
   });
 
+  // One update at a time. The confirm surfaces cover the page's own Update
+  // buttons, but focus can still leave a dialog (a press on its scrim drops it
+  // to the page), and a second prepare under an open confirm used to start
+  // another fetch: the next confirm could then pair one version's archive with
+  // the other's id.
+  it('prepare() refuses while another update waits for its confirm', async () => {
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    const pending = flow.diff;
+    await flow.prepare(inst, { id: 'v3', version_number: '1.4.0' } as ModpackVersionEntry);
+    expect(fetchToTemp).toHaveBeenCalledTimes(1);
+    expect(flow.phase).toBe('confirming');
+    expect(flow.diff).toBe(pending);
+    expect(await flow.confirm(inst)).toBe(true);
+    expect(applyUpdate.mock.calls[0][2]).toBe('v2');
+  });
+
+  it('prepare() refuses while another is being fetched', async () => {
+    let landFetch!: (v: unknown) => void;
+    fetchToTemp.mockReturnValue(
+      new Promise((r) => {
+        landFetch = r;
+      }),
+    );
+    const flow = createModpackUpdateFlow();
+    const first = flow.prepare(inst, entry);
+    const second = flow.prepare(inst, { id: 'v3', version_number: '1.4.0' } as ModpackVersionEntry);
+    const fetches = fetchToTemp.mock.calls.length;
+    landFetch({ status: 'ok', data: '/tmp/p.mrpack' });
+    await Promise.all([first, second]);
+    expect(fetches).toBe(1);
+    expect(await flow.confirm(inst)).toBe(true);
+    expect(applyUpdate.mock.calls[0][2]).toBe('v2');
+  });
+
+  // `typedError` rethrows a bridge failure instead of resolving to an error.
+  // A prepare that let it escape stayed `preparing` (running) for good, and a
+  // surface that stays open while running could never be closed.
+  it('a bridge failure while preparing ends the prepare with its message', async () => {
+    fetchToTemp.mockRejectedValue(new Error('bridge down'));
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    expect(flow.phase).toBe('idle');
+    expect(flow.running).toBe(false);
+    expect(flow.error).toBe('bridge down');
+  });
+
   it('confirm() applies, maps installing_file into progress mid-flight, returns true', async () => {
     let release: (v: unknown) => void = () => {};
     let phaseCh: { onmessage: (m: unknown) => void } | null = null;

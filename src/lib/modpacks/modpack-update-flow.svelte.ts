@@ -56,29 +56,42 @@ export function createModpackUpdateFlow() {
   // Step 1: fetch the new archive + compute the diff → open the confirm dialog.
   async function prepare(inst: InstanceWithStatus, entry: ModpackVersionEntry): Promise<void> {
     if (!inst.mrpack_project_id) return;
+    // One update at a time: a prepare while another is fetched, waits for its
+    // confirm or applies would pair one version's archive with another's id.
+    // The confirm surfaces cover the page's Update buttons, but focus can
+    // still leave a dialog, so the flow does not rely on that.
+    if (phase !== 'idle') return;
     error = null;
     phase = 'preparing';
     versionId = entry.id;
-    const fetched = await commands.modpackFetchToTemp(
-      inst.mrpack_source ?? 'modrinth',
-      inst.mrpack_project_id,
-      entry.id,
-    );
-    if (fetched.status === 'error') {
-      error = formatError(fetched.error);
+    try {
+      const fetched = await commands.modpackFetchToTemp(
+        inst.mrpack_source ?? 'modrinth',
+        inst.mrpack_project_id,
+        entry.id,
+      );
+      if (fetched.status === 'error') {
+        error = formatError(fetched.error);
+        phase = 'idle';
+        return;
+      }
+      tempPath = fetched.data;
+      const d = await commands.modpackComputeUpdate(inst.id, tempPath);
+      if (d.status === 'error') {
+        error = formatError(d.error);
+        phase = 'idle';
+        return;
+      }
+      worldCount = await countWorlds(inst.id);
+      diff = d.data;
+      phase = 'confirming';
+    } catch (e) {
+      // `typedError` rethrows a bridge failure instead of resolving to an
+      // error. Left to escape, it stranded the flow in `preparing` (running),
+      // and a surface that stays open while running could never be closed.
+      error = e instanceof Error ? e.message : String(e);
       phase = 'idle';
-      return;
     }
-    tempPath = fetched.data;
-    const d = await commands.modpackComputeUpdate(inst.id, tempPath);
-    if (d.status === 'error') {
-      error = formatError(d.error);
-      phase = 'idle';
-      return;
-    }
-    worldCount = await countWorlds(inst.id);
-    diff = d.data;
-    phase = 'confirming';
   }
 
   // Step 2: apply. Returns true on success so the caller can refresh.
@@ -136,7 +149,7 @@ export function createModpackUpdateFlow() {
     return true;
   }
 
-  // Drops the pending confirmation. Work in flight is not called back from
+  // Drops the pending confirmation. Work in flight cannot be aborted from
   // here: a cancel mid-prepare would null the target id under a fetch that
   // still lands, and one mid-apply would show idle over a running update.
   function cancel(): void {

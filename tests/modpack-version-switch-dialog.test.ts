@@ -269,9 +269,10 @@ describe('ModpackVersionSwitchDialog', () => {
     const p = await openOnReview('v1');
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(p.onClose).toHaveBeenCalledTimes(1);
-    // Left the way Back leaves, through the flow: the fetched version is
-    // dropped, not kept behind a closed dialog, so the dialog's own state is
-    // back on the version list.
+    // Left the way Back leaves, through the flow. The drawer unmounts the
+    // dialog on close, so no user sees the list come back; it is how this test
+    // sees that the exit dropped the fetched version in the flow, where any
+    // cleanup of it belongs, rather than only hiding it.
     await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
     expect(screen.queryByTestId('update-diff-list')).toBeNull();
   });
@@ -332,6 +333,20 @@ describe('ModpackVersionSwitchDialog', () => {
     await waitFor(() => expect(p.onSwitched).toHaveBeenCalled());
     expect(progressShown).toBe(true);
     expect(closes).toBe(0);
+  });
+
+  // A bridge failure used to escape the prepare and leave it running for
+  // good: the dialog, which stays open while running, could not be closed.
+  it('says why and can be closed when preparing fails at the bridge', async () => {
+    fetchToTemp.mockRejectedValue(new Error('bridge down'));
+    const p = props();
+    render(ModpackVersionSwitchDialog, p);
+    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('version-row-v1'));
+    const error = await screen.findByTestId('switch-error');
+    expect(error.textContent).toContain('bridge down');
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(p.onClose).toHaveBeenCalledTimes(1);
   });
 
   it('closes on Escape from the version list', async () => {
