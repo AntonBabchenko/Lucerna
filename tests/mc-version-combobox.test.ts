@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
+import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // mcVersions rune is read by the combobox; a couple of releases is enough.
@@ -12,6 +14,7 @@ vi.mock('$lib/settings/state.svelte', () => ({
 }));
 
 import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
+import McComboboxInLabel from './fixtures/McComboboxInLabel.svelte';
 import McComboboxInReflowingRow from './fixtures/McComboboxInReflowingRow.svelte';
 
 describe('McVersionCombobox', () => {
@@ -201,5 +204,149 @@ describe('McVersionCombobox', () => {
       await fireEvent.input(input, { target: { value: '1' } });
       await vi.waitFor(() => expect(list.style.left).toBe('490px'));
     });
+  });
+
+  // Found in the review of #475: the options were plain buttons, so Tab from the field walked into
+  // the list ("Any version", then every release), and the list stayed open once the focus had left —
+  // a fixed list over whatever lies under the field (in the launcher import, the version refusal).
+  // The field keeps the focus now: the options are out of the Tab order, and the list lives while
+  // the focus is in the field. The fixture puts the field in a <label> between two buttons, as its
+  // hosts do.
+  describe('focus stays in the field', () => {
+    async function openInLabel() {
+      const user = userEvent.setup();
+      render(McComboboxInLabel);
+      const input = screen.getByTestId('mc') as HTMLInputElement;
+      await user.click(input);
+      expect(screen.getByRole('listbox')).toBeTruthy();
+      return { user, input };
+    }
+    const next = () => screen.getByRole('button', { name: 'Next' });
+
+    it('Tab leaves for the next control and closes the list', async () => {
+      const { user } = await openInLabel();
+      await user.tab();
+      expect(document.activeElement).toBe(next());
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('Shift+Tab leaves for the previous control and closes the list', async () => {
+      const { user } = await openInLabel();
+      await user.tab({ shift: true });
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Previous' }));
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('closes the list when the focus goes nowhere', async () => {
+      const { input } = await openInLabel();
+      // The window lost the focus, or a press landed on nothing focusable.
+      input.blur();
+      await tick();
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('keeps the list while the focus moves onto one of its options', async () => {
+      const { input } = await openInLabel();
+      const option = screen.getByRole('option', { name: '1.21' });
+      await fireEvent.focusOut(input, { relatedTarget: option });
+      expect(screen.getByRole('listbox')).toBeTruthy();
+    });
+
+    it('keeps the focus in the field through a press anywhere in the list', async () => {
+      await openInLabel();
+      // fireEvent returns false when a handler canceled the event's default action.
+      expect(await fireEvent.mouseDown(screen.getByRole('option', { name: '1.21' }))).toBe(false);
+      expect(await fireEvent.mouseDown(screen.getByRole('listbox'))).toBe(false);
+    });
+
+    // WebKit moves the focus to nothing on a press on a button (Chromium moves it to the button), so
+    // a press left uncanceled would blur the field, and a list that closes when the focus leaves would
+    // be gone before the click. This presses as WebKit does.
+    it('picks with the pointer where a press takes the focus away, as in WebKit', async () => {
+      const { input } = await openInLabel();
+      const option = screen.getByRole('option', { name: '1.21' });
+      if (await fireEvent.mouseDown(option)) {
+        input.blur();
+        await tick();
+      }
+      if (option.isConnected) await fireEvent.click(option);
+      expect(input.value).toBe('1.21');
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    // A label hands a click on its content to its control. For a button it must not (HTML), but
+    // WebKit before 318827@main (2026-08) did when the button left the document during the click —
+    // as an option does, the list closing under it — and would focus the field, which opens the
+    // list again. A canceled click activates no label, so the cancel is the contract. (happy-dom
+    // cannot show the label's side: its label decides during its own turn of the bubbling, before
+    // the cancel arrives from Svelte's listener at the root.)
+    it('cancels the click of a pointer pick, so no label hands it to the field', async () => {
+      const { input } = await openInLabel();
+      // fireEvent returns false when a handler canceled the event's default action.
+      expect(await fireEvent.click(screen.getByRole('option', { name: '1.21' }))).toBe(false);
+      expect(input.value).toBe('1.21');
+      // A pointer pick gives the focus up: the next click on the field opens the list again.
+      expect(document.activeElement).not.toBe(input);
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('keeps the focus in the field when Enter picks', async () => {
+      const { user, input } = await openInLabel();
+      await user.keyboard('{ArrowDown}{Enter}');
+      expect(input.value).toBe('1.20.1');
+      expect(document.activeElement).toBe(input);
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    // After Enter (or Escape) the field keeps the focus with its list closed, so no focus event
+    // opens it: a click on the field does.
+    it('opens the list on a click while the field already has the focus', async () => {
+      const { user, input } = await openInLabel();
+      await user.keyboard('{ArrowDown}{Enter}');
+      expect(screen.queryByRole('listbox')).toBeNull();
+      await user.click(input);
+      expect(screen.getByRole('listbox')).toBeTruthy();
+    });
+
+    it('takes the highlighted version along when Tab moves on', async () => {
+      const { user, input } = await openInLabel();
+      await user.keyboard('{ArrowDown}{ArrowDown}');
+      await user.tab();
+      expect(input.value).toBe('1.21');
+      expect(document.activeElement).toBe(next());
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('leaves the typed text alone when Tab moves on with nothing highlighted', async () => {
+      const { user, input } = await openInLabel();
+      await user.keyboard('1.2');
+      await user.tab();
+      expect(input.value).toBe('1.2');
+      expect(document.activeElement).toBe(next());
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+  });
+
+  // The list shows about eight of some eighty releases, and with the options out of the Tab order
+  // the arrows are the keyboard's only way through it: the highlighted one is scrolled into view, as
+  // in Select.
+  it('keeps the highlighted version in view while arrowing', async () => {
+    const scrolled: string[] = [];
+    const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (
+      this: Element,
+    ) {
+      scrolled.push(this.textContent?.trim() ?? '');
+    });
+    try {
+      render(McVersionCombobox, { props: { dataTestid: 'mc', value: '' } });
+      const input = screen.getByTestId('mc');
+      await fireEvent.focus(input);
+      await fireEvent.keyDown(input, { key: 'ArrowDown' });
+      await fireEvent.keyDown(input, { key: 'ArrowDown' });
+      expect(scrolled.at(-1)).toBe('1.21');
+      expect(spy).toHaveBeenLastCalledWith({ block: 'nearest' });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
