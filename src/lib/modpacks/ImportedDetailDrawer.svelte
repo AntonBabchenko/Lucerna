@@ -485,7 +485,7 @@
       {shownUpdateError}
     </div>
   {/if}
-  {#if updateFlow.busy}
+  {#if updateFlow.running}
     <div class="px-4 pb-3">
       <ModpackUpdateProgress progress={updateFlow.progress} />
     </div>

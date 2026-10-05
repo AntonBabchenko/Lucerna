@@ -50,6 +50,40 @@ function okData(data: ModpackInstanceUpdate[]) {
   return { status: 'ok' as const, data };
 }
 
+const V64 = {
+  id: 'v64',
+  name: 'ATM9 0.2.64',
+  version_number: '0.2.64',
+  game_versions: ['1.20.1'],
+  loaders: ['forge'],
+  date_published: '',
+};
+
+const DIFF = {
+  added: [],
+  removed: [],
+  updated: [],
+  new_version_number: '0.2.64',
+  version_bump: null,
+};
+
+/** The shared store says 0.2.64 is out, so the card offers its Update button. */
+async function sweepUpdateAvailable() {
+  vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
+    okData([{ instance_id: 'i1', status: { kind: 'update_available', entry: V64 } }]),
+  );
+  await modpackUpdates.sweep(['i1'], { force: true });
+}
+
+/** A command answer the test releases by hand. */
+function deferred<T>() {
+  let resolve: (v: T) => void = () => {};
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 afterEach(() => {
   vi.clearAllMocks();
   modpackUpdates.reset();
@@ -343,5 +377,48 @@ describe('ModpackCard', () => {
     await fireEvent.click(confirmBtn);
     const err = await findByTestId('modpack-update-apply-error');
     expect(err.textContent).toContain('formatted:io');
+  });
+
+  // Nothing runs while the confirm dialog waits for a yes. The card used to
+  // show its updating block from the first click on, so under the open dialog
+  // it said an update was running.
+  it('does not claim an update is running while its confirm dialog waits', async () => {
+    vi.mocked(commands.modpackFetchToTemp).mockResolvedValue({
+      status: 'ok',
+      data: '/tmp/p.mrpack',
+    });
+    vi.mocked(commands.modpackComputeUpdate).mockResolvedValue({ status: 'ok', data: DIFF });
+    await sweepUpdateAvailable();
+    const { getByTestId, findByTestId, queryByTestId } = render(ModpackCard, {
+      props: { instance: modrinthInst, onOpenPack: () => {} },
+    });
+    await fireEvent.click(getByTestId('modpack-update-apply'));
+    await findByTestId('update-confirm');
+    expect(queryByTestId('overview-modpack-updating')).toBeNull();
+  });
+
+  it('shows the update as running while the pack is fetched and while it applies', async () => {
+    const fetched = deferred<Awaited<ReturnType<typeof commands.modpackFetchToTemp>>>();
+    const applied = deferred<Awaited<ReturnType<typeof commands.modpackApplyUpdate>>>();
+    vi.mocked(commands.modpackFetchToTemp).mockReturnValueOnce(fetched.promise);
+    vi.mocked(commands.modpackComputeUpdate).mockResolvedValue({ status: 'ok', data: DIFF });
+    vi.mocked(commands.modpackApplyUpdate).mockReturnValueOnce(applied.promise);
+    await sweepUpdateAvailable();
+    const { getByTestId, findByTestId, queryByTestId } = render(ModpackCard, {
+      props: { instance: modrinthInst, onOpenPack: () => {} },
+    });
+    await fireEvent.click(getByTestId('modpack-update-apply'));
+    const whileFetching = queryByTestId('overview-modpack-updating') !== null;
+    fetched.resolve({ status: 'ok', data: '/tmp/p.mrpack' });
+    await fireEvent.click(await findByTestId('update-confirm'));
+    const whileApplying = queryByTestId('overview-modpack-updating') !== null;
+    // Released before anything is asserted, so a failure here never leaves the
+    // serial task lane blocked.
+    applied.resolve({
+      status: 'ok',
+      data: { instance: modrinthInst, inert_loader_jars: [], details: [] },
+    });
+    await waitFor(() => expect(queryByTestId('overview-modpack-updating')).toBeNull());
+    expect({ whileFetching, whileApplying }).toEqual({ whileFetching: true, whileApplying: true });
   });
 });

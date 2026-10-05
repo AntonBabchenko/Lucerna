@@ -104,7 +104,7 @@
     <p class="text-xs text-muted">{instance.mrpack_summary}</p>
   {/if}
 
-  {#if updateFlow.busy}
+  {#if updateFlow.running}
     <div data-testid="overview-modpack-updating">
       <ModpackUpdateProgress progress={updateFlow.progress} />
     </div>

@@ -96,6 +96,23 @@ async function openAndPick(id: string) {
   await fireEvent.click(screen.getByTestId(`version-row-${id}`));
 }
 
+/** Rendered, a version picked, and the review step up. */
+async function openOnReview(id: string) {
+  const p = props();
+  render(ModpackVersionSwitchDialog, p);
+  await waitFor(() => expect(screen.getByTestId(`version-row-${id}`)).toBeTruthy());
+  await fireEvent.click(screen.getByTestId(`version-row-${id}`));
+  await waitFor(() => expect(screen.getByTestId('switch-confirm')).toBeTruthy());
+  return p;
+}
+
+/** A press AND a release on the shared Modal's scrim (the dialog's parent). */
+async function clickBackdrop() {
+  const scrim = screen.getAllByRole('dialog')[0].parentElement as HTMLElement;
+  await fireEvent.mouseDown(scrim);
+  await fireEvent.mouseUp(scrim);
+}
+
 describe('ModpackVersionSwitchDialog', () => {
   it('loads and lists the pack versions', async () => {
     render(ModpackVersionSwitchDialog, props());
@@ -237,6 +254,96 @@ describe('ModpackVersionSwitchDialog', () => {
     expect(screen.queryByTestId('version-row-v1')).toBeNull();
     release({ status: 'ok', data: '/tmp/pack.mrpack' });
     await waitFor(() => expect(screen.getByTestId('update-diff-list')).toBeTruthy());
+  });
+
+  // Escape and the backdrop dismiss a dialog. On the review step nothing runs —
+  // the flow only holds the fetched archive — so they leave it exactly like
+  // Back + close. The review step used to swallow both, leaving Back as the
+  // only way out.
+  it('closes on Escape from the review step, dropping the picked version', async () => {
+    const p = await openOnReview('v1');
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(p.onClose).toHaveBeenCalledTimes(1);
+    // Left the way Back leaves, through the flow: the fetched version is
+    // dropped, not kept behind a closed dialog, so the dialog's own state is
+    // back on the version list.
+    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+    expect(screen.queryByTestId('update-diff-list')).toBeNull();
+  });
+
+  it('closes on a backdrop click from the review step', async () => {
+    const p = await openOnReview('v1');
+    await clickBackdrop();
+    expect(p.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape over the changelog closes the changelog first, then the dialog', async () => {
+    const p = await openOnReview('v1');
+    await fireEvent.click(screen.getByTestId('switch-changelog-btn'));
+    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(2));
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
+    expect(p.onClose).not.toHaveBeenCalled();
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(p.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays open while the picked version is being prepared', async () => {
+    let land!: (v: unknown) => void;
+    fetchToTemp.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve;
+      }),
+    );
+    const p = props();
+    render(ModpackVersionSwitchDialog, p);
+    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('version-row-v1'));
+    await waitFor(() => expect(screen.queryByTestId('version-row-v1')).toBeNull());
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await clickBackdrop();
+    const closes = p.onClose.mock.calls.length;
+    land({ status: 'ok', data: '/tmp/pack.mrpack' });
+    expect(closes).toBe(0);
+    await waitFor(() => expect(screen.getByTestId('update-diff-list')).toBeTruthy());
+  });
+
+  it('stays open while the switch is being applied', async () => {
+    let land!: (v: unknown) => void;
+    applyUpdate.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve;
+      }),
+    );
+    const p = await openOnReview('v1');
+    await fireEvent.click(screen.getByTestId('switch-confirm'));
+    const progressShown = screen.queryByTestId('imported-detail-updating') !== null;
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await clickBackdrop();
+    const closes = p.onClose.mock.calls.length;
+    // Released before anything is asserted, so a failure here never leaves the
+    // serial task lane blocked for the tests below.
+    land({ status: 'ok', data: { instance: inst, inert_loader_jars: [], details: [] } });
+    await waitFor(() => expect(p.onSwitched).toHaveBeenCalled());
+    expect(progressShown).toBe(true);
+    expect(closes).toBe(0);
+  });
+
+  it('closes on Escape from the version list', async () => {
+    const p = props();
+    render(ModpackVersionSwitchDialog, p);
+    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(p.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes from the version list's Cancel", async () => {
+    locale.set('en');
+    const p = props();
+    render(ModpackVersionSwitchDialog, p);
+    await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(p.onClose).toHaveBeenCalledTimes(1);
   });
 
   it('goes back to the version list from review', async () => {

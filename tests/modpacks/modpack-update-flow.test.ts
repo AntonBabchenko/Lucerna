@@ -73,6 +73,113 @@ describe('createModpackUpdateFlow', () => {
     expect(flow.diff).toBeNull();
   });
 
+  // `running` is work in flight. The confirm step waits on the user, so a
+  // surface may be dismissed there; while the archive is fetched or the update
+  // applied it must stay put. Answers are held until the test releases them,
+  // and states are read first and asserted after: a failure never leaves a
+  // held answer, or the serial task lane, blocking the tests below.
+  it('is running while it fetches or applies, not while it waits for a confirm', async () => {
+    let landFetch!: (v: unknown) => void;
+    fetchToTemp.mockReturnValue(
+      new Promise((r) => {
+        landFetch = r;
+      }),
+    );
+    let landApply!: (v: unknown) => void;
+    applyUpdate.mockImplementation(
+      () =>
+        new Promise((r) => {
+          landApply = r;
+        }),
+    );
+    const flow = createModpackUpdateFlow();
+    const seen: Array<[string, boolean]> = [];
+    const look = () => seen.push([flow.phase, flow.running]);
+
+    look();
+    const prepared = flow.prepare(inst, entry);
+    look();
+    landFetch({ status: 'ok', data: '/tmp/p.mrpack' });
+    await prepared;
+    look();
+    const applied = flow.confirm(inst);
+    await flush();
+    look();
+    landApply({
+      status: 'ok',
+      data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] },
+    });
+    expect(await applied).toBe(true);
+    look();
+
+    expect(seen).toEqual([
+      ['idle', false],
+      ['preparing', true],
+      ['confirming', false],
+      ['applying', true],
+      ['idle', false],
+    ]);
+  });
+
+  // A cancel mid-prepare used to null the target id under a fetch that still
+  // landed: the confirm step then held an archive with no version to record,
+  // and confirming did nothing at all.
+  it('cancel() leaves a prepare in flight alone, and its confirm still applies', async () => {
+    let landFetch!: (v: unknown) => void;
+    fetchToTemp.mockReturnValue(
+      new Promise((r) => {
+        landFetch = r;
+      }),
+    );
+    const flow = createModpackUpdateFlow();
+    const prepared = flow.prepare(inst, entry);
+    flow.cancel();
+    const afterCancel = flow.phase;
+    landFetch({ status: 'ok', data: '/tmp/p.mrpack' });
+    await prepared;
+    expect(afterCancel).toBe('preparing');
+    expect(await flow.confirm(inst)).toBe(true);
+    // (instanceId, mrpackPath, newVersionId, …)
+    expect(applyUpdate.mock.calls[0][1]).toBe('/tmp/p.mrpack');
+    expect(applyUpdate.mock.calls[0][2]).toBe('v2');
+  });
+
+  // A cancel mid-apply used to show idle over an update that was still running.
+  it('cancel() leaves an update being applied alone', async () => {
+    let landApply!: (v: unknown) => void;
+    applyUpdate.mockImplementation(
+      () =>
+        new Promise((r) => {
+          landApply = r;
+        }),
+    );
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    const applied = flow.confirm(inst);
+    await flush();
+    flow.cancel();
+    const afterCancel = { phase: flow.phase, running: flow.running };
+    landApply({
+      status: 'ok',
+      data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] },
+    });
+    expect(await applied).toBe(true);
+    expect(afterCancel).toEqual({ phase: 'applying', running: true });
+    expect(flow.phase).toBe('idle');
+  });
+
+  // What a dismissed confirm relies on: the pending update is gone, so nothing
+  // can apply it later.
+  it('cancel() from the confirm step drops the pending update', async () => {
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    flow.cancel();
+    expect(flow.phase).toBe('idle');
+    expect(flow.diff).toBeNull();
+    expect(await flow.confirm(inst)).toBe(false);
+    expect(applyUpdate).not.toHaveBeenCalled();
+  });
+
   it('confirm() applies, maps installing_file into progress mid-flight, returns true', async () => {
     let release: (v: unknown) => void = () => {};
     let phaseCh: { onmessage: (m: unknown) => void } | null = null;

@@ -26,6 +26,12 @@ export function createModpackUpdateFlow() {
   let tempPath: string | null = null;
   let versionId: string | null = null;
 
+  // Work in flight: the new archive is being fetched and diffed, or applied.
+  // `confirming` waits on the user, not on work.
+  function isRunning(): boolean {
+    return phase === 'preparing' || phase === 'applying';
+  }
+
   // Step 1: fetch the new archive + compute the diff → open the confirm dialog.
   async function prepare(inst: InstanceWithStatus, entry: ModpackVersionEntry): Promise<void> {
     if (!inst.mrpack_project_id) return;
@@ -84,7 +90,11 @@ export function createModpackUpdateFlow() {
     return true;
   }
 
+  // Drops the pending confirmation. Work in flight is not called back from
+  // here: a cancel mid-prepare would null the target id under a fetch that
+  // still lands, and one mid-apply would show idle over a running update.
   function cancel(): void {
+    if (isRunning()) return;
     diff = null;
     progress = null;
     error = null;
@@ -106,8 +116,12 @@ export function createModpackUpdateFlow() {
     get error() {
       return error;
     },
-    get busy() {
-      return phase !== 'idle';
+    /** Work is in flight: the new version is being fetched and diffed, or
+     *  applied. The confirm step waits on the user and is not running — a
+     *  surface may be dismissed from it (through `cancel()`), never while this
+     *  is true. */
+    get running() {
+      return isRunning();
     },
     prepare,
     confirm,
