@@ -1336,7 +1336,8 @@
         "phaseExtractingOverrides": "Извлечение overrides {current}/{total}…",
         "phaseEnriching": "Определение модов из сборки…",
         "phaseDone": "Готово.",
-        "phaseBackingUpWorlds": "Резервные копии миров: {current} из {total}"
+        "phaseBackingUpWorlds": "Резервное копирование миров…",
+        "phaseApplyingChanges": "Применение изменений…"
       }
     },
     "imported": {
@@ -1411,7 +1412,8 @@
         "deleteConfirmTitle": "Удалить сборку и её профиль?",
         "deleteConfirmBody": "Миры, моды, конфиги и скриншоты этого профиля будут безвозвратно удалены. Отменить это невозможно.",
         "deleteConfirmBtn": "Удалить",
-        "updateProgressBackingUp": "Резервная копия мира {current} из {total}: {worldName}"
+        "updateProgressBackingUp": "Резервная копия мира {current} из {total}: {worldName}",
+        "updateProgressApplying": "Применение изменений…"
       }
     },
     "export": {

@@ -6280,7 +6280,12 @@ export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_insta
  *  backups before it changes anything (`modpack_apply_update` with
  *  `backup_worlds`).
  */
-{ phase: "backing_up_world"; current: number; total: number; world_name: string } | { phase: "enriching" } | 
+{ phase: "backing_up_world"; current: number; total: number; world_name: string } | 
+/**
+ *  A pack update moving the new files in, after its downloads and world
+ *  backups: the all-or-nothing step, which has no count of its own.
+ */
+{ phase: "applying_changes" } | { phase: "enriching" } | 
 /**
  *  Terminal phase marker — deliberately **payload-free**.
  * 

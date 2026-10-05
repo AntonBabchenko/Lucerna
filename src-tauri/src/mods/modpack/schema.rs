@@ -216,6 +216,9 @@ pub enum ModpackProgress {
         total: u32,
         world_name: String,
     },
+    /// A pack update moving the new files in, after its downloads and world
+    /// backups: the all-or-nothing step, which has no count of its own.
+    ApplyingChanges,
     Enriching,
     /// Terminal phase marker — deliberately **payload-free**.
     ///

@@ -737,6 +737,8 @@ pub async fn modpack_apply_update(
     // ---- Phase 2: all or nothing (cache is warm). On `Err` every step was
     // undone and nothing was written; the views that read the instance
     // mid-swap are told to read it again. ----
+    // Said once, so the last download or backup line does not stand for it.
+    let _ = on_progress.send(ModpackProgress::ApplyingChanges);
     let applied = match crate::mods::modpack::apply::apply_update_txn(
         crate::mods::modpack::apply::PackApply {
             data_dir: &dd,

@@ -203,6 +203,9 @@ describe('createModpackUpdateFlow', () => {
       fileName: 'Survival',
       phase: 'backing_up_world',
     });
+    // The backups are done and the files move in: the world line must not stay up.
+    phaseCh!.onmessage({ phase: 'applying_changes' });
+    expect(flow.progress).toEqual({ phase: 'applying_changes' });
     release({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
     expect(await p).toBe(true);
   });

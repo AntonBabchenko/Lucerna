@@ -1336,7 +1336,8 @@
         "phaseExtractingOverrides": "Extracting overrides {current}/{total}…",
         "phaseEnriching": "Identifying bundled mods…",
         "phaseDone": "Done.",
-        "phaseBackingUpWorlds": "Backing up worlds {current} of {total}"
+        "phaseBackingUpWorlds": "Backing up worlds…",
+        "phaseApplyingChanges": "Applying the changes…"
       }
     },
     "imported": {
@@ -1411,7 +1412,8 @@
         "deleteConfirmTitle": "Delete pack and its instance?",
         "deleteConfirmBody": "Worlds, mods, configs, screenshots for this instance will be permanently lost. This cannot be undone.",
         "deleteConfirmBtn": "Delete",
-        "updateProgressBackingUp": "Backing up world {current} of {total}: {worldName}"
+        "updateProgressBackingUp": "Backing up world {current} of {total}: {worldName}",
+        "updateProgressApplying": "Applying the changes…"
       }
     },
     "export": {

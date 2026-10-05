@@ -60,6 +60,26 @@ describe('pack-update adapter', () => {
 
     await applyModpackUpdate('Pack', 'inst-1', '/tmp/new.mrpack', 'v2', true);
 
-    expect(progressDuringBackup).toEqual({ current: 1, total: 2, unit: 'files' });
+    // World 1 of 2 is being zipped: none is done yet.
+    expect(progressDuringBackup).toEqual({ current: 0, total: 2, unit: 'files' });
+  });
+
+  it('drops the last download tick once the changes are being applied', async () => {
+    let during: { phase: unknown; progress: unknown } | null = null;
+    vi.mocked(runUpdate).mockImplementation(
+      async (_instanceId, _tempPath, _newVersionId, _backupWorlds, onProgress) => {
+        onProgress(
+          { phase: 'applying_changes' } as never,
+          // Still the latest byte tick: the downloads ended at 100%.
+          { phase: 'downloading', current: 10, total: 10 } as never,
+        );
+        during = { phase: taskList()[0].phase, progress: taskList()[0].progress };
+        return { status: 'ok', inst: { id: 'inst-1', name: 'Pack' } } as never;
+      },
+    );
+
+    await applyModpackUpdate('Pack', 'inst-1', '/tmp/new.mrpack', 'v2', false);
+
+    expect(during).toEqual({ phase: 'applying_changes', progress: null });
   });
 });

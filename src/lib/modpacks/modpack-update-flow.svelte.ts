@@ -15,13 +15,13 @@ import { formatError } from '$lib/ipc/format-error';
 import { applyModpackUpdate } from '$lib/tasks/adapters/pack-update';
 
 export type UpdateFlowPhase = 'idle' | 'preparing' | 'confirming' | 'applying';
-/** `fileName` is the world's folder name while worlds are backed up. */
-export type UpdateFileProgress = {
-  current: number;
-  total: number;
-  fileName: string;
-  phase?: 'installing_file' | 'backing_up_world';
-};
+/** What an in-flight update is doing: fetching file `current` of `total`, zipping world `current`
+ *  of `total` (`fileName` is then the world's folder name), or moving the new files in, which has
+ *  no count of its own. */
+export type UpdateFileProgress =
+  | { phase?: 'installing_file'; current: number; total: number; fileName: string }
+  | { phase: 'backing_up_world'; current: number; total: number; fileName: string }
+  | { phase: 'applying_changes' };
 export type ConfirmOptions = { backupWorlds: boolean };
 
 export function createModpackUpdateFlow() {
@@ -111,6 +111,8 @@ export function createModpackUpdateFlow() {
             fileName: p.world_name,
             phase: 'backing_up_world',
           };
+        } else if (p?.phase === 'applying_changes') {
+          progress = { phase: 'applying_changes' };
         }
       },
     );

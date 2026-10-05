@@ -45,13 +45,19 @@ function translateProgress(
   bytes: ProgressTick | null,
 ): { phase: string | null; progress: TaskProgress | null } {
   const taskPhase = phase?.phase ?? null;
-  // World backups come after the downloads: the last byte tick of phase 1 is
-  // still the latest one then, and must not stand in for the world count.
+  // World backups and applying the changes come after the downloads: the last
+  // byte tick of phase 1 is still the latest one then, and must not stand in
+  // for their progress.
   if (phase !== null && phase.phase === 'backing_up_world') {
+    // `current` names the world being zipped; the progress counts the worlds
+    // already done, or a profile's only world reads 100% while it is zipped.
     return {
       phase: taskPhase,
-      progress: { current: phase.current, total: phase.total, unit: 'files' },
+      progress: { current: phase.current - 1, total: phase.total, unit: 'files' },
     };
+  }
+  if (phase !== null && phase.phase === 'applying_changes') {
+    return { phase: taskPhase, progress: null };
   }
   if (bytes !== null && bytes.current !== null && bytes.total !== null && bytes.total > 0) {
     return {
