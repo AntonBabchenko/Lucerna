@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/svelte';
+import { createEvent, fireEvent, render } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import Modal from '../../src/lib/ui/Modal.svelte';
@@ -89,6 +89,43 @@ describe('Modal', () => {
     await fireEvent.mouseDown(backdrop);
     await fireEvent.mouseUp(dialog);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a press on the backdrop does not move the focus; a press on the panel does', async () => {
+    // Left to the browser, a press on the backdrop (not focusable) would drop the
+    // focus to <body>, and Shift+Tab would walk the page behind the open dialog.
+    const { getByRole } = render(Modal, {
+      props: { onClose: vi.fn(), ariaLabel: 'x', children: body() },
+    });
+    const dialog = getByRole('dialog');
+    const backdrop = dialog.parentElement as HTMLElement;
+
+    const onBackdrop = createEvent.mouseDown(backdrop);
+    await fireEvent(backdrop, onBackdrop);
+    expect(onBackdrop.defaultPrevented).toBe(true);
+
+    const onPanel = createEvent.mouseDown(dialog);
+    await fireEvent(dialog, onPanel);
+    expect(onPanel.defaultPrevented).toBe(false);
+  });
+
+  it('a backdrop click leaves the focused control before it closes', async () => {
+    // Since the press keeps the focus, the dismissal blurs it: a field that saves
+    // when it is left (Manage's name) saves, then the dialog closes.
+    const order: string[] = [];
+    const { getByRole } = render(Modal, {
+      props: { onClose: () => order.push('close'), ariaLabel: 'x', children: body() },
+    });
+    const dialog = getByRole('dialog');
+    const backdrop = dialog.parentElement as HTMLElement;
+    const ok = getByRole('button', { name: 'OK' });
+    ok.focus();
+    ok.addEventListener('blur', () => order.push('blur'));
+
+    await fireEvent.mouseDown(backdrop);
+    expect(document.activeElement).toBe(ok);
+    await fireEvent.mouseUp(backdrop);
+    expect(order).toEqual(['blur', 'close']);
   });
 
   it('backdrop press+release is ignored when closeOnBackdrop is false', async () => {
