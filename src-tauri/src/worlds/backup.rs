@@ -17,21 +17,46 @@ pub async fn backup_world(
 ) -> Result<Backup> {
     let world_path = world_dir(app, instance_id, world_folder_name)?;
     let backups_dir = backups_root(app, instance_id)?.join(world_folder_name);
-    std::fs::create_dir_all(&backups_dir)
+    zip_world_into(&world_path, &backups_dir, world_folder_name).await
+}
+
+/// Zip `world_path` into a fresh timestamped backup under `backups_dir`.
+///
+/// Written to `<name>.zip.part` and renamed into place only once complete: a
+/// zip that fails midway — a full disk, an unreadable file — must never leave
+/// a truncated `.zip`, which the backups list would offer for a restore. On
+/// failure the `.part` is removed; a removal that fails is logged (the
+/// listing reads `.zip` only, so a stray `.part` is never offered).
+pub(crate) async fn zip_world_into(
+    world_path: &Path,
+    backups_dir: &Path,
+    world_folder_name: &str,
+) -> Result<Backup> {
+    std::fs::create_dir_all(backups_dir)
         .map_err(|e| Error::io(backups_dir.display().to_string(), e))?;
 
     let base = Utc::now().format("%Y-%m-%dT%H-%M-%S").to_string();
-    let (filename, dest_zip) = pick_unused_filename(&backups_dir, &base)?;
+    let (filename, dest_zip) = pick_unused_filename(backups_dir, &base)?;
+    let part = backups_dir.join(format!("{filename}.part"));
 
     // Offload the CPU-heavy zip op so the IPC thread stays responsive.
-    let world_path_owned = world_path.clone();
-    let dest_zip_owned = dest_zip.clone();
+    let world_path_owned = world_path.to_path_buf();
+    let part_owned = part.clone();
     let world_folder_name_owned = world_folder_name.to_string();
-    tokio::task::spawn_blocking(move || {
-        wzip::zip_dir(&world_path_owned, &dest_zip_owned, &world_folder_name_owned)
+    let zipped = tokio::task::spawn_blocking(move || {
+        wzip::zip_dir(&world_path_owned, &part_owned, &world_folder_name_owned)
     })
     .await
-    .map_err(|e| Error::io(dest_zip.display().to_string(), format!("join: {e}")))??;
+    .map_err(|e| Error::io(part.display().to_string(), format!("join: {e}")))
+    .and_then(|zipped| zipped);
+    if let Err(e) = zipped {
+        discard_part(&part);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&part, &dest_zip) {
+        discard_part(&part);
+        return Err(Error::io(dest_zip.display().to_string(), e));
+    }
 
     let size_bytes = std::fs::metadata(&dest_zip)
         .map(|m| m.len())
@@ -42,6 +67,20 @@ pub async fn backup_world(
         size_bytes,
         created_unix_ms,
     })
+}
+
+/// Remove an unfinished backup. Absent is fine (the zip never started);
+/// anything else is logged — the caller is already returning the backup's own
+/// error, which is what the user needs to see.
+fn discard_part(part: &Path) {
+    match std::fs::remove_file(part) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => crate::diag!(
+            "world backup: could not remove the unfinished {}: {e}",
+            part.display()
+        ),
+    }
 }
 
 /// Try `<base>.zip`, then `<base>.2.zip`, …, up to `<base>.99.zip`.
@@ -379,6 +418,46 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_backup_that_fails_leaves_no_part_and_no_zip() {
+        let td = tempdir().unwrap();
+        // A FILE where the world folder should be: zipping it fails after the
+        // destination was created.
+        let world = td.path().join("World");
+        fs::write(&world, b"not a folder").unwrap();
+        let backups = td.path().join("backups").join("World");
+
+        assert!(zip_world_into(&world, &backups, "World").await.is_err());
+
+        assert!(
+            names_in(&backups).is_empty(),
+            "nothing left behind: {:?}",
+            names_in(&backups)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_backup_leaves_exactly_one_zip() {
+        let td = tempdir().unwrap();
+        let world = td.path().join("World");
+        fs::create_dir_all(world.join("region")).unwrap();
+        fs::write(world.join("level.dat"), b"level").unwrap();
+        let backups = td.path().join("backups").join("World");
+
+        let backup = zip_world_into(&world, &backups, "World").await.unwrap();
+
+        assert_eq!(names_in(&backups), vec![backup.filename.clone()]);
+        assert!(backup.filename.ends_with(".zip"));
+        assert!(backup.size_bytes > 0.0);
+    }
 
     #[test]
     fn pick_unused_filename_first_slot_when_empty() {

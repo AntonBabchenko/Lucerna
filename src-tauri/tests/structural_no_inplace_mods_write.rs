@@ -139,10 +139,11 @@ const ALLOWLIST: &[&str] = &[
     // `src/worlds/` — writes into the `saves/` tree, but never in place onto
     // a live world's own files or a datapack hardlink living inside it.
     //
-    // `File::create` writes only: (1) a freshly timestamped backup `.zip`
-    // under `backups/<world>/` (`zip_dir`, called from
-    // `worlds::backup::backup_world` via `pick_unused_filename`, which
-    // guarantees an unused destination name), and (2) an entry path inside
+    // `File::create` writes only: (1) a freshly timestamped backup
+    // `<stamp>.zip.part` under `backups/<world>/` (`zip_dir`, called from
+    // `worlds::backup::zip_world_into`, which picks an unused `<stamp>.zip`
+    // with `pick_unused_filename`, zips into its `.part` sibling and renames
+    // that into place only once complete), and (2) an entry path inside
     // `extract_zip_capped`'s `dest_dir` — every production caller
     // (`worlds::restore`'s `restore_replace` / `restore_as_copy`,
     // `worlds::import`'s `import_from_zip`, and the unrelated
