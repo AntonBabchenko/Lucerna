@@ -51,8 +51,8 @@
   const canFix = $derived(hasBlocking(report) && report.violations.some(isFixable));
 
   // DESIGN.md §8: the pressed «Fix and launch» turns disabled while the repair
-  // runs, which drops its focus to <body> — and Tab then walks the page behind
-  // the dialog. On the rising edge of `busy`, when focus has left the dialog or
+  // runs, which drops its focus to <body>: the user's place in the dialog is
+  // lost. On the rising edge of `busy`, when focus has left the dialog or
   // sits on a now-disabled control, park it on the body (tabindex=-1, so
   // trapFocus never picks it as the first stop). It stays there if the button
   // is gone afterwards (nothing fixable left).

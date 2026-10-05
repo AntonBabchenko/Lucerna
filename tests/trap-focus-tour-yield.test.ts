@@ -6,10 +6,10 @@
 //
 // Without it the dialog is left with no focus at all — the tour ends by
 // unmounting, which drops focus to <body>, and nothing would ever move it into
-// the panel. A screen reader never announces the dialog, and because the Tab
-// handler is registered on the panel node, a keydown targeted at <body> never
-// reaches it: Tab walks the application *behind* the open dialog instead of
-// cycling inside it.
+// the panel. A screen reader never announces the dialog, and the user's place
+// in it is lost: a Tab from <body> starts again at the dialog's first control
+// (before trapFocus took a Tab pressed with the focus on <body>, it walked the
+// application behind the open dialog).
 //
 // Reachable since the `overview` contextual tour began auto-firing at startup
 // on the default tab, at the same moment the post-update changelog offer

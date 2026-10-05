@@ -114,8 +114,8 @@
         : 'w-[440px] p-5 flex flex-col gap-3'),
   );
 
-  // DESIGN.md §8: a focused button that turns disabled drops focus to <body>, and Tab then walks
-  // the page behind the dialog. On the rising edge of either busy flag, when focus has left the
+  // DESIGN.md §8: a focused button that turns disabled drops focus to <body>, and the user's
+  // place in the dialog is lost. On the rising edge of either busy flag, when focus has left the
   // dialog or sits on a now-disabled control, park it on the body (tabindex=-1, so trapFocus never
   // picks it as the initial stop). Callers that never set a busy flag are unaffected.
   let bodyEl = $state<HTMLDivElement | undefined>();

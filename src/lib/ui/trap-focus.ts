@@ -52,10 +52,10 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
 
   // The yield has to be GIVEN BACK. A tour hosted by this dialog moves the
   // focus to its card, and ends by unmounting it, which drops focus to <body>;
-  // nothing else would ever move it into this panel, so the dialog would sit
-  // unfocused (never announced to a screen reader) with its node-scoped Tab
-  // handler unreachable — Tab would walk the application behind the open
-  // dialog instead of cycling inside it. So for as long as the trap is mounted
+  // nothing else would move it into this panel, so the dialog would sit
+  // unfocused — never announced to a screen reader, and the user's place in it
+  // lost (a Tab from <body> only starts again at its first control, through
+  // onDocumentKeydown below). So for as long as the trap is mounted
   // it watches the stack: when a tour of this dialog arrives it notes where the
   // focus was in the panel, and when the tour is gone it puts the focus back
   // there (or on the initial target). For the trap's whole life, not only for a
