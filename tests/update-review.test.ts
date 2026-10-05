@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Translate } from '$lib/i18n';
-import { buildReviewItems, updatesReport } from '$lib/mods/installed/update-review';
+import { buildReviewItems, oldVersionKept, updatesReport } from '$lib/mods/installed/update-review';
 
 const tr = ((k: string, v?: Record<string, unknown>) =>
   v ? `${k} ${JSON.stringify(v)}` : k) as unknown as Translate;
@@ -59,8 +59,8 @@ describe('updatesReport', () => {
   it('says nothing for an empty batch', () => expect(updatesReport(tr, [])).toBeNull());
 
   it('says the previous version is still there when every failed update was undone', () => {
-    expect(updatesReport(tr, [failed('B', 'Busy', true)], { single: true })?.lines).toEqual([
-      'Busy',
+    expect(updatesReport(tr, [failed('B', 'Name taken', true)], { single: true })?.lines).toEqual([
+      'Name taken',
       'mods.updates.previousKept',
     ]);
     const batch = updatesReport(tr, [ok('A', []), failed('B', 'Gone', true)]);
@@ -70,6 +70,33 @@ describe('updatesReport', () => {
   it('does not claim the previous version is there when one failure is not known to be undone', () => {
     const t = updatesReport(tr, [failed('A', 'Gone', true), failed('B', 'Bridge died', false)]);
     expect(t?.lines).not.toContain('mods.updates.previousKept');
+  });
+});
+
+describe('oldVersionKept', () => {
+  it('holds for an error the update returned after undoing its own changes', () => {
+    expect(oldVersionKept({ kind: 'mods_filename_conflict', filename: 'a.jar' })).toBe(true);
+    expect(oldVersionKept({ kind: 'network', details: 'timed out' })).toBe(true);
+  });
+
+  it('is not claimed for a refusal: another operation owns the profile and its files may be moving', () => {
+    expect(oldVersionKept({ kind: 'instance_busy' })).toBe(false);
+  });
+
+  it('is not claimed while an unfinished earlier update may hold files aside', () => {
+    expect(oldVersionKept({ kind: 'content_update_unfinished', folder: 'x' })).toBe(false);
+  });
+
+  it('is not claimed when the undo left files behind', () => {
+    expect(
+      oldVersionKept({ kind: 'content_update_rollback_incomplete', folder: 'x', details: 'y' }),
+    ).toBe(false);
+  });
+
+  it('is not claimed for an error the backend does not send', () => {
+    expect(oldVersionKept('boom')).toBe(false);
+    expect(oldVersionKept(null)).toBe(false);
+    expect(oldVersionKept({})).toBe(false);
   });
 });
 

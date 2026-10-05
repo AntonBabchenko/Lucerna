@@ -57,11 +57,33 @@ export function buildReviewItems(
 export type UpdateTarget = { sha1: string; name: string; target: ModVersion };
 
 /** How one update ended. A failure carries its reason, already worded for the user, and
- *  `previousKept`: the update was undone and the old version is in place — false when the undo
- *  left files behind, and when the outcome is unknown (the bridge failed). */
+ *  `previousKept`: the old version is known to be in place (`oldVersionKept`) — false, too, when
+ *  the outcome is unknown (the bridge failed). */
 export type UpdateAttempt =
   | { sha1: string; name: string; ok: true; summary: InstallSummary }
   | { sha1: string; name: string; ok: false; reason: string; previousKept: boolean };
+
+/** Errors after which the old version is NOT known to be in place (see `oldVersionKept`). */
+const OLD_VERSION_NOT_KNOWN: ReadonlySet<string> = new Set([
+  'instance_busy',
+  'content_update_unfinished',
+  'content_update_rollback_incomplete',
+]);
+
+/**
+ * Whether a failed `mods_update_one` left the old version in place. Once it holds the profile, any
+ * error it returns means its files were never touched or `update_one`'s transaction put them back,
+ * except where the error says otherwise: the undo left files behind
+ * (`content_update_rollback_incomplete`), or an earlier update is unfinished and may hold files
+ * aside (`content_update_unfinished`). A refusal (`instance_busy`) never held the profile: another
+ * operation owns it and its files may be moving, so nothing is claimed. Nor for an error the
+ * backend does not send (no `kind`).
+ */
+export function oldVersionKept(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const kind = (error as { kind?: unknown }).kind;
+  return typeof kind === 'string' && !OLD_VERSION_NOT_KNOWN.has(kind);
+}
 
 /**
  * Run the updates one after another; each gets its try whatever the one before did. Never throws.
@@ -84,9 +106,7 @@ export async function runUpdates(
               name,
               ok: false,
               reason: modWriteReason(r.error),
-              // A failed update is undone (`update_one`'s transaction) unless the undo itself
-              // left files behind — the one error that says so.
-              previousKept: r.error.kind !== 'content_update_rollback_incomplete',
+              previousKept: oldVersionKept(r.error),
             },
       );
     } catch (e) {
@@ -148,7 +168,7 @@ export function updatesReport(
   const done = attempts.flatMap((a) => (a.ok ? [a] : []));
   const failed = attempts.flatMap((a) => (a.ok ? [] : [a]));
   const where = profile ? [tr('mods.ops.restore.inProfile', { profile })] : [];
-  // Said only when it is true of every failure: each was undone and left its old version.
+  // Said only when it is known of every failure: each left its old version in place.
   const kept =
     failed.length > 0 && failed.every((a) => a.previousKept)
       ? [tr('mods.updates.previousKept')]
