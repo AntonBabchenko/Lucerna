@@ -222,6 +222,11 @@ describe('McVersionCombobox', () => {
       return { user, input };
     }
     const next = () => screen.getByRole('button', { name: 'Next' });
+    // An option by its text, not its accessible name: the fixture's options sit inside its
+    // <label>, and happy-dom gives every labelable element in a label that label (`labels` takes
+    // the nearest ancestor <label>), so each option is named "MC…". A browser gives the label to
+    // its control alone, the input.
+    const versionOption = (text: string) => screen.getByText(text, { selector: '[role="option"]' });
 
     it('Tab leaves for the next control and closes the list', async () => {
       const { user } = await openInLabel();
@@ -247,7 +252,7 @@ describe('McVersionCombobox', () => {
 
     it('keeps the list while the focus moves onto one of its options', async () => {
       const { input } = await openInLabel();
-      const option = screen.getByRole('option', { name: '1.21' });
+      const option = versionOption('1.21');
       await fireEvent.focusOut(input, { relatedTarget: option });
       expect(screen.getByRole('listbox')).toBeTruthy();
     });
@@ -255,7 +260,7 @@ describe('McVersionCombobox', () => {
     it('keeps the focus in the field through a press anywhere in the list', async () => {
       await openInLabel();
       // fireEvent returns false when a handler canceled the event's default action.
-      expect(await fireEvent.mouseDown(screen.getByRole('option', { name: '1.21' }))).toBe(false);
+      expect(await fireEvent.mouseDown(versionOption('1.21'))).toBe(false);
       expect(await fireEvent.mouseDown(screen.getByRole('listbox'))).toBe(false);
     });
 
@@ -264,7 +269,7 @@ describe('McVersionCombobox', () => {
     // be gone before the click. This presses as WebKit does.
     it('picks with the pointer where a press takes the focus away, as in WebKit', async () => {
       const { input } = await openInLabel();
-      const option = screen.getByRole('option', { name: '1.21' });
+      const option = versionOption('1.21');
       if (await fireEvent.mouseDown(option)) {
         input.blur();
         await tick();
@@ -283,7 +288,7 @@ describe('McVersionCombobox', () => {
     it('cancels the click of a pointer pick, so no label hands it to the field', async () => {
       const { input } = await openInLabel();
       // fireEvent returns false when a handler canceled the event's default action.
-      expect(await fireEvent.click(screen.getByRole('option', { name: '1.21' }))).toBe(false);
+      expect(await fireEvent.click(versionOption('1.21'))).toBe(false);
       expect(input.value).toBe('1.21');
       // A pointer pick gives the focus up: the next click on the field opens the list again.
       expect(document.activeElement).not.toBe(input);
