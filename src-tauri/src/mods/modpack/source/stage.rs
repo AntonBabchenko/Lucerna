@@ -20,9 +20,9 @@
 //!   midway) is removed by [`sweep_stale`] once it is [`STALE_AFTER`] old: at
 //!   startup, and each time a new file is staged.
 //!
-//! Only a name this module writes (`<uuid>.<ext>` for a [`StagedKind`])
-//! directly inside [`staging_dir`] is ever removed. A pack the user picked or
-//! dropped reaches the same commands by its own path, and is never touched.
+//! Only a name this module writes (`<uuid>.<ext>`) directly inside
+//! [`staging_dir`] is ever removed. A pack the user picked or dropped reaches
+//! the same commands by its own path, and is never touched.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -31,8 +31,9 @@ use tauri::Manager;
 
 use crate::error::Error;
 
-/// What a staged file holds. It fixes the file's extension, and so the only
-/// names [`sweep_stale`] and [`ConsumeGuard`] will ever remove.
+/// What a staged file holds, which fixes its extension. The extension plays
+/// no part in recognising a staged file later (see [`is_staged_name`]), so a
+/// new kind is cleaned up like the others with nothing else to update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StagedKind {
     /// A Modrinth `.mrpack` archive.
@@ -46,15 +47,6 @@ pub(crate) enum StagedKind {
 }
 
 impl StagedKind {
-    /// Every kind. A kind missing here would still be written but never
-    /// recognised as staged, so its files would pile up again.
-    const ALL: [StagedKind; 4] = [
-        StagedKind::Mrpack,
-        StagedKind::CurseforgeZip,
-        StagedKind::FtbSummary,
-        StagedKind::AtlauncherSummary,
-    ];
-
     fn extension(self) -> &'static str {
         match self {
             StagedKind::Mrpack => "mrpack",
@@ -68,8 +60,9 @@ impl StagedKind {
 /// How old a staged file must be before [`sweep_stale`] removes it. A file
 /// still in use waits for the user to confirm a dialog, or for the operations
 /// queued ahead of its import: hours at the very most. A day leaves every
-/// live operation alone, including one in another Lucerna build sharing this
-/// folder, and bounds what an abandoned one leaves behind.
+/// live operation alone, including one in another Lucerna process sharing
+/// this folder (a build with its own identifier, the user's other session),
+/// and bounds what an abandoned one leaves behind.
 const STALE_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// `<temp>/lucerna/modpack`, where every staged file lives: one spelling for
@@ -223,13 +216,14 @@ fn keep_or_discard(
     })
 }
 
-/// Is `name` one this module writes: `<uuid>.<ext>` for a [`StagedKind`], the
-/// uuid spelled exactly as `Uuid::new_v4()` displays it?
+/// Is `name` one this module writes: a uuid spelled exactly as
+/// `Uuid::new_v4()` displays it, a dot, and an extension? Every file
+/// [`write_to_temp`] writes has that shape and nothing else writes into the
+/// staging folder, so the name alone tells ours from anything else, whatever
+/// its kind.
 fn is_staged_name(name: &str) -> bool {
-    StagedKind::ALL.iter().any(|kind| {
-        name.strip_suffix(kind.extension())
-            .and_then(|rest| rest.strip_suffix('.'))
-            .is_some_and(|stem| uuid::Uuid::parse_str(stem).is_ok_and(|id| id.to_string() == stem))
+    name.split_once('.').is_some_and(|(stem, extension)| {
+        !extension.is_empty() && uuid::Uuid::parse_str(stem).is_ok_and(|id| id.to_string() == stem)
     })
 }
 
@@ -278,37 +272,10 @@ pub(crate) fn sweep_stale(dir: &Path, now: SystemTime) -> Vec<String> {
     let mut lines = Vec::new();
     let mut removed = 0usize;
     for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(e) => {
-                lines.push(format!(
-                    "modpack staging: cannot read {}: {e}",
-                    dir.display()
-                ));
-                continue;
-            }
-        };
-        if !entry.file_name().to_str().is_some_and(is_staged_name) {
-            continue;
-        }
-        let path = entry.path();
-        match is_stale(&entry, now) {
-            Ok(true) => {}
-            Ok(false) => continue,
-            Err(e) => {
-                lines.push(format!(
-                    "modpack staging: cannot read the age of {}: {e}",
-                    path.display()
-                ));
-                continue;
-            }
-        }
-        match remove_staged(&path) {
-            Ok(true) => removed += 1,
-            // Gone already: another sweep or another Lucerna process got there
-            // first, so there is nothing to count or report.
-            Ok(false) => {}
-            Err(line) => lines.push(line),
+        match sweep_entry(entry, dir, now) {
+            Swept::Removed => removed += 1,
+            Swept::Skipped => {}
+            Swept::Failed(line) => lines.push(line),
         }
     }
     if removed > 0 {
@@ -318,6 +285,50 @@ pub(crate) fn sweep_stale(dir: &Path, now: SystemTime) -> Vec<String> {
         ));
     }
     lines
+}
+
+/// What [`sweep_stale`] did with one entry of the folder.
+#[derive(Debug)]
+enum Swept {
+    /// A stale staged file, removed by this sweep.
+    Removed,
+    /// Not ours, not stale, or already gone (another sweep or another Lucerna
+    /// process got there first): nothing to count or report.
+    Skipped,
+    /// Could not be examined or removed; the line says why.
+    Failed(String),
+}
+
+fn sweep_entry(entry: std::io::Result<std::fs::DirEntry>, dir: &Path, now: SystemTime) -> Swept {
+    let entry = match entry {
+        Ok(entry) => entry,
+        Err(e) => {
+            return Swept::Failed(format!(
+                "modpack staging: cannot read {}: {e}",
+                dir.display()
+            ))
+        }
+    };
+    if !entry.file_name().to_str().is_some_and(is_staged_name) {
+        return Swept::Skipped;
+    }
+    let path = entry.path();
+    match is_stale(&entry, now) {
+        Ok(true) => {}
+        Ok(false) => return Swept::Skipped,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Swept::Skipped,
+        Err(e) => {
+            return Swept::Failed(format!(
+                "modpack staging: cannot examine {}: {e}",
+                path.display()
+            ))
+        }
+    }
+    match remove_staged(&path) {
+        Ok(true) => Swept::Removed,
+        Ok(false) => Swept::Skipped,
+        Err(line) => Swept::Failed(line),
+    }
 }
 
 /// A regular file last written [`STALE_AFTER`] or more before `now`. A link or
@@ -384,6 +395,15 @@ mod tests {
     /// A uuid spelled the way `Uuid::new_v4()` displays one.
     const ID: &str = "0b0a6a37-5f4e-4a59-9d0e-6c1a2f0e8b11";
 
+    /// Every kind, for the tests that stage one of each. Production code keeps
+    /// no such list: a staged file is recognised by its name alone.
+    const KINDS: [StagedKind; 4] = [
+        StagedKind::Mrpack,
+        StagedKind::CurseforgeZip,
+        StagedKind::FtbSummary,
+        StagedKind::AtlauncherSummary,
+    ];
+
     /// A staged file of `kind` in `dir`, as `write_staged` would name it.
     fn staged_file(dir: &Path, kind: StagedKind) -> PathBuf {
         let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), kind.extension()));
@@ -411,19 +431,27 @@ mod tests {
     }
 
     #[test]
-    fn a_staged_name_is_a_uuid_with_a_staged_extension() {
-        for kind in StagedKind::ALL {
+    fn a_staged_name_is_an_exact_uuid_with_an_extension() {
+        for kind in KINDS {
             let name = format!("{ID}.{}", kind.extension());
+            assert!(is_staged_name(&name), "{name}");
+        }
+        // Any extension: a kind added later is recognised with nothing to update.
+        for name in [
+            format!("{ID}.technicpack.json"),
+            format!("{ID}.mrpack.part"),
+        ] {
             assert!(is_staged_name(&name), "{name}");
         }
         for name in [
             "pack.mrpack".to_string(),
-            format!("{ID}.jar"),
             format!("{}.zip", ID.to_uppercase()),
             format!("{}.zip", ID.replace('-', "")),
-            format!("{ID}.mrpack.part"),
+            format!("{{{ID}}}.zip"),
             format!("{ID}mrpack"),
             format!("x{ID}.zip"),
+            format!(".{ID}.zip"),
+            format!("{ID}."),
             ID.to_string(),
         ] {
             assert!(!is_staged_name(&name), "{name}");
@@ -439,17 +467,23 @@ mod tests {
         let in_use = staged_file(td.path(), StagedKind::CurseforgeZip);
         let foreign = td.path().join("notes.zip");
         fs::write(&foreign, b"not ours").unwrap();
-        let a_day = STALE_AFTER + Duration::from_secs(1);
+        // Spelled out rather than read from `STALE_AFTER`: a day is the
+        // decision this pins, so changing it must change this test too.
+        let a_day = Duration::from_secs(24 * 60 * 60);
+        let one_second = Duration::from_secs(1);
         for path in [&old_archive, &old_summary, &foreign] {
-            back_date(path, now, a_day);
+            back_date(path, now, a_day + one_second);
         }
-        back_date(&in_use, now, Duration::from_secs(60 * 60));
+        back_date(&in_use, now, a_day - one_second);
 
         let lines = sweep_stale(td.path(), now);
 
         assert!(!old_archive.exists(), "a day-old archive goes");
         assert!(!old_summary.exists(), "a day-old summary goes");
-        assert!(in_use.exists(), "an hour-old file may still be in use");
+        assert!(
+            in_use.exists(),
+            "a second short of a day, it may still be in use"
+        );
         assert!(foreign.exists(), "a name this module never writes stays");
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains("removed 2"), "{lines:?}");
@@ -469,6 +503,62 @@ mod tests {
         assert!(dir_with_a_staged_name.exists());
         assert!(foreign.exists());
         assert!(lines.is_empty(), "{lines:?}");
+    }
+
+    #[test]
+    fn a_file_written_after_now_is_never_stale() {
+        let td = tempdir().unwrap();
+        let file = staged_file(td.path(), StagedKind::Mrpack);
+        // The clock was set back two days after the file was written.
+        let earlier = SystemTime::now() - 2 * STALE_AFTER;
+
+        let lines = sweep_stale(td.path(), earlier);
+
+        assert!(file.exists());
+        assert!(lines.is_empty(), "{lines:?}");
+    }
+
+    #[test]
+    fn an_entry_gone_before_its_turn_is_skipped_silently() {
+        let td = tempdir().unwrap();
+        let file = staged_file(td.path(), StagedKind::Mrpack);
+        let entry = fs::read_dir(td.path()).unwrap().next().unwrap();
+        // Another sweep removes it between the listing and this one's look.
+        fs::remove_file(&file).unwrap();
+        let later = SystemTime::now() + 2 * STALE_AFTER;
+
+        let swept = sweep_entry(entry, td.path(), later);
+
+        assert!(matches!(swept, Swept::Skipped), "{swept:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_never_swept_and_the_guard_removes_only_the_link() {
+        let td = tempdir().unwrap();
+        let staging = td.path().join("modpack");
+        fs::create_dir(&staging).unwrap();
+        let target = td.path().join("elsewhere.bin");
+        fs::write(&target, b"not ours").unwrap();
+        let link = staging.join(format!("{}.mrpack", uuid::Uuid::new_v4()));
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let later = SystemTime::now() + 2 * STALE_AFTER;
+
+        let lines = sweep_stale(&staging, later);
+
+        assert!(
+            fs::symlink_metadata(&link).is_ok(),
+            "a link is never something this module wrote"
+        );
+        assert!(lines.is_empty(), "{lines:?}");
+
+        drop(ConsumeGuard::within(&staging, &link));
+
+        assert!(
+            fs::symlink_metadata(&link).is_err(),
+            "the guard removes the link"
+        );
+        assert!(target.exists(), "and never what it points at");
     }
 
     #[test]
@@ -522,7 +612,9 @@ mod tests {
         let lookalike = staged_file(td.path(), StagedKind::Mrpack);
         let foreign = staging.join("notes.mrpack");
         fs::write(&foreign, b"not ours").unwrap();
-        let escape = staging.join("..").join(lookalike.file_name().unwrap());
+        // A staged-looking file next to the staging folder, reached through it.
+        let escaped = staged_file(td.path(), StagedKind::CurseforgeZip);
+        let escape = staging.join("..").join(escaped.file_name().unwrap());
 
         for path in [&picked, &lookalike, &foreign, &escape] {
             drop(ConsumeGuard::within(&staging, path));
@@ -534,6 +626,10 @@ mod tests {
             "a staged-looking name in another folder"
         );
         assert!(foreign.exists(), "a name this module never writes");
+        assert!(
+            escaped.exists(),
+            "a path that leaves the folder through `..`"
+        );
     }
 
     #[test]
@@ -605,7 +701,7 @@ mod tests {
     #[tokio::test]
     async fn every_kind_staged_is_released_by_the_guard() {
         let td = tempdir().unwrap();
-        for kind in StagedKind::ALL {
+        for kind in KINDS {
             let staged = write_staged(td.path(), b"x", kind, SystemTime::now())
                 .await
                 .unwrap();

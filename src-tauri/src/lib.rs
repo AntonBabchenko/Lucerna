@@ -834,7 +834,8 @@ pub fn run() {
             // Clear modpack archives staged for an import or an update that
             // never consumed them: a dialog closed, a preview that failed, a
             // launcher closed midway. Only files a day old go, so one that
-            // another Lucerna build on this machine still holds stays (see
+            // another Lucerna process still holds stays: a build with its own
+            // identifier, or the user's other session, shares the folder (see
             // `mods::modpack::source::stage`). Own thread, no delay. The folder
             // is in the OS temp dir, not the data root, so a recovery session
             // clears it too.

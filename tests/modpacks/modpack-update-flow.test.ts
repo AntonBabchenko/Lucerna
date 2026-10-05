@@ -112,6 +112,21 @@ describe('createModpackUpdateFlow', () => {
     expect(flow.phase).toBe('idle');
   });
 
+  // The backend deletes the staged archive when `modpack_apply_update`
+  // returns, whatever the outcome, so the flow hands the path over instead of
+  // keeping it: applying again means preparing (fetching) again.
+  it('confirm() hands the staged archive over: confirming again after a failure applies nothing', async () => {
+    applyUpdate.mockResolvedValue({ status: 'error', error: { kind: 'io' } });
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    expect(await flow.confirm(inst)).toBe(false);
+
+    expect(await flow.confirm(inst)).toBe(false);
+
+    expect(applyUpdate).toHaveBeenCalledTimes(1);
+    expect(flow.error).toBe('formatted:io');
+  });
+
   // The apply step is a long-running job, so it belongs in the operations
   // strip like every other one. It was shipped in #347 with the adapter built
   // but never called — the strip stayed empty during a modpack update.
