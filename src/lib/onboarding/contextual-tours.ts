@@ -33,7 +33,7 @@ const STORAGE_KEY_SUFFIX = '.done';
 const TOUR_VERSION: Record<ContextualTourId, string> = {
   manage: 'v2', // bumped 2026-06-23 — added the Verify/repair step (was an orphan anchor)
   logs: 'v4', // bumped 2026-06-23 — added diagnosis + read-cap steps
-  modpacks: 'v1',
+  modpacks: 'v1', // NOT bumped 2026-10-04 for the filter step's copy fix (see STEPS_FINGERPRINT)
   worlds: 'v4', // bumped 2026-08-12 — the row now opens the Backups | Datapacks dialog
   servers: 'v2', // bumped 2026-07-10 — the modal became the servers mode; steps re-anchored
   serverManage: 'v3', // bumped 2026-07-31 — step 1 re-anchored to the sidebar Start/Stop
@@ -78,7 +78,12 @@ export function fingerprintSteps(steps: ReadonlyArray<TourStep>): string {
 export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
   manage: '7d162c77',
   logs: 'a4eac54b',
-  modpacks: '6bc0324e',
+  // Moved 2026-10-04 by a copy-only fix, not bumped: the filter step pointed at
+  // a «Filters» button, chips and a source filter that are gone, and named the
+  // reset by a label it does not have. The bar it spotlights is the one a user
+  // who has seen v1 already uses — nothing new to show them (the 2026-09-29
+  // pointer-fix decision on addons, below).
+  modpacks: '0c823d5a',
   worlds: 'dc5908db',
   servers: '3294c410',
   serverManage: '68b63f2f',

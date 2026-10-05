@@ -30,11 +30,27 @@ pub async fn launcher_import_inspect_folder(path: String) -> Result<ForeignInsta
         .ok_or(Error::ImportSourceUnrecognized { path })
 }
 
+/// The Minecraft version check of [`launcher_import_run`], asked by the dialog
+/// before it queues the import, so a version Mojang does not list is refused
+/// under its field while the dialog is still open — not in a notice after it
+/// closed. Returns the trimmed id to send.
+#[tauri::command]
+#[specta::specta]
+pub async fn launcher_import_check_mc_version(
+    app: tauri::AppHandle,
+    mc_version: String,
+) -> Result<String, Error> {
+    let versions_dir =
+        crate::paths::versions_dir(&app).map_err(|e| Error::io("<versions_dir>", e))?;
+    crate::instances::import::mc_version::check(&versions_dir, &mc_version).await
+}
+
 /// Run the import. The wizard shows pre-filled, editable version/loader
 /// fields for every source, so `mc_version_override` / `loader_override`
 /// arrive populated (seeded from the detected values, possibly user-edited)
-/// and are applied when present. They are blank only for a bare `.minecraft`
-/// the user never filled — guarded below by the empty-version check.
+/// and are applied when present. The version is checked before anything is
+/// written: given, and one Lucerna can install (`instances::import::mc_version`)
+/// — a bare `.minecraft` arrives blank, and a typed one can be a typo.
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -57,12 +73,10 @@ pub async fn launcher_import_run(
         foreign.loader = l;
         foreign.loader_version = loader_version_override;
     }
-    if foreign.mc_version.trim().is_empty() {
-        return Err(Error::ImportInstanceUnreadable {
-            launcher: "raw_minecraft".into(),
-            details: "Minecraft version is required".into(),
-        });
-    }
+    let versions_dir =
+        crate::paths::versions_dir(&app).map_err(|e| Error::io("<versions_dir>", e))?;
+    foreign.mc_version =
+        crate::instances::import::mc_version::check(&versions_dir, &foreign.mc_version).await?;
 
     // Adaptive per-instance heap bounds (same source as the
     // `instance_memory_bounds` command). The source heap is clamped into
@@ -100,8 +114,6 @@ pub async fn launcher_import_run(
     .await?;
 
     let instance = crate::instances::read_instance(&app, &id)?;
-    let versions_dir =
-        crate::paths::versions_dir(&app).map_err(|e| Error::io("<versions_dir>", e))?;
     let ready = crate::instances::status::ready_status(&versions_dir, &instance);
     // A freshly imported instance directory cannot already contain icon.png.
     Ok(LauncherImportOutcome {

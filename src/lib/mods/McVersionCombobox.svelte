@@ -32,11 +32,17 @@
     id,
     dataTestid,
     disabled = false,
+    describedby = undefined,
+    invalid = false,
   }: {
     value?: string;
     placeholder?: string;
     id?: string;
     dataTestid?: string;
+    /** Ids of what describes the field (a refusal under it), like Select's `describedby`. */
+    describedby?: string;
+    /** The value was refused: `aria-invalid`. */
+    invalid?: boolean;
     // When disabled (e.g. an FTB source that can't server-filter by MC), the
     // input rejects input/focus so the dropdown never opens and `value` can't be
     // mutated into a filter the backend would ignore.
@@ -290,6 +296,8 @@
     aria-autocomplete="list"
     aria-controls={listboxId}
     aria-expanded={open}
+    aria-describedby={describedby}
+    aria-invalid={invalid ? 'true' : undefined}
     aria-activedescendant={open && activeIndex >= 0 && activeIndex < filtered.length
       ? optionId(activeIndex)
       : undefined}

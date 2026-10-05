@@ -281,7 +281,37 @@ pub(crate) fn version_json_path(
     version_id: &str,
 ) -> Result<std::path::PathBuf> {
     let dir = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
-    Ok(dir.join(version_id).join(format!("{version_id}.json")))
+    Ok(version_json_in(&dir, version_id))
+}
+
+/// A version's JSON under a versions directory: `<versions_dir>/<id>/<id>.json`.
+pub(crate) fn version_json_in(
+    versions_dir: &std::path::Path,
+    version_id: &str,
+) -> std::path::PathBuf {
+    versions_dir
+        .join(version_id)
+        .join(format!("{version_id}.json"))
+}
+
+/// A version's client jar under a versions directory: `<versions_dir>/<id>/<id>.jar`.
+pub(crate) fn version_jar_in(
+    versions_dir: &std::path::Path,
+    version_id: &str,
+) -> std::path::PathBuf {
+    versions_dir
+        .join(version_id)
+        .join(format!("{version_id}.jar"))
+}
+
+/// Whether a vanilla version is installed under `versions_dir`: its JSON AND
+/// its client jar — what `instances::status::ready_status` asks of it. The JSON
+/// alone is not enough: an install writes it first and may stop there, a
+/// repair scan and the Forge installers write a parent's JSON too, and a loader
+/// profile is JSON-only by design.
+pub(crate) fn vanilla_installed_in(versions_dir: &std::path::Path, version_id: &str) -> bool {
+    version_json_in(versions_dir, version_id).is_file()
+        && version_jar_in(versions_dir, version_id).is_file()
 }
 
 #[async_recursion::async_recursion]

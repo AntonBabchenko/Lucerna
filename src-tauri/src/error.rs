@@ -717,20 +717,22 @@ pub enum Error {
     #[error("Server import session expired or was already used: {token}")]
     ServerImportStagingExpired { token: String },
 
-    /// A new server (create or import) was given no Minecraft version.
-    #[error("No Minecraft version was given for the server")]
-    ServerMcVersionRequired,
+    /// Something new — a server (create or import) or a profile imported from
+    /// another launcher — was given no Minecraft version (`versions::check`).
+    #[error("No Minecraft version was given")]
+    McVersionRequired,
 
-    /// A new server (create or import) was given a Minecraft version Mojang's
-    /// manifest does not list, so it could never resolve its Java runtime.
+    /// Something new was given a Minecraft version Mojang's manifest does not
+    /// list, so it could never be installed (a server could never resolve its
+    /// Java runtime, a profile never start).
     #[error("Minecraft {mc_version} is not in Mojang's version list")]
-    ServerMcVersionUnlisted { mc_version: String },
+    McVersionUnlisted { mc_version: String },
 
-    /// Mojang's version list could not be loaded while a new server's
-    /// Minecraft version was being checked; the server is refused rather than
-    /// saved with a version nobody checked.
+    /// Mojang's version list could not be loaded while a new Minecraft version
+    /// was being checked; it is refused rather than saved unchecked (an
+    /// imported profile's version that is installed here is accepted instead).
     #[error("Could not load Mojang's version list to check the Minecraft version")]
-    ServerMcVersionUnchecked,
+    McVersionUnchecked,
 
     /// A saved server has no Minecraft version recorded (it was imported
     /// before the import required one).

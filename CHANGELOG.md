@@ -97,9 +97,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   marked as one the game won't start without, one the platform lists but the
   mod starts without, or one only the platform lists; a disabled one can be
   switched on from the tree, and a version conflict offers the same fix as the
-  problems panel. Branches fold, the count is per project rather than per file,
-  the tree follows every switch on and off, and it works from the keyboard and
-  with a screen reader. The author-claim badge and its hide button are gone.
+  problems panel. Deeper in the tree, a dependency its mod only offers is marked
+  optional. Branches fold, the count is per project rather than per file, the
+  tree follows every switch on and off, and it works from the keyboard and with
+  a screen reader. The author-claim badge and its hide button are gone.
 - **Pointing at a mod no longer highlights it everywhere it appears.** Its row
   and its mentions in other mods' dependency lists used to light up together;
   the arrow beside a dependency or a dependent still takes you to its row.
@@ -331,6 +332,25 @@ behaviour is worth knowing, it is stated as a property of the feature under
   downloading the server file again from a server's problem notice made the
   fix and then left the server stopped. They now start it, as their buttons
   say.
+- **Importing from another launcher checks the Minecraft version.** A version
+  Mojang doesn't list, such as a typo, was taken and made a profile that could
+  never start; the import now refuses it under the version field and keeps the
+  dialog open. Without a connection, a version already installed is accepted.
+  A disabled Import button now says what it is waiting for.
+- **Notices that confirm an import, a copy or a new shortcut go away by
+  themselves.** They stayed until closed by hand and, piled up top right,
+  covered the buttons under them. They now go after seven seconds and wait
+  while you point at them or they have the keyboard focus. A notice that lists
+  what an import left out still stays until closed.
+- **A long profile name stays readable in profile management.** The Active
+  badge beside the name left it a letter or two in the list; it now sits on
+  the line below, after the loader and the version.
+- **A server's EULA notice no longer says to re-create the server.** Its
+  button accepts the EULA and starts the server, and the advice above it now
+  says the same.
+- **The modpack browser's tour shows the filters as they are.** It pointed to
+  a Filters button that is no longer there; it now describes the filters in
+  the search bar and names the button that resets them.
 
 ## [0.25.0] — 2026-09-27
 

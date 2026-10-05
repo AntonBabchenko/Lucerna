@@ -904,4 +904,24 @@ describe('ManageInstancesModal — the Active marker', () => {
       expect(badge.className).not.toContain('text-[10px]');
     }
   });
+
+  // Beside the name, in the default 220 px list, the badge left the name a letter or two («s»
+  // for smoke-nf-1211): it rides the row's second line (2026-10-02 regression, O3).
+  it("rides the list row's second line, so the name keeps the first", async () => {
+    const inst = makeInstance({ name: 'smoke-nf-1211' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    const row = await screen.findByTestId(`manage-row-${inst.id}`);
+    const badge = within(row).getByTestId('manage-active-badge');
+    expect(badge.closest(`[data-testid="manage-row-meta-${inst.id}"]`)).not.toBeNull();
+    const name = within(row).getByText('smoke-nf-1211');
+    expect(name.parentElement?.contains(badge)).toBe(false);
+  });
 });

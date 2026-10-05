@@ -1,6 +1,7 @@
 //! Version manifest + install pipeline.
 
 pub mod assets;
+pub mod check;
 pub mod client;
 pub mod install;
 pub mod libraries;

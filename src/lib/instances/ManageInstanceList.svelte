@@ -91,6 +91,7 @@
   {/if}
   <div class="flex-1 overflow-y-auto flex flex-col gap-1">
     {#each filteredInstances as i (i.id)}
+      {@const runs = `${displayLoader(i.loader)} · ${i.mc_version || $t('instance.manage.pickMc')}`}
       <!-- The menu acts on ITS row and leaves the selection alone, like the
            log-file rows and the sidebar's profile dropdown: a right-click is
            not a click. A double-click runs the row's default action — the
@@ -139,12 +140,22 @@
                 />
               </span>
             {/if}
-            {#if i.id === activeId}
-              <ActiveBadge />
-            {/if}
           </div>
-          <div class="text-xs text-muted truncate">
-            {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
+          <!-- The Active badge rides the second line, after what the profile runs: on the first
+               it took the room a name needs (a letter or two in the default 220 px list). The
+               loader and version give way first, and say themselves in full on hover, as the
+               name does; -my-0.5 keeps the pill from making the active row taller than the
+               others. -->
+          <div
+            class="flex items-center gap-1.5 text-xs text-muted"
+            data-testid="manage-row-meta-{i.id}"
+          >
+            <span class="truncate min-w-0" use:tooltip={{ text: runs, whenOverflowing: true }}
+              >{runs}</span
+            >
+            {#if i.id === activeId}
+              <span class="-my-0.5 flex shrink-0"><ActiveBadge /></span>
+            {/if}
           </div>
         </button>
       </ContextMenu>

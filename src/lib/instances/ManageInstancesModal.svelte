@@ -484,9 +484,10 @@
       return;
     }
     if (draftLoader !== 'vanilla' && !draftLoaderVersion) {
-      // Belt-and-braces: the Create button is also disabled in this
-      // state via createDisabledReason. This branch catches the
-      // in-flight race where load() hasn't resolved yet.
+      // Create is not disabled in this state, on purpose: it stays
+      // keyboard-reachable while createDisabledReason shows this reason
+      // beside it, and a click lands here and announces it. It also covers
+      // a click while the loader picker's load() has not resolved yet.
       modalError = get(t)('instance.error.loaderVersionRequired', {
         loader: displayLoader(draftLoader),
       });

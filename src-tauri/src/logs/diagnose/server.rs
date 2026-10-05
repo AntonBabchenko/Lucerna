@@ -126,7 +126,7 @@ pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
             pattern_id: "server-eula-not-accepted".into(),
             title: "The Minecraft EULA is not accepted".into(),
             explanation: "The server will not run until the Minecraft EULA is accepted.".into(),
-            recommendation: "Recreate the server with the EULA checkbox ticked.".into(),
+            recommendation: "Accept the Minecraft EULA, then start the server.".into(),
             matched_excerpt: excerpt(log, "EULA"),
             repair: None,
         });
@@ -972,6 +972,14 @@ mod tests {
     fn detects_eula() {
         let d = diagnose_server_log(EULA).unwrap();
         assert_eq!(d.pattern_id, "server-eula-not-accepted");
+        // The advice points at the fix the banner offers for it — accepting the
+        // EULA in place — never at re-creating the server.
+        assert_eq!(
+            server_repair_for(&d.pattern_id),
+            Some(ServerRepairTag::AcceptEula)
+        );
+        assert!(d.recommendation.contains("Accept the Minecraft EULA"));
+        assert!(!d.recommendation.to_lowercase().contains("recreate"));
     }
     #[test]
     fn clean_log_no_match() {

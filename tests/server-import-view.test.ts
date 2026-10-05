@@ -93,7 +93,7 @@ describe('ServerImportView', () => {
   it("shows the backend's refusal of a version Mojang does not list", async () => {
     importCommit.mockResolvedValueOnce({
       ok: false,
-      error: { kind: 'server_mc_version_unlisted', mc_version: '1.20.l' },
+      error: { kind: 'mc_version_unlisted', mc_version: '1.20.l' },
     });
     await openConfirm({ mc_version: '1.20.l' });
     expect(importButton().disabled).toBe(false);

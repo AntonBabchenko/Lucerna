@@ -66,9 +66,7 @@ pub fn ready_status(versions_dir: &Path, instance: &InstanceFile) -> bool {
     let Some(effective_id) = effective_version_id(instance) else {
         return false;
     };
-    let profile_json = versions_dir
-        .join(&effective_id)
-        .join(format!("{effective_id}.json"));
+    let profile_json = crate::versions::install::version_json_in(versions_dir, &effective_id);
     if !profile_json.is_file() {
         return false;
     }
@@ -80,10 +78,7 @@ pub fn ready_status(versions_dir: &Path, instance: &InstanceFile) -> bool {
     } else {
         effective_id.clone()
     };
-    versions_dir
-        .join(&client_jar_id)
-        .join(format!("{client_jar_id}.jar"))
-        .is_file()
+    crate::versions::install::version_jar_in(versions_dir, &client_jar_id).is_file()
 }
 
 #[cfg(test)]

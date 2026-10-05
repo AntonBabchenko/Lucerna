@@ -4,6 +4,7 @@
 //! source is always read-only.
 
 pub mod discovery;
+pub mod mc_version;
 pub mod model;
 pub mod pipeline;
 pub mod readers;

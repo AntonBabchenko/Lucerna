@@ -74,9 +74,18 @@
   // An installed node without children may have them unknown (the platform could not describe
   // its installed version): marked, so it never reads as needing nothing.
   const depsUnknownOf = (n: DepTreeNode) => (n.installed ? (n.deps_unknown ?? null) : null);
-  // What the tree says about an item: its state, then any marks after it.
+  // The top level sits under a heading that says required or optional; nothing heads a deeper
+  // level, which mixes what its parent requires with what it only offers. So a node there that
+  // its parent declares optional says so itself — or it reads as required and missing.
+  const optionalBelowTop = (n: DepTreeNode) => depth > 0 && n.declared === 'optional';
+  // What the tree says about an item: optional (below the top), its state, then any marks after it.
   const describedBy = (id: string, n: DepTreeNode) =>
-    [`${id}-state`, depsUnknownOf(n) ? `${id}-unknown` : '', n.cycle ? `${id}-cycle` : '']
+    [
+      optionalBelowTop(n) ? `${id}-optional` : '',
+      `${id}-state`,
+      depsUnknownOf(n) ? `${id}-unknown` : '',
+      n.cycle ? `${id}-cycle` : '',
+    ]
       .filter(Boolean)
       .join(' ');
 
@@ -245,6 +254,10 @@
             aria-label={$t('mods.deps.jumpToTitle', { name: n.name })}
             onclick={() => onJump(n)}><Icon name="arrowUpRight" size={12} /></button
           >
+        {/if}
+        {#if optionalBelowTop(n)}
+          <span id="{id}-optional" class="text-secondary">{$t('mods.deps.optionalMark')}</span>
+          <span class="text-placeholder" aria-hidden="true">·</span>
         {/if}
         {#if state === 'out_of_range'}
           {@const conflict = ctx.conflictOf(n, dependentSha1)}
