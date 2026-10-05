@@ -35,8 +35,9 @@ function focusableDescendants(node: HTMLElement): HTMLElement[] {
   return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
     // Skip elements hidden via display:none (offsetParent is null for those).
     // `offsetParent` is also null for position:fixed, so keep an element that
-    // currently holds focus regardless. In a layout-less test DOM offsetParent
-    // is always null; the real Tab-order behaviour is covered by an e2e test.
+    // currently holds focus regardless. happy-dom (the unit tests) has no
+    // offsetParent at all — undefined, so there every candidate is kept; the
+    // real Tab-order behaviour is covered by an e2e test.
     (el) => el.offsetParent !== null || el === document.activeElement,
   );
 }
@@ -146,12 +147,13 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
   // panel: a key event goes to the focused element, and there is none. The
   // focus gets there when what held it goes away under it: a toast above the
   // dialog that removed itself (its Undo, its ×), a focused control that is
-  // removed or turns disabled. The browser would then go on from where that
-  // stood — for a toast, and from the panel's edges, the page behind the
-  // dialog. So the topmost dialog takes that press: Tab to its first control,
-  // Shift+Tab to its last, the panel itself when it has none. Not while a tour
-  // lies above it (the tour owns Tab), and never a focus that something holds
-  // — a tour's card, a toast's button: that belongs to whoever has it.
+  // removed or turns disabled. Left alone, the browser goes on from where that
+  // element stood, and from a toast, or from the panel's first or last
+  // control, that is the page behind the dialog. So the topmost dialog takes
+  // that press: Tab to its first control, Shift+Tab to its last, the panel
+  // itself when it has none. Not while a tour lies above it (the tour owns
+  // Tab), and never a focus that something holds — a tour's card, a toast's
+  // button: that belongs to whoever has it.
   function onDocumentKeydown(e: KeyboardEvent) {
     if (e.key !== 'Tab' || e.defaultPrevented) return;
     const active = document.activeElement;
@@ -159,8 +161,11 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
     if (!isTopModal(layer) || tourAbove(layer)) return;
     e.preventDefault();
     const items = focusableDescendants(node);
-    const target = e.shiftKey ? items[items.length - 1] : items[0];
-    (target ?? node).focus();
+    (e.shiftKey ? items[items.length - 1] : items[0])?.focus();
+    // The press is taken, so the focus must end up in the panel: a control
+    // that would not take it (hidden by visibility, inert) leaves it to the
+    // panel itself.
+    if (!node.contains(document.activeElement)) node.focus();
   }
 
   // Defer initial focus until after the node is painted.

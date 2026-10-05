@@ -2,8 +2,8 @@
 // itself, a focused control that was removed — never reaches the panel's own Tab handler, since a
 // key event goes to the focused element. trapFocus takes it at the document for the topmost modal
 // only, and not while a tour lies above that modal. It never takes a focus something holds.
-// Real focus moves are in tests-e2e/modal-scrim-focus.spec.ts; happy-dom has no layout, so here
-// the trap may fall back to the panel itself — "the focus is in the panel" is what is asserted.
+// Real focus moves are in tests-e2e/modal-scrim-focus.spec.ts. happy-dom has no offsetParent, so
+// the trap's visibility filter keeps every control here.
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -25,14 +25,22 @@ afterEach(() => {
 
 const noop = () => {};
 
-function openDialog(): { layer: LayerId; panel: HTMLElement; destroyTrap: () => void } {
+function button(label: string): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.textContent = label;
+  return b;
+}
+
+function openDialog(controls: HTMLElement[] = [button('First'), button('Last')]): {
+  layer: LayerId;
+  panel: HTMLElement;
+  destroyTrap: () => void;
+} {
   const layer = newLayerId('dialog');
   cleanups.push(pushLayer(layer, 'modal', noop));
   const panel = document.createElement('div');
   panel.tabIndex = -1;
-  const button = document.createElement('button');
-  button.textContent = 'OK';
-  panel.appendChild(button);
+  panel.append(...controls);
   document.body.appendChild(panel);
   const handle = trapFocus(panel, layer);
   let destroyed = false;
@@ -59,21 +67,23 @@ function dropFocus(): void {
   expect(document.activeElement).toBe(document.body);
 }
 
+const focusedText = () => document.activeElement?.textContent;
+
 describe('trapFocus and a Tab pressed while nothing holds the focus', () => {
-  it('takes it into the top dialog', () => {
-    const { panel } = openDialog();
+  it('Tab takes it to the first control of the top dialog', () => {
+    openDialog();
     dropFocus();
     const e = pressTab();
     expect(e.defaultPrevented).toBe(true);
-    expect(panel.contains(document.activeElement)).toBe(true);
+    expect(focusedText()).toBe('First');
   });
 
-  it('Shift+Tab too', () => {
-    const { panel } = openDialog();
+  it('Shift+Tab to its last', () => {
+    openDialog();
     dropFocus();
     const e = pressTab({ shiftKey: true });
     expect(e.defaultPrevented).toBe(true);
-    expect(panel.contains(document.activeElement)).toBe(true);
+    expect(focusedText()).toBe('Last');
   });
 
   it('only the topmost dialog takes it', () => {
@@ -106,12 +116,30 @@ describe('trapFocus and a Tab pressed while nothing holds the focus', () => {
 
   it('never takes a focus something outside the dialog holds', () => {
     openDialog();
-    const outside = document.createElement('button');
+    const outside = button('Outside');
     document.body.appendChild(outside);
     outside.focus();
     const e = pressTab();
     expect(e.defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(outside);
+  });
+
+  it('a dialog with no control takes it on the panel itself', () => {
+    const { panel } = openDialog([]);
+    dropFocus();
+    pressTab();
+    expect(document.activeElement).toBe(panel);
+  });
+
+  it('a control that will not take the focus leaves it to the panel', () => {
+    // Hidden by visibility, inert: focus() does nothing. The press is already taken, so
+    // leaving the focus on <body> would swallow every Tab.
+    const stubborn = button('First');
+    stubborn.focus = () => {};
+    const { panel } = openDialog([stubborn]);
+    dropFocus();
+    pressTab();
+    expect(document.activeElement).toBe(panel);
   });
 
   it('ignores other keys', () => {

@@ -185,8 +185,8 @@ describe('PreflightGateDialog', () => {
   });
 
   it('parks focus on the dialog body when the repair starts (DESIGN.md §8)', async () => {
-    // A focused button that turns disabled drops focus to <body>, and Tab then walks the page
-    // behind the dialog.
+    // A focused button that turns disabled drops focus to <body>, and the user's place in the
+    // dialog with it.
     const { rerender } = render(PreflightGateDialog, { props: defaultProps });
     screen.getByRole('button', { name: /fix and launch/i }).focus();
     await rerender({ ...defaultProps, busy: true });

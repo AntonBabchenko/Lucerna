@@ -98,9 +98,11 @@
   function onBackdropMouseDown(e: MouseEvent) {
     pressOnBackdrop = e.target === e.currentTarget;
     // The scrim is no place for the focus. Not focusable, a press on it would
-    // drop the focus to <body> — the user's place in the dialog gone, and
-    // Shift+Tab walking the page behind it — even when the release lands in
-    // the panel and nothing closes. Keep the focus where it is.
+    // drop the focus to <body> — the field's caret and the user's place in the
+    // dialog gone, the field's blur handlers run — even when the release lands
+    // in the panel and nothing closes. Keep the focus where it is. (Nor does
+    // the press start a text selection: there is nothing on the scrim to
+    // select.)
     if (pressOnBackdrop) e.preventDefault();
   }
 

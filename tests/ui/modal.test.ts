@@ -93,7 +93,7 @@ describe('Modal', () => {
 
   it('a press on the backdrop does not move the focus; a press on the panel does', async () => {
     // Left to the browser, a press on the backdrop (not focusable) would drop the
-    // focus to <body>, and Shift+Tab would walk the page behind the open dialog.
+    // focus to <body>, and the user's place in the dialog with it.
     const { getByRole } = render(Modal, {
       props: { onClose: vi.fn(), ariaLabel: 'x', children: body() },
     });
