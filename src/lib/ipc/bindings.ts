@@ -1358,9 +1358,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Apply a modpack update in place. Phase 1 downloads every new/changed
 	 *  file into the shared cache (the instance is NOT touched — a failure
-	 *  here aborts cleanly). Phase 2 removes the old files, installs the new
-	 *  ones from the warm cache, and rewrites `pack_origin` + the instance's
-	 *  version metadata. `overrides/`-bundled content is not touched.
+	 *  here aborts cleanly). With `backup_worlds`, every world is then zipped
+	 *  into the instance's backups (a failed backup stops the update before
+	 *  anything changed). Phase 2 (`mods::modpack::apply`) is all or nothing:
+	 *  it sets the old files aside, installs the new ones from the warm cache
+	 *  and rewrites `pack_origin` + the instance's version metadata — or, when
+	 *  any step fails, undoes every step and returns `ModpackUpdateRolledBack`.
+	 *  `overrides/`-bundled content is not touched.
 	 * 
 	 *  The whole command runs under the instance's maintenance claim
 	 *  (`instances::maintenance::claim_write`), refused with `InstanceBusy` while
@@ -1368,7 +1372,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  migration, a mod migration, a clone, another update — holds the instance,
 	 *  or while a single mod, asset or pack-file writer is still in flight.
 	 */
-	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<ModpackUpdateOutcome, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, onProgress, onInstallProgress })),
+	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, backupWorlds: boolean, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<ModpackUpdateOutcome, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, backupWorlds, onProgress, onInstallProgress })),
 	/**
 	 *  Re-fetch the instance's current modpack version and re-extract its
 	 *  `overrides/` — recovers bundled mods/files that a per-file Restore
@@ -1510,6 +1514,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `version`, so the "What's new" prompt is not shown again for it.
 	 */
 	changelogMarkSeen: (version: string) => typedError<null, Error>(__TAURI_INVOKE("changelog_mark_seen", { version })),
+	/**
+	 *  What startup undid, once: waits for the recovery task, returns its report
+	 *  and clears it. Every later call returns an empty list.
+	 */
+	takeUpdateRecoveryReport: () => typedError<RecoveredUpdate[], Error>(__TAURI_INVOKE("take_update_recovery_report")),
 	/**
 	 *  Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
 	 *  записать `server.json` + `eula.txt`.
@@ -3710,7 +3719,29 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  install is refused before its jar is downloaded. `name` is the installed
  *  row's display name.
  */
-{ kind: "mods_already_installed"; name: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
+{ kind: "mods_already_installed"; name: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | 
+/**
+ *  A modpack update stopped in phase 2 and was undone: nothing was changed.
+ *  `file_name` is the file it stopped at — the old file it was setting aside
+ *  or the new one it was placing; `None` when it stopped while writing the
+ *  pack record (`pack_origin` or `instance.json`). Raised only after a CLEAN
+ *  rollback; an undo that left files behind is
+ *  `ContentUpdateRollbackIncomplete` instead.
+ */
+{ kind: "modpack_update_rolled_back"; file_name: string | null; details: string } | 
+/**
+ *  An update failed and its undo could not put everything back. What could
+ *  not go back is kept in `folder` (the transaction's `-kept` directory);
+ *  `details` carries the original failure and the entries left behind.
+ */
+{ kind: "content_update_rollback_incomplete"; folder: string; details: string } | 
+/**
+ *  An earlier content transaction of this instance is still pending — its
+ *  record could not be closed. Updates are refused until a restart finishes
+ *  undoing it: acting on top of it could let that stale record later remove
+ *  files a newer update placed.
+ */
+{ kind: "content_update_unfinished"; folder: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
 /**
  *  A client data-pack change (add, remove or switch, from a world's tab)
  *  was asked for in a `saves/` folder that has neither `level.dat` nor
@@ -6231,7 +6262,13 @@ export type ModpackInstanceUpdate = {
  *  `install_progress` channel from sub-3 so PhaseStatusRow + the
  *  import progress view can both render fine-grained state.
  */
-export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "enriching" } | 
+export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | 
+/**
+ *  A pack update zipping world `current` of `total` into the instance's
+ *  backups before it changes anything (`modpack_apply_update` with
+ *  `backup_worlds`).
+ */
+{ phase: "backing_up_world"; current: number; total: number; world_name: string } | { phase: "enriching" } | 
 /**
  *  Terminal phase marker — deliberately **payload-free**.
  * 
@@ -7131,6 +7168,16 @@ export type RangeDescription = {
 
 /**  Which grammar a raw range string uses. */
 export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
+
+/**  One interrupted update the startup recovery dealt with. */
+export type RecoveredUpdate = {
+	instance_id: string,
+	instance_name: string,
+	outcome: RecoveryOutcome,
+};
+
+/**  How the startup undo of one interrupted update ended. */
+export type RecoveryOutcome = { kind: "restored" } | { kind: "incomplete"; folder: string; details: string };
 
 /**
  *  One downloadable release asset. `size` is `f64` because specta maps
