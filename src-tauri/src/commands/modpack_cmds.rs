@@ -737,13 +737,6 @@ pub async fn modpack_apply_update(
     // ---- Phase 2: all or nothing (cache is warm). On `Err` every step was
     // undone and nothing was written; the views that read the instance
     // mid-swap are told to read it again. ----
-    let on_file = |current: u32, total: u32, file_name: &str| {
-        let _ = on_progress.send(ModpackProgress::InstallingFile {
-            current,
-            total,
-            file_name: file_name.to_string(),
-        });
-    };
     let applied = match crate::mods::modpack::apply::apply_update_txn(
         crate::mods::modpack::apply::PackApply {
             data_dir: &dd,
@@ -755,7 +748,6 @@ pub async fn modpack_apply_update(
             new_version_id: &new_version_id,
         },
         &install_progress,
-        &on_file,
     )
     .await
     {

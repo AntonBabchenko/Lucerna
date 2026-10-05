@@ -25,7 +25,7 @@ describe('formatError', () => {
       file_name: null,
       details: 'disk full',
     });
-    expect(atRecord).toContain('record could not be written');
+    expect(atRecord).toContain("could not write the pack's record");
   });
 
   it('formats network as a clean actionable message — no url/detail leak', () => {

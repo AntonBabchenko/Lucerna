@@ -47,14 +47,14 @@ pub struct AppliedUpdate {
     pub inert_loader_jars: Vec<InertLoaderJar>,
 }
 
-/// Run phase 2 inside a content transaction. `on_file(current, total, name)`
-/// is called before each file is placed. On `Err` nothing was changed — the
+/// Run phase 2 inside a content transaction. It reports no progress of its
+/// own: placing files from the warm cache takes milliseconds each, and phase 1
+/// already counted them while downloading. On `Err` nothing was changed — the
 /// error is `ModpackUpdateRolledBack`, or `ContentUpdateRollbackIncomplete`
 /// when the undo itself left files behind.
 pub async fn apply_update_txn(
     a: PackApply<'_>,
     progress: &ProgressFn,
-    on_file: &(dyn Fn(u32, u32, &str) + Send + Sync),
 ) -> Result<AppliedUpdate, Error> {
     let lock = txn::lock(a.inst_root).await;
     let rows = installed::list(a.inst_root).await?;
@@ -64,7 +64,7 @@ pub async fn apply_update_txn(
     )?);
     let plan = build_pack_plan(&a, &rows, prior_instance).await?;
     let txn = txn::begin(lock, plan).await?;
-    let outcome = run(&txn, &a, progress, on_file).await;
+    let outcome = run(&txn, &a, progress).await;
     txn.finish(outcome).await
 }
 
@@ -72,7 +72,6 @@ async fn run(
     txn: &txn::Txn,
     a: &PackApply<'_>,
     progress: &ProgressFn,
-    on_file: &(dyn Fn(u32, u32, &str) + Send + Sync),
 ) -> Result<AppliedUpdate, Error> {
     for entry in &txn.plan().stage {
         txn.stage(entry)
@@ -86,10 +85,8 @@ async fn run(
         .iter()
         .chain(a.diff.updated.iter().map(|e| &e.new))
         .collect();
-    let total = to_place.len() as u32;
     let mut details = Vec::with_capacity(to_place.len());
-    for (i, f) in to_place.iter().enumerate() {
-        on_file(i as u32 + 1, total, &f.filename);
+    for f in &to_place {
         let row = place(a, f, progress)
             .await
             .map_err(|e| rolled_back(Some(f.filename.clone()), e))?;
@@ -512,7 +509,6 @@ mod tests {
                 new_version_id: "new-id",
             },
             &nop(),
-            &|_, _, _| {},
         )
         .await
     }

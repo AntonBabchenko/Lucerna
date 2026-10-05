@@ -2791,9 +2791,9 @@
       "unreadable": "Lucerna couldn't check your data folder ({path}): {details}",
       "timedOut": "Your data folder ({path}) did not answer within {seconds} s — a network or sleeping drive can be slow to wake. Try again in a moment."
     },
-    "modpackUpdateRolledBack": "Could not update the pack: it stopped at {file}. Nothing was changed.",
-    "modpackUpdateRolledBackRecord": "Could not update the pack: its record could not be written. Nothing was changed.",
-    "contentUpdateRollbackIncomplete": "The update failed and could not be fully undone. What could not go back is kept in {folder}.",
+    "modpackUpdateRolledBack": "Nothing was changed. The pack update stopped at {file}",
+    "modpackUpdateRolledBackRecord": "Nothing was changed. The pack update could not write the pack's record",
+    "contentUpdateRollbackIncomplete": "The update failed and could not be fully undone. What could not go back is kept in {folder}",
     "contentUpdateUnfinished": "An earlier update of this profile was not finished. Restart Lucerna to finish undoing it, then try again."
   },
   "settings": {
