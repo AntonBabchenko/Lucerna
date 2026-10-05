@@ -9,6 +9,17 @@ use crate::mods::platform::LoaderKind;
 
 const MR_BASE: &str = "https://api.modrinth.com";
 
+/// The bytes of a Modrinth pack version's `.mrpack`, not staged: for a caller
+/// that consumes the archive itself and so has no use for a copy on disk
+/// (`modpack_reimport_overrides`).
+pub(crate) async fn fetch_version_archive(
+    project_id: &str,
+    version_id: &str,
+) -> Result<Vec<u8>, Error> {
+    crate::mods::modpack::source::stage::fetch_modrinth_mrpack(MR_BASE, project_id, version_id)
+        .await
+}
+
 pub struct ModrinthModpackSource;
 
 #[async_trait]

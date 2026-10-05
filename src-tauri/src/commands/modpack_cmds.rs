@@ -37,6 +37,9 @@ pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::erro
 /// For `.ftbpack.json` / `.atlpack.json` sidecar files the summary is
 /// deserialised directly and the archive path is skipped entirely (no bytes
 /// to read, no overrides).
+///
+/// A `path` staged by `modpack_fetch_to_temp` is deleted when this returns,
+/// whatever the outcome; a pack the user picked or dropped is never touched.
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -56,6 +59,9 @@ pub async fn modpack_import(
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> Result<crate::mods::modpack::schema::ModpackImportOutcome, crate::error::Error> {
+    // Bound first, so the staged archive goes however this returns, a refusal
+    // included. Confined to staged files (`stage::ConsumeGuard`).
+    let _staged = crate::mods::modpack::source::stage::ConsumeGuard::new(&app, &path);
     crate::data_root::reject_if_root_unusable(&app)?;
     let install_progress: crate::mods::install::ProgressFn =
         Box::new(move |phase, current, total| {
@@ -211,13 +217,19 @@ pub async fn modpack_resolve_url(url: String) -> Result<ResolvedImportUrl, crate
     Ok(ResolvedImportUrl { hit, version_id })
 }
 
-/// Pull a modpack version's archive to a temp path under the OS temp
-/// dir, and return the absolute path so the UI can hand it to
-/// `modpack_inspect` / `modpack_import`. Modrinth versions resolve to a
-/// primary `.mrpack`; CurseForge versions resolve a file's
-/// `downloadUrl` to a `.zip`. The temp file is left in place after
-/// import — a successful import has already copied every byte that
-/// matters into the instance.
+/// Pull a modpack version's archive to a staged file under the OS temp
+/// dir, and return the absolute path for the UI to hand to
+/// `modpack_inspect` / `modpack_import`, or to `modpack_compute_update` /
+/// `modpack_apply_update`. Modrinth versions resolve to a primary
+/// `.mrpack`; CurseForge versions resolve a file's `downloadUrl` to a
+/// `.zip`; FTB and ATLauncher versions stage their resolved summary
+/// (`.ftbpack.json` / `.atlpack.json`).
+///
+/// The path is single-use: `modpack_import` and `modpack_apply_update`
+/// delete the file when they return, whatever the outcome, so trying again
+/// means staging again. A file no operation consumes (a dialog closed, a
+/// preview that failed) is removed once it is a day old. The rules live in
+/// `mods::modpack::source::stage`.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_fetch_to_temp(
@@ -574,7 +586,8 @@ pub async fn modpacks_check_updates(
 
 /// Diff a downloaded new-version `.mrpack` (already fetched to
 /// `mrpack_path` via `modpack_fetch_to_temp`) against the instance's
-/// current `pack_origin`. Returns the diff for the confirm dialog.
+/// current `pack_origin`. Returns the diff for the confirm dialog. The file
+/// is only read here: the `modpack_apply_update` that follows consumes it.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_compute_update(
@@ -621,6 +634,9 @@ pub async fn modpack_compute_update(
 /// the game runs or starts, while another long operation — a world
 /// migration, a mod migration, a clone, another update — holds the instance,
 /// or while a single mod, asset or pack-file writer is still in flight.
+///
+/// `mrpack_path`, staged by `modpack_fetch_to_temp`, is deleted when this
+/// returns, whatever the outcome, so applying again means staging again.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_apply_update(
@@ -632,6 +648,10 @@ pub async fn modpack_apply_update(
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> crate::error::Result<crate::mods::modpack::schema::ModpackUpdateOutcome> {
+    // Bound first, so the staged archive goes however this returns, a refusal
+    // included. Its drop is synchronous, so nothing is awaited after
+    // `drop(claim)` below.
+    let _staged = crate::mods::modpack::source::stage::ConsumeGuard::new(&app, &mrpack_path);
     // First, before anything is read. The diff, the carry-disabled snapshot
     // and the instance's Minecraft/loader below all describe the tree phase 2
     // rewrites; taken after them — or after phase 1's downloads, to keep Play
@@ -836,19 +856,11 @@ pub async fn modpack_reimport_overrides(
         }
     };
 
-    let temp_path = modpack_fetch_to_temp(
-        app.clone(),
-        crate::mods::platform::ModSource::Modrinth,
-        project_id,
-        version_id,
-    )
-    .await?;
-    let bytes = tokio::fs::read(&temp_path)
-        .await
-        .map_err(|e| crate::error::Error::Io {
-            path: temp_path.clone(),
-            details: e.to_string(),
-        })?;
+    // Consumed right here, so fetched into memory rather than staged: a copy
+    // on disk would only be one more file to clean up.
+    let bytes =
+        crate::mods::modpack::source::modrinth::fetch_version_archive(&project_id, &version_id)
+            .await?;
     // Worlds the player already has are never written. Taken before the
     // extraction — this command writes nothing else first.
     let protected = crate::mods::modpack::overrides::ProtectedWorlds::snapshot(&bytes, &inst_root)?;

@@ -488,13 +488,18 @@ pub(crate) async fn stage_impl(
 
     // Serialise ModpackSummary and write to temp sidecar.
     // Filename MUST end with .ftbpack.json (Task 9 detects FTB by this extension).
-    // write_to_temp produces <uuid>.ftbpack.json when ext = "ftbpack.json".
+    // write_to_temp produces <uuid>.ftbpack.json for `StagedKind::FtbSummary`.
     let json = serde_json::to_vec(&summary).map_err(|e| Error::ModsDecode {
         platform: "ftb".into(),
         details: e.to_string(),
     })?;
 
-    crate::mods::modpack::source::stage::write_to_temp(app, &json, "ftbpack.json").await
+    crate::mods::modpack::source::stage::write_to_temp(
+        app,
+        &json,
+        crate::mods::modpack::source::stage::StagedKind::FtbSummary,
+    )
+    .await
 }
 
 // ── trait impl ────────────────────────────────────────────────────────────────

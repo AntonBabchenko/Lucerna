@@ -52,9 +52,12 @@ pub trait ModpackSource: Send + Sync {
     async fn get_versions(&self, project_id: &str) -> Result<Vec<ModpackVersionEntry>, Error>;
     async fn get_project(&self, project_id: &str) -> Result<ModpackProject, Error>;
     /// Stage a chosen version into the OS temp dir; return the path the
-    /// browse flow hands to `modpack_inspect`/`modpack_import`. Modrinth/CF
-    /// write the archive (`.mrpack`/`.zip`); FTB writes a `.ftbpack.json`
-    /// sidecar (serialized `ModpackSummary`).
+    /// browse flow hands to `modpack_inspect`/`modpack_import` (and the update
+    /// flow to `modpack_compute_update`/`modpack_apply_update`). Modrinth/CF
+    /// write the archive (`.mrpack`/`.zip`); FTB and ATLauncher write a
+    /// `.ftbpack.json` / `.atlpack.json` sidecar (serialized `ModpackSummary`).
+    /// Always through `stage::write_to_temp`, which owns the file from then
+    /// on: who removes it, and when, is documented there.
     async fn stage_version_to_temp(
         &self,
         app: &tauri::AppHandle,
