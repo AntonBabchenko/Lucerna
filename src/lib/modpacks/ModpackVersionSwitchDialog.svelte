@@ -130,6 +130,17 @@
     await flow.prepare(inst, selected);
   }
 
+  // The one way out: Escape, a backdrop click and the version list's Cancel.
+  // On the review step it leaves exactly like Back + close, so the pending
+  // update is dropped through the flow. While a fetch or an apply is in flight
+  // the dialog stays: the Modal's Escape and backdrop are off then, and the
+  // layer stack keeps that Escape from closing the drawer underneath.
+  function dismiss(): void {
+    if (flow.running) return;
+    back();
+    onClose();
+  }
+
   function back(): void {
     flow.cancel();
     selected = null;
@@ -145,9 +156,9 @@
 
 <Modal
   ariaLabelledby="modpack-switch-title"
-  onClose={flow.busy ? () => {} : onClose}
-  closeOnBackdrop={!flow.busy}
-  closeOnEscape={!flow.busy}
+  onClose={dismiss}
+  closeOnBackdrop={!flow.running}
+  closeOnEscape={!flow.running}
   panelClass="w-[560px] max-h-[80vh] p-5 flex flex-col gap-3"
 >
   <h3 id="modpack-switch-title" class="font-semibold text-base text-primary">
@@ -196,7 +207,7 @@
       />
     {/if}
     <div class="flex justify-end">
-      <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
+      <button type="button" class="btn-secondary btn-sm" onclick={dismiss}>
         {$t('modpacks.switch.cancelBtn')}
       </button>
     </div>

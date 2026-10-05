@@ -25,6 +25,8 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 //   - `modpackRestoreFile`: re-install path triggered from the
 //     Removed-from-pack Restore button.
 //   - `deleteInstance`: fired from the confirm overlay's red button.
+//   - `modpackFetchToTemp` / `modpackComputeUpdate`: the update flow's
+//     prepare step, behind the update banner's Update button.
 //
 // Tests override these via `vi.mocked(...).mockResolvedValueOnce(...)`
 // per-case where the defaults aren't enough.
@@ -75,6 +77,17 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
+    modpackFetchToTemp: vi.fn().mockResolvedValue({ status: 'ok', data: '/tmp/pack.mrpack' }),
+    modpackComputeUpdate: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        added: [],
+        removed: [],
+        updated: [],
+        new_version_number: '2.0.0',
+        version_bump: null,
+      },
+    }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // The guarded disable asks first; nothing depends on the inert jar, so the
     // safe flip order names just the target.
@@ -1174,5 +1187,51 @@ describe('inert-jar disable action', () => {
     const section = await findByTestId('imported-detail-inert-section');
     expect(within(section).queryByRole('button', { name: 'Disable' })).toBeNull();
     expect(within(section).queryByText('disabled')).toBeNull();
+  });
+});
+
+// ── update banner: what runs and what only waits ─────────────────────────
+describe('pack update in progress', () => {
+  const V2 = {
+    id: 'ver-2',
+    name: '2.0',
+    version_number: '2.0.0',
+    game_versions: ['1.20.1'],
+    loaders: ['fabric'],
+    date_published: '2026-01-01T00:00:00Z',
+  };
+  const renderWithUpdate = () => {
+    vi.mocked(commands.modpackUpdateStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: { kind: 'update_available', entry: V2 },
+    });
+    return render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+  };
+
+  // Nothing runs while the update's confirm dialog waits for a yes. The drawer
+  // used to show its updating line from the first click on, so behind the open
+  // dialog it said an update was running.
+  it('does not claim an update is running while its confirm dialog waits', async () => {
+    const { findByTestId, queryByTestId } = renderWithUpdate();
+    await fireEvent.click(await findByTestId('imported-detail-update-button'));
+    await findByTestId('update-confirm');
+    expect(queryByTestId('imported-detail-updating')).toBeNull();
+  });
+
+  it('shows the update as running while the new version is fetched', async () => {
+    let land!: (v: { status: 'ok'; data: string }) => void;
+    vi.mocked(commands.modpackFetchToTemp).mockReturnValueOnce(
+      new Promise((r) => {
+        land = r;
+      }),
+    );
+    const { findByTestId, queryByTestId } = renderWithUpdate();
+    await fireEvent.click(await findByTestId('imported-detail-update-button'));
+    const whileFetching = queryByTestId('imported-detail-updating') !== null;
+    land({ status: 'ok', data: '/tmp/pack.mrpack' });
+    await findByTestId('update-confirm');
+    expect(whileFetching).toBe(true);
   });
 });
