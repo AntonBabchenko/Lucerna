@@ -1673,7 +1673,9 @@
       "bulkAdded": "Added to this world {ok} of {total}",
       "bulkAddedFailed": "Added to this world {ok} of {total}, {failed} failed",
       "bulkRemoved": "Removed from this world {ok} of {total}",
-      "bulkRemovedFailed": "Removed from this world {ok} of {total}, {failed} failed"
+      "bulkRemovedFailed": "Removed from this world {ok} of {total}, {failed} failed",
+      "bulkAdd": "Add",
+      "bulkRemove": "Remove"
     },
     "restore": {
       "title": "Restore \"{world}\" from {timestamp}",

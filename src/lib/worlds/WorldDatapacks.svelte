@@ -307,20 +307,11 @@
     return { ...action, disabled: none, disabledReason: $t('ui.bulk.noneApplicable') };
   }
   const bulkActions = $derived<BulkBarAction[]>([
+    bulkGate({ id: 'enable', label: $t('mods.card.enable') }, applicable('enable').length === 0),
+    bulkGate({ id: 'disable', label: $t('mods.card.disable') }, applicable('disable').length === 0),
+    bulkGate({ id: 'add', label: $t('worlds.datapacks.bulkAdd') }, applicable('add').length === 0),
     bulkGate(
-      { id: 'enable', label: $t('worlds.datapacks.enable') },
-      applicable('enable').length === 0,
-    ),
-    bulkGate(
-      { id: 'disable', label: $t('worlds.datapacks.disable') },
-      applicable('disable').length === 0,
-    ),
-    bulkGate(
-      { id: 'add', label: $t('worlds.datapacks.addToWorld') },
-      applicable('add').length === 0,
-    ),
-    bulkGate(
-      { id: 'remove', label: $t('worlds.datapacks.removeFromWorld'), intent: 'danger' },
+      { id: 'remove', label: $t('worlds.datapacks.bulkRemove'), intent: 'danger' },
       applicable('remove').length === 0,
     ),
   ]);

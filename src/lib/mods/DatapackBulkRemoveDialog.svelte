@@ -302,6 +302,13 @@
 >
   {#snippet body()}
     <div class="flex flex-col gap-3" data-testid="datapack-bulk-remove-dialog">
+      <!-- What is removed comes first, under the title; what it touches follows. -->
+      <ul
+        class="list-disc list-inside text-sm text-primary"
+        data-testid="datapack-bulk-remove-names"
+      >
+        {#each names as line, i (i)}<li class="break-words">{line}</li>{/each}
+      </ul>
       {#if mode.kind === 'this-world'}
         {#if verdicts === null}
           <div
@@ -401,12 +408,6 @@
           </p>
         {/if}
       {/if}
-      <ul
-        class="list-disc list-inside text-sm text-primary"
-        data-testid="datapack-bulk-remove-names"
-      >
-        {#each names as line, i (i)}<li class="break-words">{line}</li>{/each}
-      </ul>
     </div>
   {/snippet}
 </ConfirmDialog>

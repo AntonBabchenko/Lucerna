@@ -1673,7 +1673,9 @@
       "bulkAdded": "Добавлено в этот мир {ok} из {total}",
       "bulkAddedFailed": "Добавлено в этот мир {ok} из {total}, не удалось: {failed}",
       "bulkRemoved": "Убрано из этого мира {ok} из {total}",
-      "bulkRemovedFailed": "Убрано из этого мира {ok} из {total}, не удалось: {failed}"
+      "bulkRemovedFailed": "Убрано из этого мира {ok} из {total}, не удалось: {failed}",
+      "bulkAdd": "Добавить",
+      "bulkRemove": "Убрать"
     },
     "restore": {
       "title": "Восстановить «{world}» из {timestamp}",

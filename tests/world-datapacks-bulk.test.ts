@@ -85,7 +85,7 @@ describe('WorldDatapacks — bulk actions', () => {
     await fireEvent.click(screen.getByTestId('bulk-select-all'));
     expect(screen.getByText(/5 selected/)).toBeTruthy();
     const bar = screen.getByTestId('bulk-bar');
-    await fireEvent.click(within(bar).getByRole('button', { name: 'Enable in this world' }));
+    await fireEvent.click(within(bar).getByRole('button', { name: 'Enable' }));
     await waitFor(() => expect(commands.datapacksSetEnabledInWorld).toHaveBeenCalledTimes(1));
     expect(commands.datapacksSetEnabledInWorld).toHaveBeenCalledWith(
       'inst-1',
@@ -96,7 +96,7 @@ describe('WorldDatapacks — bulk actions', () => {
     expect(toasts.pushSuccess).toHaveBeenCalledWith('Enabled in this world 1 of 1');
     await fireEvent.click(screen.getByTestId('bulk-select-all'));
     await fireEvent.click(
-      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Add to this world' }),
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Add' }),
     );
     await waitFor(() => expect(commands.datapacksAddToWorld).toHaveBeenCalledTimes(1));
     expect(commands.datapacksAddToWorld).toHaveBeenCalledWith('inst-1', 'MyWorld', 'new.zip');
@@ -107,7 +107,7 @@ describe('WorldDatapacks — bulk actions', () => {
     await fireEvent.click(screen.getByTestId('bulk-select-all'));
     await fireEvent.click(
       within(screen.getByTestId('bulk-bar')).getByRole('button', {
-        name: 'Remove from this world',
+        name: 'Remove',
       }),
     );
     expect(await screen.findByTestId('datapack-bulk-remove-dialog')).toBeTruthy();
@@ -134,12 +134,7 @@ describe('WorldDatapacks — bulk actions', () => {
     await mountWith(five(), true);
     await fireEvent.click(screen.getByTestId('bulk-select-all'));
     const bar = screen.getByTestId('bulk-bar');
-    for (const name of [
-      'Enable in this world',
-      'Disable in this world',
-      'Add to this world',
-      'Remove from this world',
-    ]) {
+    for (const name of ['Enable', 'Disable', 'Add', 'Remove']) {
       const btn = within(bar).getByRole('button', { name });
       expect(btn.hasAttribute('disabled')).toBe(true);
       expect(btn.parentElement?.getAttribute('tabindex')).toBe('0');

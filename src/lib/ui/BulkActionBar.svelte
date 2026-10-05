@@ -7,7 +7,9 @@
   selected; `busy` disables every action while any operation runs; `busyAction` spins only the
   running one; Clear is never gated (deselecting is local state and safe mid-operation); a
   disabled action carries its reason as a tooltip on a wrapping span that keeps a tab stop, so
-  the reason is reachable by keyboard too (DESIGN.md §5).
+  the reason is reachable by keyboard too (DESIGN.md §5). A label never breaks inside itself: in
+  a narrow host (a world's dialog, the 820 px window) whole buttons wrap to the next line, the
+  ConfirmDialog footer's rule.
 -->
 <script module lang="ts">
   export type BulkBarAction = {
@@ -59,7 +61,9 @@
   } = $props();
 </script>
 
-<div class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-subtle/40 text-sm">
+<div
+  class="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 border-b border-border-subtle bg-subtle/40 text-sm"
+>
   <SelectAllCheckbox
     {allSelected}
     {indeterminate}
@@ -67,10 +71,10 @@
     testid="bulk-select-all"
   />
   {#if selectedCount > 0}
-    <span class="font-medium text-accent"
+    <span class="whitespace-nowrap font-medium text-accent"
       >{$t('ui.bulk.selectedCount', { count: selectedCount })}</span
     >
-    <div data-testid="bulk-bar" class="ml-auto flex items-center gap-1">
+    <div data-testid="bulk-bar" class="ml-auto flex flex-wrap items-center justify-end gap-1">
       {#each actions as action (action.id)}
         {@const off = action.disabled === true}
         {@const reason = off && action.disabledReason ? action.disabledReason : ''}
@@ -83,7 +87,7 @@
           <BusyButton
             busy={busyAction === action.id}
             disabled={busy || off}
-            class={`${action.intent === 'danger' ? 'btn-ghost-danger' : 'btn-secondary'} btn-xs`}
+            class={`${action.intent === 'danger' ? 'btn-ghost-danger' : 'btn-secondary'} btn-xs whitespace-nowrap`}
             data-testid={action.testid}
             onclick={() => onAction(action.id)}>{action.label}</BusyButton
           >
@@ -91,7 +95,8 @@
       {/each}
       <!-- Clear is deliberately not gated on `busy`: deselecting is a local-only state reset
            and is safe to do while a bulk IPC op is in flight. -->
-      <button type="button" class="btn-ghost btn-xs" onclick={onClear}>{$t('ui.bulk.clear')}</button
+      <button type="button" class="btn-ghost btn-xs whitespace-nowrap" onclick={onClear}
+        >{$t('ui.bulk.clear')}</button
       >
     </div>
   {:else}
