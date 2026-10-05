@@ -325,8 +325,8 @@
     await updateFlow.prepare(inst, updateAvailable);
   }
 
-  async function confirmUpdate() {
-    const ok = await updateFlow.confirm(inst);
+  async function confirmUpdate(opts: { backupWorlds: boolean }) {
+    const ok = await updateFlow.confirm(inst, opts);
     if (!ok) return;
     updateAvailable = null;
     await load();
@@ -946,8 +946,9 @@
 {#if updateFlow.diff}
   <ModpackUpdateDialog
     diff={updateFlow.diff}
+    worldCount={updateFlow.worldCount}
     onCancel={() => updateFlow.cancel()}
-    onConfirm={() => void confirmUpdate()}
+    onConfirm={(opts) => void confirmUpdate(opts)}
   />
 {/if}
 

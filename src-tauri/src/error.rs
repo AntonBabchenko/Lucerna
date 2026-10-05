@@ -340,6 +340,31 @@ pub enum Error {
     #[error("Instance directory I/O error at {path}: {details}")]
     ModsInstancePath { path: String, details: String },
 
+    /// A modpack update stopped in phase 2 and was undone: nothing was changed.
+    /// `file_name` is the file it stopped at — the old file it was setting aside
+    /// or the new one it was placing; `None` when it stopped while writing the
+    /// pack record (`pack_origin` or `instance.json`). Raised only after a CLEAN
+    /// rollback; an undo that left files behind is
+    /// `ContentUpdateRollbackIncomplete` instead.
+    #[error("Modpack update rolled back at {file_name:?}: {details}")]
+    ModpackUpdateRolledBack {
+        file_name: Option<String>,
+        details: String,
+    },
+
+    /// An update failed and its undo could not put everything back. What could
+    /// not go back is kept in `folder` (the transaction's `-kept` directory);
+    /// `details` carries the original failure and the entries left behind.
+    #[error("Update could not be fully undone; kept in {folder}: {details}")]
+    ContentUpdateRollbackIncomplete { folder: String, details: String },
+
+    /// An earlier content transaction of this instance is still pending — its
+    /// record could not be closed. Updates are refused until a restart finishes
+    /// undoing it: acting on top of it could let that stale record later remove
+    /// files a newer update placed.
+    #[error("An earlier update is still pending in {folder}")]
+    ContentUpdateUnfinished { folder: String },
+
     #[error("Modpack archive is invalid: {details}")]
     ModpackInvalidArchive { details: String },
 
@@ -1508,6 +1533,44 @@ mod tests {
             "got: {json}"
         );
         assert!(json.contains(r#""details":"not zip""#), "got: {json}");
+    }
+
+    #[test]
+    fn modpack_update_rolled_back_serializes_a_missing_file_as_null() {
+        let e = Error::ModpackUpdateRolledBack {
+            file_name: None,
+            details: "disk full".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"modpack_update_rolled_back""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""file_name":null"#), "got: {json}");
+    }
+
+    #[test]
+    fn content_update_rollback_incomplete_serializes() {
+        let e = Error::ContentUpdateRollbackIncomplete {
+            folder: "f-kept".into(),
+            details: "d".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"content_update_rollback_incomplete""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""folder":"f-kept""#), "got: {json}");
+    }
+
+    #[test]
+    fn content_update_unfinished_serializes() {
+        let e = Error::ContentUpdateUnfinished { folder: "f".into() };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"content_update_unfinished""#),
+            "got: {json}"
+        );
     }
 
     #[test]

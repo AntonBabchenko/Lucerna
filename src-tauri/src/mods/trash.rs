@@ -132,13 +132,13 @@ pub fn trash_dir(instance_root: &Path) -> PathBuf {
     installed::registry_dir(instance_root).join("trash")
 }
 
-fn unix_ms(t: SystemTime) -> u64 {
+pub(crate) fn unix_ms(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH)
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(0)
 }
 
-fn new_token(now: SystemTime) -> String {
+pub(crate) fn new_token(now: SystemTime) -> String {
     let rand: String = uuid::Uuid::new_v4()
         .simple()
         .to_string()
@@ -150,7 +150,7 @@ fn new_token(now: SystemTime) -> String {
 
 /// The token's creation time, or `None` for anything that is not exactly
 /// `<digits>-<8 lowercase hex>` — which is also what makes it safe to join.
-fn parse_token(name: &str) -> Option<u64> {
+pub(crate) fn parse_token(name: &str) -> Option<u64> {
     let (ms, rand) = name.split_once('-')?;
     let hex = rand.len() == 8 && rand.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
     // At most 19 digits: always within `u64`, so the parse cannot fail.
@@ -323,7 +323,7 @@ async fn put_back(moved: &[(PathBuf, PathBuf)]) -> Vec<String> {
 /// Why a jar must not go back to `from`, if it must not: its base name (the
 /// file name without a trailing `.disabled`, as the registry reads names off
 /// disk) is taken in `from`'s folder in either spelling, or that cannot be told.
-async fn way_back_blocked(from: &Path) -> Option<String> {
+pub(crate) async fn way_back_blocked(from: &Path) -> Option<String> {
     let (Some(mods), Some(file)) = (from.parent(), from.file_name()) else {
         return Some(format!("{} names no file in a folder", from.display()));
     };
@@ -340,7 +340,7 @@ async fn way_back_blocked(from: &Path) -> Option<String> {
 /// `<base>.disabled` — if any. Either one taken means two jars would share one
 /// base name, and a later enable/disable would rename one over the other.
 /// `Err`: it could not be checked.
-async fn taken_spelling(mods: &Path, base: &str) -> Result<Option<String>, Error> {
+pub(crate) async fn taken_spelling(mods: &Path, base: &str) -> Result<Option<String>, Error> {
     for spelling in [base.to_string(), format!("{base}.disabled")] {
         let p = mods.join(&spelling);
         if fs::try_exists(&p).await.map_err(|e| io_err(&p, e))? {
@@ -384,7 +384,7 @@ async fn abort(dir: &Path, moved: &[(PathBuf, PathBuf)], cause: Error) -> Error 
 }
 
 /// `<token>-kept` is not a token, so no purge ever deletes it.
-async fn keep_out_of_purge(dir: &Path) -> std::io::Result<PathBuf> {
+pub(crate) async fn keep_out_of_purge(dir: &Path) -> std::io::Result<PathBuf> {
     let name = dir
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

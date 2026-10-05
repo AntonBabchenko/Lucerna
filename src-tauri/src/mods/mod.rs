@@ -45,6 +45,7 @@ pub mod render;
 pub mod store;
 pub mod summary_cache;
 pub mod trash;
+pub mod txn;
 pub mod unsupported;
 pub mod update_check_store;
 pub mod updates;

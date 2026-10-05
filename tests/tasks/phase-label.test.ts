@@ -96,6 +96,21 @@ describe('phaseLabel', () => {
     expect(phaseLabel(tr, task)).toBe('Extracting overrides 1/2…');
   });
 
+  it('maps pack-update "backing_up_world" without a count: the progress beside it carries one', () => {
+    const task: Task = {
+      ...base,
+      kind: 'pack-update',
+      phase: 'backing_up_world',
+      progress: { current: 0, total: 2, unit: 'files' },
+    };
+    expect(phaseLabel(tr, task)).toBe('Backing up worlds…');
+  });
+
+  it('maps pack-update "applying_changes", which carries no progress', () => {
+    const task: Task = { ...base, kind: 'pack-update', phase: 'applying_changes' };
+    expect(phaseLabel(tr, task)).toBe('Applying the changes…');
+  });
+
   it('maps launcher-import phases with no args needed', () => {
     const copying: Task = { ...base, kind: 'launcher-import', phase: 'copying' };
     expect(phaseLabel(tr, copying)).toBe('Copying files…');

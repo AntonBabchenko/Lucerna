@@ -15,13 +15,24 @@ import { formatError } from '$lib/ipc/format-error';
 import { applyModpackUpdate } from '$lib/tasks/adapters/pack-update';
 
 export type UpdateFlowPhase = 'idle' | 'preparing' | 'confirming' | 'applying';
-export type UpdateFileProgress = { current: number; total: number; fileName: string };
+/** What an in-flight update is doing: fetching file `current` of `total`, zipping world `current`
+ *  of `total` (`fileName` is then the world's folder name), or moving the new files in, which has
+ *  no count of its own. */
+export type UpdateFileProgress =
+  | { phase?: 'installing_file'; current: number; total: number; fileName: string }
+  | { phase: 'backing_up_world'; current: number; total: number; fileName: string }
+  | { phase: 'applying_changes' };
+export type ConfirmOptions = { backupWorlds: boolean };
 
 export function createModpackUpdateFlow() {
   let phase = $state<UpdateFlowPhase>('idle');
   let diff = $state<ModpackUpdateDiff | null>(null);
   let progress = $state<UpdateFileProgress | null>(null);
   let error = $state<string | null>(null);
+  // How many worlds the profile has, for the «Back up worlds first» choice.
+  // `null` = the count could not be read: the confirm surfaces still offer the
+  // backup (not knowing is no reason to take the choice away).
+  let worldCount = $state<number | null>(0);
   // Non-reactive carry-over between prepare() and confirm().
   let tempPath: string | null = null;
   let versionId: string | null = null;
@@ -30,6 +41,16 @@ export function createModpackUpdateFlow() {
   // `confirming` waits on the user, not on work.
   function isRunning(): boolean {
     return phase === 'preparing' || phase === 'applying';
+  }
+
+  async function countWorlds(instanceId: string): Promise<number | null> {
+    try {
+      const r = await commands.listWorldNames(instanceId);
+      return r.status === 'ok' ? r.data.length : null;
+    } catch {
+      // The bridge failed: the count is unknown, not zero.
+      return null;
+    }
   }
 
   // Step 1: fetch the new archive + compute the diff → open the confirm dialog.
@@ -55,12 +76,16 @@ export function createModpackUpdateFlow() {
       phase = 'idle';
       return;
     }
+    worldCount = await countWorlds(inst.id);
     diff = d.data;
     phase = 'confirming';
   }
 
   // Step 2: apply. Returns true on success so the caller can refresh.
-  async function confirm(inst: InstanceWithStatus): Promise<boolean> {
+  async function confirm(
+    inst: InstanceWithStatus,
+    opts: ConfirmOptions = { backupWorlds: false },
+  ): Promise<boolean> {
     if (!tempPath || !versionId) return false;
     diff = null;
     progress = null;
@@ -71,11 +96,32 @@ export function createModpackUpdateFlow() {
     // callback is still ours: the three consuming surfaces render their own
     // inline progress off `flow.progress`, and registering a task must not
     // take that away from them.
-    const out = await applyModpackUpdate(inst.name, inst.id, tempPath, versionId, (p) => {
-      if (p?.phase === 'installing_file') {
-        progress = { current: p.current, total: p.total, fileName: p.file_name };
-      }
-    });
+    const out = await applyModpackUpdate(
+      inst.name,
+      inst.id,
+      tempPath,
+      versionId,
+      opts.backupWorlds,
+      (p) => {
+        if (p?.phase === 'installing_file') {
+          progress = {
+            current: p.current,
+            total: p.total,
+            fileName: p.file_name,
+            phase: 'installing_file',
+          };
+        } else if (p?.phase === 'backing_up_world') {
+          progress = {
+            current: p.current,
+            total: p.total,
+            fileName: p.world_name,
+            phase: 'backing_up_world',
+          };
+        } else if (p?.phase === 'applying_changes') {
+          progress = { phase: 'applying_changes' };
+        }
+      },
+    );
     phase = 'idle';
     progress = null;
     // `cancelled` means the user dropped it from the queue before it ran —
@@ -98,6 +144,7 @@ export function createModpackUpdateFlow() {
     diff = null;
     progress = null;
     error = null;
+    worldCount = 0;
     tempPath = null;
     versionId = null;
     phase = 'idle';
@@ -115,6 +162,9 @@ export function createModpackUpdateFlow() {
     },
     get error() {
       return error;
+    },
+    get worldCount() {
+      return worldCount;
     },
     /** Work is in flight: the new version is being fetched and diffed, or
      *  applied. The confirm step waits on the user and is not running — a

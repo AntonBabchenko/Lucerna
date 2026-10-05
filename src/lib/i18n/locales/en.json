@@ -651,6 +651,10 @@
         "savedAnnouncement": "Saved",
         "clearedAnnouncement": "Translation removed"
       }
+    },
+    "updateRecovery": {
+      "restored": "An update of \"{name}\" was interrupted last time; it was undone and the profile is as it was.",
+      "incomplete": "An interrupted update of \"{name}\" could not be fully undone. Check its mods; what could not go back is kept in {folder}."
     }
   },
   "instances": {
@@ -1138,7 +1142,8 @@
       "unhold": "Allow updates",
       "holdFailed": "Couldn't change updates for {name}",
       "updateFailed": "Couldn't update {name}",
-      "badgeChangelogAria": "{from} → {to}, changelog"
+      "badgeChangelogAria": "{from} → {to}, changelog",
+      "previousKept": "The previous version is still in place."
     }
   },
   "addons": {
@@ -1330,7 +1335,9 @@
         "phaseInstallingFile": "Installing file {current}/{total}: {fileName}",
         "phaseExtractingOverrides": "Extracting overrides {current}/{total}…",
         "phaseEnriching": "Identifying bundled mods…",
-        "phaseDone": "Done."
+        "phaseDone": "Done.",
+        "phaseBackingUpWorlds": "Backing up worlds…",
+        "phaseApplyingChanges": "Applying the changes…"
       }
     },
     "imported": {
@@ -1404,7 +1411,9 @@
         "deleteConfirmAriaLabel": "Delete pack confirmation",
         "deleteConfirmTitle": "Delete pack and its instance?",
         "deleteConfirmBody": "Worlds, mods, configs, screenshots for this instance will be permanently lost. This cannot be undone.",
-        "deleteConfirmBtn": "Delete"
+        "deleteConfirmBtn": "Delete",
+        "updateProgressBackingUp": "Backing up world {current} of {total}: {worldName}",
+        "updateProgressApplying": "Applying the changes…"
       }
     },
     "export": {
@@ -1493,7 +1502,10 @@
       "versionBump": "Minecraft {oldVersion} → {newVersion}. After updating, click Install to download the new Minecraft version.",
       "noChanges": "No file changes in this version.",
       "cancelBtn": "Cancel",
-      "updateBtn": "Update"
+      "updateBtn": "Update",
+      "backupWorlds": "Back up worlds first ({count})",
+      "backupWorldsNoCount": "Back up worlds first",
+      "backupWorldsHint": "Zip copies go to the profile's backups folder; restore them from the Worlds tab."
     },
     "switch": {
       "openBtn": "Change version",
@@ -2786,7 +2798,11 @@
       "notADataRoot": "{path} no longer holds your data — the drive it was on may be disconnected.",
       "unreadable": "Lucerna couldn't check your data folder ({path}): {details}",
       "timedOut": "Your data folder ({path}) did not answer within {seconds} s — a network or sleeping drive can be slow to wake. Try again in a moment."
-    }
+    },
+    "modpackUpdateRolledBack": "Nothing was changed. The pack update stopped at {file}",
+    "modpackUpdateRolledBackRecord": "Nothing was changed. The pack update could not write the pack's record",
+    "contentUpdateRollbackIncomplete": "The update failed and could not be fully undone. What could not go back is kept in {folder}",
+    "contentUpdateUnfinished": "An earlier update of this profile was not finished. Restart Lucerna to finish undoing it, then try again."
   },
   "settings": {
     "title": "Settings",

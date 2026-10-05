@@ -267,6 +267,26 @@ describe('createUpdateCheck', () => {
     expect(u.error).toBeNull();
   });
 
+  it('a row update that failed after taking the profile says its previous version is still there', async () => {
+    mocks.modsCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [check('a', 'update_available')],
+    });
+    const u = make();
+    await u.checkUpdates();
+    // `update_one` undid its swap and returned the cause.
+    mocks.updateMod.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'mods_filename_conflict', filename: 'a2.jar' },
+    });
+    await u.updateOne(modA, 'Alpha');
+    // `formatError` is mocked as `String(e)`.
+    expect(mocks.pushWarning).toHaveBeenCalledWith('mods.updates.updateFailed', [
+      '[object Object]',
+      'mods.updates.previousKept',
+    ]);
+  });
+
   it('surfaces the CF key banner when a curseforge check fails and the key is missing', async () => {
     mocks.modsCheckUpdates.mockResolvedValue({
       status: 'ok',

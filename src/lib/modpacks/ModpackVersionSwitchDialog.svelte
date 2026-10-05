@@ -20,7 +20,12 @@
   import ModpackVersionList from './ModpackVersionList.svelte';
   import SwitchRiskList from './SwitchRiskList.svelte';
   import { createModpackUpdateFlow } from './modpack-update-flow.svelte';
-  import { assessSwitchRisks, switchChangelogRequest, switchDirection } from './switch-risks';
+  import {
+    assessSwitchRisks,
+    defaultBackupWorlds,
+    switchChangelogRequest,
+    switchDirection,
+  } from './switch-risks';
 
   let {
     inst,
@@ -71,6 +76,13 @@
     selected === null
       ? null
       : switchChangelogRequest(direction, inst.mrpack_version_id, selected.id),
+  );
+
+  // «Back up worlds first»: `null` until the user touches the box, so the
+  // default follows the picked version's risk.
+  let backupOverride = $state<boolean | null>(null);
+  const backupWorlds = $derived(
+    backupOverride ?? (flow.diff !== null && defaultBackupWorlds(flow.diff)),
   );
 
   const shownError = $derived(loadError ?? flow.error);
@@ -132,10 +144,11 @@
   function back(): void {
     flow.cancel();
     selected = null;
+    backupOverride = null;
   }
 
   async function confirm(): Promise<void> {
-    if (await flow.confirm(inst)) {
+    if (await flow.confirm(inst, { backupWorlds: flow.worldCount !== 0 && backupWorlds })) {
       onSwitched();
     }
   }
@@ -207,6 +220,26 @@
         updated: flow.diff.updated.length,
       })}
     </div>
+    {#if flow.worldCount !== 0}
+      <div class="flex flex-col gap-1">
+        <label class="flex items-start gap-2 cursor-pointer text-sm text-primary">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            checked={backupWorlds}
+            aria-describedby="switch-backup-worlds-hint"
+            onchange={(e) => (backupOverride = e.currentTarget.checked)}
+            data-testid="switch-backup-worlds"
+          />
+          {flow.worldCount === null
+            ? $t('modpacks.update.backupWorldsNoCount')
+            : $t('modpacks.update.backupWorlds', { count: flow.worldCount })}
+        </label>
+        <p id="switch-backup-worlds-hint" class="text-xs text-secondary pl-6">
+          {$t('modpacks.update.backupWorldsHint')}
+        </p>
+      </div>
+    {/if}
     <ModpackDiffList diff={flow.diff} />
     <div class="flex justify-end gap-2">
       <button type="button" class="btn-secondary btn-sm" onclick={back} data-testid="switch-back">

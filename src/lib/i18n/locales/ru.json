@@ -651,6 +651,10 @@
         "savedAnnouncement": "Сохранено",
         "clearedAnnouncement": "Перевод удалён"
       }
+    },
+    "updateRecovery": {
+      "restored": "Обновление «{name}» прервалось в прошлый раз; оно отменено, профиль в прежнем состоянии.",
+      "incomplete": "Прерванное обновление «{name}» не удалось отменить полностью. Проверьте его моды; то, что не удалось вернуть, лежит в {folder}."
     }
   },
   "instances": {
@@ -1138,7 +1142,8 @@
       "unhold": "Разрешить обновления",
       "holdFailed": "Не удалось изменить обновления для {name}",
       "updateFailed": "Не удалось обновить {name}",
-      "badgeChangelogAria": "{from} → {to}, что нового"
+      "badgeChangelogAria": "{from} → {to}, что нового",
+      "previousKept": "Предыдущая версия осталась на месте."
     }
   },
   "addons": {
@@ -1330,7 +1335,9 @@
         "phaseInstallingFile": "Установка файла {current}/{total}: {fileName}",
         "phaseExtractingOverrides": "Извлечение overrides {current}/{total}…",
         "phaseEnriching": "Определение модов из сборки…",
-        "phaseDone": "Готово."
+        "phaseDone": "Готово.",
+        "phaseBackingUpWorlds": "Резервное копирование миров…",
+        "phaseApplyingChanges": "Применение изменений…"
       }
     },
     "imported": {
@@ -1404,7 +1411,9 @@
         "deleteConfirmAriaLabel": "Подтверждение удаления сборки",
         "deleteConfirmTitle": "Удалить сборку и её профиль?",
         "deleteConfirmBody": "Миры, моды, конфиги и скриншоты этого профиля будут безвозвратно удалены. Отменить это невозможно.",
-        "deleteConfirmBtn": "Удалить"
+        "deleteConfirmBtn": "Удалить",
+        "updateProgressBackingUp": "Резервная копия мира {current} из {total}: {worldName}",
+        "updateProgressApplying": "Применение изменений…"
       }
     },
     "export": {
@@ -1493,7 +1502,10 @@
       "versionBump": "Minecraft {oldVersion} → {newVersion}. После обновления нажмите «Установить», чтобы скачать новую версию Minecraft.",
       "noChanges": "Изменений файлов в этой версии нет.",
       "cancelBtn": "Отмена",
-      "updateBtn": "Обновить"
+      "updateBtn": "Обновить",
+      "backupWorlds": "Сначала сделать резервные копии миров ({count})",
+      "backupWorldsNoCount": "Сначала сделать резервные копии миров",
+      "backupWorldsHint": "Zip-копии лягут в папку резервных копий профиля; восстановить их можно на вкладке «Миры»."
     },
     "switch": {
       "openBtn": "Сменить версию",
@@ -2786,7 +2798,11 @@
       "notADataRoot": "В {path} больше нет ваших данных — возможно, диск, на котором они были, отключён.",
       "unreadable": "Lucerna не смогла проверить папку данных ({path}): {details}",
       "timedOut": "Папка данных ({path}) не ответила за {seconds} с — сетевой или спящий диск может долго просыпаться. Попробуйте ещё раз чуть позже."
-    }
+    },
+    "modpackUpdateRolledBack": "Ничего не изменено. Обновление сборки остановилось на файле {file}",
+    "modpackUpdateRolledBackRecord": "Ничего не изменено. Обновление не смогло записать данные сборки",
+    "contentUpdateRollbackIncomplete": "Обновление не удалось, и отменить его полностью не получилось. То, что не удалось вернуть, лежит в {folder}",
+    "contentUpdateUnfinished": "Предыдущее обновление этого профиля не было завершено. Перезапустите Lucerna, чтобы довести его отмену до конца, и попробуйте снова."
   },
   "settings": {
     "title": "Настройки",

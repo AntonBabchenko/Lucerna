@@ -48,8 +48,8 @@
     await updateFlow.prepare(instance, status.entry);
   }
 
-  async function confirmUpdate() {
-    const ok = await updateFlow.confirm(instance);
+  async function confirmUpdate(opts: { backupWorlds: boolean }) {
+    const ok = await updateFlow.confirm(instance, opts);
     if (!ok) return;
     // Clear the stale "update available", then re-resolve to flip to up-to-date.
     modpackUpdates.invalidate(instance.id);
@@ -158,7 +158,8 @@
 {#if updateFlow.diff}
   <ModpackUpdateDialog
     diff={updateFlow.diff}
+    worldCount={updateFlow.worldCount}
     onCancel={() => updateFlow.cancel()}
-    onConfirm={() => void confirmUpdate()}
+    onConfirm={(opts) => void confirmUpdate(opts)}
   />
 {/if}
