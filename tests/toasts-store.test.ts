@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   dismiss,
+  pauseToastTimer,
+  pushActionToast,
   pushInfo,
   pushProgress,
   pushSuccess,
   pushWarning,
+  resumeToastTimer,
   SUCCESS_TTL_MS,
   toastList,
   updateToast,
@@ -83,5 +86,51 @@ describe('toasts store', () => {
 
   it('ignores a patch for an unknown id', () => {
     expect(() => updateToast(9999, { title: 'x' })).not.toThrow();
+  });
+
+  // «Клонировано в … · Открыть» stayed 40 minutes over the Add-ons (i) at 820 px:
+  // success toasts with an action were sticky (2026-10-02 regression, O4).
+  describe('an action toast', () => {
+    const open = { label: 'Open', run: () => {} };
+
+    it('that only confirms a success goes by itself after SUCCESS_TTL_MS', () => {
+      pushActionToast('success', 'Cloned to Pack 2', open);
+      vi.advanceTimersByTime(SUCCESS_TTL_MS - 1);
+      expect(toastList()).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(toastList()).toHaveLength(0);
+    });
+
+    it('waits while it is hovered or focused, then takes the time that was left', () => {
+      const id = pushActionToast('success', 'Cloned to Pack 2', open);
+      vi.advanceTimersByTime(2000);
+      pauseToastTimer(id);
+      vi.advanceTimersByTime(SUCCESS_TTL_MS * 10);
+      expect(toastList()).toHaveLength(1);
+      resumeToastTimer(id);
+      vi.advanceTimersByTime(SUCCESS_TTL_MS - 2000);
+      expect(toastList()).toHaveLength(0);
+    });
+
+    it('with detail lines to read stays until closed, even on success', () => {
+      pushActionToast('success', 'Imported Pack — 1 bundled file skipped', open, ['mods.rar']);
+      vi.advanceTimersByTime(SUCCESS_TTL_MS * 10);
+      expect(toastList()).toHaveLength(1);
+    });
+
+    it('of a warning or an info stays until closed', () => {
+      pushActionToast('warning', 'Install failed', open);
+      pushActionToast('info', 'Update available', open);
+      vi.advanceTimersByTime(SUCCESS_TTL_MS * 10);
+      expect(toastList()).toHaveLength(2);
+    });
+
+    it('keeps an explicit ttlMs', () => {
+      pushActionToast('success', 'Removed 1 mod', open, [], { ttlMs: 10_000 });
+      vi.advanceTimersByTime(SUCCESS_TTL_MS);
+      expect(toastList()).toHaveLength(1);
+      vi.advanceTimersByTime(10_000 - SUCCESS_TTL_MS);
+      expect(toastList()).toHaveLength(0);
+    });
   });
 });

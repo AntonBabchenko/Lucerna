@@ -376,6 +376,49 @@ describe('DepTree — each absent dependency says what the loader does', () => {
   });
 });
 
+// Create+ → Create Aeronautics → Sable showed «ImGuiMC не установлен [Добавить]» under the top
+// «Requires» heading: a deeper level mixes what its parent requires with what it only offers,
+// and only the button's verb told them apart (2026-10-02 regression, O1).
+describe('DepTree — an optional dependency below the top level says so', () => {
+  const nested = () =>
+    render(DepTree, {
+      props: treeProps({
+        nodes: [
+          leaf('sable', {
+            name: 'Sable',
+            children: [
+              leaf('imgui', { name: 'ImGuiMC', installed: false, declared: 'optional' }),
+              leaf('lib', { name: 'Lib', installed: false }),
+            ],
+          }),
+        ],
+      }),
+    });
+
+  it('marks it, and the mark comes first in what describes it', () => {
+    nested();
+    const imgui = item('ImGuiMC');
+    expect(imgui.querySelector('[id$="-optional"]')?.textContent).toBe('optional');
+    expect(describedText(imgui)).toBe('optional not installed');
+  });
+
+  it('leaves a required one beside it unmarked', () => {
+    nested();
+    expect(item('Lib').querySelector('[id$="-optional"]')).toBeNull();
+    expect(describedText(item('Lib'))).not.toContain('optional');
+  });
+
+  it('needs no mark at the top level, whose heading says it', () => {
+    render(DepTree, {
+      props: treeProps({
+        nodes: [leaf('extra', { name: 'Extra', installed: false, declared: 'optional' })],
+      }),
+    });
+    expect(item('Extra').querySelector('[id$="-optional"]')).toBeNull();
+    expect(describedText(item('Extra'))).toBe('not installed');
+  });
+});
+
 describe('DepTree — a WAI-ARIA tree', () => {
   it('one tree of treeitems in groups; top level open, deeper branches closed', () => {
     render(DepTree, { props: treeProps() });

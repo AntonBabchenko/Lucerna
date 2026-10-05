@@ -253,6 +253,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Launcher instance import (Phase 1):
             commands::launcher_import_discover,
             commands::launcher_import_inspect_folder,
+            commands::launcher_import_check_mc_version,
             commands::launcher_import_run,
             commands::open_imported_source_folder,
             // Instance clone (Session 3):

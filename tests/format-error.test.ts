@@ -595,9 +595,9 @@ describe('formatError', () => {
       server_import_too_large: { kind: 'server_import_too_large', size: 3, cap: 2 },
       server_import_not_a_server: { kind: 'server_import_not_a_server' },
       server_import_staging_expired: { kind: 'server_import_staging_expired', token: 'tok-1' },
-      server_mc_version_required: { kind: 'server_mc_version_required' },
-      server_mc_version_unlisted: { kind: 'server_mc_version_unlisted', mc_version: '1.20.l' },
-      server_mc_version_unchecked: { kind: 'server_mc_version_unchecked' },
+      mc_version_required: { kind: 'mc_version_required' },
+      mc_version_unlisted: { kind: 'mc_version_unlisted', mc_version: '1.20.l' },
+      mc_version_unchecked: { kind: 'mc_version_unchecked' },
       server_saved_mc_version_missing: { kind: 'server_saved_mc_version_missing' },
       server_saved_mc_version_unknown: {
         kind: 'server_saved_mc_version_unknown',

@@ -1,5 +1,6 @@
 // Shared toast-notification store. A success toast confirms a completed
-// download/install and auto-dismisses; a warning toast reports a failure
+// download/install and auto-dismisses — with an action too, unless it carries
+// detail lines (see `pushActionToast`); a warning toast reports a failure
 // (with a detail list) and stays until the user closes it; an info toast
 // surfaces a neutral informational state (blue accent) and stays until the
 // user closes it.
@@ -90,7 +91,14 @@ export type ActionToastOptions = {
   ttlMs?: number;
 };
 
-/** Show a toast (any kind) with an action button; sticky unless `ttlMs` is set. */
+/** Show a toast (any kind) with an action button. A success toast that only
+ *  confirms goes by itself after `SUCCESS_TTL_MS`, like `pushSuccess`: its
+ *  action ("Open") is a shortcut, not a question, and a stack of them used to
+ *  sit over the controls top right until closed by hand. Its countdown waits
+ *  while it is hovered or holds focus. A success toast with detail lines
+ *  reports something to read on return (the files a modpack import left out)
+ *  and stays until closed, like a warning or an info toast. `ttlMs` overrides
+ *  either. */
 export function pushActionToast(
   kind: ToastKind,
   title: string,
@@ -103,8 +111,10 @@ export function pushActionToast(
     ...store.toasts,
     { id, kind, title, lines, action, ...(opts.secondary ? { secondary: opts.secondary } : {}) },
   ];
-  if (opts.ttlMs !== undefined) {
-    timers.set(id, { remaining: opts.ttlMs, startedAt: 0, handle: null, paused: 0 });
+  const ttlMs =
+    opts.ttlMs ?? (kind === 'success' && lines.length === 0 ? SUCCESS_TTL_MS : undefined);
+  if (ttlMs !== undefined) {
+    timers.set(id, { remaining: ttlMs, startedAt: 0, handle: null, paused: 0 });
     resumeToastTimer(id);
   }
   return id;
