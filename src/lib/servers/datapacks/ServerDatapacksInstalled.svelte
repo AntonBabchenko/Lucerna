@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { type Snippet, untrack } from 'svelte';
+  import { onDestroy, type Snippet, untrack } from 'svelte';
   import {
     commands,
     type AssetUpdateState,
@@ -10,7 +10,12 @@
   import { t } from '$lib/i18n';
   import DatapackConceptHelp from '$lib/onboarding/DatapackConceptHelp.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import BulkActionBar, { type BulkBarAction } from '$lib/ui/BulkActionBar.svelte';
+  import { bulkNameLines, reportBulk, runBulk } from '$lib/ui/bulk-run';
   import { Icon } from '$lib/ui/icons';
+  import { createListSelection } from '$lib/ui/list-selection.svelte';
+  import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
+  import SelectRowCheckbox from '$lib/ui/SelectRowCheckbox.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -24,6 +29,7 @@
   import { ignoredHintKey } from '$lib/worlds/datapack-state';
   import {
     badgeOf,
+    canBulkToggle,
     isUpdatable,
     rowKey,
     serverToggleBlockedKey,
@@ -88,10 +94,10 @@
 
   // Build, install into the world, then report honestly: a partly-failed
   // build must not read as a success.
-  async function buildVt(selection: [string, string[]][]) {
+  async function buildVt(picked: [string, string[]][]) {
     vtBusy = true;
     try {
-      const res = await commands.vtInstallToServer(serverId, selection);
+      const res = await commands.vtInstallToServer(serverId, picked);
       if (res.status === 'error') {
         actionError = formatError(res.error);
         return;
@@ -121,6 +127,17 @@
 
   let pendingRemove = $state<ServerDatapackEntry | null>(null);
   let removing = $state(false);
+
+  // The bulk bar's selection, keyed like every per-row map (rowKey), cleared on a server switch.
+  const selection = createListSelection(
+    () => rows.map(rowKey),
+    () => serverId,
+  );
+  type BulkAction = 'enable' | 'disable' | 'update' | 'remove';
+  let bulkAction = $state<BulkAction | null>(null);
+  let pendingBulkRemove = $state<ServerDatapackEntry[] | null>(null);
+  let listEl = $state<HTMLElement | null>(null);
+  let emptyListEl = $state<HTMLElement | null>(null);
 
   // A different server's checks must never bleed across a switch.
   $effect(() => {
@@ -183,6 +200,58 @@
     rows.filter((r) => isUpdatable(r) && updateChecks.get(rowKey(r))?.kind === 'update_available')
       .length,
   );
+
+  const selectedRows = $derived(rows.filter((r) => selection.selected.has(rowKey(r))));
+  const bulkToEnable = $derived(selectedRows.filter((r) => canBulkToggle(r, levelDat, true)));
+  const bulkToDisable = $derived(selectedRows.filter((r) => canBulkToggle(r, levelDat, false)));
+  const bulkToUpdate = $derived(
+    selectedRows.flatMap((r) => {
+      const st = updateChecks.get(rowKey(r));
+      return isUpdatable(r) && st?.kind === 'update_available'
+        ? [{ row: r, latest: st.latest }]
+        : [];
+    }),
+  );
+  const bulkGhosts = $derived(pendingBulkRemove?.filter((r) => !r.present).length ?? 0);
+  // Every write here rewrites level.dat. The backend serializes those writes, so what this keeps
+  // apart is the pane's own picture of the world: the bar waits for a row's update, «Update all»
+  // and a check, and the rows' controls, «Update all», a check and the Vanilla Tweaks builder wait
+  // for the bar (below).
+  const bulkBusy = $derived(
+    bulkAction !== null || removing || updatingAll || checkingUpdates || updatingKeys.size > 0,
+  );
+  const bulkRunning = $derived(bulkAction !== null);
+  // The pane's lasting gates first (a running server, a world with only level.dat_old), each
+  // with its own text; otherwise an action is off when no selected row can take it.
+  function bulkGate(action: BulkBarAction, none: boolean, noneReason: string): BulkBarAction {
+    if (disabled)
+      return { ...action, disabled: true, disabledReason: $t('servers.mods.stopToManage') };
+    if (worldBlock !== null) return { ...action, disabled: true, disabledReason: $t(worldBlock) };
+    return { ...action, disabled: none, disabledReason: noneReason };
+  }
+  const bulkActions = $derived<BulkBarAction[]>([
+    bulkGate(
+      { id: 'enable', label: $t('servers.datapacks.enable') },
+      bulkToEnable.length === 0,
+      $t('ui.bulk.noneApplicable'),
+    ),
+    bulkGate(
+      { id: 'disable', label: $t('servers.datapacks.disable') },
+      bulkToDisable.length === 0,
+      $t('ui.bulk.noneApplicable'),
+    ),
+    bulkGate(
+      { id: 'update', label: $t('addons.installed.update') },
+      bulkToUpdate.length === 0,
+      $t('ui.bulk.updateNeedsCheck'),
+    ),
+    bulkGate(
+      { id: 'remove', label: $t('addons.installed.remove'), intent: 'danger' },
+      selectedRows.length === 0,
+      $t('ui.bulk.noneApplicable'),
+    ),
+  ]);
+  const bulkAllowed = $derived(!disabled && worldBlock === null);
 
   function rowAccent(entry: ServerDatapackEntry, key: string): CardAccent {
     if (entry.state === 'ignored') return 'warning';
@@ -328,6 +397,116 @@
       removing = false;
     }
   }
+
+  function onBulkAction(id: string): void {
+    if (id === 'enable') void bulkSetEnabled(true);
+    else if (id === 'disable') void bulkSetEnabled(false);
+    else if (id === 'update') void bulkUpdate();
+    else if (id === 'remove') requestBulkRemove();
+  }
+
+  async function bulkSetEnabled(enable: boolean): Promise<void> {
+    const id = serverId;
+    const targets = enable ? bulkToEnable : bulkToDisable;
+    if (!bulkAllowed || targets.length === 0) return;
+    bulkAction = enable ? 'enable' : 'disable';
+    actionError = null;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (r) => commands.serverSetDatapackEnabled(id, r.record.filename, enable),
+        formatError,
+        (r) => r.record.name ?? r.record.filename,
+      );
+      reportBulk(
+        outcome,
+        enable
+          ? { done: 'ui.bulk.enabled', partial: 'ui.bulk.enabledFailed' }
+          : { done: 'ui.bulk.disabled', partial: 'ui.bulk.disabledFailed' },
+      );
+    } finally {
+      bulkAction = null;
+    }
+    selection.clear();
+    await load();
+  }
+
+  // Serial, as every update rewrites level.dat; unlike «Update all», a failure is counted and
+  // named rather than stopping the run.
+  async function bulkUpdate(): Promise<void> {
+    const id = serverId;
+    const targets = bulkToUpdate;
+    if (!bulkAllowed || targets.length === 0) return;
+    bulkAction = 'update';
+    actionError = null;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (tg) => commands.serverUpdateDatapackOne(id, tg.row.record.filename, tg.latest),
+        formatError,
+        (tg) => tg.row.record.name ?? tg.row.record.filename,
+        (tg) => {
+          const next = new Map(updateChecks);
+          next.delete(rowKey(tg.row));
+          updateChecks = next;
+        },
+      );
+      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
+    } finally {
+      bulkAction = null;
+    }
+    selection.clear();
+    await load();
+  }
+
+  function requestBulkRemove(): void {
+    if (!bulkAllowed || selectedRows.length === 0) return;
+    actionError = null;
+    pendingBulkRemove = selectedRows;
+  }
+
+  async function confirmBulkRemove(): Promise<void> {
+    const id = serverId;
+    const targets = pendingBulkRemove;
+    if (!targets) return;
+    const index = Math.max(
+      0,
+      rows.findIndex((r) => selection.selected.has(rowKey(r))),
+    );
+    bulkAction = 'remove';
+    try {
+      const outcome = await runBulk(
+        targets,
+        (r) => commands.serverRemoveDatapack(id, r.record.filename),
+        formatError,
+        (r) => r.record.name ?? r.record.filename,
+        (r) => {
+          const key = rowKey(r);
+          if (updateChecks.has(key)) {
+            const next = new Map(updateChecks);
+            next.delete(key);
+            updateChecks = next;
+          }
+        },
+      );
+      pendingBulkRemove = null;
+      reportBulk(outcome, { done: 'ui.bulk.removed', partial: 'ui.bulk.removedFailed' });
+    } finally {
+      bulkAction = null;
+    }
+    selection.clear();
+    await load();
+    await refocusAfterRemoval({
+      index,
+      listEl: () => listEl,
+      rows: (list) => [
+        ...list.querySelectorAll<HTMLElement>('[data-testid="server-datapack-row"]'),
+      ],
+      emptyEl: () => emptyListEl,
+    });
+  }
+
+  onDestroy(() => selection.dispose());
 </script>
 
 <div class="flex flex-col gap-3" data-testid="server-datapacks-installed">
@@ -337,7 +516,7 @@
       class="btn-secondary btn-sm"
       data-testid="server-datapacks-check-updates"
       busy={checkingUpdates}
-      {disabled}
+      disabled={disabled || bulkRunning}
       onclick={() => void checkUpdates()}
     >
       {$t('servers.datapacks.checkUpdates')}
@@ -346,7 +525,7 @@
       class="btn-warning btn-sm"
       data-testid="server-datapacks-update-all"
       busy={updatingAll}
-      disabled={disabled || worldBlock !== null || updatableCount === 0}
+      disabled={disabled || worldBlock !== null || bulkRunning || updatableCount === 0}
       onclick={() => void updateAll()}
     >
       {$t('mods.installed.updateAll', { count: updatableCount })}
@@ -355,7 +534,7 @@
       type="button"
       class="btn-secondary btn-sm"
       data-testid="server-open-vt-builder"
-      disabled={disabled || worldBlock !== null}
+      disabled={disabled || worldBlock !== null || bulkRunning}
       onclick={() => (vtOpen = true)}
     >
       {$t('addons.datapacks.vt.open')}
@@ -399,20 +578,44 @@
   {#if loading && rows.length === 0}
     <LoadingPanel label={$t('mods.installed.loading')} />
   {:else if rows.length === 0 && !loadError}
-    <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
-    <div class="flex flex-col gap-3" data-testid="list-empty">
+    <!-- The host's full drop area replaces its strip here (DESIGN.md §14). Focus lands here after
+         the last removal (`refocusAfterRemoval`): a parking place that reads the message, not a
+         control. -->
+    <div
+      bind:this={emptyListEl}
+      tabindex="-1"
+      class="flex flex-col gap-3 outline-none"
+      data-testid="list-empty"
+    >
       <p class="text-sm text-muted">{$t('servers.datapacks.empty')}</p>
       {@render emptyDropzone?.()}
     </div>
   {:else if rows.length > 0}
-    <div class="border border-border-subtle rounded-lg overflow-hidden">
+    <div bind:this={listEl} class="border border-border-subtle rounded-lg overflow-hidden">
+      <BulkActionBar
+        allSelected={selection.allSelected}
+        indeterminate={selection.indeterminate}
+        selectedCount={selection.count}
+        busy={bulkBusy}
+        busyAction={bulkAction}
+        hint={$t('servers.datapacks.bulkHint')}
+        actions={bulkActions}
+        onToggleAll={selection.toggleAll}
+        onAction={onBulkAction}
+        onClear={selection.clear}
+      />
       {#each rows as row (rowKey(row))}
         {@const key = rowKey(row)}
         {@const badge = badgeOf(row)}
         {@const check = updateChecks.get(key)}
         {@const canUpdateRow = isUpdatable(row) && check?.kind === 'update_available'}
         {@const rowBusy = updatingKeys.has(key)}
-        <CardShell variant="row" accent={rowAccent(row, key)}>
+        <CardShell variant="row" accent={rowAccent(row, key)} testid="server-datapack-row">
+          <SelectRowCheckbox
+            checked={selection.selected.has(key)}
+            name={row.record.name ?? row.record.filename}
+            onChange={(c) => selection.toggle(key, c)}
+          />
           <CardMedia placeholder={row.is_folder ? 'folderOpen' : 'datapack'} size="sm" />
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">
@@ -469,6 +672,7 @@
                   worldBlock !== null ||
                   checkingUpdates ||
                   updatingAll ||
+                  bulkRunning ||
                   rowBusy}
                 onclick={() => void updateOne(row)}
                 aria-label={$t('addons.installed.update')}
@@ -497,7 +701,7 @@
                 type="button"
                 class={`btn-icon btn-icon-sm ${row.state === 'enabled' ? 'btn-icon-success' : '!text-muted'}`}
                 data-testid="server-datapack-toggle"
-                disabled={disabled || toggleBlock !== null}
+                disabled={disabled || toggleBlock !== null || bulkRunning}
                 onclick={() => void toggle(row)}
                 aria-label={toggleLabel}
               >
@@ -519,7 +723,7 @@
               type="button"
               class="btn-icon btn-icon-sm btn-icon-danger"
               data-testid="server-datapack-remove"
-              disabled={disabled || worldBlock !== null}
+              disabled={disabled || worldBlock !== null || bulkRunning}
               onclick={() => {
                 actionError = null;
                 pendingRemove = row;
@@ -554,6 +758,24 @@
       error={actionError}
       onCancel={() => (pendingRemove = null)}
       onConfirm={() => pendingRemove && void confirmDelete(pendingRemove)}
+    />
+  {/if}
+
+  {#if pendingBulkRemove}
+    <ConfirmDialog
+      title={$t('servers.datapacks.removeManyConfirm', { count: pendingBulkRemove.length })}
+      bodyText={[
+        ...bulkNameLines(pendingBulkRemove.map((r) => r.record.name ?? r.record.filename)),
+        ...(bulkGhosts > 0
+          ? [$t('servers.datapacks.removeManyGhostNote', { count: bulkGhosts })]
+          : []),
+      ]}
+      confirmLabel={$t('servers.datapacks.remove')}
+      variant="danger"
+      busy={bulkAction === 'remove'}
+      confirmTestid="server-datapacks-bulk-remove-confirm"
+      onCancel={() => (pendingBulkRemove = null)}
+      onConfirm={() => void confirmBulkRemove()}
     />
   {/if}
 </div>

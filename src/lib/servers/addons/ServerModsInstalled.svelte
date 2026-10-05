@@ -14,6 +14,10 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import BulkActionBar, { type BulkBarAction } from '$lib/ui/BulkActionBar.svelte';
+  import { bulkNameLines, reportBulk, runBulk } from '$lib/ui/bulk-run';
+  import { createListSelection } from '$lib/ui/list-selection.svelte';
+  import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
   import { Icon } from '$lib/ui/icons';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -57,6 +61,14 @@
   // Pane-level delete confirm (ServerInstalledRow delegates delete up).
   let pendingDelete = $state<ServerRow | null>(null);
   let deleting = $state(false);
+  // The bulk bar's action in flight (drives its one spinner), null = none.
+  type BulkAction = 'enable' | 'disable' | 'update' | 'remove';
+  let bulkAction = $state<BulkAction | null>(null);
+  // The rows a bulk Remove was asked for (the dialog's model), null = closed.
+  let pendingBulkDelete = $state<ServerRow[] | null>(null);
+  // The rows column and the empty list: where focus goes after a bulk removal.
+  let listEl = $state<HTMLElement | null>(null);
+  let emptyListEl = $state<HTMLElement | null>(null);
   // The enriched project whose in-launcher detail card is open (null = closed).
   // Only identity-bearing rows (card.summary != null) can open it.
   let detail = $state<ModSummary | null>(null);
@@ -108,9 +120,16 @@
     }),
     { isUpdatable: (id) => updateChecks.get(id)?.kind === 'update_available' },
   );
+  // The bulk bar's selection: over the filtered rows (keyed by sha1, the identity that survives
+  // an enable/disable rename), cleared on a server switch.
+  const selection = createListSelection(
+    () => filters.filtered.map((r) => r.sha1),
+    () => serverId,
+  );
   onDestroy(() => {
     data.dispose();
     filters.dispose();
+    selection.dispose();
   });
 
   const sortOptions = $derived([
@@ -179,6 +198,66 @@
   const updatableCount = $derived(
     data.rows.filter((row) => updateChecks.get(row.sha1)?.kind === 'update_available').length,
   );
+
+  // The bulk bar (DESIGN.md §9) over the selected rows. What each action applies to: rows
+  // already in the wanted state are left alone.
+  const selectedRows = $derived(filters.filtered.filter((r) => selection.selected.has(r.sha1)));
+  const bulkToEnable = $derived(selectedRows.filter((r) => !r.card.installed.enabled));
+  const bulkToDisable = $derived(selectedRows.filter((r) => r.card.installed.enabled));
+  const bulkToUpdate = $derived(
+    selectedRows.flatMap((r) => {
+      const st = updateChecks.get(r.sha1);
+      return st?.kind === 'update_available'
+        ? [{ sha: r.sha1, name: r.card.installed.name, target: st.target }]
+        : [];
+    }),
+  );
+  // A bulk run and any other writer of the mods folder never overlap: the bar waits for a row's
+  // update, «Update all», a check and the quarantine, and they (and the rows) wait for the bar.
+  const bulkBusy = $derived(
+    bulkAction !== null ||
+      deleting ||
+      updatingAll ||
+      checkingUpdates ||
+      busyQuarantine ||
+      updatingShas.size > 0,
+  );
+  // Every action is off while the server runs (the mods folder is the server's then); otherwise
+  // an action is off when no selected row can take it, and says so.
+  function bulkGate(action: BulkBarAction, none: boolean, noneReason: string): BulkBarAction {
+    if (!canManageMods)
+      return { ...action, disabled: true, disabledReason: $t('servers.mods.stopToManage') };
+    return { ...action, disabled: none, disabledReason: noneReason };
+  }
+  const bulkActions = $derived<BulkBarAction[]>([
+    bulkGate(
+      { id: 'enable', label: $t('mods.card.enable') },
+      bulkToEnable.length === 0,
+      $t('ui.bulk.noneApplicable'),
+    ),
+    bulkGate(
+      { id: 'disable', label: $t('mods.card.disable') },
+      bulkToDisable.length === 0,
+      $t('ui.bulk.noneApplicable'),
+    ),
+    bulkGate(
+      { id: 'update', label: $t('mods.card.update') },
+      bulkToUpdate.length === 0,
+      $t('ui.bulk.updateNeedsCheck'),
+    ),
+    bulkGate(
+      { id: 'remove', label: $t('servers.mods.delete'), intent: 'danger' },
+      selectedRows.length === 0,
+      $t('ui.bulk.noneApplicable'),
+    ),
+  ]);
+
+  function onBulkAction(id: string): void {
+    if (id === 'enable') void bulkSetEnabled(true);
+    else if (id === 'disable') void bulkSetEnabled(false);
+    else if (id === 'update') void bulkUpdate();
+    else if (id === 'remove') requestBulkDelete();
+  }
 
   // Toggle enable/disable — MUST use `on_disk_filename` (a disabled mod lives at
   // `<name>.jar.disabled`), never the base display filename.
@@ -288,6 +367,104 @@
     }
   }
 
+  // The selected rows that need the flip, one command each with the ON-DISK filename, then one
+  // notice. The server id is captured: a switch mid-run must not redirect the rest of the loop.
+  async function bulkSetEnabled(enable: boolean): Promise<void> {
+    const id = serverId;
+    const targets = enable ? bulkToEnable : bulkToDisable;
+    if (!canManageMods || targets.length === 0) return;
+    bulkAction = enable ? 'enable' : 'disable';
+    actionError = null;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (r) =>
+          enable
+            ? commands.serverEnableMod(id, r.onDiskFilename)
+            : commands.serverDisableMod(id, r.onDiskFilename),
+        formatError,
+        (r) => r.card.installed.name,
+      );
+      reportBulk(
+        outcome,
+        enable
+          ? { done: 'ui.bulk.enabled', partial: 'ui.bulk.enabledFailed' }
+          : { done: 'ui.bulk.disabled', partial: 'ui.bulk.disabledFailed' },
+      );
+    } finally {
+      bulkAction = null;
+    }
+    selection.clear();
+    await data.refresh();
+  }
+
+  // The selected rows with a pending update, serially (each swap writes the mods directory);
+  // unlike «Update all», a failure does not stop the run — it is counted and named.
+  async function bulkUpdate(): Promise<void> {
+    const id = serverId;
+    const targets = bulkToUpdate;
+    if (!canManageMods || targets.length === 0) return;
+    bulkAction = 'update';
+    actionError = null;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (tg) => commands.serverUpdateOne(id, tg.sha, tg.target),
+        formatError,
+        (tg) => tg.name,
+        (tg) => {
+          const next = new Map(updateChecks);
+          next.delete(tg.sha);
+          updateChecks = next;
+        },
+      );
+      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
+    } finally {
+      bulkAction = null;
+    }
+    selection.clear();
+    await data.refresh();
+  }
+
+  function requestBulkDelete(): void {
+    if (!canManageMods || selectedRows.length === 0) return;
+    actionError = null;
+    pendingBulkDelete = selectedRows;
+  }
+
+  // Deletes each by on-disk name, then moves focus to the row now in the first removed row's
+  // place (DESIGN.md: focus survives a removal).
+  async function confirmBulkDelete(): Promise<void> {
+    const id = serverId;
+    const rows = pendingBulkDelete;
+    if (!rows) return;
+    const index = Math.max(
+      0,
+      filters.filtered.findIndex((r) => selection.selected.has(r.sha1)),
+    );
+    bulkAction = 'remove';
+    try {
+      const outcome = await runBulk(
+        rows,
+        (r) => commands.serverDeleteMod(id, r.onDiskFilename),
+        formatError,
+        (r) => r.card.installed.name,
+      );
+      pendingBulkDelete = null;
+      reportBulk(outcome, { done: 'ui.bulk.removed', partial: 'ui.bulk.removedFailed' });
+    } finally {
+      bulkAction = null;
+    }
+    selection.clear();
+    await data.refresh();
+    await refocusAfterRemoval({
+      index,
+      listEl: () => listEl,
+      rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-bulk-row]')],
+      emptyEl: () => emptyListEl,
+    });
+  }
+
   async function quarantineClientMods() {
     busyQuarantine = true;
     actionError = null;
@@ -341,7 +518,7 @@
         class="btn-secondary btn-sm"
         data-testid="server-mods-check-updates"
         busy={checkingUpdates}
-        disabled={!canManageMods}
+        disabled={!canManageMods || bulkAction !== null}
         onclick={() => void checkUpdates()}
       >
         {$t('servers.mods.checkUpdates')}
@@ -350,7 +527,7 @@
         class="btn-warning btn-sm"
         data-testid="server-mods-update-all"
         busy={updatingAll}
-        disabled={!canManageMods || updatableCount === 0}
+        disabled={!canManageMods || bulkAction !== null || updatableCount === 0}
         onclick={() => void updateAll()}
       >
         {$t('mods.installed.updateAll', { count: updatableCount })}
@@ -359,7 +536,7 @@
         class="btn-secondary btn-sm"
         data-testid="server-mods-quarantine"
         busy={busyQuarantine}
-        disabled={!canManageMods}
+        disabled={!canManageMods || bulkAction !== null}
         onclick={() => void quarantineClientMods()}
       >
         {$t('servers.diagnose.quarantineClientMods')}
@@ -388,7 +565,12 @@
       <LoadingPanel label={$t('mods.installed.loading')} />
     {:else if data.rows.length === 0 && !data.error}
       <!-- The host's full drop area replaces its strip here (DESIGN.md §14). -->
-      <div class="flex flex-col gap-3" data-testid="list-empty">
+      <div
+        class="flex flex-col gap-3 outline-none"
+        data-testid="list-empty"
+        tabindex="-1"
+        bind:this={emptyListEl}
+      >
         <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
         {@render emptyDropzone?.()}
       </div>
@@ -424,11 +606,27 @@
       {#if filters.filtered.length === 0}
         <p class="text-sm text-muted">{$t('servers.mods.noResults')}</p>
       {:else}
-        <div class="flex flex-col gap-2">
+        <div class="flex flex-col gap-2" bind:this={listEl}>
+          <BulkActionBar
+            allSelected={selection.allSelected}
+            indeterminate={selection.indeterminate}
+            selectedCount={selection.count}
+            busy={bulkBusy}
+            busyAction={bulkAction}
+            hint={$t('servers.mods.bulkHint')}
+            actions={bulkActions}
+            onToggleAll={selection.toggleAll}
+            onAction={onBulkAction}
+            onClear={selection.clear}
+          />
           {#each filters.filtered as row (row.sha1)}
             <ServerInstalledRow
               card={row.card}
               reason={row.reason}
+              selectable={true}
+              selected={selection.selected.has(row.sha1)}
+              onSelectChange={(c) => selection.toggle(row.sha1, c)}
+              actionsBlockedReason={bulkAction !== null ? $t('ui.bulk.running') : null}
               canToggle={canManageMods}
               checking={checkingUpdates}
               updateState={canManageMods ? (updateChecks.get(row.sha1) ?? null) : null}
@@ -464,6 +662,21 @@
         error={actionError}
         onCancel={() => (pendingDelete = null)}
         onConfirm={() => pendingDelete && void confirmDelete(pendingDelete)}
+      />
+    {/if}
+
+    <!-- The bulk Remove's confirm: the count in the title, the names (capped) in the body. Its
+         failures are reported by the run's one notice, not in the dialog. -->
+    {#if pendingBulkDelete}
+      <ConfirmDialog
+        title={$t('servers.mods.deleteManyConfirm', { count: pendingBulkDelete.length })}
+        bodyText={bulkNameLines(pendingBulkDelete.map((r) => r.card.installed.name))}
+        confirmLabel={$t('servers.mods.delete')}
+        variant="danger"
+        busy={bulkAction === 'remove'}
+        confirmTestid="server-mods-bulk-delete-confirm"
+        onCancel={() => (pendingBulkDelete = null)}
+        onConfirm={() => void confirmBulkDelete()}
       />
     {/if}
 

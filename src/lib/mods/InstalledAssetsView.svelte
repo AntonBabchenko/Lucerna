@@ -2,7 +2,8 @@
   // Installed-assets pane for resource packs / shaders. A deliberately
   // simpler sibling of the mods Installed view: no enable/disable, no
   // dependency/orphan graph — just list, Remove, and Check-updates +
-  // per-row Update. AddonsTab (Task 11) chooses between this and
+  // per-row Update, and the shared bulk bar (Update / Remove over a
+  // selection). AddonsTab (Task 11) chooses between this and
   // InstalledModsView by `kind`.
   import {
     commands,
@@ -27,8 +28,14 @@
   import ChangelogModal from './ChangelogModal.svelte';
   import { changelogSupported } from './changelog-supported';
   import { get } from 'svelte/store';
-  import type { Snippet } from 'svelte';
+  import { onDestroy, type Snippet } from 'svelte';
   import { tooltip } from '$lib/ui/tooltip';
+  import BulkActionBar, { type BulkBarAction } from '$lib/ui/BulkActionBar.svelte';
+  import SelectRowCheckbox from '$lib/ui/SelectRowCheckbox.svelte';
+  import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import { bulkNameLines, reportBulk, runBulk } from '$lib/ui/bulk-run';
+  import { createListSelection } from '$lib/ui/list-selection.svelte';
+  import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
 
   let {
     instanceId,
@@ -93,6 +100,11 @@
   // between resource_pack and shader (or instances) re-lists. A generation
   // counter discards a stale in-flight response if the inputs change mid-fetch.
   let generation = 0;
+  // The badges and icons belong to one (profile, kind). A bump of `assetsChanged` re-lists but
+  // keeps them: a Remove or Update of one row must not blank the other rows' update badges, which
+  // is what an unconditional reset did. A real profile/kind switch drops them, as
+  // InstalledDatapacksView does with `lastFetchedId`.
+  let lastKey: string | null = null;
   $effect(() => {
     const id = instanceId;
     const k = kind;
@@ -101,16 +113,24 @@
     // and in ModBrowseView's handlers; bumping inside this effect would loop.
     void assetsChanged.value;
     const gen = ++generation;
-    // Clear any prior update badges + icons — they belonged to the previous list.
-    updateStates = new Map();
-    summaries = new Map();
+    const key = id === null ? null : `${id}\u0000${k}`;
+    const switched = key !== lastKey;
+    if (switched) {
+      updateStates = new Map();
+      summaries = new Map();
+    }
+    lastKey = key;
     if (id === null) {
       assets = [];
       loading = false;
       error = null;
       return;
     }
-    loading = true;
+    // Only a first read for this (profile, kind) shows the loading panel. A re-read after a change
+    // keeps what is on screen until the answer comes — the empty list included, where focus may
+    // just have been parked after the last removal (`refocusAfterRemoval`), and the host's drop
+    // area, which would otherwise flicker between its strip and its full size.
+    if (switched) loading = true;
     error = null;
     void (async () => {
       const res = await commands.assetsList(id, k);
@@ -120,11 +140,21 @@
         assets = [];
       } else {
         assets = res.data;
+        keepListedStates(res.data);
         void enrich(res.data, gen);
       }
       loading = false;
     })();
   });
+
+  // A re-read keeps the badges (above), but only of packs still installed: a pack removed
+  // elsewhere (the Browse view) must not linger as a pending update that «Update all» counts and
+  // would install again.
+  function keepListedStates(list: InstalledAsset[]): void {
+    const listed = new Set(list.map((a) => a.filename));
+    if ([...updateStates.keys()].every((f) => listed.has(f))) return;
+    updateStates = new Map([...updateStates].filter(([f]) => listed.has(f)));
+  }
 
   // Empty is reported, never assumed: no profile, a list still loading or a read that failed is
   // not an empty list — the host keeps its strip until the list says it is empty.
@@ -176,6 +206,7 @@
     if (res.status === 'error') error = formatError(res.error);
     else {
       assets = res.data;
+      keepListedStates(res.data);
       void enrich(res.data, gen);
     }
   }
@@ -328,6 +359,124 @@
     const s = updateStates.get(filename);
     return s?.kind === 'check_failed' ? s.reason : null;
   }
+
+  // The bulk bar (DESIGN.md §9). Keys are filenames, the row identity of this list; the selection
+  // is cleared when the profile or the kind changes.
+  const selection = createListSelection(
+    () => assets.map((a) => a.filename),
+    () => (instanceId === null ? null : `${instanceId}\u0000${kind}`),
+  );
+  onDestroy(() => selection.dispose());
+  type BulkAction = 'update' | 'remove';
+  let bulkAction = $state<BulkAction | null>(null);
+  let pendingBulkRemove = $state<InstalledAsset[] | null>(null);
+  let listEl = $state<HTMLElement | null>(null);
+  let emptyListEl = $state<HTMLElement | null>(null);
+
+  const selectedAssets = $derived(assets.filter((a) => selection.selected.has(a.filename)));
+  const bulkToUpdate = $derived(
+    selectedAssets.flatMap((a) => {
+      const latest = updatable(a.filename);
+      return latest ? [{ asset: a, latest }] : [];
+    }),
+  );
+  const bulkBusy = $derived(busy || checking || bulkAction !== null);
+  const bulkActions = $derived<BulkBarAction[]>([
+    {
+      id: 'update',
+      label: $t('addons.installed.update'),
+      disabled: bulkToUpdate.length === 0,
+      disabledReason: $t('ui.bulk.updateNeedsCheck'),
+    },
+    { id: 'remove', label: $t('addons.installed.remove'), intent: 'danger' },
+  ]);
+  function onBulkAction(id: string): void {
+    if (id === 'update') void bulkUpdate();
+    else if (id === 'remove') requestBulkRemove();
+  }
+
+  // The selected rows with a pending update, serially (replace semantics write the pack folder);
+  // a failure is counted and named, not the end of the run.
+  async function bulkUpdate(): Promise<void> {
+    const id = instanceId;
+    const k = kind;
+    const targets = bulkToUpdate;
+    if (id === null || targets.length === 0) return;
+    bulkAction = 'update';
+    busy = true;
+    error = null;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (tg) => commands.assetUpdateOne(id, k, tg.asset.filename, tg.latest),
+        formatError,
+        (tg) => tg.asset.name,
+        (tg) => {
+          const next = new Map(updateStates);
+          next.delete(tg.asset.filename);
+          updateStates = next;
+        },
+      );
+      // Said and cleared before the re-read: a re-read that throws must not swallow the notice.
+      reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
+      selection.clear();
+      await refresh();
+      assetsChanged.value++;
+    } finally {
+      busy = false;
+      bulkAction = null;
+    }
+  }
+
+  function requestBulkRemove(): void {
+    if (instanceId === null || selectedAssets.length === 0) return;
+    error = null;
+    pendingBulkRemove = selectedAssets;
+  }
+
+  // N removals from one click ask first (these kinds have no undo); each success leaves the list
+  // at once, as the row's own Remove does, and focus moves to the row now in the first removed
+  // row's place.
+  async function confirmBulkRemove(): Promise<void> {
+    const id = instanceId;
+    const k = kind;
+    const targets = pendingBulkRemove;
+    if (id === null || !targets) return;
+    const index = Math.max(
+      0,
+      assets.findIndex((a) => selection.selected.has(a.filename)),
+    );
+    bulkAction = 'remove';
+    busy = true;
+    try {
+      const outcome = await runBulk(
+        targets,
+        (a) => commands.assetUninstall(id, k, a.filename),
+        formatError,
+        (a) => a.name,
+        (a) => {
+          assets = assets.filter((x) => x.filename !== a.filename);
+          const next = new Map(updateStates);
+          next.delete(a.filename);
+          updateStates = next;
+        },
+      );
+      pendingBulkRemove = null;
+      reportBulk(outcome, { done: 'ui.bulk.removed', partial: 'ui.bulk.removedFailed' });
+      selection.clear();
+      // Notify the Browse view so its "Installed" badges clear.
+      assetsChanged.value++;
+    } finally {
+      busy = false;
+      bulkAction = null;
+    }
+    await refocusAfterRemoval({
+      index,
+      listEl: () => listEl,
+      rows: (list) => [...list.querySelectorAll<HTMLElement>('[data-testid="asset-row"]')],
+      emptyEl: () => emptyListEl,
+    });
+  }
 </script>
 
 <div class="p-3">
@@ -369,16 +518,39 @@
     <LoadingPanel label={$t('addons.installed.loading')} size="md" />
   {:else if listEmpty}
     <!-- The host's full drop area replaces its strip here (DESIGN.md §14); a list that could not
-         be read shows its error above instead. -->
-    <div class="pt-6 flex flex-col gap-3" data-testid="list-empty">
+         be read shows its error above instead. Focus lands here after the last removal
+         (`refocusAfterRemoval`): a parking place that reads the message, not a control. -->
+    <div
+      bind:this={emptyListEl}
+      tabindex="-1"
+      class="pt-6 flex flex-col gap-3 outline-none"
+      data-testid="list-empty"
+    >
       <p class="text-muted text-sm text-center">{$t('addons.installed.empty')}</p>
       {@render emptyDropzone?.()}
     </div>
   {:else if assets.length > 0}
-    <div class="border border-border-subtle rounded-lg overflow-hidden">
+    <div class="border border-border-subtle rounded-lg overflow-hidden" bind:this={listEl}>
+      <BulkActionBar
+        allSelected={selection.allSelected}
+        indeterminate={selection.indeterminate}
+        selectedCount={selection.count}
+        busy={bulkBusy}
+        busyAction={bulkAction}
+        hint={$t('addons.installed.bulkHint')}
+        actions={bulkActions}
+        onToggleAll={selection.toggleAll}
+        onAction={onBulkAction}
+        onClear={selection.clear}
+      />
       {#each assets as asset (asset.filename)}
         {@const latest = updatable(asset.filename)}
-        <CardShell variant="compact-row" accent={latest ? 'warning' : 'none'}>
+        <CardShell variant="compact-row" accent={latest ? 'warning' : 'none'} testid="asset-row">
+          <SelectRowCheckbox
+            checked={selection.selected.has(asset.filename)}
+            name={asset.name}
+            onChange={(c) => selection.toggle(asset.filename, c)}
+          />
           {#if asset.source && asset.project_id}
             <button
               type="button"
@@ -453,6 +625,19 @@
         </CardShell>
       {/each}
     </div>
+  {/if}
+
+  {#if pendingBulkRemove}
+    <ConfirmDialog
+      title={$t('addons.installed.removeManyConfirm', { count: pendingBulkRemove.length })}
+      bodyText={bulkNameLines(pendingBulkRemove.map((a) => a.name))}
+      confirmLabel={$t('addons.installed.remove')}
+      variant="danger"
+      busy={bulkAction === 'remove'}
+      confirmTestid="assets-bulk-remove-confirm"
+      onCancel={() => (pendingBulkRemove = null)}
+      onConfirm={() => void confirmBulkRemove()}
+    />
   {/if}
 
   {#if detail && instanceId}
