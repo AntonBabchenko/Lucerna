@@ -523,6 +523,33 @@ mod tests {
         ));
         // U6: the bytes belong to another version than the registered one → ask.
         assert!(batch_update_state("v9", "p", "1.21.1", NF, Some(&v1), &[v2]).is_none());
+        // U5 on Quilt: the newest build is Sodium's Fabric jar tagged
+        // [fabric, quilt]. The rule keeps it, so the batch proposes the update
+        // instead of declining into a listing that used to say Unknown.
+        let qu = LoaderKind::Quilt;
+        let fq = [LoaderKind::Fabric, qu];
+        let sodium_old = build(
+            "s",
+            "s1",
+            &["1.20.1"],
+            &fq,
+            "sodium-fabric-0.5.12+mc1.20.1.jar",
+            &["s1"],
+        )
+        .version;
+        let sodium_new = build(
+            "s",
+            "s2",
+            &["1.20.1"],
+            &fq,
+            "sodium-fabric-0.5.13+mc1.20.1.jar",
+            &["s2"],
+        )
+        .version;
+        match batch_update_state("s1", "s", "1.20.1", qu, Some(&sodium_old), &[sodium_new]) {
+            Some(ModUpdateState::UpdateAvailable { target }) => assert_eq!(target.version_id, "s2"),
+            other => panic!("expected an update to s2 on Quilt, got {other:?}"),
+        }
     }
 
     fn kind(s: &ModUpdateState) -> &'static str {

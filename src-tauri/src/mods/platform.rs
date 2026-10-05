@@ -149,11 +149,28 @@ pub fn loader_in_filename(filename: &str) -> Option<LoaderKind> {
 /// taken for what it usually is — part of the project's NAME
 /// (`forgified-fabric-api-….jar`, tagged `neoforge` only, 36 builds of it).
 ///
+/// One exception to the «also tagged `found`» arm: a Fabric-named file for a
+/// QUILT request whose version is tagged `quilt`. Quilt loads Fabric jars, and
+/// most Fabric mods publish one jar tagged `[fabric, quilt]` (Iris, Sodium,
+/// Lithium, Jade — 5 726 of the top-100 projects' 8 984 quilt-tagged builds,
+/// 2026-09-29), so there the filename agrees with the tag rather than
+/// contradicting it. The reverse (a `quilt` file for a Fabric request) stays a
+/// mismatch: Fabric does not read `quilt.mod.json`.
+///
 /// Accepted trade-off: a version tagged for exactly one loader whose file is in
 /// truth another loader's jar is now trusted. No such mis-tag is documented;
 /// the opposite failure is measured.
 fn filename_overrules_tags(found: LoaderKind, want: LoaderKind, tags: &[LoaderKind]) -> bool {
     if found == want {
+        return false;
+    }
+    // Quilt reads fabric.mod.json — `local::jar_admission` admits a Fabric-only
+    // jar natively on a Quilt instance — so a version its author tagged `quilt`
+    // whose file is the Fabric jar IS the Quilt build. The tag is the author's
+    // compatibility claim; the filename does not contradict it. A tag-less
+    // Fabric file is still dropped below: no claim, the restrictive answer.
+    if want == LoaderKind::Quilt && found == LoaderKind::Fabric && tags.contains(&LoaderKind::Quilt)
+    {
         return false;
     }
     let forge_pair = matches!(
@@ -907,15 +924,64 @@ mod tests {
     }
 
     #[test]
-    fn a_fabric_named_file_is_still_dropped_for_a_quilt_request() {
-        // (pin) Deliberate NON-change. Quilt loads Fabric jars, so this drop is
-        // arguably wrong — but fixing it changes which jar gets INSTALLED on
-        // Quilt instances and was never verified live. Backlog, own spec.
+    fn a_quilt_tagged_version_whose_file_is_the_fabric_jar_is_kept_for_quilt() {
+        // Live data, 2026-09-29: every Iris build for 1.21.11 is named
+        // `iris-fabric-…` and tagged `[fabric, quilt]` — Quilt reads
+        // fabric.mod.json, so the Fabric jar IS the Quilt build. Dropping it
+        // left Iris, Sodium, Lithium and Jade with no versions on any Quilt
+        // profile (69 of the top-100 `quilt`-tagged projects lost builds).
         let versions = vec![version_tagged(
-            "sodium-fabric-0.5.jar",
+            "iris-fabric-1.10.6+mc1.21.11.jar",
             vec![LoaderKind::Fabric, LoaderKind::Quilt],
         )];
+        let kept = drop_filename_loader_mismatches(versions, Some(LoaderKind::Quilt));
+        assert_eq!(
+            kept.len(),
+            1,
+            "the author's quilt tag is the compatibility claim"
+        );
+    }
+
+    #[test]
+    fn a_tagless_fabric_named_file_is_still_dropped_for_quilt() {
+        // (pin) No author claim at all → the restrictive answer, as for Forge.
+        let versions = vec![version_tagged("mod-fabric-1.0.jar", vec![])];
         assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Quilt)).is_empty());
+    }
+
+    #[test]
+    fn a_quilt_named_file_is_still_dropped_for_a_fabric_request() {
+        // (pin) The exception is one-way: Fabric does not read quilt.mod.json.
+        let versions = vec![version_tagged(
+            "mod-quilt-1.0.jar",
+            vec![LoaderKind::Fabric, LoaderKind::Quilt],
+        )];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Fabric)).is_empty());
+    }
+
+    #[test]
+    fn a_forge_named_file_is_still_dropped_for_quilt() {
+        // (pin) Only the Fabric family crosses into Quilt.
+        let versions = vec![version_tagged(
+            "mod-forge-1.0.jar",
+            vec![LoaderKind::Forge, LoaderKind::Quilt],
+        )];
+        assert!(drop_filename_loader_mismatches(versions, Some(LoaderKind::Quilt)).is_empty());
+    }
+
+    #[test]
+    fn listed_for_keeps_the_quilt_tagged_fabric_jar() {
+        // The batch answers (updates, compat) share the rule through `listed_for`.
+        let iris = version_on(
+            "iris-fabric-1.10.6+mc1.21.11.jar",
+            "1.21.11",
+            vec![LoaderKind::Fabric, LoaderKind::Quilt],
+        );
+        assert!(listed_for(&iris, "1.21.11", LoaderKind::Quilt));
+        assert!(
+            !listed_for(&iris, "1.21.11", LoaderKind::Forge),
+            "not tagged → not listed"
+        );
     }
 
     #[test]

@@ -849,6 +849,38 @@ mod tests {
     }
 
     #[test]
+    fn b6_a_quilt_tagged_fabric_jar_is_listed_for_quilt() {
+        // Iris / Sodium on Quilt: the newest build is the Fabric jar the author
+        // tagged `[fabric, quilt]`. The filename rule keeps it (platform.rs), so
+        // the batch confirms the file instead of declining into a listing that
+        // used to say «no build».
+        let fq = [LoaderKind::Fabric, LoaderKind::Quilt];
+        let own = build(
+            "p",
+            "v1",
+            &["1.21.11"],
+            &fq,
+            "iris-fabric-1.10.6+mc1.21.11.jar",
+            &["q1"],
+        )
+        .version;
+        assert_eq!(
+            batch_answer(
+                &at(Some("q1"), None),
+                "p",
+                "1.21.11",
+                LoaderKind::Quilt,
+                Some(&own),
+                &[own.clone()]
+            ),
+            BatchAnswer::Exact {
+                availability: LiveAvailability::FileListed,
+                newest: Some("v1".into()),
+            }
+        );
+    }
+
+    #[test]
     fn b7_builds_are_listed_but_this_file_is_not_settled() {
         let own = build("p", "v1", &["1.21"], &[NF], "p-1.jar", &["aa"]).version;
         let newest = build("p", "v2", &["1.21.1"], &[NF], "p-2.jar", &["bb"]).version;
@@ -941,7 +973,7 @@ mod tests {
     }
 
     fn cases() -> Vec<Case> {
-        let (fo, fa) = (LoaderKind::Forge, LoaderKind::Fabric);
+        let (fo, fa, qu) = (LoaderKind::Forge, LoaderKind::Fabric, LoaderKind::Quilt);
         vec![
             case(
                 "the listed primary file",
@@ -1075,6 +1107,31 @@ mod tests {
                 None,
                 "1.21.1",
                 fa,
+            ),
+            case(
+                "a Fabric jar tagged for Quilt, asked under quilt",
+                vec![
+                    build(
+                        "p",
+                        "v1",
+                        &["1.21.11"],
+                        &[fa, qu],
+                        "p-fabric-1.jar",
+                        &["p1"],
+                    ),
+                    build(
+                        "p",
+                        "v2",
+                        &["1.21.11"],
+                        &[fa, qu],
+                        "p-fabric-2.jar",
+                        &["p2"],
+                    ),
+                ],
+                Some("p1"),
+                None,
+                "1.21.11",
+                qu,
             ),
             case(
                 "bytes the platform does not know",
