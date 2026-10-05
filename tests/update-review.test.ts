@@ -10,11 +10,12 @@ const ok = (name: string, deps: string[]) => ({
   ok: true as const,
   summary: { primary_name: name, installed_dependencies: deps, details: [] },
 });
-const failed = (name: string, reason: string) => ({
+const failed = (name: string, reason: string, previousKept = false) => ({
   sha1: name.toLowerCase(),
   name,
   ok: false as const,
   reason,
+  previousKept,
 });
 
 describe('updatesReport', () => {
@@ -56,6 +57,20 @@ describe('updatesReport', () => {
   });
 
   it('says nothing for an empty batch', () => expect(updatesReport(tr, [])).toBeNull());
+
+  it('says the previous version is still there when every failed update was undone', () => {
+    expect(updatesReport(tr, [failed('B', 'Busy', true)], { single: true })?.lines).toEqual([
+      'Busy',
+      'mods.updates.previousKept',
+    ]);
+    const batch = updatesReport(tr, [ok('A', []), failed('B', 'Gone', true)]);
+    expect(batch?.lines).toEqual([{ names: 'B', reason: 'Gone' }, 'mods.updates.previousKept']);
+  });
+
+  it('does not claim the previous version is there when one failure is not known to be undone', () => {
+    const t = updatesReport(tr, [failed('A', 'Gone', true), failed('B', 'Bridge died', false)]);
+    expect(t?.lines).not.toContain('mods.updates.previousKept');
+  });
 });
 
 describe('buildReviewItems', () => {

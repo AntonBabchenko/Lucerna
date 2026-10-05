@@ -99,6 +99,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_decode: 'opaque',
   mods_cache_io: 'opaque',
   mods_instance_path: 'opaque',
+  modpack_update_rolled_back: 'opaque',
+  content_update_rollback_incomplete: 'opaque',
   modpack_invalid_archive: 'opaque',
   modpack_manifest_invalid: 'opaque',
   modpack_instance_creation_failed: 'opaque',
@@ -130,6 +132,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   already_running: 'clean',
   account_not_set: 'clean',
   instance_busy: 'clean',
+  content_update_unfinished: 'clean',
   auth_cancelled: 'clean',
   no_minecraft_profile: 'clean',
   auth_pending_approval: 'clean',
@@ -649,6 +652,20 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.modsCacheIo'), e.details);
     case 'mods_instance_path':
       return withDetailTail(translate('errors.modsInstancePath', { path: e.path }), e.details);
+    case 'modpack_update_rolled_back':
+      return withDetailTail(
+        e.file_name === null
+          ? translate('errors.modpackUpdateRolledBackRecord')
+          : translate('errors.modpackUpdateRolledBack', { file: e.file_name }),
+        e.details,
+      );
+    case 'content_update_rollback_incomplete':
+      return withDetailTail(
+        translate('errors.contentUpdateRollbackIncomplete', { folder: e.folder }),
+        e.details,
+      );
+    case 'content_update_unfinished':
+      return translate('errors.contentUpdateUnfinished');
     case 'modpack_invalid_archive':
       return withDetailTail(translate('errors.modpackInvalidArchive'), e.details);
     case 'modpack_format_unknown':
