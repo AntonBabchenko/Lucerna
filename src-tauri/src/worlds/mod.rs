@@ -122,7 +122,13 @@ pub fn list_worlds(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<Worl
 /// `list_worlds`. Same `validate_segment` filter so stray/hidden entries
 /// never surface.
 pub fn list_world_names_in(saves_dir: &std::path::Path) -> Result<Vec<WorldQuickEntry>> {
-    if !saves_dir.exists() {
+    // `try_exists`, not `exists`: a `saves/` that cannot be checked is an error,
+    // not "no worlds" — a pack update asked to back the worlds up would
+    // otherwise back up nothing and say nothing.
+    if !saves_dir
+        .try_exists()
+        .map_err(|e| Error::io(saves_dir.display().to_string(), e))?
+    {
         return Ok(vec![]);
     }
     let mut out = Vec::new();

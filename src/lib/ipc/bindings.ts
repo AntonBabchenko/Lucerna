@@ -1005,9 +1005,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `target` is re-resolved through `find_version` — the same gate, the same
 	 *  typed `ModVersionNotForInstance` and the same `allow_off_platform` consent
 	 *  as `mods_install_with_deps` — so every network step happens before the old
-	 *  jar is touched. What this does NOT give: `update_one`'s second phase is
-	 *  still uninstall-then-install with no restore; a local filesystem failure
-	 *  there leaves the mod uninstalled (own spec — 2026-09-20 design, §8-A).
+	 *  jar is touched. The swap itself runs in a content transaction (`mods::txn`):
+	 *  a local filesystem failure there puts the old version back and returns the
+	 *  original error.
 	 * 
 	 *  After the swap the new row inherits the outgoing row's `requires` edges
 	 *  plus whatever this update resolved that was not installed before
@@ -6455,8 +6455,8 @@ export type ModpackUpdateOutcome = {
 	 */
 	inert_loader_jars: InertLoaderJar[],
 	/**
-	 *  Per-file rows for the removals + installs the update performed,
-	 *  including per-file failures (this path continues past them).
+	 *  Per-file rows for the files the update placed. A committed update only:
+	 *  one that fails is undone and returns an error instead.
 	 */
 	details: TaskDetail[],
 };

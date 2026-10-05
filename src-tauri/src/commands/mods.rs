@@ -2199,9 +2199,9 @@ pub async fn mods_enrich_pack_mods(
 /// `target` is re-resolved through `find_version` — the same gate, the same
 /// typed `ModVersionNotForInstance` and the same `allow_off_platform` consent
 /// as `mods_install_with_deps` — so every network step happens before the old
-/// jar is touched. What this does NOT give: `update_one`'s second phase is
-/// still uninstall-then-install with no restore; a local filesystem failure
-/// there leaves the mod uninstalled (own spec — 2026-09-20 design, §8-A).
+/// jar is touched. The swap itself runs in a content transaction (`mods::txn`):
+/// a local filesystem failure there puts the old version back and returns the
+/// original error.
 ///
 /// After the swap the new row inherits the outgoing row's `requires` edges
 /// plus whatever this update resolved that was not installed before

@@ -26,6 +26,10 @@
 //! `begin` refuses while a pending token exists: under the lock no other
 //! transaction is live, so a pending one is a closing that failed — acting on top
 //! of it could let that stale record later remove files a newer update placed.
+//!
+//! Setting aside is a `rename` within the instance folder. A content folder that
+//! is a link to another volume makes it fail (cross-device): the update stops at
+//! that file, names it, and is undone — it never falls back to copying.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -80,13 +84,17 @@ pub struct StageEntry {
 
 /// A file the update places. `pre_existing`: a file was already at `rel` when the
 /// plan was built (and the plan does not set it aside) — an undo never removes
-/// it. `prior_row`: the row an idempotent install rewrites, put back on undo.
+/// it. `disabled_twin`: a mod's `<rel>.disabled` was there too (and not set
+/// aside) — the user's, never removed either. `prior_row`: the row that already
+/// carried this sha; the install rewrites it, so an undo puts it back.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEntry {
     pub rel: String,
     pub sha1: String,
     pub project_id: Option<String>,
     pub pre_existing: bool,
+    #[serde(default)]
+    pub disabled_twin: bool,
     pub prior_row: Option<InstalledMod>,
 }
 
@@ -189,12 +197,21 @@ pub async fn plan_create(
     staged: &HashSet<String>,
 ) -> Result<CreateEntry, Error> {
     let sha1 = sha1.to_ascii_lowercase();
+    let is_mod = rel.starts_with("mods/");
     let staged_away = staged.contains(&rel.to_ascii_lowercase());
     let path = content_path(instance_root, &rel);
     let pre_existing = !staged_away && fs::try_exists(&path).await.map_err(|e| io_err(&path, e))?;
-    // An install over a same-bytes file rewrites that file's row (#461 (3)):
-    // keep the row as it was, to put it back on undo.
-    let prior_row = if pre_existing && rel.starts_with("mods/") {
+    let disabled_rel = format!("{rel}.disabled");
+    let disabled_twin = if is_mod && !staged.contains(&disabled_rel.to_ascii_lowercase()) {
+        let twin = content_path(instance_root, &disabled_rel);
+        fs::try_exists(&twin).await.map_err(|e| io_err(&twin, e))?
+    } else {
+        false
+    };
+    // `install_one` records its row with `installed::add`, which replaces any
+    // row with the same sha — an idempotent reinstall's (#461 (3)), a disabled
+    // twin's. Keep the row as it was, to put it back on undo.
+    let prior_row = if is_mod {
         rows.iter()
             .find(|m| m.sha1.eq_ignore_ascii_case(&sha1))
             .cloned()
@@ -206,6 +223,7 @@ pub async fn plan_create(
         sha1,
         project_id,
         pre_existing,
+        disabled_twin,
         prior_row,
     })
 }
@@ -461,7 +479,7 @@ async fn undo(instance_root: &Path, dir: &Path, plan: &Plan) -> Vec<String> {
     let mc = mc_dir(instance_root);
     let mut stuck = Vec::new();
     for c in plan.create.iter().rev() {
-        if let Err(why) = undo_create(instance_root, &mc, c).await {
+        if let Err(why) = undo_create(instance_root, &mc, dir, &plan.stage, c).await {
             stuck.push(format!("{} ({why})", c.rel));
         }
     }
@@ -483,19 +501,39 @@ async fn undo(instance_root: &Path, dir: &Path, plan: &Plan) -> Vec<String> {
     stuck
 }
 
-async fn undo_create(instance_root: &Path, mc: &Path, c: &CreateEntry) -> Result<(), String> {
+async fn undo_create(
+    instance_root: &Path,
+    mc: &Path,
+    dir: &Path,
+    stage: &[StageEntry],
+    c: &CreateEntry,
+) -> Result<(), String> {
     if !safe_rel(&c.rel) {
         return Err("an unsafe path in the record".into());
     }
-    let plain = join_rel(mc, &c.rel);
     let is_mod = c.rel.starts_with("mods/");
-    let disabled = with_disabled_suffix(&plain);
-    let spellings: Vec<&Path> = if is_mod {
-        vec![plain.as_path(), disabled.as_path()]
-    } else {
-        vec![plain.as_path()]
-    };
-    for p in spellings {
+    let plain = join_rel(mc, &c.rel);
+    let disabled_rel = format!("{}.disabled", c.rel);
+    let disabled = join_rel(mc, &disabled_rel);
+    let mut spellings: Vec<(&Path, &str)> = vec![(plain.as_path(), c.rel.as_str())];
+    if is_mod {
+        spellings.push((disabled.as_path(), disabled_rel.as_str()));
+    }
+    // A name this plan also sets aside, whose kept copy is not in the folder:
+    // the file there is the ORIGINAL — it was never moved (a stage that failed
+    // first), or an earlier pass already put it back. Same bytes as the new
+    // version or not, it is not ours to remove, and neither is its row.
+    let mut original_here = false;
+    for (p, p_rel) in spellings {
+        if kept_copy_absent(dir, stage, p_rel).await? {
+            original_here = true;
+            continue;
+        }
+        // The user's own `.disabled` copy of these very bytes, there before the
+        // update: the new file only ever lands at the plain name.
+        if p != plain.as_path() && c.disabled_twin {
+            continue;
+        }
         let sha = file_sha1(p)
             .await
             .map_err(|e| format!("could not read it: {e}"))?;
@@ -524,27 +562,55 @@ async fn undo_create(instance_root: &Path, mc: &Path, c: &CreateEntry) -> Result
                 .map_err(|e| format!("could not remove it: {e}"))?;
         }
     }
-    if is_mod {
-        match (&c.prior_row, c.pre_existing) {
-            (Some(row), _) => {
-                // Only with its file: a row without a jar would describe nothing.
-                if holds_sha(&plain, &disabled, &row.sha1).await? {
-                    installed::add(instance_root, row.clone())
-                        .await
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-            (None, false) => installed::remove(instance_root, &c.sha1)
+    if !is_mod || original_here {
+        return Ok(());
+    }
+    match (&c.prior_row, c.pre_existing) {
+        (Some(row), _) => {
+            // The row the install rewrote: put it back where its own file still
+            // holds the bytes. A row without a jar would describe nothing, so
+            // without one the row this update wrote goes instead.
+            let own = installed::mods_dir(instance_root).join(installed::on_disk_name(row));
+            let own_sha = file_sha1(&own)
                 .await
-                .map_err(|e| e.to_string())?,
-            (None, true) => {
-                // A file that was there before and had no row with this sha:
-                // the install stopped at its name conflict, so this update
-                // wrote no row for it and has none to take back.
+                .map_err(|e| format!("could not read {}: {e}", own.display()))?;
+            if own_sha.is_some_and(|s| s.eq_ignore_ascii_case(&row.sha1)) {
+                installed::add(instance_root, row.clone())
+                    .await
+                    .map_err(|e| e.to_string())?;
+            } else {
+                installed::remove(instance_root, &c.sha1)
+                    .await
+                    .map_err(|e| e.to_string())?;
             }
+        }
+        (None, false) => installed::remove(instance_root, &c.sha1)
+            .await
+            .map_err(|e| e.to_string())?,
+        (None, true) => {
+            // A file that was there before and had no row with this sha:
+            // the install stopped at its name conflict, so this update
+            // wrote no row for it and has none to take back.
         }
     }
     Ok(())
+}
+
+/// Whether `rel` is set aside by a stage entry of this plan whose kept copy is
+/// not in `files/` — see `undo_create`. A stat that cannot answer is an error:
+/// guessing "absent" would let a placed file stay, guessing "present" would
+/// remove the original.
+async fn kept_copy_absent(dir: &Path, stage: &[StageEntry], rel: &str) -> Result<bool, String> {
+    for s in stage.iter().filter(|s| s.rel.eq_ignore_ascii_case(rel)) {
+        let held = join_rel(&dir.join(FILES_DIR), &s.rel);
+        let present = fs::try_exists(&held)
+            .await
+            .map_err(|e| format!("could not check the kept copy: {e}"))?;
+        if !present {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 async fn undo_stage(
@@ -556,18 +622,38 @@ async fn undo_stage(
     if !safe_rel(&s.rel) {
         return Err("an unsafe path in the record".into());
     }
+    let is_mod = s.rel.starts_with("mods/");
     let held = join_rel(&dir.join(FILES_DIR), &s.rel);
-    match fs::try_exists(&held).await {
-        Ok(true) => {}
-        // Never moved: nothing to bring back.
-        Ok(false) => return Ok(()),
-        Err(e) => return Err(format!("could not check the kept copy: {e}")),
-    }
     let back = join_rel(mc, &s.rel);
+    let held_present = fs::try_exists(&held)
+        .await
+        .map_err(|e| format!("could not check the kept copy: {e}"))?;
+    if !held_present {
+        // Never moved, or moved back by an earlier pass that may have stopped
+        // before its row was written. Either way the file must be in place;
+        // when it is, make sure its row is too (`add` replaces by sha, so a
+        // second pass writes the same row again).
+        let in_place = if s.row.is_some() {
+            same_bytes_in_place(&back, &s.sha1, is_mod).await
+        } else {
+            fs::try_exists(&back)
+                .await
+                .map_err(|e| format!("could not check it: {e}"))?
+        };
+        if !in_place {
+            return Err("the kept copy is gone and the file is not in place".into());
+        }
+        if let Some(row) = &s.row {
+            installed::add(instance_root, row.clone())
+                .await
+                .map_err(|e| format!("its record could not be written ({e})"))?;
+        }
+        return Ok(());
+    }
     // Never over another file: `rename` replaces its target on Windows, and the
     // name may have been taken meanwhile.
-    if let Some(why) = trash::way_back_blocked(&back).await {
-        if !same_bytes_in_place(&back, &s.sha1).await {
+    if let Some(why) = name_taken(&back, is_mod).await {
+        if !same_bytes_in_place(&back, &s.sha1, is_mod).await {
             return Err(why);
         }
         // The same bytes are already back (an earlier pass got this far).
@@ -597,6 +683,21 @@ async fn undo_stage(
         }
     }
     Ok(())
+}
+
+/// Why nothing may be put back at `back`, if anything blocks it. A mod's name
+/// is taken in either spelling (`<file>` / `<file>.disabled`, the trash's rule:
+/// two jars sharing one base name would collide on the next toggle); any other
+/// file only by its own name. "Could not tell" blocks.
+async fn name_taken(back: &Path, is_mod: bool) -> Option<String> {
+    if is_mod {
+        return trash::way_back_blocked(back).await;
+    }
+    match fs::try_exists(back).await {
+        Ok(false) => None,
+        Ok(true) => Some("name taken".into()),
+        Err(e) => Some(format!("could not check the name: {e}")),
+    }
 }
 
 async fn restore_pack_origin(instance_root: &Path, prior: &PackOrigin) -> Result<(), String> {
@@ -806,30 +907,32 @@ pub async fn file_sha1(path: &Path) -> std::io::Result<Option<String>> {
     Ok(Some(hex::encode(hasher.finalize())))
 }
 
-/// Whether either spelling of a mod holds `sha1`.
-async fn holds_sha(plain: &Path, disabled: &Path, sha1: &str) -> Result<bool, String> {
-    for p in [plain, disabled] {
-        let sha = file_sha1(p)
-            .await
-            .map_err(|e| format!("could not read it: {e}"))?;
-        if sha.is_some_and(|s| s.eq_ignore_ascii_case(sha1)) {
-            return Ok(true);
+/// Whether the name `back` answers to already holds `sha1` — for a mod, in
+/// either spelling (`<file>` / `<file>.disabled`); for any other file, under
+/// its own name only. "Could not tell" is `false`: the caller then treats the
+/// name as taken, or the file as not in place.
+async fn same_bytes_in_place(back: &Path, sha1: &str, is_mod: bool) -> bool {
+    let candidates: Vec<PathBuf> = if is_mod {
+        let (Some(folder), Some(file)) = (back.parent(), back.file_name()) else {
+            return false;
+        };
+        let file = file.to_string_lossy().into_owned();
+        let base = file.strip_suffix(".disabled").unwrap_or(file.as_str());
+        vec![folder.join(base), folder.join(format!("{base}.disabled"))]
+    } else {
+        vec![back.to_path_buf()]
+    };
+    for p in candidates {
+        match file_sha1(&p).await {
+            Ok(Some(sha)) if sha.eq_ignore_ascii_case(sha1) => return true,
+            Ok(_) => {}
+            Err(e) => {
+                crate::diag!("content txn: could not read {}: {e}", p.display());
+                return false;
+            }
         }
     }
-    Ok(false)
-}
-
-/// Whether the name `back` answers to (either spelling) already holds `sha1`.
-/// "Could not tell" is `false`: the caller then treats the name as taken.
-async fn same_bytes_in_place(back: &Path, sha1: &str) -> bool {
-    let (Some(folder), Some(file)) = (back.parent(), back.file_name()) else {
-        return false;
-    };
-    let file = file.to_string_lossy().into_owned();
-    let base = file.strip_suffix(".disabled").unwrap_or(file.as_str());
-    let plain = folder.join(base);
-    let disabled = folder.join(format!("{base}.disabled"));
-    holds_sha(&plain, &disabled, sha1).await.unwrap_or(false)
+    false
 }
 
 fn mc_dir(instance_root: &Path) -> PathBuf {
@@ -846,12 +949,6 @@ fn join_rel(base: &Path, rel: &str) -> PathBuf {
 
 fn safe_rel(rel: &str) -> bool {
     crate::mods::modpack::path_safety::is_safe_relative_path(rel)
-}
-
-fn with_disabled_suffix(path: &Path) -> PathBuf {
-    let mut s = path.as_os_str().to_owned();
-    s.push(".disabled");
-    PathBuf::from(s)
 }
 
 fn io_err(path: &Path, e: impl std::fmt::Display) -> Error {
@@ -919,6 +1016,7 @@ mod tests {
             sha1: sha.into(),
             project_id: None,
             pre_existing: false,
+            disabled_twin: false,
             prior_row: None,
         }
     }
@@ -1148,6 +1246,7 @@ mod tests {
             sha1: sha.clone(),
             project_id: None,
             pre_existing: true,
+            disabled_twin: false,
             prior_row: Some(prior),
         };
         let txn = begin(lock(root).await, plan(vec![], vec![c]))
@@ -1172,6 +1271,7 @@ mod tests {
             sha1: sha,
             project_id: None,
             pre_existing: true,
+            disabled_twin: false,
             prior_row: None,
         };
         let txn = begin(lock(root).await, plan(vec![], vec![c]))
@@ -1333,5 +1433,184 @@ mod tests {
         assert!(!recordless.exists());
         assert!(!old_tmp.exists());
         assert!(fresh_tmp.exists());
+    }
+
+    /// The user's own `iris.jar.disabled` holds the very bytes the update
+    /// places as `iris.jar`: an undo removes only the placed copy and puts the
+    /// user's disabled row back.
+    #[tokio::test]
+    async fn an_undo_keeps_the_users_disabled_twin_of_the_same_bytes() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "mods/iris.jar.disabled", b"IRIS");
+        installed::add(root, row("iris.jar", &sha, false))
+            .await
+            .unwrap();
+        let rows = installed::list(root).await.unwrap();
+        let c = plan_create(
+            root,
+            &rows,
+            "mods/iris.jar".into(),
+            sha.clone(),
+            None,
+            &HashSet::new(),
+        )
+        .await
+        .unwrap();
+        assert!(c.disabled_twin && !c.pre_existing && c.prior_row.is_some());
+        let txn = begin(lock(root).await, plan(vec![], vec![c]))
+            .await
+            .unwrap();
+        // What `install_one` does: a second copy at the plain name, its row
+        // replacing the twin's (same sha).
+        place(root, "mods/iris.jar", b"IRIS");
+        installed::add(root, row("iris.jar", &sha, true))
+            .await
+            .unwrap();
+
+        let err = txn.rollback(Error::InstanceBusy).await;
+
+        assert!(matches!(err, Error::InstanceBusy), "{err:?}");
+        assert!(
+            !mods(root).join("iris.jar").exists(),
+            "the placed copy goes"
+        );
+        assert!(
+            mods(root).join("iris.jar.disabled").exists(),
+            "the user's stays"
+        );
+        let rows = installed::list(root).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].enabled, "the user's disabled row is back");
+    }
+
+    /// A stage that failed before it moved anything, for a name the update
+    /// also places with the SAME bytes: the file there is the original, and
+    /// neither it nor its row may be removed.
+    #[tokio::test]
+    async fn an_undo_never_removes_an_original_that_was_never_moved() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "mods/mod.jar", b"SAME");
+        installed::add(root, row("mod.jar", &sha, true))
+            .await
+            .unwrap();
+        let entry = staged("mods/mod.jar", &sha, Some(row("mod.jar", &sha, true)));
+        let txn = begin(
+            lock(root).await,
+            plan(vec![entry], vec![create("mods/mod.jar", &sha)]),
+        )
+        .await
+        .unwrap();
+        // The stage never ran: nothing in `files/`.
+
+        let err = txn.rollback(Error::InstanceBusy).await;
+
+        assert!(matches!(err, Error::InstanceBusy), "{err:?}");
+        assert!(mods(root).join("mod.jar").exists());
+        assert_eq!(installed::list(root).await.unwrap().len(), 1);
+    }
+
+    /// An earlier undo pass moved the jar back but stopped before writing its
+    /// row: the next pass writes the row, so the mod keeps its provenance.
+    #[tokio::test]
+    async fn a_second_undo_pass_restores_a_row_the_first_did_not_write() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "mods/a.jar", b"A");
+        let mut r = row("a.jar", &sha, true);
+        r.requires = vec!["lib".into()];
+        let entry = staged("mods/a.jar", &sha, Some(r.clone()));
+        let txn = begin(lock(root).await, plan(vec![entry], vec![]))
+            .await
+            .unwrap();
+        // State left by the interrupted pass: the jar is back, no row for it
+        // (and nothing in `files/`).
+
+        let err = txn.rollback(Error::InstanceBusy).await;
+
+        assert!(matches!(err, Error::InstanceBusy), "{err:?}");
+        let rows = installed::list(root).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].requires, vec!["lib".to_string()]);
+        assert_eq!(rows[0].source, Some(ModSource::Modrinth));
+    }
+
+    /// The name is taken by the very bytes being put back: counted as back,
+    /// and the kept copy is dropped.
+    #[tokio::test]
+    async fn the_same_bytes_already_back_count_as_restored() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "mods/a.jar", b"A");
+        installed::add(root, row("a.jar", &sha, true))
+            .await
+            .unwrap();
+        let entry = staged("mods/a.jar", &sha, Some(row("a.jar", &sha, true)));
+        let txn = begin(lock(root).await, plan(vec![entry.clone()], vec![]))
+            .await
+            .unwrap();
+        txn.stage(&entry).await.unwrap();
+        place(root, "mods/a.jar", b"A");
+
+        let err = txn.rollback(Error::InstanceBusy).await;
+
+        assert!(matches!(err, Error::InstanceBusy), "{err:?}");
+        assert!(mods(root).join("a.jar").exists());
+        assert_eq!(installed::list(root).await.unwrap().len(), 1);
+        assert!(txn_entries(root).is_empty(), "{:?}", txn_entries(root));
+    }
+
+    /// The jar went back but its row cannot be written: it is moved out again
+    /// rather than left as an anonymous manual mod, and the undo says so.
+    #[tokio::test]
+    async fn a_jar_whose_row_cannot_be_written_goes_back_to_the_kept_folder() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "mods/a.jar", b"A");
+        installed::add(root, row("a.jar", &sha, true))
+            .await
+            .unwrap();
+        let entry = staged("mods/a.jar", &sha, Some(row("a.jar", &sha, true)));
+        let txn = begin(lock(root).await, plan(vec![entry.clone()], vec![]))
+            .await
+            .unwrap();
+        txn.stage(&entry).await.unwrap();
+        // A directory where the registry file is: every registry write fails.
+        let registry = installed::registry_path(root);
+        std::fs::remove_file(&registry).unwrap();
+        std::fs::create_dir_all(registry.join("blocked")).unwrap();
+
+        match txn.rollback(Error::InstanceBusy).await {
+            Error::ContentUpdateRollbackIncomplete { folder, details } => {
+                assert!(details.contains("record could not be written"), "{details}");
+                assert!(join_rel(&Path::new(&folder).join(FILES_DIR), "mods/a.jar").exists());
+            }
+            other => panic!("expected ContentUpdateRollbackIncomplete, got {other:?}"),
+        }
+        assert!(!mods(root).join("a.jar").exists(), "no jar without its row");
+    }
+
+    /// `.disabled` is a mod's spelling only: a stray `config/x.toml.disabled`
+    /// does not stop `config/x.toml` from going back.
+    #[tokio::test]
+    async fn a_non_mod_file_goes_back_beside_an_unrelated_disabled_name() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "config/x.toml", b"user");
+        place(root, "config/x.toml.disabled", b"stray");
+        let entry = staged("config/x.toml", &sha, None);
+        let txn = begin(lock(root).await, plan(vec![entry.clone()], vec![]))
+            .await
+            .unwrap();
+        txn.stage(&entry).await.unwrap();
+
+        let err = txn.rollback(Error::InstanceBusy).await;
+
+        assert!(matches!(err, Error::InstanceBusy), "{err:?}");
+        assert_eq!(
+            std::fs::read(content_path(root, "config/x.toml")).unwrap(),
+            b"user"
+        );
     }
 }

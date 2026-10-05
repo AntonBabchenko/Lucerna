@@ -722,6 +722,62 @@ pub async fn uninstall(instance_root: &Path, sha1: &str) -> Result<(), Error> {
     installed::remove(instance_root, sha1).await
 }
 
+/// The plan of `update_one`'s swap, built under the transaction's lock so the
+/// old row, its enabled state and the plan come from one registry read: the old
+/// jar set aside (nothing when no row carries `old_sha1` — a writer the shared
+/// claim admitted removed it first, as `uninstall` used to tolerate), the
+/// target and its pruned dependencies placed. Also says whether the old mod was
+/// enabled, so the new one can be switched off to match.
+async fn plan_mod_update(
+    instance_root: &Path,
+    old_sha1: &str,
+    target: &ModVersion,
+    required_deps: &[ModVersion],
+) -> Result<(crate::mods::txn::Plan, bool), Error> {
+    let rows = installed::list(instance_root).await?;
+    let old_row = rows
+        .iter()
+        .find(|m| m.sha1.eq_ignore_ascii_case(old_sha1))
+        .cloned();
+    let was_enabled = old_row.as_ref().map(|m| m.enabled).unwrap_or(true);
+    let stage: Vec<crate::mods::txn::StageEntry> = old_row
+        .iter()
+        .map(|row| crate::mods::txn::StageEntry {
+            rel: format!("mods/{}", installed::on_disk_name(row)),
+            sha1: row.sha1.to_ascii_lowercase(),
+            row: Some(row.clone()),
+        })
+        .collect();
+    let staged: std::collections::HashSet<String> =
+        stage.iter().map(|s| s.rel.to_ascii_lowercase()).collect();
+    let mut create = Vec::with_capacity(1 + required_deps.len());
+    for v in std::iter::once(target).chain(required_deps.iter()) {
+        create.push(
+            crate::mods::txn::plan_create(
+                instance_root,
+                &rows,
+                format!("mods/{}", v.primary_file.filename),
+                guard_version(v)?,
+                Some(v.project_id.clone()),
+                &staged,
+            )
+            .await?,
+        );
+    }
+    let plan = crate::mods::txn::Plan {
+        kind: crate::mods::txn::TxnKind::ModUpdate {
+            name: target.name.clone(),
+            from: old_row.as_ref().and_then(|r| r.version_number.clone()),
+            to: target.version_number.clone(),
+        },
+        stage,
+        create,
+        prior_pack_origin: None,
+        prior_instance: None,
+    };
+    Ok((plan, was_enabled))
+}
+
 /// Update one installed mod to `target`, installing `target`'s required
 /// dependencies (`required_deps`) and removing the old jar (`old_sha1`).
 /// The new install preserves the old mod's enabled/disabled state.
@@ -798,47 +854,8 @@ pub async fn update_one(
     // `old_sha1` (a concurrent writer removed it first) is not an error: there
     // is simply nothing to set aside, as `uninstall` used to no-op.
     let lock = crate::mods::txn::lock(instance_root).await;
-    let rows = installed::list(instance_root).await?;
-    let old_row = rows
-        .iter()
-        .find(|m| m.sha1.eq_ignore_ascii_case(old_sha1))
-        .cloned();
-    let was_enabled = old_row.as_ref().map(|m| m.enabled).unwrap_or(true);
-    let stage: Vec<crate::mods::txn::StageEntry> = old_row
-        .iter()
-        .map(|row| crate::mods::txn::StageEntry {
-            rel: format!("mods/{}", installed::on_disk_name(row)),
-            sha1: row.sha1.to_ascii_lowercase(),
-            row: Some(row.clone()),
-        })
-        .collect();
-    let staged: std::collections::HashSet<String> =
-        stage.iter().map(|s| s.rel.to_ascii_lowercase()).collect();
-    let mut create = Vec::with_capacity(1 + required_deps.len());
-    for v in std::iter::once(&target).chain(required_deps.iter()) {
-        create.push(
-            crate::mods::txn::plan_create(
-                instance_root,
-                &rows,
-                format!("mods/{}", v.primary_file.filename),
-                guard_version(v)?,
-                Some(v.project_id.clone()),
-                &staged,
-            )
-            .await?,
-        );
-    }
-    let plan = crate::mods::txn::Plan {
-        kind: crate::mods::txn::TxnKind::ModUpdate {
-            name: target.name.clone(),
-            from: old_row.as_ref().and_then(|r| r.version_number.clone()),
-            to: target.version_number.clone(),
-        },
-        stage,
-        create,
-        prior_pack_origin: None,
-        prior_instance: None,
-    };
+    let (plan, was_enabled) =
+        plan_mod_update(instance_root, old_sha1, &target, &required_deps).await?;
     let txn = crate::mods::txn::begin(lock, plan).await?;
     let outcome: Result<UpdateOutcome, Error> = async {
         for entry in &txn.plan().stage {

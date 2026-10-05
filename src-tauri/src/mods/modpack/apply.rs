@@ -179,7 +179,8 @@ async fn place(
 }
 
 /// The five pack fields of `instance.json`, through the one field-applier
-/// `set_instance_pack_update` uses (a Vanilla loader keeps no loader version).
+/// `instances::apply_pack_update_fields` (a Vanilla loader keeps no loader
+/// version).
 fn write_instance_fields(a: &PackApply<'_>) -> Result<(), Error> {
     let path = a.inst_root.join("instance.json");
     let mut inst = crate::instances::store::read_instance_json(&path)?;
@@ -202,17 +203,21 @@ async fn build_pack_plan(
 ) -> Result<Plan, Error> {
     let root = a.inst_root;
     let mut stage: Vec<StageEntry> = Vec::new();
+    let mut staged: HashSet<String> = HashSet::new();
     for f in a
         .diff
         .removed
         .iter()
         .chain(a.diff.updated.iter().map(|e| &e.old))
     {
+        // Two origin entries can resolve to one file (one jar recorded under two
+        // projects): it is set aside once — a second move would find nothing.
         if let Some(entry) = stage_entry_for(root, rows, f).await? {
-            stage.push(entry);
+            if staged.insert(entry.rel.to_ascii_lowercase()) {
+                stage.push(entry);
+            }
         }
     }
-    let mut staged: HashSet<String> = stage.iter().map(|s| s.rel.to_ascii_lowercase()).collect();
 
     let mut create = Vec::new();
     for f in a

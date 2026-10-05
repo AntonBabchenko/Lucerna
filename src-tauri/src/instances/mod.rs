@@ -417,33 +417,10 @@ pub fn set_instance_handled_log_sig(
     mutate(app, id, |i| i.handled_log_sig = sig)
 }
 
-/// Rewrite an instance's modpack-version metadata after an in-place
-/// update, optionally also bumping the Minecraft / loader version.
-pub fn set_instance_pack_update(
-    app: &tauri::AppHandle,
-    id: &str,
-    mrpack_version: String,
-    mc_version: String,
-    loader: LoaderKind,
-    loader_version: Option<String>,
-    mrpack_version_id: String,
-) -> Result<InstanceWithStatus> {
-    mutate(app, id, |i| {
-        apply_pack_update_fields(
-            i,
-            mrpack_version,
-            mc_version,
-            loader,
-            loader_version,
-            mrpack_version_id,
-        )
-    })
-}
-
 /// The pack-update fields of an instance record, as an in-place pack update
-/// writes them. One definition for the command and for the content
-/// transaction (`mods::modpack::apply`), so the rule below cannot drift: a
-/// Vanilla loader never keeps a loader version.
+/// writes them (`mods::modpack::apply`, inside the content transaction). The
+/// rule lives here, beside the record: a Vanilla loader never keeps a loader
+/// version.
 pub fn apply_pack_update_fields(
     i: &mut InstanceFile,
     mrpack_version: String,

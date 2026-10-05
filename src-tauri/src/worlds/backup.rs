@@ -34,6 +34,7 @@ pub(crate) async fn zip_world_into(
 ) -> Result<Backup> {
     std::fs::create_dir_all(backups_dir)
         .map_err(|e| Error::io(backups_dir.display().to_string(), e))?;
+    sweep_stale_parts(backups_dir, std::time::SystemTime::now());
 
     let base = Utc::now().format("%Y-%m-%dT%H-%M-%S").to_string();
     let (filename, dest_zip) = pick_unused_filename(backups_dir, &base)?;
@@ -67,6 +68,53 @@ pub(crate) async fn zip_world_into(
         size_bytes,
         created_unix_ms,
     })
+}
+
+/// How long an unfinished backup goes without a write before a new backup of
+/// the same world clears it. A zip being written keeps touching its file, so
+/// ten quiet minutes mean its writer is gone (the launcher was killed or
+/// crashed) — the `.part` is never listed, so nothing else would remove it.
+const STALE_PART: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Remove `*.zip.part` files under `backups_dir` that have not been written to
+/// for [`STALE_PART`]. Best effort: every failure is logged, none stops the
+/// backup that called it.
+fn sweep_stale_parts(backups_dir: &Path, now: std::time::SystemTime) {
+    let entries = match std::fs::read_dir(backups_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            crate::diag!(
+                "world backup: cannot list {} to clear unfinished backups: {e}",
+                backups_dir.display()
+            );
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                crate::diag!("world backup: cannot read {}: {e}", backups_dir.display());
+                continue;
+            }
+        };
+        let path = entry.path();
+        if !entry.file_name().to_string_lossy().ends_with(".zip.part") {
+            continue;
+        }
+        let stale = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(modified) => now
+                .duration_since(modified)
+                .is_ok_and(|quiet| quiet >= STALE_PART),
+            Err(e) => {
+                crate::diag!("world backup: cannot stat {}: {e}", path.display());
+                false
+            }
+        };
+        if stale {
+            discard_part(&path);
+        }
+    }
 }
 
 /// Remove an unfinished backup. Absent is fine (the zip never started);
@@ -442,6 +490,30 @@ mod tests {
             "nothing left behind: {:?}",
             names_in(&backups)
         );
+    }
+
+    #[test]
+    fn a_stale_unfinished_backup_is_cleared_and_a_fresh_one_kept() {
+        let td = tempdir().unwrap();
+        let stale = td.path().join("2026-01-01T00-00-00.zip.part");
+        let fresh = td.path().join("2026-01-01T00-00-01.zip.part");
+        let finished = td.path().join("2026-01-01T00-00-02.zip");
+        for p in [&stale, &fresh, &finished] {
+            fs::write(p, b"bytes").unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        fs::File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(now - STALE_PART - std::time::Duration::from_secs(1))
+            .unwrap();
+
+        sweep_stale_parts(td.path(), now);
+
+        assert!(!stale.exists(), "a part nobody writes any more goes");
+        assert!(fresh.exists(), "a part still being written stays");
+        assert!(finished.exists(), "a finished backup is never touched");
     }
 
     #[tokio::test]
