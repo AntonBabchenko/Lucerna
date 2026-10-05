@@ -17,6 +17,12 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
 });
 
+type IpcCall = { cmd: string; args: unknown };
+
+/** Every command the page sent, in order (logged by the mock IPC). */
+const ipcCalls = (page: Page): Promise<IpcCall[]> =>
+  page.evaluate(() => (window as unknown as { __mockIpcCalls?: IpcCall[] }).__mockIpcCalls ?? []);
+
 /** Press on the scrim's top-left corner, drag into the panel, release there. */
 async function pressScrimReleaseInPanel(page: Page) {
   const box = await page.getByRole('dialog').boundingBox();
@@ -57,12 +63,17 @@ test('Tab with the focus on nothing lands in the dialog, not the page behind it'
   const dropFocus = () => page.evaluate(() => (document.activeElement as HTMLElement).blur());
 
   // The first control loses the focus (a removed toast or control leaves the same <body>):
-  // Shift+Tab from where it stood would leave the dialog.
+  // Shift+Tab from where it stood would leave the dialog. It lands on the dialog's last
+  // control — the one from which Tab wraps to the first.
   await dropFocus();
   await page.keyboard.press('Shift+Tab');
   await expect(dialog.locator(':focus')).toHaveCount(1);
+  await page.keyboard.press('Tab');
+  await expect(first).toBeFocused();
 
-  // That was the last control. It loses the focus too: Tab comes back to the first.
+  // The last control loses the focus: Tab from where it stood would leave the dialog too. It
+  // comes back to the first.
+  await page.keyboard.press('Shift+Tab');
   await dropFocus();
   await page.keyboard.press('Tab');
   await expect(first).toBeFocused();
@@ -81,11 +92,17 @@ test('a click on the scrim leaves the field first: the name being typed is saved
 
   await expect(dialog).toBeHidden();
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const w = window as unknown as { __mockIpcCalls?: Array<{ cmd: string; args: unknown }> };
-        return (w.__mockIpcCalls ?? []).find((c) => c.cmd === 'set_instance_name')?.args ?? null;
-      }),
+    .poll(
+      async () => (await ipcCalls(page)).find((c) => c.cmd === 'set_instance_name')?.args ?? null,
     )
     .toEqual({ id: 'inst-1', name: 'Vanilla Plus' });
+  // The save was still on its way when the dialog closed. The profile list is read again after
+  // it all the same, so the sidebar shows the new name.
+  await expect
+    .poll(async () => {
+      const calls = await ipcCalls(page);
+      const saved = calls.findIndex((c) => c.cmd === 'set_instance_name');
+      return calls.slice(saved + 1).some((c) => c.cmd === 'list_instances');
+    })
+    .toBe(true);
 });
