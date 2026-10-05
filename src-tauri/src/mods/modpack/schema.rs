@@ -208,6 +208,14 @@ pub enum ModpackProgress {
         current: u32,
         total: u32,
     },
+    /// A pack update zipping world `current` of `total` into the instance's
+    /// backups before it changes anything (`modpack_apply_update` with
+    /// `backup_worlds`).
+    BackingUpWorld {
+        current: u32,
+        total: u32,
+        world_name: String,
+    },
     Enriching,
     /// Terminal phase marker — deliberately **payload-free**.
     ///

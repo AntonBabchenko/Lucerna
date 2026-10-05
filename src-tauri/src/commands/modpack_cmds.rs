@@ -608,9 +608,13 @@ pub async fn modpack_compute_update(
 
 /// Apply a modpack update in place. Phase 1 downloads every new/changed
 /// file into the shared cache (the instance is NOT touched — a failure
-/// here aborts cleanly). Phase 2 removes the old files, installs the new
-/// ones from the warm cache, and rewrites `pack_origin` + the instance's
-/// version metadata. `overrides/`-bundled content is not touched.
+/// here aborts cleanly). With `backup_worlds`, every world is then zipped
+/// into the instance's backups (a failed backup stops the update before
+/// anything changed). Phase 2 (`mods::modpack::apply`) is all or nothing:
+/// it sets the old files aside, installs the new ones from the warm cache
+/// and rewrites `pack_origin` + the instance's version metadata — or, when
+/// any step fails, undoes every step and returns `ModpackUpdateRolledBack`.
+/// `overrides/`-bundled content is not touched.
 ///
 /// The whole command runs under the instance's maintenance claim
 /// (`instances::maintenance::claim_write`), refused with `InstanceBusy` while
@@ -624,6 +628,7 @@ pub async fn modpack_apply_update(
     instance_id: String,
     mrpack_path: String,
     new_version_id: String,
+    backup_worlds: bool,
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> crate::error::Result<crate::mods::modpack::schema::ModpackUpdateOutcome> {
@@ -646,10 +651,8 @@ pub async fn modpack_apply_update(
         .ok_or_else(|| crate::error::Error::ModsNotFound {
             platform: "pack_origin".into(),
         })?;
-    // Captured before `origin` is moved into `with_carried_notes` below — the
-    // journal row for the version bump still needs to name where it came from.
-    // (Two independently-green PRs, #312 and #315, collided here: one made
-    // `with_carried_notes` take ownership, the other added a read after it.)
+    // What the journal row for the version bump names as its starting point,
+    // captured up front: phase 2 rewrites the pack record on disk.
     let previous_pack_name = origin.project_name.clone();
     let previous_version = origin.version.clone();
     let bytes = tokio::fs::read(&mrpack_path)
@@ -713,65 +716,63 @@ pub async fn modpack_apply_update(
         .await?;
     }
 
-    // ---- Phase 2: apply locally (cache is warm). Continues past a
-    // per-file failure and records it — see `apply_update_diff`'s doc
-    // comment for why aborting here would leave a WORSE half-update than
-    // continuing does. ----
-    let details: Vec<crate::tasks::TaskDetail> = apply_update_diff(
-        &dd,
-        &inst_root,
-        &diff,
-        &summary.game_version,
-        summary.loader,
-        &carry_disabled,
+    // ---- Worlds, before anything changes. ----
+    if backup_worlds {
+        // The domain function, not the `backup_world` command: that one opens
+        // with `write_allowed`, which refuses under this command's own claim.
+        // `list_world_names` is the list the confirm dialog counted, so what is
+        // backed up is what the user was told about.
+        let worlds = crate::worlds::list_world_names(&app, &instance_id)?;
+        let total = worlds.len() as u32;
+        for (idx, world) in worlds.iter().enumerate() {
+            let _ = on_progress.send(ModpackProgress::BackingUpWorld {
+                current: idx as u32 + 1,
+                total,
+                world_name: world.folder_name.clone(),
+            });
+            crate::worlds::backup::backup_world(&app, &instance_id, &world.folder_name).await?;
+        }
+    }
+
+    // ---- Phase 2: all or nothing (cache is warm). On `Err` every step was
+    // undone and nothing was written; the views that read the instance
+    // mid-swap are told to read it again. ----
+    let on_file = |current: u32, total: u32, file_name: &str| {
+        let _ = on_progress.send(ModpackProgress::InstallingFile {
+            current,
+            total,
+            file_name: file_name.to_string(),
+        });
+    };
+    let applied = match crate::mods::modpack::apply::apply_update_txn(
+        crate::mods::modpack::apply::PackApply {
+            data_dir: &dd,
+            inst_root: &inst_root,
+            diff: &diff,
+            summary: &summary,
+            old_origin: &origin,
+            carry_disabled: &carry_disabled,
+            new_version_id: &new_version_id,
+        },
         &install_progress,
+        &on_file,
     )
-    .await;
-
-    // Rewrite pack_origin: new files[] entries + carried-over bundled.
-    let bundled: Vec<crate::mods::installed::PackOriginFile> = origin
-        .files
-        .iter()
-        .filter(|f| f.url.is_empty())
-        .cloned()
-        .collect();
-    let selected: Vec<&crate::mods::modpack::schema::ModpackFile> =
-        summary.files.iter().filter(|f| !f.url.is_empty()).collect();
-    let mut new_origin = crate::mods::modpack::import::build_pack_origin(
-        &summary,
-        &selected,
-        origin.project_id.clone(),
-        &origin.project_name,
-    );
-    new_origin.files.extend(bundled);
-    // Phase 2 has finished writing the new mod set, so the mods dir can be
-    // re-classified for jars built for a loader family this instance cannot
-    // load. Recomputing beats carrying the old verdict (stale after a loader
-    // change) and beats clearing it (blanks the warning exactly when a loader
-    // migration makes it most useful).
-    let inert_loader_jars = crate::mods::modpack::import::classify_inert_loader_jars(
-        &crate::mods::installed::mods_dir(&inst_root),
-        summary.loader,
-        &summary.game_version,
-    );
-    // The carried notes describe state an apply cannot alter — see
-    // `with_carried_notes`.
-    let new_origin = crate::mods::modpack::import::with_carried_notes(
-        new_origin,
-        origin,
-        inert_loader_jars.clone(),
-    );
-    crate::mods::installed::set_pack_origin(&inst_root, new_origin).await?;
-
-    let updated_inst = crate::instances::set_instance_pack_update(
-        &app,
-        &instance_id,
-        summary.version.clone(),
-        summary.game_version.clone(),
-        summary.loader,
-        summary.loader_version.clone(),
-        new_version_id,
-    )?;
+    .await
+    {
+        Ok(applied) => applied,
+        Err(e) => {
+            let _ = crate::commands::ModsReconciled {
+                instance_id: instance_id.clone(),
+            }
+            .emit(&app);
+            return Err(e);
+        }
+    };
+    let crate::mods::modpack::apply::AppliedUpdate {
+        details,
+        inert_loader_jars,
+    } = applied;
+    let updated_inst = crate::instances::read_with_status(&app, &instance_id)?;
     // One row for the whole version bump, with the file churn as detail —
     // the per-mod installs above are the mechanism, not the user's action.
     // `mint_and_record` persists `details` (phase 2's per-file rows) under a
@@ -798,278 +799,6 @@ pub async fn modpack_apply_update(
         inert_loader_jars,
         details,
     })
-}
-
-/// Phase 2 of `modpack_apply_update`: remove the old files, then install the
-/// new/changed ones from the already-warm cache. Takes plain
-/// `dd`/`inst_root` paths (not an `AppHandle`) so it can be driven directly
-/// in tests, mirroring `mods::modpack::import::install_selected_files`.
-///
-/// Continues past a per-file failure instead of aborting, and returns
-/// (never errors) one `TaskDetail` row per install attempt plus a `Failed`
-/// row for any removal or carried-disable step that errors. This is
-/// deliberate, not an oversight: by the time phase 2 runs, the removals
-/// loop has already started mutating the instance (it runs BEFORE the
-/// installs loop), so an abort here is strictly worse than continuing —
-/// it would leave old files deleted with nothing installed to replace
-/// them, and `pack_origin`/the instance's version metadata would still
-/// describe the OLD pack version because both are written after this
-/// function returns. Continuing at least reaches that write and leaves a
-/// coherent, documented record of exactly what landed and what didn't.
-///
-/// Removals are reported ONLY on failure. `remove_pack_file` verifies every
-/// unlink (absent is success; any other failure is an `Err`), so the Failed
-/// rows built here are complete — but a success row is still never built:
-/// removals are the mechanism of the version bump, not the user's action,
-/// and per-removal success rows would drown the per-install rows the
-/// report exists for.
-#[allow(clippy::too_many_arguments)]
-async fn apply_update_diff(
-    dd: &std::path::Path,
-    inst_root: &std::path::Path,
-    diff: &crate::mods::modpack::schema::ModpackUpdateDiff,
-    game_version: &str,
-    loader: crate::mods::platform::LoaderKind,
-    carry_disabled: &[String],
-    install_progress: &crate::mods::install::ProgressFn,
-) -> Vec<crate::tasks::TaskDetail> {
-    use crate::mods::modpack::import::modpack_file_detail;
-    use crate::tasks::{DetailOutcome, TaskDetail};
-
-    let mut details: Vec<TaskDetail> = Vec::new();
-
-    for f in diff
-        .removed
-        .iter()
-        .chain(diff.updated.iter().map(|e| &e.old))
-    {
-        if let Err(e) = remove_pack_file(inst_root, f).await {
-            details.push(removal_failure_detail(f, e.to_string()));
-        }
-    }
-
-    for f in diff.added.iter().chain(diff.updated.iter().map(|e| &e.new)) {
-        if f.install_path.starts_with("mods/") {
-            let mv =
-                crate::mods::modpack::import::modpack_file_to_mod_version(f, game_version, loader);
-            match crate::mods::install::install_one(dd, inst_root, mv, None, install_progress).await
-            {
-                Ok(installed) => {
-                    let outcome = match installed.placement {
-                        Some(placement) => DetailOutcome::Installed {
-                            fetched: installed.fetched,
-                            placement,
-                        },
-                        None => DetailOutcome::Unchanged,
-                    };
-                    details.push(modpack_file_detail(f, Some(&installed.sha1), outcome));
-
-                    // Respect the user's choice IMMEDIATELY, not in a
-                    // post-loop pass: a mod they disabled stays disabled
-                    // across the update. Only reached after THIS file's
-                    // install succeeded, so a later file's failure can't
-                    // strand this one's disable state — and a failure
-                    // here is recorded, not silently dropped.
-                    if carry_disabled.contains(&f.sha1.to_ascii_lowercase()) {
-                        if let Err(e) =
-                            crate::mods::install::disable(inst_root, &f.sha1.to_ascii_lowercase())
-                                .await
-                        {
-                            details.push(modpack_file_detail(
-                                f,
-                                Some(&f.sha1),
-                                DetailOutcome::Failed {
-                                    reason: e.to_string(),
-                                },
-                            ));
-                        }
-                    }
-                }
-                Err(e) => {
-                    details.push(modpack_file_detail(
-                        f,
-                        Some(&f.sha1),
-                        DetailOutcome::Failed {
-                            reason: e.to_string(),
-                        },
-                    ));
-                }
-            }
-        } else {
-            match crate::mods::install::install_asset(
-                dd,
-                inst_root,
-                &f.url,
-                &f.sha1,
-                f.size,
-                &f.install_path,
-                install_progress,
-            )
-            .await
-            {
-                Ok(asset) => {
-                    details.push(modpack_file_detail(
-                        f,
-                        Some(&f.sha1),
-                        DetailOutcome::Installed {
-                            fetched: asset.fetched,
-                            placement: asset.placement,
-                        },
-                    ));
-                }
-                Err(e) => {
-                    details.push(modpack_file_detail(
-                        f,
-                        Some(&f.sha1),
-                        DetailOutcome::Failed {
-                            reason: e.to_string(),
-                        },
-                    ));
-                }
-            }
-        }
-    }
-
-    details
-}
-
-/// Build the `TaskDetail` row for a phase-2 removal failure. Only ever
-/// called on `remove_pack_file`'s `Err` arm — see `apply_update_diff`'s
-/// doc comment for why no row is ever built for a removal that reports
-/// success.
-fn removal_failure_detail(
-    file: &crate::mods::installed::PackOriginFile,
-    reason: String,
-) -> crate::tasks::TaskDetail {
-    crate::tasks::TaskDetail {
-        name: file.name.clone(),
-        install_path: file.install_path.clone(),
-        origin: file.source.into(),
-        host: crate::network::request::host_of(&file.url),
-        bytes: Some(file.size),
-        sha1: {
-            let s = file.sha1.trim();
-            if s.is_empty() {
-                None
-            } else {
-                Some(s.to_string())
-            }
-        },
-        outcome: crate::tasks::DetailOutcome::Failed { reason },
-    }
-}
-
-#[cfg(test)]
-mod apply_update_diff_tests {
-    use super::*;
-    use crate::mods::modpack::schema::{EnvSupport, ModpackFile, ModpackUpdateDiff};
-    use crate::mods::platform::ModSource;
-    use crate::tasks::DetailOutcome;
-
-    fn added_file(sha: &str, url: String) -> ModpackFile {
-        ModpackFile {
-            project_id: format!("proj-{sha}"),
-            version_id: format!("ver-{sha}"),
-            name: format!("Mod {sha}"),
-            filename: format!("{sha}.jar"),
-            install_path: format!("mods/{sha}.jar"),
-            sha1: sha.into(),
-            md5: None,
-            url,
-            size: 42.0,
-            env_client: EnvSupport::Required,
-            source: ModSource::Modrinth,
-        }
-    }
-
-    #[tokio::test]
-    async fn apply_update_diff_continues_past_one_failure_and_installs_the_rest() {
-        use sha1::{Digest, Sha1};
-        use tempfile::TempDir;
-        use wiremock::matchers::{method, path};
-        use wiremock::{Mock, MockServer, ResponseTemplate};
-
-        let body: &[u8] = b"apply-update-good-bytes";
-        let good_sha1 = hex::encode(Sha1::digest(body));
-
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/good.jar"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
-            .mount(&server)
-            .await;
-
-        let _seam =
-            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
-        let td_data = TempDir::new().unwrap();
-        let td_inst = TempDir::new().unwrap();
-
-        let good = added_file(&good_sha1, format!("{}/good.jar", server.uri()));
-        let bad = added_file(
-            "deadbeefcafe",
-            "https://not-on-allowlist.example.invalid/bad.jar".into(),
-        );
-
-        let diff = ModpackUpdateDiff {
-            added: vec![good.clone(), bad.clone()],
-            removed: vec![],
-            updated: vec![],
-            version_bump: None,
-            new_version_number: "2.0.0".into(),
-        };
-
-        let noop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
-
-        // No `.expect`/`?` here at all — that IS the fix: `apply_update_diff`
-        // returns `Vec<TaskDetail>` unconditionally now, it never aborts.
-        let details = apply_update_diff(
-            td_data.path(),
-            td_inst.path(),
-            &diff,
-            "1.20.1",
-            crate::mods::platform::LoaderKind::Fabric,
-            &[],
-            &noop,
-        )
-        .await;
-
-        assert_eq!(
-            details.len(),
-            2,
-            "one TaskDetail row per file, success and failure alike"
-        );
-
-        let good_detail = details
-            .iter()
-            .find(|d| d.install_path == good.install_path)
-            .expect("the succeeding file must still have a row");
-        assert!(
-            matches!(good_detail.outcome, DetailOutcome::Installed { .. }),
-            "expected Installed, got {:?}",
-            good_detail.outcome
-        );
-
-        let bad_detail = details
-            .iter()
-            .find(|d| d.install_path == bad.install_path)
-            .expect("the failing file must still have a row");
-        match &bad_detail.outcome {
-            DetailOutcome::Failed { reason } => assert!(!reason.is_empty()),
-            other => panic!("expected Failed, got {other:?}"),
-        }
-
-        // The whole point of the change: a failure on one file must not
-        // stop the OTHER file from actually landing on disk.
-        let installed_jar = td_inst
-            .path()
-            .join(".minecraft")
-            .join("mods")
-            .join(&good.filename);
-        assert!(
-            tokio::fs::try_exists(&installed_jar).await.unwrap(),
-            "the non-failing file must still be installed on disk"
-        );
-    }
 }
 
 /// Re-fetch the instance's current modpack version and re-extract its

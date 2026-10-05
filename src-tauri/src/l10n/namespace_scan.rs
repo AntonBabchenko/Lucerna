@@ -333,7 +333,7 @@ mod tests {
         let bytes = jar(&[("assets/create/lang/en_us.json", r#"{"a":"A"}"#)]);
         // `.jar.disabled` is reconcile's on-disk marker for a disabled mod
         // (see `mods::installed::reconcile` — the same convention
-        // `commands::remove_pack_file` relies on elsewhere).
+        // `installed::on_disk_name` spells for a row elsewhere).
         seed_mod(td.path(), "create.jar.disabled", &bytes).await;
 
         let (en, _) = namespace_lang_maps(td.path(), "create", "ru_ru")

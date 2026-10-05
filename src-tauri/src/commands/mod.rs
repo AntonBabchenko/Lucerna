@@ -815,48 +815,6 @@ fn dir_size_bytes(dir: &std::path::Path) -> u64 {
     total
 }
 
-/// Remove one pack-origin file from an instance: a `mods/` jar via the
-/// mod registry, anything else by deleting the file at `install_path`.
-/// Tries both the enabled and `.disabled` on-disk names — a user-disabled
-/// old version must not orphan into a ghost mod (the registry record is
-/// gone, so a leftover `.disabled` file would be re-adopted by the next
-/// reconcile as a brand-new manual mod).
-///
-/// "Already absent" reads as success; any other unlink failure is
-/// surfaced. A file still on disk after this returned `Ok` becomes exactly
-/// that ghost mod at the next reconcile, so the caller must be able to
-/// report the failure truthfully (`apply_update_diff` builds a Failed row
-/// from it).
-async fn remove_pack_file(
-    inst_root: &std::path::Path,
-    f: &crate::mods::installed::PackOriginFile,
-) -> crate::error::Result<()> {
-    if f.install_path.starts_with("mods/") {
-        crate::mods::installed::remove(inst_root, &f.sha1).await?;
-        let jar = crate::mods::installed::mods_dir(inst_root).join(&f.filename);
-        remove_file_if_present(&jar).await?;
-        let disabled =
-            crate::mods::installed::mods_dir(inst_root).join(format!("{}.disabled", f.filename));
-        remove_file_if_present(&disabled).await?;
-    } else {
-        let p = inst_root.join(".minecraft").join(&f.install_path);
-        remove_file_if_present(&p).await?;
-    }
-    Ok(())
-}
-
-/// Unlink `path`, discriminating "absent" (a fact — `Ok`) from every other
-/// failure (ignorance — `Err`). Replaces the old `try_exists().unwrap_or(false)`
-/// pre-check, which collapsed "could not stat" into "absent" and then
-/// discarded the unlink result on top of it.
-async fn remove_file_if_present(path: &std::path::Path) -> crate::error::Result<()> {
-    match tokio::fs::remove_file(path).await {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(crate::error::Error::io(path.display().to_string(), e)),
-    }
-}
-
 // =========================================================================
 // Tests (verbatim from original commands.rs)
 // =========================================================================
@@ -865,85 +823,6 @@ async fn remove_file_if_present(path: &std::path::Path) -> crate::error::Result<
 mod tests {
     use super::*;
     use crate::error::Error;
-
-    /// A user-disabled pack mod lives on disk as `<name>.jar.disabled`;
-    /// removing its pack entry must delete that variant too, or it orphans
-    /// into a ghost manual mod at the next registry reconcile.
-    #[tokio::test]
-    async fn remove_pack_file_removes_disabled_variant() {
-        let td = tempfile::TempDir::new().unwrap();
-        let mods_dir = crate::mods::installed::mods_dir(td.path());
-        tokio::fs::create_dir_all(&mods_dir).await.unwrap();
-        tokio::fs::write(mods_dir.join("x.jar.disabled"), b"bytes")
-            .await
-            .unwrap();
-        let f = crate::mods::installed::PackOriginFile {
-            sha1: "abc".into(),
-            name: "x".into(),
-            filename: "x.jar".into(),
-            install_path: "mods/x.jar".into(),
-            url: "https://cdn.modrinth.com/x.jar".into(),
-            size: 5.0,
-            project_id: String::new(),
-            version_id: String::new(),
-            env_client: crate::mods::modpack::schema::EnvSupport::Required,
-            source: crate::mods::platform::ModSource::Modrinth,
-        };
-        remove_pack_file(td.path(), &f).await.unwrap();
-        assert!(
-            !tokio::fs::try_exists(mods_dir.join("x.jar.disabled"))
-                .await
-                .unwrap(),
-            "the .disabled variant must be removed too"
-        );
-    }
-
-    /// A DIRECTORY at the file's path makes `remove_file` fail with a
-    /// non-NotFound error on every platform (the same type-mismatch
-    /// `datapacks/world_link/migrate.rs:209-212` documents as os error 5 on
-    /// Windows). Before the fix this returned Ok: `try_exists` saw
-    /// "something there" and the unlink result was discarded.
-    #[tokio::test]
-    async fn remove_pack_file_surfaces_a_blocked_unlink() {
-        let td = tempfile::TempDir::new().unwrap();
-        let blocked = td.path().join(".minecraft").join("config").join("x.toml");
-        tokio::fs::create_dir_all(&blocked).await.unwrap();
-        let f = crate::mods::installed::PackOriginFile {
-            sha1: "abc".into(),
-            name: "x".into(),
-            filename: "x.toml".into(),
-            install_path: "config/x.toml".into(),
-            url: "https://cdn.modrinth.com/x.toml".into(),
-            size: 5.0,
-            project_id: String::new(),
-            version_id: String::new(),
-            env_client: crate::mods::modpack::schema::EnvSupport::Required,
-            source: crate::mods::platform::ModSource::Modrinth,
-        };
-        let err = remove_pack_file(td.path(), &f).await.unwrap_err();
-        assert!(matches!(err, Error::Io { .. }), "got {err:?}");
-    }
-
-    /// Absent is a fact, not a failure: nothing on disk, removal reports Ok.
-    /// Pins the NotFound discrimination so the fix cannot be "simplified"
-    /// into failing on an already-deleted file.
-    #[tokio::test]
-    async fn remove_pack_file_tolerates_an_absent_file() {
-        let td = tempfile::TempDir::new().unwrap();
-        let f = crate::mods::installed::PackOriginFile {
-            sha1: "abc".into(),
-            name: "x".into(),
-            filename: "x.toml".into(),
-            install_path: "config/x.toml".into(),
-            url: "https://cdn.modrinth.com/x.toml".into(),
-            size: 5.0,
-            project_id: String::new(),
-            version_id: String::new(),
-            env_client: crate::mods::modpack::schema::EnvSupport::Required,
-            source: crate::mods::platform::ModSource::Modrinth,
-        };
-        remove_pack_file(td.path(), &f).await.unwrap();
-    }
 
     #[test]
     fn greet_includes_name() {
