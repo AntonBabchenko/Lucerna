@@ -14,6 +14,10 @@
     canToggle = true,
     updateState = null,
     checking = false,
+    selectable = false,
+    selected = false,
+    onSelectChange = (_checked: boolean) => {},
+    actionsBlockedReason = null,
     onOpenDetail = () => {},
     onToggle,
     onUninstall,
@@ -24,6 +28,13 @@
     canToggle?: boolean;
     updateState?: ModUpdateState | null;
     checking?: boolean;
+    /** The pane's bulk bar: a leading checkbox (ModCard's `selectable`). */
+    selectable?: boolean;
+    selected?: boolean;
+    onSelectChange?: (checked: boolean) => void;
+    /** Why no action on this row can run right now (a bulk run holds the folder), or null —
+     *  ModCard's own `actionsBlockedReason`. */
+    actionsBlockedReason?: string | null;
     onOpenDetail?: () => void;
     onToggle: () => void;
     onUninstall: () => void;
@@ -39,7 +50,8 @@
   );
 </script>
 
-<div>
+<!-- `data-bulk-row`: the element a bulk removal moves focus into (refocusAfterRemoval). -->
+<div data-bulk-row>
   <ModCard
     layout="list"
     summary={card.summary}
@@ -52,6 +64,10 @@
     {updateState}
     {onUpdate}
     {checking}
+    {selectable}
+    {selected}
+    {onSelectChange}
+    {actionsBlockedReason}
   />
   {#if reasonLabel}
     <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">

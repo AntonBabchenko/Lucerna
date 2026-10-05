@@ -101,3 +101,18 @@ export function serverToggleBlockedKey(
       return state === null ? 'servers.datapacks.blockedUnknown' : null;
   }
 }
+
+/**
+ * Whether a bulk Enable (`enabled: true`) or Disable applies to this row: exactly where the
+ * row's own toggle renders (present, not ignored) and is live (`serverToggleBlockedKey` null),
+ * and the row is in the other state. A row already where the user wants it is left alone.
+ */
+export function canBulkToggle(
+  entry: ServerDatapackEntry,
+  levelDat: LevelDatPresence | null,
+  enabled: boolean,
+): boolean {
+  if (!entry.present || entry.state === 'ignored') return false;
+  if (serverToggleBlockedKey(levelDat, entry.state) !== null) return false;
+  return enabled ? entry.state === 'disabled' : entry.state === 'enabled';
+}
