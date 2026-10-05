@@ -18,18 +18,19 @@
 //! marker does not; closing fails only when both of the first two steps fail.
 //!
 //! One transaction per instance at a time: plan building through closing runs
-//! under `registry_lock::lock(txn_root)`. Phase 2 of an update is local and
-//! fast, and the lock removes the race of two updates sharing a dependency. An
-//! install that does not use a transaction (`install_batch`) racing an undo keeps
-//! the ms-scale window #310 documents.
+//! under [`lock`], a per-instance mutex of its own. Phase 2 of an update is
+//! local and fast, and the lock removes the race of two updates sharing a
+//! dependency. An install that does not use a transaction (`install_batch`)
+//! racing an undo keeps the ms-scale window #310 documents.
 //!
 //! `begin` refuses while a pending token exists: under the lock no other
 //! transaction is live, so a pending one is a closing that failed — acting on top
 //! of it could let that stale record later remove files a newer update placed.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
@@ -217,11 +218,32 @@ pub struct TxnLock {
 }
 
 pub async fn lock(instance_root: &Path) -> TxnLock {
+    let key: PathBuf = txn_root(instance_root).components().collect();
+    let gate = {
+        // A poisoned map is still a valid map: the only code under this std
+        // lock is an entry lookup and an `Arc` clone. Never held across an await.
+        let mut gates = TXN_GATES.lock().unwrap_or_else(|p| p.into_inner());
+        Arc::clone(
+            gates
+                .entry(key)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    };
     TxnLock {
-        guard: crate::mods::registry_lock::lock(&txn_root(instance_root)).await,
+        guard: gate.lock_owned().await,
         instance_root: instance_root.to_path_buf(),
     }
 }
+
+/// One async mutex per instance's `txn` directory, created on first use and
+/// never pruned (one small `Arc` per instance this process touched — the bound
+/// `registry_lock` has). Its own map on purpose: `registry_lock` is the
+/// registries' chokepoint and is taken inside every `installed::` call a
+/// transaction makes, while this mutex spans a whole transaction; they must
+/// never be the same mutex. The key is lexical (`components()` folds `/` vs
+/// `\` and doubled separators), as `registry_lock`'s is.
+static TXN_GATES: LazyLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The tokens of `instance_root` whose record exists and which are not closed.
 /// Synchronous: startup calls it before the async runtime serves anything.

@@ -237,12 +237,10 @@ async fn build_pack_plan(
         if !rel.starts_with("mods/") && !staged.contains(&rel.to_ascii_lowercase()) {
             // `install_asset` writes over whatever is at its path — the user's
             // own config file, say. Set it aside so an undo brings it back.
+            // Hashing discriminates on its own: no file is `None`, a read
+            // that fails is an error that refuses the update untouched.
             let path = txn::content_path(root, &rel);
-            if fs::try_exists(&path).await.map_err(|e| io_err(&path, e))? {
-                let sha1 = txn::file_sha1(&path)
-                    .await
-                    .map_err(|e| io_err(&path, e))?
-                    .unwrap_or_default();
+            if let Some(sha1) = txn::file_sha1(&path).await.map_err(|e| io_err(&path, e))? {
                 staged.insert(rel.to_ascii_lowercase());
                 stage.push(StageEntry {
                     rel: rel.clone(),
