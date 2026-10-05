@@ -4,11 +4,17 @@
   // Determinate progress for an in-flight modpack update. `progress === null`
   // is the pre-first-event "preparing" state (also a removal-only update that
   // emits no per-file events) — label only, no bar. Bar markup mirrors
-  // OperationsBar.svelte for visual consistency.
+  // OperationsBar.svelte for visual consistency. While worlds are backed up
+  // (`phase: 'backing_up_world'`) `fileName` is the world's folder name.
   let {
     progress,
   }: {
-    progress: { current: number; total: number; fileName: string } | null;
+    progress: {
+      current: number;
+      total: number;
+      fileName: string;
+      phase?: 'installing_file' | 'backing_up_world';
+    } | null;
   } = $props();
 
   function pct(done: number, total: number): number {
@@ -19,7 +25,13 @@
 
 <div class="flex flex-col gap-2" data-testid="imported-detail-updating">
   <div class="text-sm text-accent truncate">
-    {#if progress}
+    {#if progress && progress.phase === 'backing_up_world'}
+      {$t('modpacks.imported.detail.updateProgressBackingUp', {
+        current: progress.current,
+        total: progress.total,
+        worldName: progress.fileName,
+      })}
+    {:else if progress}
       {$t('modpacks.imported.detail.updateProgressDownloading', {
         current: progress.current,
         total: progress.total,

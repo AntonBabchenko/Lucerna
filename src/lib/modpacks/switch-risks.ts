@@ -4,9 +4,21 @@
 
 import type {
   InstanceWithStatus,
+  ModpackUpdateDiff,
   ModpackVersionBump,
   ModpackVersionEntry,
 } from '$lib/ipc/bindings';
+
+/**
+ * Whether «Back up worlds first» starts ticked. An update is risky for a world
+ * when Minecraft, the loader or the loader version changes (`version_bump` is
+ * set for any of the three) — the first launch upgrades the world one way — or
+ * when mods are removed, whose blocks a world then loses. Otherwise the backup
+ * is offered but not preselected: it costs time and disk on every update.
+ */
+export function defaultBackupWorlds(diff: ModpackUpdateDiff): boolean {
+  return diff.version_bump !== null || diff.removed.length > 0;
+}
 
 /** Where the target version sits relative to the installed one. */
 export type SwitchDirection = 'upgrade' | 'downgrade' | 'reinstall' | 'unknown';

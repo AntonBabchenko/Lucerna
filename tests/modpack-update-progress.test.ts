@@ -22,4 +22,15 @@ describe('ModpackUpdateProgress', () => {
     expect(label.textContent).toContain('Sodium');
     expect(getByTestId('imported-detail-update-bar').getAttribute('style')).toContain('width: 25%');
   });
+
+  it('names the world being backed up', () => {
+    const { getByTestId } = render(ModpackUpdateProgress, {
+      props: {
+        progress: { current: 1, total: 2, fileName: 'Survival', phase: 'backing_up_world' },
+      },
+    });
+    const label = getByTestId('imported-detail-updating').textContent ?? '';
+    expect(label).toContain('Backing up world');
+    expect(label).toContain('Survival');
+  });
 });

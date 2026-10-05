@@ -69,6 +69,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   knew how newer Forge versions are started. An older Forge server now starts
   from the Forge server file in its folder, and if a file it needs is
   missing, the message names it.
+- **Worlds can be backed up before a pack update.** The update and version
+  change confirmations offer to zip every world of the profile first. It is
+  ticked when Minecraft or the loader changes or mods are removed, and the
+  copies appear among the Worlds tab's backups.
 
 ### Changed
 
@@ -331,6 +335,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   downloading the server file again from a server's problem notice made the
   fix and then left the server stopped. They now start it, as their buttons
   say.
+- **An update that cannot finish changes nothing.** A modpack update or a mod
+  update that failed partway used to leave the old files deleted and the new
+  ones half installed. It now puts every file and record back as it was and
+  says which file it stopped at, and an update cut off by a crash is undone
+  at the next start. A world backup that fails partway no longer leaves a
+  truncated archive behind.
 
 ## [0.25.0] — 2026-09-27
 

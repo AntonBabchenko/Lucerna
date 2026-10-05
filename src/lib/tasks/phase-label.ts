@@ -120,6 +120,15 @@ function modpackPhase(tr: Translate, task: Task): string | null {
             current: task.progress.current,
             total: task.progress.total,
           });
+    case 'backing_up_world':
+      // The world's name rides `ModpackProgress`, which the registry's bare
+      // `phase: string` cannot carry (as `installing_file`'s file name).
+      return task.progress === null
+        ? null
+        : tr('modpacks.import.progress.phaseBackingUpWorlds', {
+            current: task.progress.current,
+            total: task.progress.total,
+          });
     case 'enriching':
       return tr('modpacks.import.progress.phaseEnriching');
     case 'done':

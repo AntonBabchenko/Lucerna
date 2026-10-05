@@ -45,6 +45,14 @@ function translateProgress(
   bytes: ProgressTick | null,
 ): { phase: string | null; progress: TaskProgress | null } {
   const taskPhase = phase?.phase ?? null;
+  // World backups come after the downloads: the last byte tick of phase 1 is
+  // still the latest one then, and must not stand in for the world count.
+  if (phase !== null && phase.phase === 'backing_up_world') {
+    return {
+      phase: taskPhase,
+      progress: { current: phase.current, total: phase.total, unit: 'files' },
+    };
+  }
   if (bytes !== null && bytes.current !== null && bytes.total !== null && bytes.total > 0) {
     return {
       phase: taskPhase,
@@ -71,6 +79,8 @@ export async function applyModpackUpdate(
   instanceId: string,
   tempPath: string,
   newVersionId: string,
+  /** Zip every world first — passed through to the command. */
+  backupWorlds: boolean,
   /** Forwarded verbatim so a caller that already renders its own in-screen
    *  progress keeps it. `createModpackUpdateFlow` drives the inline bar on
    *  three surfaces off this; registering a task must not take that away
@@ -94,22 +104,28 @@ export async function applyModpackUpdate(
       lane: 'serial',
     });
 
-    const outcome = await runUpdate(instanceId, tempPath, newVersionId, (phase, bytes) => {
-      onProgress?.(phase, bytes);
-      const { phase: taskPhase, progress } = translateProgress(phase, bytes);
-      let rate = null;
-      if (progress !== null && canShowRate(progress)) {
-        display = advanceProgressDisplay(
-          display,
-          progress.current,
-          progress.total,
-          Date.now(),
-          RATE_REFRESH_MS,
-        );
-        rate = toTaskRate(display);
-      }
-      upsertProgress(id, { phase: taskPhase, progress, rate });
-    });
+    const outcome = await runUpdate(
+      instanceId,
+      tempPath,
+      newVersionId,
+      backupWorlds,
+      (phase, bytes) => {
+        onProgress?.(phase, bytes);
+        const { phase: taskPhase, progress } = translateProgress(phase, bytes);
+        let rate = null;
+        if (progress !== null && canShowRate(progress)) {
+          display = advanceProgressDisplay(
+            display,
+            progress.current,
+            progress.total,
+            Date.now(),
+            RATE_REFRESH_MS,
+          );
+          rate = toTaskRate(display);
+        }
+        upsertProgress(id, { phase: taskPhase, progress, rate });
+      },
+    );
 
     // Same `details` hand-off as pack-import.ts / mod-install.ts — an update
     // moves as many files as an import, so its report is worth as much.

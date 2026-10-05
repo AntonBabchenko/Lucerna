@@ -7,6 +7,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackFetchToTemp: vi.fn(),
     modpackComputeUpdate: vi.fn(),
     modpackApplyUpdate: vi.fn(),
+    listWorldNames: vi.fn(async () => ({ status: 'ok', data: [] })),
   },
 }));
 vi.mock('$lib/ipc/format-error', () => ({

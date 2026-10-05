@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModpackVersionEntry } from '$lib/ipc/bindings';
 import {
   assessSwitchRisks,
+  defaultBackupWorlds,
   packChangelogBase,
   sortVersionsNewestFirst,
   switchChangelogRequest,
@@ -212,5 +213,35 @@ describe('packChangelogBase', () => {
 
   it('is null when the instance has no recorded version id', () => {
     expect(packChangelogBase({ mrpack_version_id: null })).toBeNull();
+  });
+});
+
+describe('defaultBackupWorlds', () => {
+  const plain = {
+    added: [],
+    removed: [],
+    updated: [],
+    version_bump: null,
+    new_version_number: '2.0',
+  };
+
+  it('is on when Minecraft or the loader changes', () => {
+    const bump = {
+      old_game_version: '1.20.1',
+      new_game_version: '1.20.1',
+      old_loader_version: '0.16.0',
+      new_loader_version: '0.16.5',
+    };
+    expect(defaultBackupWorlds({ ...plain, version_bump: bump })).toBe(true);
+  });
+
+  it('is on when mods are removed', () => {
+    expect(defaultBackupWorlds({ ...plain, removed: [{} as never] })).toBe(true);
+  });
+
+  it('is off otherwise', () => {
+    expect(defaultBackupWorlds({ ...plain, added: [{} as never], updated: [{} as never] })).toBe(
+      false,
+    );
   });
 });

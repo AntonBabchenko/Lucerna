@@ -7,6 +7,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackFetchToTemp: vi.fn(),
     modpackComputeUpdate: vi.fn(),
     modpackApplyUpdate: vi.fn(),
+    listWorldNames: vi.fn(),
   },
 }));
 vi.mock('$lib/ipc/format-error', () => ({
@@ -26,6 +27,7 @@ import { __resetTasksForTest, taskList } from '$lib/tasks/registry.svelte';
 const fetchToTemp = commands.modpackFetchToTemp as ReturnType<typeof vi.fn>;
 const computeUpdate = commands.modpackComputeUpdate as ReturnType<typeof vi.fn>;
 const applyUpdate = commands.modpackApplyUpdate as ReturnType<typeof vi.fn>;
+const listWorldNames = commands.listWorldNames as ReturnType<typeof vi.fn>;
 
 const inst = { id: 'i1', mrpack_source: 'modrinth', mrpack_project_id: 'p1' } as InstanceWithStatus;
 const entry = { id: 'v2', version_number: '1.3.0' } as ModpackVersionEntry;
@@ -42,6 +44,7 @@ beforeEach(() => {
     status: 'ok',
     data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] },
   });
+  listWorldNames.mockResolvedValue({ status: 'ok', data: [] });
 });
 
 describe('createModpackUpdateFlow', () => {
@@ -77,7 +80,7 @@ describe('createModpackUpdateFlow', () => {
     let release: (v: unknown) => void = () => {};
     let phaseCh: { onmessage: (m: unknown) => void } | null = null;
     applyUpdate.mockImplementation((...args: unknown[]) => {
-      phaseCh = args[3] as { onmessage: (m: unknown) => void };
+      phaseCh = args[4] as { onmessage: (m: unknown) => void };
       return new Promise((r) => {
         release = r;
       });
@@ -88,7 +91,12 @@ describe('createModpackUpdateFlow', () => {
     await flush();
     expect(flow.phase).toBe('applying');
     phaseCh!.onmessage({ phase: 'installing_file', current: 3, total: 12, file_name: 'Sodium' });
-    expect(flow.progress).toEqual({ current: 3, total: 12, fileName: 'Sodium' });
+    expect(flow.progress).toEqual({
+      current: 3,
+      total: 12,
+      fileName: 'Sodium',
+      phase: 'installing_file',
+    });
     release({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
     expect(await p).toBe(true);
     expect(flow.phase).toBe('idle');
@@ -130,7 +138,7 @@ describe('createModpackUpdateFlow', () => {
     let phaseCh: { onmessage: ((m: unknown) => void) | null } | undefined;
     let release!: (v: unknown) => void;
     applyUpdate.mockImplementation((...args: unknown[]) => {
-      phaseCh = args[3] as typeof phaseCh;
+      phaseCh = args[4] as typeof phaseCh;
       return new Promise((r) => {
         release = r;
       });
@@ -142,9 +150,60 @@ describe('createModpackUpdateFlow', () => {
     await flush();
 
     phaseCh!.onmessage?.({ phase: 'installing_file', current: 5, total: 9, file_name: 'Iris' });
-    expect(flow.progress).toEqual({ current: 5, total: 9, fileName: 'Iris' });
+    expect(flow.progress).toEqual({
+      current: 5,
+      total: 9,
+      fileName: 'Iris',
+      phase: 'installing_file',
+    });
 
     release({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
     await p;
+  });
+
+  it('prepare() counts the worlds for the backup choice', async () => {
+    listWorldNames.mockResolvedValue({
+      status: 'ok',
+      data: [
+        { folder_name: 'A', modified_unix_ms: 0 },
+        { folder_name: 'B', modified_unix_ms: 0 },
+      ],
+    });
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    expect(listWorldNames).toHaveBeenCalledWith('i1');
+    expect(flow.worldCount).toBe(2);
+  });
+
+  it('an unreadable world count is unknown, not zero', async () => {
+    listWorldNames.mockResolvedValue({ status: 'error', error: { kind: 'io' } });
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    expect(flow.worldCount).toBeNull();
+  });
+
+  it('confirm() passes the backup choice and shows the world being backed up', async () => {
+    let phaseCh: { onmessage: (m: unknown) => void } | null = null;
+    let release: (v: unknown) => void = () => {};
+    applyUpdate.mockImplementation((...args: unknown[]) => {
+      phaseCh = args[4] as { onmessage: (m: unknown) => void };
+      return new Promise((r) => {
+        release = r;
+      });
+    });
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    const p = flow.confirm(inst, { backupWorlds: true });
+    await flush();
+    expect(applyUpdate.mock.calls[0][3]).toBe(true);
+    phaseCh!.onmessage({ phase: 'backing_up_world', current: 1, total: 2, world_name: 'Survival' });
+    expect(flow.progress).toEqual({
+      current: 1,
+      total: 2,
+      fileName: 'Survival',
+      phase: 'backing_up_world',
+    });
+    release({ status: 'ok', data: { instance: { id: 'i1' }, inert_loader_jars: [], details: [] } });
+    expect(await p).toBe(true);
   });
 });
