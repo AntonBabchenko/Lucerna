@@ -100,6 +100,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   modpack no longer alternate with slang, a profile that won't launch, or its
   folder, is no longer called a modpack, and the sidebar's folder buttons say
   that they open a folder.
+- **Every version in Settings → Updates opens and closes on its own.** The
+  installed version starts open; the others are one line each until you open
+  them.
 
 ### Fixed
 

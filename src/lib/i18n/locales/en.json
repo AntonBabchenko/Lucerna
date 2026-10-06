@@ -3185,7 +3185,7 @@
         "security": "Security"
       },
       "intro": "Changes up to the version you have ({version}).",
-      "showMore": "{count, plural, one {Show # more version} other {Show # more versions}}"
+      "compareLink": "Changes on GitHub"
     },
     "aiTranslation": {
       "label": "AI translation",
