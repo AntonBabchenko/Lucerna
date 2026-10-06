@@ -610,6 +610,56 @@ mod tests {
         assert!(txn_left(&fx).is_empty(), "{:?}", txn_left(&fx));
     }
 
+    /// The undo itself gets stuck — another writer took the old file's name while
+    /// the update ran. The report carries the step's own error, not a "nothing
+    /// was changed" wrapper inside "could not be fully undone".
+    #[tokio::test]
+    async fn a_stuck_pack_rollback_reports_the_steps_own_cause() {
+        let fx = Fx::new(&[("old.jar", b"old"), ("a.jar", b"a"), ("c.jar", b"c")]).await;
+        let old = fx
+            .installed(&fx.file("old.jar", "mods/old.jar", b"old"))
+            .await;
+        let o = origin("1.0", vec![old.clone()]);
+        installed::set_pack_origin(fx.root(), o.clone())
+            .await
+            .unwrap();
+        // While b.jar downloads — after old.jar was set aside — different bytes
+        // land under old.jar's name (equal bytes would count as restored).
+        let intruder = mods(&fx).join("old.jar");
+        Mock::given(method("GET"))
+            .and(path("/b.jar"))
+            .respond_with(move |_: &wiremock::Request| {
+                std::fs::write(&intruder, b"someone-else").unwrap();
+                ResponseTemplate::new(200).set_body_bytes(b"b".to_vec())
+            })
+            .mount(&fx.server)
+            .await;
+        std::fs::write(mods(&fx).join("c.jar"), b"users-own").unwrap();
+        let new = vec![
+            fx.file("a.jar", "mods/a.jar", b"a"),
+            fx.file("b.jar", "mods/b.jar", b"b"),
+            fx.file("c.jar", "mods/c.jar", b"c"),
+        ];
+        let d = diff(new.clone(), vec![old.clone()], vec![]);
+
+        let r = apply(&fx, &d, &summary("2.0", new), &o, &[]).await;
+
+        match r {
+            Err(Error::ContentUpdateRollbackIncomplete { cause, stuck, .. }) => {
+                assert!(
+                    matches!(*cause, Error::ModsFilenameConflict { ref filename, .. } if filename == "c.jar"),
+                    "the step's own error, not a rolled-back wrapper: {cause:?}"
+                );
+                assert!(
+                    stuck.iter().any(|s| s.starts_with("mods/old.jar")),
+                    "{stuck:?}"
+                );
+            }
+            Err(other) => panic!("expected ContentUpdateRollbackIncomplete, got {other:?}"),
+            Ok(_) => panic!("expected the update to fail"),
+        }
+    }
+
     #[tokio::test]
     async fn a_pack_asset_over_the_users_file_comes_back_after_a_rollback() {
         let fx = Fx::new(&[("x.toml", b"pack")]).await;
