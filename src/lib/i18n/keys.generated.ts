@@ -5,6 +5,7 @@ export type TranslationKey =
   | 'accounts.signingIn.body'
   | 'accounts.signingIn.heading'
   | 'addons.datapacks.addToWorlds'
+  | 'addons.datapacks.blockedRunning'
   | 'addons.datapacks.bulkHint'
   | 'addons.datapacks.bulkUpdateKeptOld'
   | 'addons.datapacks.empty'
