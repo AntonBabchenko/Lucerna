@@ -1216,6 +1216,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  For `.ftbpack.json` / `.atlpack.json` sidecar files the summary is
 	 *  deserialised directly and the archive path is skipped entirely (no bytes
 	 *  to read, no overrides).
+	 * 
+	 *  A `path` staged by `modpack_fetch_to_temp` is deleted when this returns,
+	 *  whatever the outcome; a pack the user picked or dropped is never touched.
 	 */
 	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | "ftb" | "atlauncher" | 
 /**
@@ -1238,13 +1241,19 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modpackSearch: (source: ModSource, query: string, page: number, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, sort: ModpackSort, pageSize: number) => typedError<ModpackSearchPage, Error>(__TAURI_INVOKE("modpack_search", { source, query, page, mcVersion, loader, sort, pageSize })),
 	/**
-	 *  Pull a modpack version's archive to a temp path under the OS temp
-	 *  dir, and return the absolute path so the UI can hand it to
-	 *  `modpack_inspect` / `modpack_import`. Modrinth versions resolve to a
-	 *  primary `.mrpack`; CurseForge versions resolve a file's
-	 *  `downloadUrl` to a `.zip`. The temp file is left in place after
-	 *  import — a successful import has already copied every byte that
-	 *  matters into the instance.
+	 *  Pull a modpack version's archive to a staged file under the OS temp
+	 *  dir, and return the absolute path for the UI to hand to
+	 *  `modpack_inspect` / `modpack_import`, or to `modpack_compute_update` /
+	 *  `modpack_apply_update`. Modrinth versions resolve to a primary
+	 *  `.mrpack`; CurseForge versions resolve a file's `downloadUrl` to a
+	 *  `.zip`; FTB and ATLauncher versions stage their resolved summary
+	 *  (`.ftbpack.json` / `.atlpack.json`).
+	 * 
+	 *  The path is single-use: `modpack_import` and `modpack_apply_update`
+	 *  delete the file when they return, whatever the outcome, so trying again
+	 *  means staging again. A file no operation consumes (a dialog closed, a
+	 *  preview that failed) is removed once it is a day old. The rules live in
+	 *  `mods::modpack::source::stage`.
 	 */
 	modpackFetchToTemp: (source: ModSource, projectId: string, versionId: string) => typedError<string, Error>(__TAURI_INVOKE("modpack_fetch_to_temp", { source, projectId, versionId })),
 	/**
@@ -1352,7 +1361,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Diff a downloaded new-version `.mrpack` (already fetched to
 	 *  `mrpack_path` via `modpack_fetch_to_temp`) against the instance's
-	 *  current `pack_origin`. Returns the diff for the confirm dialog.
+	 *  current `pack_origin`. Returns the diff for the confirm dialog. The file
+	 *  is only read here: the `modpack_apply_update` that follows consumes it.
 	 */
 	modpackComputeUpdate: (instanceId: string, mrpackPath: string) => typedError<ModpackUpdateDiff, Error>(__TAURI_INVOKE("modpack_compute_update", { instanceId, mrpackPath })),
 	/**
@@ -1371,6 +1381,9 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  the game runs or starts, while another long operation — a world
 	 *  migration, a mod migration, a clone, another update — holds the instance,
 	 *  or while a single mod, asset or pack-file writer is still in flight.
+	 * 
+	 *  `mrpack_path`, staged by `modpack_fetch_to_temp`, is deleted when this
+	 *  returns, whatever the outcome, so applying again means staging again.
 	 */
 	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, backupWorlds: boolean, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<ModpackUpdateOutcome, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, backupWorlds, onProgress, onInstallProgress })),
 	/**

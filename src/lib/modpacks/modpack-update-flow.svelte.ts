@@ -100,6 +100,14 @@ export function createModpackUpdateFlow() {
     opts: ConfirmOptions = { backupWorlds: false },
   ): Promise<boolean> {
     if (!tempPath || !versionId) return false;
+    // Handed over, not kept: `modpack_apply_update` deletes the staged archive
+    // when it returns, whatever the outcome (and a queued apply cancelled
+    // before it ran leaves it to the backend's day-old sweep), so applying
+    // again means preparing again.
+    const archive = tempPath;
+    const targetVersionId = versionId;
+    tempPath = null;
+    versionId = null;
     diff = null;
     progress = null;
     error = null;
@@ -112,8 +120,8 @@ export function createModpackUpdateFlow() {
     const out = await applyModpackUpdate(
       inst.name,
       inst.id,
-      tempPath,
-      versionId,
+      archive,
+      targetVersionId,
       opts.backupWorlds,
       (p) => {
         if (p?.phase === 'installing_file') {
@@ -144,8 +152,6 @@ export function createModpackUpdateFlow() {
       error = out.message;
       return false;
     }
-    tempPath = null;
-    versionId = null;
     return true;
   }
 

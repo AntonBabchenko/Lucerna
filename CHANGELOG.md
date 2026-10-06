@@ -375,6 +375,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
   says which file it stopped at, and an update cut off by a crash is undone
   at the next start. A world backup that fails partway no longer leaves a
   truncated archive behind.
+- **Downloaded modpacks no longer pile up in the temporary folder.** Every
+  version fetched to import a pack, update it, switch its version or re-import
+  its files stayed in the system's temporary folder (`lucerna/modpack`) for
+  good, often tens or hundreds of MB each. The download is now deleted when
+  the import or update it was fetched for ends, re-importing a pack's files no
+  longer keeps a copy at all, and one left behind by a dialog you closed, or
+  by closing the launcher midway, is cleared once it is a day old.
 
 ## [0.25.0] — 2026-09-27
 

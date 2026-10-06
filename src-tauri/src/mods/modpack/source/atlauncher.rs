@@ -238,7 +238,12 @@ impl ModpackSource for AtlauncherModpackSource {
             platform: "atlauncher".into(),
             details: e.to_string(),
         })?;
-        crate::mods::modpack::source::stage::write_to_temp(app, &json, "atlpack.json").await
+        crate::mods::modpack::source::stage::write_to_temp(
+            app,
+            &json,
+            crate::mods::modpack::source::stage::StagedKind::AtlauncherSummary,
+        )
+        .await
     }
 
     async fn resolve_project_hit(

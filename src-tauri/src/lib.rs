@@ -831,6 +831,26 @@ pub fn run() {
                 Err(e) => crate::diag!("[setup] mod trash purge skipped: instances_dir: {e}"),
             }
 
+            // Clear modpack archives staged for an import or an update that
+            // never consumed them: a dialog closed, a preview that failed, a
+            // launcher closed midway. Only files a day old go, so one that
+            // another Lucerna process still holds stays: a build with its own
+            // identifier, or the user's other session, shares the folder (see
+            // `mods::modpack::source::stage`). Own thread, no delay. The folder
+            // is in the OS temp dir, not the data root, so a recovery session
+            // clears it too.
+            match crate::mods::modpack::source::stage::staging_dir(app.handle()) {
+                Ok(dir) => {
+                    std::thread::spawn(move || {
+                        let now = std::time::SystemTime::now();
+                        for line in crate::mods::modpack::source::stage::sweep_stale(&dir, now) {
+                            crate::diag!("{line}");
+                        }
+                    });
+                }
+                Err(e) => crate::diag!("[setup] modpack staging sweep skipped: {e}"),
+            }
+
             // Undo the content updates an earlier session left unfinished (a
             // crash or a kill mid-update). The instances are claimed HERE,
             // synchronously — `setup` completes before the webview's first IPC,
