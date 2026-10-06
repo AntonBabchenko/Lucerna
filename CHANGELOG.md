@@ -377,7 +377,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **An update that cannot finish changes nothing.** A modpack update or a mod
   update that failed partway used to leave the old files deleted and the new
   ones half installed. It now puts every file and record back as it was and
-  says which file it stopped at, and an update cut off by a crash is undone
+  says which file it stopped at and why, and an update cut off by a crash is undone
   at the next start. A world backup that fails partway no longer leaves a
   truncated archive behind.
 - **Downloaded modpacks no longer pile up in the temporary folder.** Every
@@ -391,6 +391,21 @@ behaviour is worth knowing, it is stated as a property of the feature under
   window.** It flipped from one side of the control to the other and back
   until the launcher stopped it with an internal error, which could leave
   parts of the window no longer updating. It now settles on one side.
+- **The Overview no longer says a profile has no mods while they are being
+  counted.** At every start, and when the count failed, the Mods card said
+  "No mods installed yet" until the profile's mods were read, and after a
+  switch of profiles it showed the previous profile's counts for a moment. It
+  now shows dashes until the counts arrive, as its problem and update counts
+  already did.
+- **The keyboard stays in a dialog that moves to its next step.** Picking the
+  version to switch a modpack to, confirming it, going back, or picking a
+  profile to import from another launcher left the next step with nothing
+  focused: a screen reader announced nothing and Enter did nothing. The focus
+  now stays on the dialog, and Tab goes on to its controls. Tab and Shift+Tab
+  after a click on a dialog's text no longer leave it either.
+- **The data pack library names the profile while the game runs.** It said to
+  quit Minecraft to change "this world's" data packs; it now says this
+  instance's.
 
 ## [0.25.0] — 2026-09-27
 
