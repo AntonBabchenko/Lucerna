@@ -310,6 +310,28 @@ describe('OverviewTab', () => {
     expect(browse).toBe(2);
   });
 
+  // Counts not known yet (the first read still running, another profile's still held, a
+  // failed read): dashes, as the card's problem and update counts already show — never
+  // «No mods installed yet», which the card said at every start (2026-10-06 regression, O1).
+  it('shows dashes, not «no mods», while the counts are not known', async () => {
+    let installed = 0;
+    const { getByTestId, queryByTestId } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installedStats: null,
+        onNavInstalled: () => installed++,
+      },
+    });
+    expect(queryByTestId('overview-mods-empty')).toBeNull();
+    const row = getByTestId('overview-mods-stats');
+    expect(row.textContent?.match(/—/g)?.length).toBe(3);
+    expect(queryByTestId('overview-localization')).toBeNull();
+    await fireEvent.click(row);
+    await fireEvent.click(getByTestId('overview-mods-header'));
+    expect(installed).toBe(2);
+  });
+
   it('shows the localization row once mods are installed', () => {
     const { getByTestId } = render(OverviewTab, {
       props: { ...baseProps, activeInstance: fabricInst },

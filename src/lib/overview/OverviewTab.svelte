@@ -66,7 +66,8 @@
     preflightUnknown = false,
   }: {
     activeInstance: InstanceWithStatus | null;
-    installedStats: { total: number; enabled: number; disabled: number };
+    /** This profile's installed-mod counts; null = not known yet ("—"). */
+    installedStats: { total: number; enabled: number; disabled: number } | null;
     playtime: PlaytimeStats;
     /** Mods that may not work (compat-only warnings), at the Installed rows' level. */
     incompatibleCount: number;
@@ -132,6 +133,15 @@
   // item's own count — or null while the page pre-flight has not answered (`problemCount` null,
   // the same «—» the Mods card shows). Never «Ready to play» beside «N mods will stop the game».
   const pillBlockingMods = $derived(problemCount === null ? null : blockingModsCount);
+
+  // The Mods card says only what it knows. `installedStats` is null until THIS profile's counts
+  // land (the first read after a start, a profile switch still reading, a failed read): the card
+  // shows «—», as its problem and update counts do — never «No mods installed yet», which it
+  // said at every start. Everything that needs mods (the localization row and its tour, the
+  // Vanilla warning, Export) waits for known counts.
+  const noMods = $derived(installedStats?.total === 0);
+  const hasMods = $derived((installedStats?.total ?? 0) > 0);
+  const enabledMods = $derived(installedStats?.enabled ?? 0);
 
   const attentionItems = $derived(
     activeInstance
@@ -308,15 +318,15 @@
         <button
           type="button"
           class="card-zone px-3.5 pt-3.5 pb-2 text-[10px] uppercase tracking-wider text-muted"
-          aria-label={installedStats.total === 0
+          aria-label={noMods
             ? $t('page.overview.openBrowseAria')
             : $t('page.overview.openInstalledAria')}
           data-testid="overview-mods-header"
-          onclick={() => (installedStats.total === 0 ? onNavBrowse() : onNavInstalled())}
+          onclick={() => (noMods ? onNavBrowse() : onNavInstalled())}
         >
           {$t('page.overview.sectionMods')}
         </button>
-        {#if installedStats.total === 0}
+        {#if noMods}
           <button
             type="button"
             class="card-zone px-3.5 pb-2 text-sm text-muted"
@@ -334,15 +344,18 @@
           >
             <span
               >{$t('page.overview.statsTotal')}
-              <span class="font-medium text-secondary">{installedStats.total}</span></span
+              <span class="font-medium text-secondary">{installedStats?.total ?? '—'}</span></span
             >
             <span
               >{$t('page.overview.statsEnabled')}
-              <span class="font-medium text-success">{installedStats.enabled}</span></span
+              <span class="font-medium {installedStats ? 'text-success' : 'text-secondary'}"
+                >{installedStats?.enabled ?? '—'}</span
+              ></span
             >
             <span
               >{$t('page.overview.statsDisabled')}
-              <span class="font-medium text-secondary">{installedStats.disabled}</span></span
+              <span class="font-medium text-secondary">{installedStats?.disabled ?? '—'}</span
+              ></span
             >
           </button>
           <!-- Problems and updates (spec §6.2): the one problem model's count —
@@ -373,7 +386,7 @@
             >
           </button>
         {/if}
-        {#if activeInstance?.loader === 'vanilla' && installedStats.enabled > 0}
+        {#if activeInstance?.loader === 'vanilla' && enabledMods > 0}
           <!-- Instance-level condition (spec D9): Vanilla loads no mods at
                all, and per-jar verdicts correctly stay silent on it — so the
                card says it outright. Click-through to the Installed tab,
@@ -384,13 +397,13 @@
             data-testid="overview-vanilla-mods-warning"
             onclick={() => onNavInstalled()}
           >
-            {$t('instance.integrity.vanillaModsWarning', { count: installedStats.enabled })}
+            {$t('instance.integrity.vanillaModsWarning', { count: enabledMods })}
           </button>
         {/if}
         <!-- Translation coverage. A third card-zone row rather than a fourth
              Overview card: localization is a property of the mods, and this
              card is already a stack of zones. -->
-        {#if installedStats.total > 0}
+        {#if hasMods}
           <button
             type="button"
             class="card-zone px-3.5 pb-2 flex justify-between gap-3 text-sm"
@@ -421,7 +434,7 @@
           </button>
         {/if}
         <div class="px-3.5 pt-1 pb-3.5 flex flex-wrap gap-2">
-          {#if installedStats.enabled >= 1}
+          {#if enabledMods >= 1}
             <button type="button" class="btn-secondary btn-sm" onclick={onExport}>
               {$t('page.overview.exportModpack')}
             </button>
@@ -582,7 +595,7 @@
   {/if}
 </div>
 
-{#if activeInstance && serversUi.mode === 'client' && !screenOwnedElsewhere() && installedStats.total > 0}
+{#if activeInstance && serversUi.mode === 'client' && !screenOwnedElsewhere() && hasMods}
   <!-- REACTIVE !screenOwnedElsewhere() gate, unlike every other tour host:
        Overview is the default tab, mounted at startup racing initOnboarding,
        so the mount-time deferral alone cannot sequence this tour after the

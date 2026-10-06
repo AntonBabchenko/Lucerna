@@ -1759,7 +1759,7 @@
           {#snippet overview()}
             <OverviewTab
               {activeInstance}
-              installedStats={stats.installedStats}
+              installedStats={stats.installedStatsFor(activeInstance?.id ?? null)}
               playtime={stats.playtime}
               incompatibleCount={modProblems.warning}
               blockingModsCount={modProblems.blocking}
