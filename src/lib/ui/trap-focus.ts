@@ -106,8 +106,10 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
   function focusInitial() {
     // A deep link may already have placed focus inside the dialog (fieldFlash
     // with focus, from a banner): keep it. A plain open still lands on
-    // [data-autofocus] below.
-    if (node.contains(document.activeElement)) return;
+    // [data-autofocus] below. The panel itself is no such place: Modal's
+    // `stepKey` parks a lost focus there, which can happen before this frame.
+    const active = document.activeElement;
+    if (active !== node && node.contains(active)) return;
     // A tour on top of this dialog keeps the focus on its card; the watcher
     // above gives it back when the tour ends.
     if (tourAbove(layer)) return;

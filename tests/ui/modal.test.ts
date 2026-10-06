@@ -170,13 +170,22 @@ describe('Modal', () => {
       toastButton.remove();
     });
 
-    it('does nothing while the step stays the same', async () => {
-      const { getByRole, rerender } = render(Modal, { props: props('pick') });
-      getByRole('button', { name: 'OK' }).focus();
-      (document.activeElement as HTMLElement).blur();
-      await rerender(props('pick'));
+    // At open the focus is nowhere until trapFocus places it, a frame later: the step the
+    // dialog opens on is no change, so the panel does not take it then.
+    it('does nothing at open', async () => {
+      const { getByRole } = render(Modal, { props: props('pick') });
       await tick();
-      expect(document.activeElement).toBe(document.body);
+      expect(document.activeElement).not.toBe(getByRole('dialog'));
+    });
+
+    // A step change inside the first frame parks the focus on the panel before trapFocus has
+    // placed the initial focus: the initial focus still lands on the first control.
+    it('a step change before the first frame still gets the initial focus', async () => {
+      const { getByRole, rerender } = render(Modal, { props: props('pick') });
+      await rerender(props('review'));
+      await tick();
+      await new Promise((r) => requestAnimationFrame(r));
+      expect(document.activeElement).toBe(getByRole('button', { name: 'OK' }));
     });
 
     it('does nothing for a dialog under another one', async () => {

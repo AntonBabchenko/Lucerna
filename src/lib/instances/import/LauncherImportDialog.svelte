@@ -321,8 +321,9 @@
   }
 </script>
 
-<!-- stepKey: a step change replaces the control that held the focus (the picked row, Back),
-     and a scan turns the focused Scan button off; the panel takes the focus each time. -->
+<!-- stepKey: a step change replaces the control that held the focus (the picked row, Back);
+     the panel takes it. A scan turns the focused Scan button off: the engine drops that focus
+     after the scan starts, and the panel takes it when the scan ends. -->
 <Modal
   {onClose}
   ariaLabel={$t('instances.import.dialogAriaLabel')}

@@ -49,9 +49,11 @@ pub struct AppliedUpdate {
 
 /// Run phase 2 inside a content transaction. It reports no progress of its
 /// own: placing files from the warm cache takes milliseconds each, and phase 1
-/// already counted them while downloading. On `Err` nothing was changed — the
-/// error is `ModpackUpdateRolledBack`, or `ContentUpdateRollbackIncomplete`
-/// when the undo itself left files behind.
+/// already counted them while downloading. A step that fails is undone: the
+/// error is `ModpackUpdateRolledBack` (nothing was changed), or
+/// `ContentUpdateRollbackIncomplete` when the undo itself left files behind.
+/// Errors before `begin` changed nothing either, and a commit that cannot be
+/// recorded is undone and returns that error as it is.
 pub async fn apply_update_txn(
     a: PackApply<'_>,
     progress: &ProgressFn,

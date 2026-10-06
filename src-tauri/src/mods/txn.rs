@@ -532,8 +532,9 @@ async fn undo(
             stuck.push(format!("instance.json ({why})"));
         }
     }
-    // A set-aside row comes back at the end of the list. Every file and row is
-    // back by now, so an order that cannot be restored is logged, not stuck.
+    // A set-aside row comes back at the end of the list. Whatever could be put
+    // back is back by now; an order that cannot be restored is logged, not
+    // counted as stuck — no file or row is missing for it.
     if let Err(e) = installed::restore_order(instance_root, registry_order).await {
         crate::diag!(
             "content txn: {} is undone, but its registry rows could not be put back in order ({e})",
@@ -1545,6 +1546,15 @@ mod tests {
         assert_eq!(rows[0].sha1, old);
         assert!(recover_pending(root, u64::MAX).await.is_empty());
         assert!(mods(root).join("old.jar").exists());
+    }
+
+    /// A record written before the rows' order was kept still reads — and an
+    /// undo from it restores no order rather than refusing.
+    #[test]
+    fn a_record_without_the_registry_order_reads_as_restoring_none() {
+        let json = r#"{"version":1,"created_unix_ms":5,"kind":{"mod_update":{"name":"M","from":null,"to":"2"}},"stage":[],"create":[],"prior_pack_origin":null,"prior_instance":null}"#;
+        let record: Record = serde_json::from_str(json).expect("an older record must load");
+        assert!(record.registry_order.is_empty());
     }
 
     #[tokio::test]
