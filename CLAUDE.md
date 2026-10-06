@@ -24,6 +24,7 @@ Every feature follows this sequence:
 4. `verification-before-completion` skill — run the dev build, exercise the feature, confirm before claiming done.
 5. `requesting-code-review` skill (or `code-reviewer` subagent) — before merge. Check every fallback the change introduces or touches against **Fallback discipline** below.
 6. Commit and push.
+7. After the merge, copy the work's local artifacts into the main checkout. `docs/superpowers/` and `docs/ROADMAP.md` are gitignored, so the merge does not carry them, and a spec, plan or note written in a separate worktree is lost when that worktree is removed. Copy the work's `docs/superpowers/` files into the main checkout and add its follow-ups to `docs/ROADMAP.md`, additions only: never overwrite an existing file (`cp -n`), back up `ROADMAP.md` first and check that the diff only adds lines. This is the last step of the work: do it without asking.
 
 No "small fix" exception. A bugfix is still a feature in this sense — it still gets a spec and a plan, however short.
 
