@@ -89,7 +89,12 @@ describe('oldVersionKept', () => {
 
   it('is not claimed when the undo left files behind', () => {
     expect(
-      oldVersionKept({ kind: 'content_update_rollback_incomplete', folder: 'x', details: 'y' }),
+      oldVersionKept({
+        kind: 'content_update_rollback_incomplete',
+        folder: 'x',
+        cause: { kind: 'instance_busy' },
+        stuck: ['y'],
+      }),
     ).toBe(false);
   });
 
