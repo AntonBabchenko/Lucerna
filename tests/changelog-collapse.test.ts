@@ -42,10 +42,17 @@ describe('the changelog in Settings', () => {
     expect(isOpen('0.1.0')).toBe(true);
     expect(shows('0.1.0')).toBe(true);
     expect(isOpen('0.2.0')).toBe(true);
+    // Two open versions name two different bodies, each its own.
+    const ids = ['0.1.0', '0.2.0'].map((ver) => toggle(ver).getAttribute('aria-controls'));
+    expect(new Set(ids).size).toBe(2);
+    expect(document.getElementById(ids[0] as string)?.textContent).toContain('Thing in 0.1.0');
+    expect(document.getElementById(ids[1] as string)?.textContent).toContain('Thing in 0.2.0');
 
     await fireEvent.click(toggle('0.2.0'));
     expect(isOpen('0.2.0')).toBe(false);
     expect(shows('0.2.0')).toBe(false);
+    // A closed version no longer names a body that is gone.
+    expect(toggle('0.2.0').hasAttribute('aria-controls')).toBe(false);
     expect(isOpen('0.1.0')).toBe(true);
 
     await fireEvent.click(toggle('0.2.0'));
