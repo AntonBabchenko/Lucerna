@@ -7,7 +7,9 @@
 //   - A contextual tour is shown only while it is the top layer. Whatever the
 //     user opens during a tour goes on top, so it is never painted under the
 //     tour's dim; the tour comes back when it closes.
-//   - A modal's focus trap yields only to a tour lying above it (`tourAbove`).
+//   - A modal's focus trap yields only to a tour lying above it (`tourAbove`),
+//     and only the topmost modal takes a Tab pressed while nothing holds the
+//     focus (`isTopModal`).
 //   - An OS file drop reaches the app only while the topmost MODAL, if any,
 //     takes drops (`modalBlocksFileDrops`); popovers and tours never count.
 // Same model as React Aria's overlay stack and Radix's DismissableLayer.
@@ -135,6 +137,14 @@ export function tourAbove(id: LayerId): boolean {
   const index = layers.findIndex((l) => l.id === id);
   const top = layers.length - 1;
   return index !== -1 && top > index && layers[top].kind === 'tour';
+}
+
+/**
+ * `id` is the topmost modal: no other modal lies above it (popovers and tours may). False when
+ * `id` is not in the stack. Reactive.
+ */
+export function isTopModal(id: LayerId): boolean {
+  return layers.findLast((l) => l.kind === 'modal')?.id === id;
 }
 
 /**

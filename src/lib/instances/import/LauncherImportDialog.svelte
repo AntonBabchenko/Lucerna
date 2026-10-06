@@ -280,7 +280,7 @@
     const asked = mcVersionInput;
     const seq = ++checkSeq;
     // The busy button turns disabled under the focus: park it on the form, or
-    // Tab would walk the page behind the dialog (DESIGN.md §8).
+    // the focus falls to <body> and the user's place is lost (DESIGN.md §8).
     formEl?.focus();
     versionError = null;
     importing = true;

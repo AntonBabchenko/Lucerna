@@ -331,6 +331,10 @@
   // True when an in-flight command's target instance is no longer the live
   // selection (switched away) or the modal closed — used to no-op stale
   // completions so a previous instance's result never lands on the current one.
+  // That covers what this dialog shows (a saved badge, an error), not the
+  // profile list: a field that saves when it is left can finish after the
+  // dialog closed (a click on the backdrop leaves the field and closes in one
+  // go), and its write is done all the same — those still call `onChanged()`.
   function isStale(id: string) {
     return !open || selectedId !== id;
   }
@@ -532,11 +536,10 @@
     const id = selected.id;
     clearForAttempt();
     const result = await commands.setInstanceName(id, nameDraft.trim());
-    if (isStale(id)) return;
     if (result.status === 'ok') {
       onChanged();
-      markSaved('name');
-    } else {
+      if (!isStale(id)) markSaved('name');
+    } else if (!isStale(id)) {
       modalError = ipcErrorMessage(result.error);
     }
   }
@@ -773,11 +776,10 @@
     const id = selected.id;
     clearForAttempt();
     const result = await commands.setInstanceMemory(id, mb);
-    if (isStale(id)) return;
     if (result.status === 'ok') {
       onChanged();
-      markSaved('memory');
-    } else {
+      if (!isStale(id)) markSaved('memory');
+    } else if (!isStale(id)) {
       modalError = ipcErrorMessage(result.error);
     }
   }
@@ -787,11 +789,10 @@
     const id = selected.id;
     clearForAttempt();
     const result = await commands.setInstanceJvmArgs(id, args);
-    if (isStale(id)) return;
     if (result.status === 'ok') {
       onChanged();
-      markSaved('jvm');
-    } else {
+      if (!isStale(id)) markSaved('jvm');
+    } else if (!isStale(id)) {
       modalError = ipcErrorMessage(result.error);
     }
   }
@@ -807,9 +808,8 @@
     if (value === selected.min_heap_mb) return; // unchanged — no write
     clearForAttempt();
     const result = await commands.setInstanceMinHeap(id, value);
-    if (isStale(id)) return;
     if (result.status === 'ok') onChanged();
-    else modalError = ipcErrorMessage(result.error);
+    else if (!isStale(id)) modalError = ipcErrorMessage(result.error);
   }
 
   async function openFolder(id: string | undefined = selected?.id) {

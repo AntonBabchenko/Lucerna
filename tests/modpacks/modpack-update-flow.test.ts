@@ -184,10 +184,10 @@ describe('createModpackUpdateFlow', () => {
   });
 
   // One update at a time. The confirm surfaces cover the page's own Update
-  // buttons, but focus can still leave a dialog (a press on its scrim drops it
-  // to the page), and a second prepare under an open confirm used to start
-  // another fetch: the next confirm could then pair one version's archive with
-  // the other's id.
+  // buttons, and the flow does not count on that (a press on a dialog's scrim
+  // used to drop the focus to the page): a second prepare under an open
+  // confirm used to start another fetch, and the next confirm could then pair
+  // one version's archive with the other's id.
   it('prepare() refuses while another update waits for its confirm', async () => {
     const flow = createModpackUpdateFlow();
     await flow.prepare(inst, entry);

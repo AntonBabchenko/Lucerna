@@ -255,6 +255,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   any other dialog; it stays open only while the version downloads or
   installs. The Overview and the imported-pack drawer also no longer show an
   update as running while its confirmation is merely open.
+- **The keyboard stays in a dialog after a press outside it.** A press next to
+  an open dialog that ended inside it left the dialog open but took the focus
+  off its controls, and Shift+Tab then moved through the window behind it. The
+  focus now stays where it was. Tab also comes back to the dialog after a
+  button in a notice shown over it, instead of going to the window behind.
 - **A filter's list opens over the page switcher.** In a short window, a list
   opened from the filters of the mod or modpack browser, such as the Minecraft
   versions, went under the page switcher at the bottom, and its last entries

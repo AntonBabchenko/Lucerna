@@ -461,8 +461,8 @@
     void refreshDataRootSize();
     void refreshFreeSpace();
     await recheckBlocked();
-    // The blocking dialog's opener (the confirm button) is gone, so focus fell to <body>, outside
-    // SettingsModal's panel-scoped Tab handler. Give it back.
+    // The blocking dialog's opener (the confirm button) is gone, so focus fell to <body>: the
+    // user's place in Settings is lost. Give it back.
     await tick();
     sectionEl?.focus();
   }

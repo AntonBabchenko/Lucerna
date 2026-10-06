@@ -409,7 +409,7 @@ describe('ManageInstancesModal — async feedback & double-submit', () => {
     await waitFor(() => expect(m.setActiveInstance).toHaveBeenCalledTimes(1));
   });
 
-  it('discards a name-save that resolves after switching to another instance', async () => {
+  it('a stale name-save still refreshes the list, not the new selection', async () => {
     const onChanged = vi.fn();
     let resolveName!: (v: unknown) => void;
     m.setInstanceName.mockReturnValueOnce(
@@ -437,8 +437,11 @@ describe('ManageInstancesModal — async feedback & double-submit', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // The stale completion must not fire onChanged against the previous selection.
-    expect(onChanged).not.toHaveBeenCalled();
+    // The rename is done: the profile list hears of it (the sidebar shows the new name; a click
+    // on the backdrop closes the dialog before any save's answer is back). Nothing of it lands
+    // on the profile now on screen — no saved badge next to Beta's name.
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Saved')).toBeNull();
   });
 
   it('does not surface an error from a save that resolves after the modal closes', async () => {

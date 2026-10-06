@@ -9,9 +9,18 @@
 // Initial focus: the first descendant marked `[data-autofocus]`, else the
 // first focusable descendant, else the node itself (give the node
 // `tabindex="-1"` so this fallback works).
+//
+// Tab: wraps at the panel's edges; a Tab pressed while nothing holds the focus
+// goes to the topmost dialog (below, `onDocumentKeydown`).
 
 import { untrack } from 'svelte';
-import { hostsTour, type LayerId, onLayersChange, tourAbove } from './layer-stack.svelte';
+import {
+  hostsTour,
+  isTopModal,
+  type LayerId,
+  onLayersChange,
+  tourAbove,
+} from './layer-stack.svelte';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -26,8 +35,9 @@ function focusableDescendants(node: HTMLElement): HTMLElement[] {
   return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
     // Skip elements hidden via display:none (offsetParent is null for those).
     // `offsetParent` is also null for position:fixed, so keep an element that
-    // currently holds focus regardless. In a layout-less test DOM offsetParent
-    // is always null; the real Tab-order behaviour is covered by an e2e test.
+    // currently holds focus regardless. happy-dom (the unit tests) has no
+    // offsetParent at all — undefined, so there every candidate is kept; the
+    // real Tab-order behaviour is covered by an e2e test.
     (el) => el.offsetParent !== null || el === document.activeElement,
   );
 }
@@ -43,10 +53,10 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
 
   // The yield has to be GIVEN BACK. A tour hosted by this dialog moves the
   // focus to its card, and ends by unmounting it, which drops focus to <body>;
-  // nothing else would ever move it into this panel, so the dialog would sit
-  // unfocused (never announced to a screen reader) with its node-scoped Tab
-  // handler unreachable — Tab would walk the application behind the open
-  // dialog instead of cycling inside it. So for as long as the trap is mounted
+  // nothing else would move it into this panel, so the dialog would sit
+  // unfocused — never announced to a screen reader, and the user's place in it
+  // lost (a Tab from <body> only starts again at its first control, through
+  // onDocumentKeydown below). So for as long as the trap is mounted
   // it watches the stack: when a tour of this dialog arrives it notes where the
   // focus was in the panel, and when the tour is gone it puts the focus back
   // there (or on the initial target). For the trap's whole life, not only for a
@@ -121,16 +131,9 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
     const first = items[0];
     const last = items[items.length - 1];
 
-    // Defensive: the active element is somehow outside the panel. This should
-    // not occur with a node-level listener (Tab only bubbles here while focus
-    // is inside), but if focus is ever moved out programmatically, pull it
-    // back to the edge rather than letting Tab escape.
-    if (!active || !node.contains(active)) {
-      e.preventDefault();
-      (e.shiftKey ? last : first).focus();
-      return;
-    }
-    // Wrap at the boundaries.
+    // Wrap at the boundaries. (This listener sits on the panel, so it sees a
+    // Tab only while the focus is inside it; a Tab with the focus nowhere is
+    // the document listener's below.)
     if (e.shiftKey && active === first) {
       e.preventDefault();
       last.focus();
@@ -138,6 +141,31 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
       e.preventDefault();
       first.focus();
     }
+  }
+
+  // A Tab pressed while nothing holds the focus — `<body>` — never reaches the
+  // panel: a key event goes to the focused element, and there is none. The
+  // focus gets there when what held it goes away under it: a toast above the
+  // dialog that removed itself (its Undo, its ×), a focused control that is
+  // removed or turns disabled. Left alone, the browser goes on from where that
+  // element stood, and from a toast, or from the panel's first or last
+  // control, that is the page behind the dialog. So the topmost dialog takes
+  // that press: Tab to its first control, Shift+Tab to its last, the panel
+  // itself when it has none. Not while a tour lies above it (the tour owns
+  // Tab), and never a focus that something holds — a tour's card, a toast's
+  // button: that belongs to whoever has it.
+  function onDocumentKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Tab' || e.defaultPrevented) return;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) return;
+    if (!isTopModal(layer) || tourAbove(layer)) return;
+    e.preventDefault();
+    const items = focusableDescendants(node);
+    (e.shiftKey ? items[items.length - 1] : items[0])?.focus();
+    // The press is taken, so the focus must end up in the panel: a control
+    // that would not take it (hidden by visibility, inert) leaves it to the
+    // panel itself.
+    if (!node.contains(document.activeElement)) node.focus();
   }
 
   // Defer initial focus until after the node is painted.
@@ -148,6 +176,7 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
     focusInitial();
   }
   node.addEventListener('keydown', onKeydown);
+  document.addEventListener('keydown', onDocumentKeydown);
 
   return {
     destroy() {
@@ -155,6 +184,7 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
       destroyed = true;
       stopWatching();
       node.removeEventListener('keydown', onKeydown);
+      document.removeEventListener('keydown', onDocumentKeydown);
       // Restore focus to whatever was focused before the trap opened, if it is
       // still in the document and focusable.
       if (restoreTo && document.contains(restoreTo)) restoreTo.focus?.();

@@ -9,7 +9,9 @@
   //
   // Closing: Escape and a backdrop click both call `onClose`. Set
   // `closeOnBackdrop={false}` (e.g. while a destructive op is in flight) to
-  // require an explicit button; `closeOnEscape={false}` likewise.
+  // require an explicit button; `closeOnEscape={false}` likewise. A press on
+  // the backdrop never moves the focus; a backdrop dismissal leaves the
+  // focused field first.
   import { onDestroy, untrack } from 'svelte';
   import type { Snippet } from 'svelte';
   import { newLayerId, provideLayerHost, pushLayer } from './layer-stack.svelte';
@@ -89,18 +91,33 @@
   // e.g. a drag text-selection released past the panel edge. Closing there would
   // silently discard the user's selection. Requiring both ends on the backdrop
   // also fixes the inverse: a genuine backdrop click is no longer blocked just
-  // because some text happens to remain selected in the panel.
+  // because some text happens to remain selected in the panel. The press
+  // itself never moves the focus (onBackdropMouseDown).
   let pressOnBackdrop = false;
 
   function onBackdropMouseDown(e: MouseEvent) {
     pressOnBackdrop = e.target === e.currentTarget;
+    // The scrim is no place for the focus. Not focusable, a press on it would
+    // drop the focus to <body> — the field's caret and the user's place in the
+    // dialog gone, the field's blur handlers run — even when the release lands
+    // in the panel and nothing closes. Keep the focus where it is. (Nor does
+    // the press start a text selection: there is nothing on the scrim to
+    // select.)
+    if (pressOnBackdrop) e.preventDefault();
   }
 
   function onBackdropMouseUp(e: MouseEvent) {
     const startedOnBackdrop = pressOnBackdrop;
     pressOnBackdrop = false;
     if (!closeOnBackdrop) return;
-    if (startedOnBackdrop && e.target === e.currentTarget) onClose();
+    if (!startedOnBackdrop || e.target !== e.currentTarget) return;
+    // A click outside leaves the focused field, as the press did before it
+    // kept the focus: a field that saves when it is left (the instance name in
+    // Manage) saves, then the dialog closes.
+    const scrim = e.currentTarget as HTMLElement;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && scrim.contains(active)) active.blur();
+    onClose();
   }
 </script>
 

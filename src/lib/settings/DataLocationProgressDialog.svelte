@@ -15,10 +15,10 @@
   // must never say "delete that whole folder" about it) and `retry_possible` (some leftover is not
   // an entry the running launcher owns). The frontend compares no paths and knows no entry names.
   //
-  // Focus (docs/DESIGN.md §8): `trapFocus` skips natively-disabled buttons and its Tab handler
-  // lives on the panel, so a FOCUSED control that turns `disabled` drops focus to <body> and Tab
-  // starts walking the page behind the dialog. BusyButton disables natively while busy, so every
-  // handler parks focus on the body wrapper BEFORE telling the host (which flips the flag); the
+  // Focus (docs/DESIGN.md §8): `trapFocus` skips natively-disabled buttons, so a FOCUSED control
+  // that turns `disabled` drops focus to <body>, and the user's place in the dialog is lost.
+  // BusyButton disables natively while busy, so every handler parks focus on the body wrapper
+  // BEFORE telling the host (which flips the flag); the
   // plain button uses `aria-disabled` + a click guard. Focus goes to Restart when the final state
   // appears and when a retry or a failed restart settles. Cancel is REMOVED when the switch starts
   // — and as the running dialog's only control it usually holds focus — so that transition parks
