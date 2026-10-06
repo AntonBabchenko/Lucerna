@@ -385,7 +385,7 @@
       <p class="text-xs text-muted">
         {$t('settings.changelog.intro', { version: pkg.version })}
       </p>
-      <ChangelogPanel entries={CHANGELOG} collapseOlder={pkg.version} />
+      <ChangelogPanel entries={CHANGELOG} installedVersion={pkg.version} />
     </div>
   </SettingsField>
 </section>
