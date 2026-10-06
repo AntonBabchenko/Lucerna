@@ -31,9 +31,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   such as update, remove, enable or disable. Removing several asks first, and
   one notice says how many succeeded and why the rest did not.
 - **Removing a mod can be undone.** The notice after a removal keeps an undo
-  button for ten seconds. It brings back the mods removed together and, once all
-  of them are back, switches back on the mods the removal switched off; a mod
-  installed again in the meantime is skipped, never overwritten.
+  button for ten seconds. It brings back the mods removed together and, if it
+  brings all of them back, switches back on the mods the removal switched off; a
+  mod installed again in the meantime is skipped, never overwritten.
 - **Disabling or removing a mod that others need asks first.** The launcher
   names the mods that would stop loading and offers to switch them off too.
   Switching on a mod whose required mods are off offers to switch them on
@@ -75,9 +75,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   update or a rollback when the numbers tell, and names any mod it would break;
   such a change is never the default. The platforms are asked only when you ask
   for a fix.
-- **Installing a missing dependency brings its own dependencies**, and removing
-  the mod that needed it later with the checkboxes offers to remove the
-  dependency too when nothing else needs it.
+- **Installing a missing dependency brings its own dependencies**, and when the
+  mod that needed it is later removed with the checkboxes, the launcher offers
+  to remove the dependency too if nothing else needs it.
 - **The dependency tree tells what the game needs.** Each missing dependency
   says, when the launcher can tell, whether the game starts without it, a
   disabled one can be switched on from the tree, and a version conflict offers
@@ -208,8 +208,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   starts with a letter is given none.
 - **Notices that confirm an import, a copy or a new shortcut go away by
   themselves** after seven seconds instead of piling up over the buttons under
-  them, and wait while you point at them. One that lists what an import left out
-  stays until closed.
+  them, and wait while you point at them. One that lists files an import skipped
+  or that won't load stays until closed.
 - **A tooltip with no room above or below its control no longer breaks the
   window**, which could stop parts of it from updating.
 - **While the game runs, the data pack library asks to quit Minecraft to change
