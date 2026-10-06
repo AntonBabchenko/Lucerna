@@ -143,6 +143,11 @@ pub struct Plan {
 struct Record {
     version: u32,
     created_unix_ms: u64,
+    /// The registry rows' SHA-1s in order when the update began: the undo puts
+    /// the rows back in this order, so a failed update leaves the registry file
+    /// as it was. Empty in a record without it — then no order is restored.
+    #[serde(default)]
+    registry_order: Vec<String>,
     #[serde(flatten)]
     plan: Plan,
 }
@@ -310,6 +315,9 @@ pub async fn begin(lock: TxnLock, plan: Plan) -> Result<Txn, Error> {
         }
         Err(e) => return Err(io_err(&root, e)),
     }
+    // The rows' order, for the undo to restore. A registry that cannot be read
+    // refuses the update here, while nothing has moved.
+    let registry_order = installed::row_order(&instance_root).await?;
     fs::create_dir_all(&root)
         .await
         .map_err(|e| io_err(&root, e))?;
@@ -321,6 +329,7 @@ pub async fn begin(lock: TxnLock, plan: Plan) -> Result<Txn, Error> {
     let record = Record {
         version: RECORD_VERSION,
         created_unix_ms: trash::unix_ms(now),
+        registry_order,
         plan,
     };
     if let Err(e) = write_record(&tmp, &record).await {
@@ -335,6 +344,7 @@ pub async fn begin(lock: TxnLock, plan: Plan) -> Result<Txn, Error> {
     Ok(Txn {
         dir,
         instance_root,
+        registry_order: record.registry_order,
         plan: record.plan,
         _guard: Some(guard),
     })
@@ -346,6 +356,7 @@ pub async fn begin(lock: TxnLock, plan: Plan) -> Result<Txn, Error> {
 pub struct Txn {
     dir: PathBuf,
     instance_root: PathBuf,
+    registry_order: Vec<String>,
     plan: Plan,
     /// `None` only inside a recovery pass, which holds the lock for every token.
     _guard: Option<OwnedMutexGuard<()>>,
@@ -401,11 +412,22 @@ impl Txn {
     /// Undo everything and return `cause` — or, when something could not go
     /// back, `ContentUpdateRollbackIncomplete` naming the kept folder.
     pub async fn rollback(self, cause: Error) -> Error {
+        self.rollback_as(cause, |cause| cause).await
+    }
+
+    /// Undo everything. A clean undo returns `clean(cause)`; one that left
+    /// files behind returns `ContentUpdateRollbackIncomplete` with the BARE
+    /// `cause` — never the clean wrapper, which may say that nothing changed.
+    pub async fn rollback_as(self, cause: Error, clean: impl FnOnce(Error) -> Error) -> Error {
+        // The full cause, for the log the UI points at: the message names the
+        // cause in the user's language, and an opaque one only in part.
+        crate::diag!("content txn: undoing {} after: {cause}", self.dir.display());
         match self.unwind().await {
-            Unwound::Clean => cause,
+            Unwound::Clean => clean(cause),
             Unwound::Stuck { folder, stuck } => Error::ContentUpdateRollbackIncomplete {
                 folder: folder.display().to_string(),
-                details: format!("{cause}; could not be put back: {}", stuck.join(", ")),
+                cause: Box::new(cause),
+                stuck,
             },
         }
     }
@@ -443,7 +465,13 @@ impl Txn {
     }
 
     async fn unwind(self) -> Unwound {
-        let stuck = undo(&self.instance_root, &self.dir, &self.plan).await;
+        let stuck = undo(
+            &self.instance_root,
+            &self.dir,
+            &self.plan,
+            &self.registry_order,
+        )
+        .await;
         if stuck.is_empty() {
             if let Err(e) = self.close().await {
                 crate::diag!(
@@ -473,9 +501,15 @@ impl Txn {
 }
 
 /// Undo `plan`: placed files out (newest first), set-aside files back, then the
-/// pack record. Returns one line per entry that could not be put right; the
-/// loop never stops at the first, so one stuck jar never strands the rest.
-async fn undo(instance_root: &Path, dir: &Path, plan: &Plan) -> Vec<String> {
+/// pack record, then the rows' order. Returns one line per entry that could not
+/// be put right; the loop never stops at the first, so one stuck jar never
+/// strands the rest.
+async fn undo(
+    instance_root: &Path,
+    dir: &Path,
+    plan: &Plan,
+    registry_order: &[String],
+) -> Vec<String> {
     let mc = mc_dir(instance_root);
     let mut stuck = Vec::new();
     for c in plan.create.iter().rev() {
@@ -497,6 +531,14 @@ async fn undo(instance_root: &Path, dir: &Path, plan: &Plan) -> Vec<String> {
         if let Err(why) = restore_instance(instance_root, prior) {
             stuck.push(format!("instance.json ({why})"));
         }
+    }
+    // A set-aside row comes back at the end of the list. Every file and row is
+    // back by now, so an order that cannot be restored is logged, not stuck.
+    if let Err(e) = installed::restore_order(instance_root, registry_order).await {
+        crate::diag!(
+            "content txn: {} is undone, but its registry rows could not be put back in order ({e})",
+            dir.display()
+        );
     }
     stuck
 }
@@ -787,6 +829,7 @@ async fn scan(instance_root: &Path, session_start_ms: u64, undo_pending: bool) -
                 let txn = Txn {
                     dir,
                     instance_root: instance_root.to_path_buf(),
+                    registry_order: record.registry_order,
                     plan: record.plan,
                     _guard: None,
                 };
@@ -1345,13 +1388,127 @@ mod tests {
         place(root, "mods/a.jar", b"SOMEONE-ELSE");
 
         match txn.rollback(Error::InstanceBusy).await {
-            Error::ContentUpdateRollbackIncomplete { folder, details } => {
+            Error::ContentUpdateRollbackIncomplete {
+                folder,
+                cause,
+                stuck,
+            } => {
                 assert!(folder.ends_with("-kept"), "{folder}");
-                assert!(details.contains("mods/a.jar"), "{details}");
+                assert!(matches!(*cause, Error::InstanceBusy), "{cause:?}");
+                assert!(stuck.iter().any(|s| s.contains("mods/a.jar")), "{stuck:?}");
                 assert!(join_rel(&Path::new(&folder).join(FILES_DIR), "mods/a.jar").exists());
             }
             other => panic!("expected ContentUpdateRollbackIncomplete, got {other:?}"),
         }
+    }
+
+    /// `rollback_as` wraps the cause only when the undo was clean. One that left
+    /// files behind reports the bare cause: the clean wrapper (a pack update's
+    /// `ModpackUpdateRolledBack`) says nothing changed, which would be false.
+    #[tokio::test]
+    async fn rollback_as_wraps_only_a_clean_undo() {
+        let wrap = |cause: Error| Error::ModpackUpdateRolledBack {
+            file_name: Some("a.jar".into()),
+            cause: Box::new(cause),
+        };
+
+        let clean = TempDir::new().unwrap();
+        let root = clean.path();
+        let sha = place(root, "mods/a.jar", b"A");
+        installed::add(root, row("a.jar", &sha, true))
+            .await
+            .unwrap();
+        let entry = staged("mods/a.jar", &sha, Some(row("a.jar", &sha, true)));
+        let txn = begin(lock(root).await, plan(vec![entry.clone()], vec![]))
+            .await
+            .unwrap();
+        txn.stage(&entry).await.unwrap();
+        match txn.rollback_as(Error::InstanceBusy, wrap).await {
+            Error::ModpackUpdateRolledBack { file_name, cause } => {
+                assert_eq!(file_name.as_deref(), Some("a.jar"));
+                assert!(matches!(*cause, Error::InstanceBusy), "{cause:?}");
+            }
+            other => panic!("expected ModpackUpdateRolledBack, got {other:?}"),
+        }
+
+        let stuck = TempDir::new().unwrap();
+        let root = stuck.path();
+        let sha = place(root, "mods/a.jar", b"A");
+        installed::add(root, row("a.jar", &sha, true))
+            .await
+            .unwrap();
+        let entry = staged("mods/a.jar", &sha, Some(row("a.jar", &sha, true)));
+        let txn = begin(lock(root).await, plan(vec![entry.clone()], vec![]))
+            .await
+            .unwrap();
+        txn.stage(&entry).await.unwrap();
+        place(root, "mods/a.jar", b"SOMEONE-ELSE");
+        match txn.rollback_as(Error::InstanceBusy, wrap).await {
+            Error::ContentUpdateRollbackIncomplete { cause, .. } => {
+                assert!(matches!(*cause, Error::InstanceBusy), "{cause:?}");
+            }
+            other => panic!("expected ContentUpdateRollbackIncomplete, got {other:?}"),
+        }
+    }
+
+    /// Three rows, the middle one set aside, a new jar placed: the state an
+    /// update leaves mid-phase-2. Returns the registry's bytes from before it.
+    async fn mid_update(root: &Path) -> (Txn, Vec<u8>) {
+        for name in ["a.jar", "b.jar", "c.jar"] {
+            let sha = place(root, &format!("mods/{name}"), name.as_bytes());
+            installed::add(root, row(name, &sha, true)).await.unwrap();
+        }
+        let before = std::fs::read(installed::registry_path(root)).unwrap();
+        let b = sha_of(b"b.jar");
+        let entry = staged("mods/b.jar", &b, Some(row("b.jar", &b, true)));
+        let new = sha_of(b"NEW");
+        let txn = begin(
+            lock(root).await,
+            plan(vec![entry.clone()], vec![create("mods/new.jar", &new)]),
+        )
+        .await
+        .unwrap();
+        txn.stage(&entry).await.unwrap();
+        place(root, "mods/new.jar", b"NEW");
+        installed::add(root, row("new.jar", &new, true))
+            .await
+            .unwrap();
+        (txn, before)
+    }
+
+    /// "Changes nothing" holds for the registry file itself: the set-aside row
+    /// comes back in its place, not at the end.
+    #[tokio::test]
+    async fn a_rollback_leaves_the_registry_byte_identical() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let (txn, before) = mid_update(root).await;
+
+        let err = txn.rollback(Error::InstanceBusy).await;
+
+        assert!(matches!(err, Error::InstanceBusy), "{err:?}");
+        let after = std::fs::read(installed::registry_path(root)).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&after),
+            String::from_utf8_lossy(&before)
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_leaves_the_registry_byte_identical() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let (txn, before) = mid_update(root).await;
+        drop(txn); // the launcher died here
+
+        let report = recover_pending(root, u64::MAX).await;
+
+        assert!(matches!(report[0].outcome, RecoveredOutcome::Restored));
+        let after = std::fs::read(installed::registry_path(root)).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&after),
+            String::from_utf8_lossy(&before)
+        );
     }
 
     #[tokio::test]
@@ -1582,8 +1739,13 @@ mod tests {
         std::fs::create_dir_all(registry.join("blocked")).unwrap();
 
         match txn.rollback(Error::InstanceBusy).await {
-            Error::ContentUpdateRollbackIncomplete { folder, details } => {
-                assert!(details.contains("record could not be written"), "{details}");
+            Error::ContentUpdateRollbackIncomplete { folder, stuck, .. } => {
+                assert!(
+                    stuck
+                        .iter()
+                        .any(|s| s.contains("record could not be written")),
+                    "{stuck:?}"
+                );
                 assert!(join_rel(&Path::new(&folder).join(FILES_DIR), "mods/a.jar").exists());
             }
             other => panic!("expected ContentUpdateRollbackIncomplete, got {other:?}"),
