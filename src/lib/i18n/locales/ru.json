@@ -3186,7 +3186,7 @@
         "security": "Безопасность"
       },
       "intro": "Изменения вплоть до вашей версии ({version}).",
-      "showMore": "{count, plural, one {Показать ещё # версию} few {Показать ещё # версии} many {Показать ещё # версий} other {Показать ещё # версии}}"
+      "compareLink": "Изменения на GitHub"
     },
     "aiTranslation": {
       "label": "ИИ-перевод",
