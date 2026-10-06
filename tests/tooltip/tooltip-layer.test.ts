@@ -39,6 +39,34 @@ describe('TooltipLayer', () => {
     expect(bubble.id).toBe('app-tooltip');
     expect(bubble.textContent?.trim()).toBe('Grid view');
   });
+
+  it('shows the bubble once it has been placed', async () => {
+    render(TooltipLayer);
+    showTooltip(rect, 'Grid view', { placement: 'top', immediate: true });
+    const bubble = await screen.findByRole('tooltip');
+    await tick();
+    expect(tooltipState.placed).toBe(true);
+    expect(bubble.classList.contains('invisible')).toBe(false);
+  });
+
+  // No room above or below: the measure step flips the bubble once and stays there. Read from the
+  // state it writes, it flipped back on its own re-run, and again, until Svelte threw
+  // effect_update_depth_exceeded — an uncaught error that stops every later effect.
+  it('settles a bubble with no room on either side', async () => {
+    render(TooltipLayer);
+    const tall = {
+      top: 10,
+      left: 100,
+      width: 40,
+      height: window.innerHeight - 20,
+      bottom: window.innerHeight - 10,
+    } as DOMRect;
+    showTooltip(tall, 'Tall', { placement: 'top', immediate: true });
+    await screen.findByRole('tooltip');
+    await tick();
+    expect(tooltipState.placed).toBe(true);
+    expect(tooltipState.placement).toBe('bottom');
+  });
 });
 
 // Plan §5d L2 (screenshot tt-kind-help-after-trash): a bubble was laid out where the previous one

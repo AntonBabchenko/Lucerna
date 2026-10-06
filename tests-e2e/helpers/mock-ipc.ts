@@ -15,8 +15,12 @@
 //   no-op.
 //
 // All handlers return valid empty/default shapes so the UI mounts without
-// throwing. Unknown commands return null (safe default — the UI guards
-// on `.status === 'ok'` before reading `.data`).
+// throwing. Unknown commands return null, which is NOT a safe default: a
+// Result command then reads as `{ status: 'ok', data: null }`, and the UI,
+// typed to non-null data, dereferences it. A command the surface under test
+// reads needs a real-shaped handler here. An uncaught error inside a Svelte
+// effect does more than log: the effects queued after it in that flush are
+// skipped, and some never run at all (docs/UI-TESTING.md).
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -349,6 +353,16 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         list_instances: () => m.instances,
         get_active_instance: () =>
           m.instances.find((i: { id: string }) => i.id === m.active_instance_id) ?? null,
+        // Heap-slider bounds (the Manage modal's memory slider renders from them) —
+        // the backend's policy on a 16 GB machine (src-tauri/src/instances/memory.rs).
+        instance_memory_bounds: () => ({
+          min_mb: 1024,
+          max_mb: 16384,
+          default_mb: 6144,
+          recommended_max_mb: 12288,
+          step_mb: 256,
+          ram_known: true,
+        }),
 
         // Servers — the Servers-mode panel's list. The page boots the servers
         // store on mount (serverState.init() + refresh()), so EVERY full-app
@@ -401,6 +415,27 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         // Reflects installs recorded by mods_install_with_deps (defaults []).
         mods_list_installed: () => m.installed_mods,
         modpack_status: () => null,
+        // The Overview's translation row: the instance's coverage, and whether
+        // its pack is applied. Nothing installed ships translations — the
+        // backend reports a full 100% of nothing (l10n/coverage.rs) and no target.
+        // The language comes back resolved as default_target_code (same file)
+        // resolves it: a bare launcher locale becomes a Minecraft code.
+        l10n_coverage: (args) => {
+          const asked = ((args as { lang?: string } | undefined)?.lang ?? '')
+            .toLowerCase()
+            .replaceAll('-', '_');
+          const named: Record<string, string> = { '': 'en_us', en: 'en_us', ru: 'ru_ru' };
+          const lang = asked.includes('_') ? asked : (named[asked] ?? `${asked}_${asked}`);
+          return {
+            lang,
+            percent: 100,
+            namespaces: [],
+            availableCodes: [lang],
+            applyGate: 'ready',
+            packState: 'not_applied',
+          };
+        },
+        l10n_apply_targets: () => [],
 
         // Mod-compatibility scan + MC-version migration. The scan feeds the
         // Installed tab's incompatible count (and thus the panel's "Fix
@@ -433,6 +468,19 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
               dependencies: [],
             },
           ];
+        },
+        // Modpacks modal — the browse view asks the active source what it can do.
+        // Each source's `caps()` (the same table ModpackBrowseView pre-sets from):
+        // only CurseForge needs a key; Modrinth and CurseForge filter server-side
+        // and export; FTB, ATLauncher and the unsupported rest do neither.
+        modpack_source_caps: (args) => {
+          const source = (args as { source?: string } | undefined)?.source;
+          const remote = source === 'modrinth' || source === 'curseforge';
+          return {
+            needs_api_key: source === 'curseforge',
+            supports_server_filter: remote,
+            can_export: remote,
+          };
         },
         mods_resolve_install_plan: () => ({
           required: [],
@@ -584,6 +632,17 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
       // listen() resolves to an unlisten no-op so the app can call it safely.
       // -------------------------------------------------------------------------
       (window as Window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+        // The window and webview the page runs in, which Tauri injects. getCurrentWindow()
+        // and getCurrentWebview() read it; without it the app's onMount that starts the
+        // window's file-drop listener threw on every boot, and Svelte skipped the effects
+        // queued after it — TooltipLayer's measure step among them. Shaped as
+        // @tauri-apps/api/mocks' mockWindows('main') sets it; "main" is the label
+        // src-tauri/src/lib.rs gives the window.
+        metadata: {
+          currentWindow: { label: 'main' },
+          currentWebview: { windowLabel: 'main', label: 'main' },
+        },
+
         invoke: async (cmdName: string, _args?: unknown): Promise<unknown> => {
           // Strip the "plugin:event|" prefix used by the event system, or
           // any other "plugin:X|" prefix that Tauri 2 plugins use.
@@ -615,6 +674,14 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
           return (_cb: unknown, _once: boolean): number => nextId++;
         })(),
       };
+
+      // The event plugin's own internals: an unlisten() calls their
+      // unregisterListener before it invokes, so without them every listener's
+      // teardown (a drawer closing, the page unmounting) threw — an unhandled
+      // rejection, a page error. Set as @tauri-apps/api/mocks' mockIPC sets it.
+      Object.assign(window, {
+        __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
+      });
     },
     { state, tourVersion: TOUR_VERSION, contextualTourKeys: CONTEXTUAL_TOUR_KEYS },
   );
