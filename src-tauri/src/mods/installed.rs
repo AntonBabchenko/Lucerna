@@ -753,6 +753,44 @@ pub async fn remove(instance_root: &Path, sha1: &str) -> Result<(), Error> {
     write(instance_root, &state).await
 }
 
+/// The rows' SHA-1s (lowercase), in registry order. A content transaction
+/// records them before it moves anything, so its undo can put the rows back in
+/// that order. Lock-free: `write`'s atomic rename hands a reader a whole file.
+pub async fn row_order(instance_root: &Path) -> Result<Vec<String>, Error> {
+    Ok(read_or_empty(instance_root)
+        .await?
+        .mods
+        .iter()
+        .map(|m| m.sha1.to_ascii_lowercase())
+        .collect())
+}
+
+/// Put the rows back in `order` (SHA-1s, compared case-insensitively — a
+/// repeated one ranks by its first place). Stable: rows `order` does not name
+/// keep their relative order after the others. Writes only when the order
+/// changes, so a registry already in order is left byte for byte.
+pub async fn restore_order(instance_root: &Path, order: &[String]) -> Result<(), Error> {
+    if order.is_empty() {
+        return Ok(());
+    }
+    let mut rank: HashMap<String, usize> = HashMap::new();
+    for (i, sha) in order.iter().enumerate() {
+        rank.entry(sha.to_ascii_lowercase()).or_insert(i);
+    }
+    let key = |m: &InstalledMod| {
+        rank.get(&m.sha1.to_ascii_lowercase())
+            .copied()
+            .unwrap_or(usize::MAX)
+    };
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let mut state = read_or_empty(instance_root).await?;
+    if state.mods.windows(2).all(|w| key(&w[0]) <= key(&w[1])) {
+        return Ok(());
+    }
+    state.mods.sort_by_key(key);
+    write(instance_root, &state).await
+}
+
 /// Remove every entry whose SHA-1 (case-insensitive) is in `sha1s`, in one
 /// read-modify-write. The batch counterpart of [`remove`], used by the
 /// install rollback so N deregistrations don't need N registry rewrites.
@@ -1041,6 +1079,61 @@ mod tests {
             enrich_attempted: false,
             requires: Vec::new(),
         }
+    }
+
+    async fn shas(root: &Path) -> Vec<String> {
+        read_or_empty(root)
+            .await
+            .unwrap()
+            .mods
+            .into_iter()
+            .map(|m| m.sha1)
+            .collect()
+    }
+
+    /// Rows `order` names come first, in its order (matched case-blind); the
+    /// rest keep their relative order after them.
+    #[tokio::test]
+    async fn restore_order_is_stable_and_keeps_unknown_rows_last() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        for (name, sha) in [
+            ("x.jar", "xx"),
+            ("a.jar", "aa"),
+            ("y.jar", "yy"),
+            ("b.jar", "BB"),
+        ] {
+            add(root, provenanced(name, sha.into())).await.unwrap();
+        }
+
+        restore_order(root, &["aa".into(), "bb".into()])
+            .await
+            .unwrap();
+
+        assert_eq!(shas(root).await, ["aa", "BB", "xx", "yy"]);
+    }
+
+    /// A registry already in order is not rewritten — the undo of an update
+    /// that moved no row leaves the file as it was, byte for byte.
+    #[tokio::test]
+    async fn restore_order_does_not_write_when_the_order_holds() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        add(root, provenanced("a.jar", "aa".into())).await.unwrap();
+        add(root, provenanced("b.jar", "bb".into())).await.unwrap();
+        // Bytes no `write` would produce: a rewrite would normalise them.
+        let path = registry_path(root);
+        let odd = fs::read_to_string(&path)
+            .await
+            .unwrap()
+            .replace("\n", "\r\n");
+        fs::write(&path, &odd).await.unwrap();
+
+        restore_order(root, &["aa".into(), "bb".into(), "gone".into()])
+            .await
+            .unwrap();
+
+        assert_eq!(fs::read_to_string(&path).await.unwrap(), odd);
     }
 
     /// Corruption must not destroy the provenance a repair needs. Matching

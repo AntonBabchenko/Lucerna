@@ -11,9 +11,11 @@ describe('datapacksDisabledKey', () => {
   it('returns null when not running and not busy', () => {
     expect(datapacksDisabledKey({ running: false, busy: false })).toBeNull();
   });
-  it('flags running', () => {
+  // The library screen spans the profile's worlds: its reason names the profile, not «this
+  // world» (2026-10-06 regression, O5). The world tab keeps its own key, below.
+  it('flags running, naming the profile', () => {
     expect(datapacksDisabledKey({ running: true, busy: false })).toBe(
-      'worlds.datapacks.blockedRunning',
+      'addons.datapacks.blockedRunning',
     );
   });
   it('flags busy', () => {
@@ -23,7 +25,7 @@ describe('datapacksDisabledKey', () => {
   });
   it('flags running first when both apply', () => {
     expect(datapacksDisabledKey({ running: true, busy: true })).toBe(
-      'worlds.datapacks.blockedRunning',
+      'addons.datapacks.blockedRunning',
     );
   });
 });

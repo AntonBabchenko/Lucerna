@@ -63,6 +63,13 @@ export function withDetailTail(headline: string, raw: string | null | undefined)
   return `${headline}: ${codePoints.slice(0, DETAIL_TRUNCATE_CODE_POINTS).join('')}… (${hint})`;
 }
 
+/** A headline followed by the typed error that caused it, both in the user's
+ *  language: the cause is formatted by its own rules (an opaque cause keeps its
+ *  truncated tail). Two sentences, since the cause is a whole message. */
+function withCause(headline: string, cause: IpcError): string {
+  return `${headline}. ${formatError(cause)}`;
+}
+
 /** A platform tag list inside a sentence. An empty list reads as an em dash,
  *  never as a gap — CurseForge files may carry no loader tag at all. */
 function listOrDash(items: string[]): string {
@@ -99,8 +106,6 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_decode: 'opaque',
   mods_cache_io: 'opaque',
   mods_instance_path: 'opaque',
-  modpack_update_rolled_back: 'opaque',
-  content_update_rollback_incomplete: 'opaque',
   modpack_invalid_archive: 'opaque',
   modpack_manifest_invalid: 'opaque',
   modpack_instance_creation_failed: 'opaque',
@@ -132,6 +137,9 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   already_running: 'clean',
   account_not_set: 'clean',
   instance_busy: 'clean',
+  // A headline and a typed cause, which carries its own class.
+  modpack_update_rolled_back: 'clean',
+  content_update_rollback_incomplete: 'clean',
   content_update_unfinished: 'clean',
   auth_cancelled: 'clean',
   no_minecraft_profile: 'clean',
@@ -653,16 +661,18 @@ export function formatError(e: IpcError): string {
     case 'mods_instance_path':
       return withDetailTail(translate('errors.modsInstancePath', { path: e.path }), e.details);
     case 'modpack_update_rolled_back':
-      return withDetailTail(
+      return withCause(
         e.file_name === null
           ? translate('errors.modpackUpdateRolledBackRecord')
           : translate('errors.modpackUpdateRolledBack', { file: e.file_name }),
-        e.details,
+        e.cause,
       );
     case 'content_update_rollback_incomplete':
-      return withDetailTail(
+      // `stuck` is for the log (the backend writes it there): the folder named
+      // here holds everything that could not go back.
+      return withCause(
         translate('errors.contentUpdateRollbackIncomplete', { folder: e.folder }),
-        e.details,
+        e.cause,
       );
     case 'content_update_unfinished':
       return translate('errors.contentUpdateUnfinished');

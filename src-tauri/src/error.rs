@@ -345,18 +345,24 @@ pub enum Error {
     /// or the new one it was placing; `None` when it stopped while writing the
     /// pack record (`pack_origin` or `instance.json`). Raised only after a CLEAN
     /// rollback; an undo that left files behind is
-    /// `ContentUpdateRollbackIncomplete` instead.
-    #[error("Modpack update rolled back at {file_name:?}: {details}")]
+    /// `ContentUpdateRollbackIncomplete` instead. `cause` is the failure that
+    /// stopped it, kept typed so the UI words it in the user's language.
+    #[error("Modpack update rolled back at {file_name:?}: {cause}")]
     ModpackUpdateRolledBack {
         file_name: Option<String>,
-        details: String,
+        cause: Box<Error>,
     },
 
     /// An update failed and its undo could not put everything back. What could
-    /// not go back is kept in `folder` (the transaction's `-kept` directory);
-    /// `details` carries the original failure and the entries left behind.
-    #[error("Update could not be fully undone; kept in {folder}: {details}")]
-    ContentUpdateRollbackIncomplete { folder: String, details: String },
+    /// not go back is kept in `folder` (the transaction's `-kept` directory).
+    /// `cause` is the failure that stopped the update, typed; `stuck` names each
+    /// entry left behind and why, for the log.
+    #[error("Update could not be fully undone; kept in {folder}: {cause}; could not be put back: {stuck:?}")]
+    ContentUpdateRollbackIncomplete {
+        folder: String,
+        cause: Box<Error>,
+        stuck: Vec<String>,
+    },
 
     /// An earlier content transaction of this instance is still pending — its
     /// record could not be closed. Updates are refused until a restart finishes
@@ -1535,11 +1541,17 @@ mod tests {
         assert!(json.contains(r#""details":"not zip""#), "got: {json}");
     }
 
+    /// The cause crosses the IPC boundary typed, nested — not as its English
+    /// `Display` text — so the UI words it in the user's language.
     #[test]
-    fn modpack_update_rolled_back_serializes_a_missing_file_as_null() {
+    fn modpack_update_rolled_back_carries_its_cause_typed() {
         let e = Error::ModpackUpdateRolledBack {
             file_name: None,
-            details: "disk full".into(),
+            cause: Box::new(Error::ModsFilenameConflict {
+                filename: "c.jar".into(),
+                existing_sha: "e".into(),
+                incoming_sha: "i".into(),
+            }),
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(
@@ -1547,13 +1559,18 @@ mod tests {
             "got: {json}"
         );
         assert!(json.contains(r#""file_name":null"#), "got: {json}");
+        assert!(
+            json.contains(r#""cause":{"kind":"mods_filename_conflict","filename":"c.jar","#),
+            "got: {json}"
+        );
     }
 
     #[test]
-    fn content_update_rollback_incomplete_serializes() {
+    fn content_update_rollback_incomplete_carries_its_cause_and_what_stayed() {
         let e = Error::ContentUpdateRollbackIncomplete {
             folder: "f-kept".into(),
-            details: "d".into(),
+            cause: Box::new(Error::InstanceBusy),
+            stuck: vec!["mods/a.jar (name taken)".into()],
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(
@@ -1561,6 +1578,14 @@ mod tests {
             "got: {json}"
         );
         assert!(json.contains(r#""folder":"f-kept""#), "got: {json}");
+        assert!(
+            json.contains(r#""cause":{"kind":"instance_busy"}"#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""stuck":["mods/a.jar (name taken)"]"#),
+            "got: {json}"
+        );
     }
 
     #[test]

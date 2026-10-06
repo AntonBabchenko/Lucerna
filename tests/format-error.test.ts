@@ -12,20 +12,60 @@ import {
 describe('formatError', () => {
   beforeAll(() => locale.set('en'));
 
-  it('says where a rolled-back pack update stopped, and that nothing changed', () => {
+  const conflict: IpcError = {
+    kind: 'mods_filename_conflict',
+    filename: 'c.jar',
+    existing_sha: 'e',
+    incoming_sha: 'i',
+  };
+
+  it('says where a rolled-back pack update stopped, that nothing changed, and why', () => {
     const atFile = formatError({
       kind: 'modpack_update_rolled_back',
       file_name: 'c.jar',
-      details: 'name taken',
+      cause: conflict,
     });
-    expect(atFile).toContain('c.jar');
-    expect(atFile).toContain('Nothing was changed');
+    expect(atFile).toBe(
+      `Nothing was changed. The pack update stopped at c.jar. ${formatError(conflict)}`,
+    );
     const atRecord = formatError({
       kind: 'modpack_update_rolled_back',
       file_name: null,
-      details: 'disk full',
+      cause: { kind: 'instance_busy' },
     });
-    expect(atRecord).toContain("could not write the pack's record");
+    expect(atRecord).toBe(
+      `Nothing was changed. The pack update could not write the pack's record. ${formatError({ kind: 'instance_busy' })}`,
+    );
+  });
+
+  // The cause used to arrive as the backend's English text: a Russian user read
+  // «…на файле c.jar: Cannot place c.jar: a different file with this name already exists».
+  it("words a rolled-back update's cause in the user's language", () => {
+    locale.set('ru');
+    try {
+      const msg = formatError({
+        kind: 'modpack_update_rolled_back',
+        file_name: 'c.jar',
+        cause: conflict,
+      });
+      expect(msg).toContain('Ничего не изменено');
+      expect(msg).toContain('Другой файл с именем «c.jar»');
+      expect(msg).not.toContain('Cannot place');
+    } finally {
+      locale.set('en');
+    }
+  });
+
+  it('names the kept folder and the cause of an undo that could not finish, not the stuck list', () => {
+    const msg = formatError({
+      kind: 'content_update_rollback_incomplete',
+      folder: 'C:/i/lucerna/txn/1-a-kept',
+      cause: conflict,
+      stuck: ['mods/a.jar (name taken)'],
+    });
+    expect(msg).toContain('C:/i/lucerna/txn/1-a-kept');
+    expect(msg).toContain(formatError(conflict));
+    expect(msg).not.toContain('name taken');
   });
 
   it('formats network as a clean actionable message — no url/detail leak', () => {
@@ -397,12 +437,13 @@ describe('formatError', () => {
       modpack_update_rolled_back: {
         kind: 'modpack_update_rolled_back',
         file_name: 'c.jar',
-        details: 'd',
+        cause: { kind: 'instance_busy' },
       },
       content_update_rollback_incomplete: {
         kind: 'content_update_rollback_incomplete',
         folder: 'f-kept',
-        details: 'd',
+        cause: { kind: 'instance_busy' },
+        stuck: ['s'],
       },
       content_update_unfinished: { kind: 'content_update_unfinished', folder: 'f' },
       modpack_invalid_archive: { kind: 'modpack_invalid_archive', details: 'd' },

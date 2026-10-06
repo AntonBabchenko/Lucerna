@@ -117,16 +117,20 @@ pub fn start_update_recovery(
                 }
                 None => txn::sweep_closed(&root, session_start_ms).await,
             };
-            report.extend(results.into_iter().map(|r| RecoveredUpdate {
-                instance_id: id.clone(),
-                instance_name: name.clone(),
-                outcome: match r.outcome {
+            for r in results {
+                let outcome = match r.outcome {
                     RecoveredOutcome::Restored => RecoveryOutcome::Restored,
                     RecoveredOutcome::Incomplete { folder, details } => {
                         RecoveryOutcome::Incomplete { folder, details }
                     }
-                },
-            }));
+                };
+                crate::diag!("{}", recovery_log_line(&id, &name, &outcome));
+                report.push(RecoveredUpdate {
+                    instance_id: id.clone(),
+                    instance_name: name.clone(),
+                    outcome,
+                });
+            }
         }
         *handle.state::<UpdateRecovery>().report.lock().await = Some(report);
         signal_done(&tx);
@@ -214,6 +218,20 @@ fn instance_name(root: &Path) -> Option<String> {
     }
 }
 
+/// The log line for one update the start dealt with. An incomplete outcome is
+/// not always an undo that stopped — a token whose record could not be read is
+/// set aside untouched — so it names the folder and the reason as given.
+fn recovery_log_line(id: &str, name: &str, outcome: &RecoveryOutcome) -> String {
+    match outcome {
+        RecoveryOutcome::Restored => {
+            format!("[update-recovery] «{name}» ({id}): undid an update that was cut off")
+        }
+        RecoveryOutcome::Incomplete { folder, details } => format!(
+            "[update-recovery] «{name}» ({id}): left in {folder}, not fully put back: {details}"
+        ),
+    }
+}
+
 fn signal_done(tx: &tokio::sync::watch::Sender<bool>) {
     if tx.send(true).is_err() {
         // Only possible when no receiver is left, i.e. nobody can wait for it.
@@ -254,5 +272,32 @@ mod tests {
         assert!(!crate::instances::maintenance::maintenance_is_active(
             &pending_id
         ));
+    }
+
+    /// Every update the start dealt with leaves a line naming the instance — a
+    /// clean undo too, which used to leave none (the notice was its only trace).
+    #[test]
+    fn recovery_log_line_names_the_instance_and_what_happened() {
+        assert_eq!(
+            recovery_log_line("Pack-1", "Pack", &RecoveryOutcome::Restored),
+            "[update-recovery] «Pack» (Pack-1): undid an update that was cut off"
+        );
+        let set_aside = recovery_log_line(
+            "Pack-1",
+            "Pack",
+            &RecoveryOutcome::Incomplete {
+                folder: "f-kept".into(),
+                details: "its record could not be read: eof".into(),
+            },
+        );
+        assert!(
+            set_aside.starts_with("[update-recovery] «Pack» (Pack-1): "),
+            "{set_aside}"
+        );
+        assert!(set_aside.contains("f-kept"), "{set_aside}");
+        assert!(
+            set_aside.contains("its record could not be read: eof"),
+            "{set_aside}"
+        );
     }
 }

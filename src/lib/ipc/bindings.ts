@@ -3747,15 +3747,17 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  or the new one it was placing; `None` when it stopped while writing the
  *  pack record (`pack_origin` or `instance.json`). Raised only after a CLEAN
  *  rollback; an undo that left files behind is
- *  `ContentUpdateRollbackIncomplete` instead.
+ *  `ContentUpdateRollbackIncomplete` instead. `cause` is the failure that
+ *  stopped it, kept typed so the UI words it in the user's language.
  */
-{ kind: "modpack_update_rolled_back"; file_name: string | null; details: string } | 
+{ kind: "modpack_update_rolled_back"; file_name: string | null; cause: Error } | 
 /**
  *  An update failed and its undo could not put everything back. What could
- *  not go back is kept in `folder` (the transaction's `-kept` directory);
- *  `details` carries the original failure and the entries left behind.
+ *  not go back is kept in `folder` (the transaction's `-kept` directory).
+ *  `cause` is the failure that stopped the update, typed; `stuck` names each
+ *  entry left behind and why, for the log.
  */
-{ kind: "content_update_rollback_incomplete"; folder: string; details: string } | 
+{ kind: "content_update_rollback_incomplete"; folder: string; cause: Error; stuck: string[] } | 
 /**
  *  An earlier content transaction of this instance is still pending — its
  *  record could not be closed. Updates are refused until a restart finishes

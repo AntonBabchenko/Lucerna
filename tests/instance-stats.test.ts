@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledMod, InstanceWithStatus, MissingModStatus } from '$lib/ipc/bindings';
 
@@ -73,27 +75,28 @@ describe('createInstanceStats', () => {
       const s = createInstanceStats();
       await s.refreshInstalledStats('i1');
       expect(modsListInstalled).toHaveBeenCalledWith('i1');
-      expect(s.installedStats).toEqual({ total: 3, enabled: 2, disabled: 1 });
+      expect(s.installedStatsFor('i1')).toEqual({ total: 3, enabled: 2, disabled: 1 });
     });
 
-    it('resets to zeros on a null instance id without calling the backend', async () => {
+    it('holds no counts for a null instance id, without calling the backend', async () => {
       const s = createInstanceStats();
       await s.refreshInstalledStats(null);
       expect(modsListInstalled).not.toHaveBeenCalled();
-      expect(s.installedStats).toEqual({ total: 0, enabled: 0, disabled: 0 });
+      expect(s.installedStatsFor(null)).toBeNull();
     });
 
-    it('resets to zeros when the backend errors, rather than keeping the previous instance', async () => {
+    it('holds no counts after a failed read, rather than keeping the previous instance', async () => {
       modsListInstalled.mockResolvedValueOnce({ status: 'ok', data: [mod(true), mod(true)] });
       const s = createInstanceStats();
       await s.refreshInstalledStats('i1');
-      expect(s.installedStats).toEqual({ total: 2, enabled: 2, disabled: 0 });
+      expect(s.installedStatsFor('i1')).toEqual({ total: 2, enabled: 2, disabled: 0 });
 
       // The labels are per-instance, so a retained value silently attributes the
       // previous instance's mods to this one.
       modsListInstalled.mockResolvedValueOnce({ status: 'error', error: { kind: 'x' } });
       await s.refreshInstalledStats('i2');
-      expect(s.installedStats).toEqual({ total: 0, enabled: 0, disabled: 0 });
+      expect(s.installedStatsFor('i2')).toBeNull();
+      expect(s.installedStatsFor('i1')).toBeNull();
     });
 
     // The Add-ons tab opens on Installed for a profile with mods (spec D10). Its zeros are no
@@ -113,6 +116,28 @@ describe('createInstanceStats', () => {
       modsListInstalled.mockResolvedValueOnce({ status: 'error', error: { kind: 'x' } });
       await s.refreshInstalledStats('i2');
       expect(s.hasInstalledMods('i2')).toBeNull();
+    });
+
+    // The Overview's Mods card, by the same rule: zeros held before the first read, another
+    // profile's counts held during a switch, and zeros after a failed read are no counts of
+    // this profile — the card said «no mods» on them (2026-10-06 regression, O1).
+    it('hands out counts only for the profile they were read for', async () => {
+      const s = createInstanceStats();
+      expect(s.installedStatsFor('i1')).toBeNull();
+      expect(s.installedStatsFor(null)).toBeNull();
+      modsListInstalled.mockResolvedValueOnce({
+        status: 'ok',
+        data: [mod(true), mod(true), mod(false)],
+      });
+      await s.refreshInstalledStats('i1');
+      expect(s.installedStatsFor('i1')).toEqual({ total: 3, enabled: 2, disabled: 1 });
+      expect(s.installedStatsFor('i2')).toBeNull();
+      modsListInstalled.mockResolvedValueOnce({ status: 'ok', data: [] });
+      await s.refreshInstalledStats('i2');
+      expect(s.installedStatsFor('i2')).toEqual({ total: 0, enabled: 0, disabled: 0 });
+      modsListInstalled.mockResolvedValueOnce({ status: 'error', error: { kind: 'x' } });
+      await s.refreshInstalledStats('i2');
+      expect(s.installedStatsFor('i2')).toBeNull();
     });
   });
 
@@ -305,5 +330,15 @@ describe('createInstanceStats', () => {
       await first;
       expect(s.updateCount).toBeNull();
     });
+  });
+});
+
+// The page is the whole app shell and is not renderable under vitest: a source scan proves the
+// Overview gets the active profile's own counts, null until they land.
+describe('the Overview wiring', () => {
+  it('hands the Mods card the active profile’s own counts', () => {
+    const page = readFileSync(resolve('src/routes/+page.svelte'), 'utf8');
+    expect(page).toContain('installedStats={stats.installedStatsFor(activeInstance?.id ?? null)}');
+    expect(page).not.toContain('installedStats={stats.installedStats}');
   });
 });

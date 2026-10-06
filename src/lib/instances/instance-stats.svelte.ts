@@ -175,8 +175,12 @@ export function createInstanceStats() {
   }
 
   return {
-    get installedStats() {
-      return installedStats;
+    /** Profile `id`'s installed-mod counts — null while they are not known: no read has landed
+     *  yet, the counts held are another profile's (a switch still reading), or the read failed.
+     *  The held zeros are a reset, not an answer, and the Overview said «no mods» on them. There
+     *  is no unchecked getter: every reader asks for a profile. */
+    installedStatsFor(id: string | null): InstalledStats | null {
+      return id !== null && installedFor === id ? installedStats : null;
     },
     /** Whether profile `id` has installed mods (the Add-ons tab's first view, spec D10) — null
      *  while that is not known: no read has landed yet, the count held is another profile's

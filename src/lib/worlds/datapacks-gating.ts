@@ -9,11 +9,13 @@ export interface DatapacksGateState {
 }
 
 /**
- * Why a datapack change is unavailable, or null when it is available.
- * Pure so the tooltip text and its test share one source of truth.
+ * Why a change in the data pack LIBRARY is unavailable, or null when it is
+ * available. Pure so the tooltip text and its test share one source of truth.
+ * The library spans the profile's worlds, so the running reason names the
+ * profile; the world tab's gate (below) names the world.
  */
 export function datapacksDisabledKey(s: DatapacksGateState): TranslationKey | null {
-  if (s.running) return 'worlds.datapacks.blockedRunning';
+  if (s.running) return 'addons.datapacks.blockedRunning';
   if (s.busy) return 'worlds.datapacks.blockedBusy';
   return null;
 }

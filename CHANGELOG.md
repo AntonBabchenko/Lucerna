@@ -162,7 +162,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   unknown.
 - **The launch check and the Overview tell the truth.** The launch check names
   mods, not their internal ids, and the Overview no longer calls a profile ready
-  to play while its mods stop the game. Problems read more clearly: a version
+  to play while its mods stop the game, or says it has no mods while they are
+  still being counted. Problems read more clearly: a version
   range reads as one range, and an optional dependency at the wrong version is
   reported as a problem.
 - **A refused change says why.** A mod change refused because a modpack update,
@@ -190,9 +191,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   Escape or a click outside on its confirmation step, as any other dialog does.
 - **Keyboard focus stays where you can use it.** It no longer lands on a mod
   hidden under the filters or the page switcher. After a removal it moves to the
-  next mod, and it stays in a dialog after a press outside it or after the
-  dialog's tour. Tab moves on from the Minecraft version field instead of
-  stepping through its list.
+  next mod, and it stays in a dialog after a press outside it, after the
+  dialog's tour, or when the dialog moves to its next step. Tab moves on from
+  the Minecraft version field instead of stepping through its list.
 - **Tours step aside for what you open.** An explanation, a menu or a dialog
   opened during a short tour no longer sits under its dimming, and the tour
   comes back on the same step. The modpack browser's tour describes the filters
@@ -205,6 +206,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   them, and wait while you point at them.
 - **A tooltip with no room above or below its control no longer breaks the
   window**, which could stop parts of it from updating.
+- **The data pack library names the profile while the game runs**, where it
+  asked to quit Minecraft to change "this world's" data packs.
 
 ## [0.25.0] — 2026-09-27
 

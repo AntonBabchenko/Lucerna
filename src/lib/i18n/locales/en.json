@@ -1241,7 +1241,8 @@
       },
       "libraryReadFailed": "Couldn't read this instance's data pack library, so the results may not show which packs are already installed.",
       "bulkHint": "Select data packs to update or remove several at once",
-      "bulkUpdateKeptOld": "The old version was kept so a retry can finish"
+      "bulkUpdateKeptOld": "The old version was kept so a retry can finish",
+      "blockedRunning": "Quit Minecraft to change this instance's datapacks"
     },
     "install": {
       "toastInstalled": "{count, plural, one {Installed # add-on} other {Installed # add-ons}}",

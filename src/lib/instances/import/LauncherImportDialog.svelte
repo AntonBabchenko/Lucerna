@@ -321,12 +321,16 @@
   }
 </script>
 
+<!-- stepKey: a step change replaces the control that held the focus (the picked row, Back);
+     the panel takes it. A scan turns the focused Scan button off: the engine drops that focus
+     after the scan starts, and the panel takes it when the scan ends. -->
 <Modal
   {onClose}
   ariaLabel={$t('instances.import.dialogAriaLabel')}
   ariaLabelledby="launcher-import-heading"
   dataTestid="launcher-import-dialog"
   panelClass="max-w-xl w-full max-h-[85vh] flex flex-col"
+  stepKey={`${step}:${discovering}`}
 >
   {#if step === 'discover'}
     <!-- Step 1: discovery ─────────────────────────────────────────────── -->

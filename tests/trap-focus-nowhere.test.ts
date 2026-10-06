@@ -169,3 +169,20 @@ describe('trapFocus and a Tab pressed while nothing holds the focus', () => {
     expect(panel.contains(document.activeElement)).toBe(false);
   });
 });
+
+// The panel itself holds the focus after a dialog changes its step (Modal's `stepKey`) or a press
+// on its text. Left to the browser, Shift+Tab from there walks to whatever precedes the panel in
+// the page — behind the dialog (2026-10-06 spec audit).
+describe('trapFocus from the panel itself', () => {
+  it('takes Shift+Tab to the last control and Tab to the first', () => {
+    const { panel } = openDialog();
+    panel.focus();
+    const back = pressTab({ shiftKey: true });
+    expect(back.defaultPrevented).toBe(true);
+    expect(focusedText()).toBe('Last');
+    panel.focus();
+    const on = pressTab();
+    expect(on.defaultPrevented).toBe(true);
+    expect(focusedText()).toBe('First');
+  });
+});

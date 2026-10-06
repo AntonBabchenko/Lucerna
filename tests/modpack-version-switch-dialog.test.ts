@@ -230,6 +230,59 @@ describe('ModpackVersionSwitchDialog', () => {
     await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
   });
 
+  // Each step takes the focused control with it — the picked row, Retry, Back, the confirm — and
+  // the next one opened with the focus on <body>: nothing announced, Enter doing nothing. The
+  // dialog's panel takes the focus instead (Modal's stepKey; 2026-10-06 regression, O4).
+  describe('keyboard focus across steps', () => {
+    const dialog = () => screen.getByRole('dialog');
+
+    it('stays in the dialog from the picked version to the review', async () => {
+      render(ModpackVersionSwitchDialog, props());
+      await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+      const row = screen.getByTestId('version-row-v1');
+      row.focus();
+      await fireEvent.click(row);
+      await waitFor(() => expect(screen.getByTestId('switch-confirm')).toBeTruthy());
+      expect(document.activeElement).toBe(dialog());
+    });
+
+    it('stays in the dialog when Back returns to the list', async () => {
+      await openOnReview('v1');
+      const back = screen.getByTestId('switch-back');
+      back.focus();
+      await fireEvent.click(back);
+      await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+      expect(document.activeElement).toBe(dialog());
+    });
+
+    it('stays in the dialog while the confirmed switch applies', async () => {
+      let finish: (v: unknown) => void = () => {};
+      applyUpdate.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      try {
+        await openOnReview('v1');
+        const confirm = screen.getByTestId('switch-confirm');
+        confirm.focus();
+        await fireEvent.click(confirm);
+        await waitFor(() => expect(screen.queryByTestId('switch-confirm')).toBeNull());
+        expect(document.activeElement).toBe(dialog());
+      } finally {
+        // A held apply must be given back, red or green, or it outlives the test.
+        finish({ status: 'ok', data: { instance: inst, inert_loader_jars: [], details: [] } });
+      }
+    });
+
+    it('stays in the dialog when Retry reloads the version list', async () => {
+      getVersions.mockResolvedValueOnce(NETWORK_ERROR);
+      render(ModpackVersionSwitchDialog, props());
+      await waitFor(() => expect(screen.getByTestId('switch-retry')).toBeTruthy());
+      const retry = screen.getByTestId('switch-retry');
+      retry.focus();
+      await fireEvent.click(retry);
+      await waitFor(() => expect(screen.getByTestId('version-row-v1')).toBeTruthy());
+      expect(document.activeElement).toBe(dialog());
+    });
+  });
+
   it('does not show an empty-list state when the load failed', async () => {
     // `versions` is still [] after a failure, so the list's "no versions match"
     // copy would read as "this pack has none" rather than "the request failed".

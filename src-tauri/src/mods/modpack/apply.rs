@@ -49,9 +49,11 @@ pub struct AppliedUpdate {
 
 /// Run phase 2 inside a content transaction. It reports no progress of its
 /// own: placing files from the warm cache takes milliseconds each, and phase 1
-/// already counted them while downloading. On `Err` nothing was changed — the
-/// error is `ModpackUpdateRolledBack`, or `ContentUpdateRollbackIncomplete`
-/// when the undo itself left files behind.
+/// already counted them while downloading. A step that fails is undone: the
+/// error is `ModpackUpdateRolledBack` (nothing was changed), or
+/// `ContentUpdateRollbackIncomplete` when the undo itself left files behind.
+/// Errors before `begin` changed nothing either, and a commit that cannot be
+/// recorded is undone and returns that error as it is.
 pub async fn apply_update_txn(
     a: PackApply<'_>,
     progress: &ProgressFn,
@@ -64,19 +66,41 @@ pub async fn apply_update_txn(
     )?);
     let plan = build_pack_plan(&a, &rows, prior_instance).await?;
     let txn = txn::begin(lock, plan).await?;
-    let outcome = run(&txn, &a, progress).await;
-    txn.finish(outcome).await
+    match run(&txn, &a, progress).await {
+        Ok(applied) => txn.finish(Ok(applied)).await,
+        // Named "rolled back" only once the undo turned out clean: an undo that
+        // left files behind reports the bare cause instead.
+        Err(StepFailure { file_name, cause }) => Err(txn
+            .rollback_as(cause, |cause| Error::ModpackUpdateRolledBack {
+                file_name,
+                cause: Box::new(cause),
+            })
+            .await),
+    }
+}
+
+/// Where phase 2 stopped and why. `file_name` is the file it was setting aside
+/// or placing; `None` while it wrote the pack record.
+struct StepFailure {
+    file_name: Option<String>,
+    cause: Error,
+}
+
+impl StepFailure {
+    fn at(file_name: Option<String>) -> impl FnOnce(Error) -> Self {
+        move |cause| Self { file_name, cause }
+    }
 }
 
 async fn run(
     txn: &txn::Txn,
     a: &PackApply<'_>,
     progress: &ProgressFn,
-) -> Result<AppliedUpdate, Error> {
+) -> Result<AppliedUpdate, StepFailure> {
     for entry in &txn.plan().stage {
         txn.stage(entry)
             .await
-            .map_err(|e| rolled_back(Some(file_name_of(&entry.rel)), e))?;
+            .map_err(StepFailure::at(Some(file_name_of(&entry.rel))))?;
     }
 
     let to_place: Vec<&ModpackFile> = a
@@ -89,7 +113,7 @@ async fn run(
     for f in &to_place {
         let row = place(a, f, progress)
             .await
-            .map_err(|e| rolled_back(Some(f.filename.clone()), e))?;
+            .map_err(StepFailure::at(Some(f.filename.clone())))?;
         details.push(row);
     }
 
@@ -125,8 +149,8 @@ async fn run(
         import::with_carried_notes(new_origin, a.old_origin.clone(), inert_loader_jars.clone());
     installed::set_pack_origin(a.inst_root, new_origin)
         .await
-        .map_err(|e| rolled_back(None, e))?;
-    write_instance_fields(a).map_err(|e| rolled_back(None, e))?;
+        .map_err(StepFailure::at(None))?;
+    write_instance_fields(a).map_err(StepFailure::at(None))?;
 
     Ok(AppliedUpdate {
         details,
@@ -311,13 +335,6 @@ async fn stage_entry_for(
         }))
     } else {
         Ok(None)
-    }
-}
-
-fn rolled_back(file_name: Option<String>, e: Error) -> Error {
-    Error::ModpackUpdateRolledBack {
-        file_name,
-        details: e.to_string(),
     }
 }
 
@@ -560,8 +577,13 @@ mod tests {
         let r = apply(&fx, &d, &summary("2.0", new), &o, &[]).await;
 
         match r {
-            Err(Error::ModpackUpdateRolledBack { file_name, .. }) => {
-                assert_eq!(file_name.as_deref(), Some("c.jar"))
+            Err(Error::ModpackUpdateRolledBack { file_name, cause }) => {
+                assert_eq!(file_name.as_deref(), Some("c.jar"));
+                // The cause stays typed, for the UI to word in the user's language.
+                assert!(
+                    matches!(*cause, Error::ModsFilenameConflict { ref filename, .. } if filename == "c.jar"),
+                    "{cause:?}"
+                );
             }
             Err(other) => panic!("expected ModpackUpdateRolledBack, got {other:?}"),
             Ok(_) => panic!("expected the update to fail"),
