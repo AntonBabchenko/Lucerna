@@ -25,6 +25,9 @@ export const tooltipState = $state<{
   /** Counts the showings: TooltipLayer measures and places the bubble afresh for each, even one
    *  that takes over from a tooltip still visible with the same text. */
   shown: number;
+  /** Whether this showing has been placed. Until then the bubble is out of sight: one that is
+   *  never placed shows nothing rather than a bubble at the window's origin. */
+  placed: boolean;
 }>({
   visible: false,
   text: '',
@@ -33,9 +36,15 @@ export const tooltipState = $state<{
   placement: 'top',
   caretLeft: CARET_INSET,
   shown: 0,
+  placed: false,
 });
 
 let triggerRect: TriggerRect | null = null;
+// The side this showing asked for. positionTooltip places from it, not from
+// tooltipState.placement — the side it ended up on. Read inside TooltipLayer's $effect and written
+// back by it, that one flipped a bubble with no room on either side back on the effect's re-run,
+// and again, until Svelte threw effect_update_depth_exceeded.
+let requested: Placement = 'top';
 let openTimer: ReturnType<typeof setTimeout> | null = null;
 // Identity of the trigger that owns the currently-shown (or pending) tooltip.
 // Lets hideTooltip ignore a hide request from a *different* trigger (e.g. a
@@ -83,14 +92,18 @@ export function showTooltip(rect: TriggerRect, text: string, opts: ShowOptions):
   triggerRect = rect;
   owner = opts.owner ?? null;
   const reveal = () => {
+    requested = opts.placement;
     tooltipState.text = text;
     tooltipState.placement = opts.placement;
     // Laid out at the window's origin, where nothing narrows it, until TooltipLayer has measured
     // it: left where the previous bubble stood — by the right edge — its text wrapped to the room
     // there, and it was measured and placed at that squeezed size (plan §5d L2). It never paints
-    // there: the measure and the move run before the next frame.
+    // there: it stays out of sight until placed, and the measure and the move run before the
+    // next frame. Should TooltipLayer's $effect not run — an uncaught error has stopped Svelte's
+    // effects (docs/UI-TESTING.md) — the showing shows nothing, not a bubble in the corner.
     tooltipState.top = 0;
     tooltipState.left = 0;
+    tooltipState.placed = false;
     tooltipState.shown += 1;
     tooltipState.visible = true;
     attachDismiss();
@@ -115,7 +128,7 @@ export function hideTooltip(requester?: unknown): void {
 /** Called by TooltipLayer once it has measured its own rendered size. */
 export function positionTooltip(bubble: Size): void {
   if (!triggerRect) return;
-  const r = computePosition(triggerRect, bubble, tooltipState.placement, {
+  const r = computePosition(triggerRect, bubble, requested, {
     width: window.innerWidth,
     height: window.innerHeight,
   });
@@ -127,4 +140,5 @@ export function positionTooltip(bubble: Size): void {
   const triggerCenterX = triggerRect.left + triggerRect.width / 2;
   const maxCaret = Math.max(CARET_INSET, bubble.width - CARET_INSET);
   tooltipState.caretLeft = Math.min(Math.max(triggerCenterX - r.left, CARET_INSET), maxCaret);
+  tooltipState.placed = true;
 }

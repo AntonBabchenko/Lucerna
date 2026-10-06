@@ -17,8 +17,9 @@
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // After the bubble renders with its text — at the window's origin, where the controller puts
-  // each new showing so nothing narrows it — measure it and finalize position. Once per showing
-  // (`shown`): one that takes over from a visible tooltip changes nothing else this reads.
+  // each new showing so nothing narrows it, out of sight until placed — measure it and finalize
+  // position. Once per showing (`shown`): one that takes over from a visible tooltip changes
+  // nothing else this reads.
   $effect(() => {
     void tooltipState.shown;
     if (tooltipState.visible && bubble) {
@@ -44,6 +45,7 @@
     id={TOOLTIP_ID}
     role="tooltip"
     transition:reveal={{ placement: tooltipState.placement }}
+    class:invisible={!tooltipState.placed}
     class="fixed z-[var(--z-tooltip)] max-w-xs pointer-events-none normal-case tracking-normal
            rounded-md border border-border-subtle bg-surface px-2.5 py-1.5
            text-xs font-medium leading-snug text-secondary shadow-lg"

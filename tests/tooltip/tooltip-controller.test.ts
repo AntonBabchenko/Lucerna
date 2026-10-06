@@ -62,6 +62,34 @@ describe('tooltip-controller', () => {
     expect(tooltipState.caretLeft).toBeLessThanOrEqual(120 - 12);
   });
 
+  it('places from the side the showing asked for, never from the side it was flipped to', () => {
+    // No room above or below: 'top' flips to 'bottom'. Measured again — TooltipLayer's effect
+    // re-runs — it must land the same, not flip back (and forth, until Svelte gives up).
+    const tall = {
+      top: 10,
+      left: 100,
+      width: 40,
+      height: window.innerHeight - 20,
+      bottom: window.innerHeight - 10,
+    } as DOMRect;
+    showTooltip(tall, 'Tall', { placement: 'top', immediate: true });
+    positionTooltip({ width: 120, height: 30 });
+    const first = { top: tooltipState.top, placement: tooltipState.placement };
+    expect(first.placement).toBe('bottom');
+    positionTooltip({ width: 120, height: 30 });
+    expect({ top: tooltipState.top, placement: tooltipState.placement }).toEqual(first);
+  });
+
+  it('each showing stays unplaced until positionTooltip has placed it', () => {
+    showTooltip(rect, 'Hello', { placement: 'top', immediate: true, owner: 'a' });
+    expect(tooltipState.placed).toBe(false);
+    positionTooltip({ width: 120, height: 30 });
+    expect(tooltipState.placed).toBe(true);
+    // One that takes over from a placed bubble starts unplaced again.
+    showTooltip(rect, 'World', { placement: 'top', immediate: true, owner: 'b' });
+    expect(tooltipState.placed).toBe(false);
+  });
+
   it('a hide from a different owner does not close a tooltip owned by another trigger', () => {
     const a = {};
     const b = {};

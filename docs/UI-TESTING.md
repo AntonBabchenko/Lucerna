@@ -91,6 +91,35 @@ collides. The modpack import picker hit this with 24 duplicate `sha1`s across
 (an FTB pack, `#41`); the picker never mounted. Mocks with 1–2 files never
 reproduce it — only a large real pack does.
 
+### An uncaught error inside an effect stops the effects after it — mock what the app reads
+
+Svelte 5 runs a flush's `$effect`s and `onMount` callbacks as one queue. One
+that throws aborts the queue: the effects after it in that flush do not run,
+and nothing says so but the page error. Some never run at all — a later throw
+while rendering marks the whole effect tree clean, and an effect that has
+never run has no dependency to wake it.
+
+In e2e this came from the mock IPC. Its `__TAURI_INTERNALS__` had no
+`metadata`, so the page's `onMount` that starts the window's file-drop
+listener (`getCurrentWebview()`) threw on every boot, and the Modpacks and
+Manage dialogs then threw on the mock's `null` for `modpack_source_caps` /
+`instance_memory_bounds`. What it looked like: inside those dialogs every
+tooltip sat in the window's top-left corner — each showing starts at the
+origin and TooltipLayer's `$effect` places it, and that effect was dead. The
+real app is not affected: Tauri injects `metadata`, and the backend answers
+those commands. A bubble now stays out of sight until it is placed, so the
+same failure would show no tooltip at all.
+
+- The mock must let the app boot, and the surface a spec drives run, without
+  an uncaught error. A command the surface reads needs a real-shaped handler:
+  a Result command answered by the catch-all `null` reads as
+  `{ status: 'ok', data: null }`.
+- A spec whose verdict needs the effects to have run — layout, placement,
+  focus — collects `pageerror`s and expects none, as `tooltip.spec.ts` does.
+  A run that threw proves nothing.
+- A tooltip missing where a spec expects one may mean an effect did not run,
+  not that the tooltip is wrong: look for the first uncaught error.
+
 ### The dev build has no console — use DevTools or a temp file-log
 
 `pnpm tauri dev` runs the app as a Windows GUI-subsystem process, so Rust

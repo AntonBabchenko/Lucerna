@@ -387,6 +387,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the import or update it was fetched for ends, re-importing a pack's files no
   longer keeps a copy at all, and one left behind by a dialog you closed, or
   by closing the launcher midway, is cleared once it is a day old.
+- **A tooltip with no room above or below its control no longer breaks the
+  window.** It flipped from one side of the control to the other and back
+  until the launcher stopped it with an internal error, which could leave
+  parts of the window no longer updating. It now settles on one side.
 
 ## [0.25.0] — 2026-09-27
 
