@@ -1835,7 +1835,7 @@
       "matchedLine": "Matched line",
       "patterns": {
         "javaVersionTooOld": {
-          "title": "Java version is too old for this modpack",
+          "title": "Java version is too old for this instance",
           "explanation": "One of your mods was built for a newer version of Java than the instance is currently running. Minecraft launched the game, but the mod's classes failed to load.",
           "recommendation": "Bump the instance's Minecraft version under Manage → Minecraft version — newer MC versions install a newer JRE automatically. If your modpack is locked to this MC version, the mod itself likely needs an update from its author."
         },
