@@ -21,6 +21,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-10-06
+
 ### Added
 
 - **Several items at once, in every installed list.** Resource packs, shaders,
@@ -163,9 +165,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **The launch check and the Overview tell the truth.** The launch check names
   mods, not their internal ids, and the Overview no longer calls a profile ready
   to play while its mods stop the game, or says it has no mods while they are
-  still being counted. Problems read more clearly: a version
-  range reads as one range, and an optional dependency at the wrong version is
-  reported as a problem.
+  still being counted. Problems read more clearly: a version range reads as one
+  range, and an optional dependency at the wrong version is reported as a
+  problem.
 - **A refused change says why.** A mod change refused because a modpack update,
   a migration or a clone is using the profile says so instead of suggesting the
   game is running. In profile management, a refused change's red message goes
@@ -2048,7 +2050,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.22.0...v0.23.0
