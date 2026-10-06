@@ -10,8 +10,9 @@
 // first focusable descendant, else the node itself (give the node
 // `tabindex="-1"` so this fallback works).
 //
-// Tab: wraps at the panel's edges; a Tab pressed while nothing holds the focus
-// goes to the topmost dialog (below, `onDocumentKeydown`).
+// Tab: wraps at the panel's edges, and from the panel itself goes to its first
+// (Shift+Tab: last) control; a Tab pressed while nothing holds the focus goes to
+// the topmost dialog (below, `onDocumentKeydown`).
 
 import { untrack } from 'svelte';
 import {
@@ -130,6 +131,16 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
 
     const first = items[0];
     const last = items[items.length - 1];
+
+    // The panel itself holds the focus (a dialog that changed its step parks it
+    // there, a press on its text puts it there): Tab goes to its first control,
+    // Shift+Tab to its last. Left to the browser, Shift+Tab from the panel walks
+    // to whatever precedes it in the page — behind the dialog.
+    if (active === node) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+      return;
+    }
 
     // Wrap at the boundaries. (This listener sits on the panel, so it sees a
     // Tab only while the focus is inside it; a Tab with the focus nowhere is

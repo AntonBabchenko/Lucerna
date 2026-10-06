@@ -4,6 +4,10 @@
   // close out of every individual dialog. Dialogs provide their own
   // header / body / footer as children.
   //
+  // A dialog that swaps its content (a wizard's step, a flow's phase) passes
+  // `stepKey`: when it changes and the focus has fallen to <body> — the control
+  // that held it left with the old content — the panel takes it (DESIGN.md §8).
+  //
   // Labelling: pass exactly one of `ariaLabelledby` (id of a heading inside
   // the panel — preferred) or `ariaLabel` (literal string).
   //
@@ -14,7 +18,13 @@
   // focused field first.
   import { onDestroy, untrack } from 'svelte';
   import type { Snippet } from 'svelte';
-  import { newLayerId, provideLayerHost, pushLayer } from './layer-stack.svelte';
+  import {
+    isTopModal,
+    newLayerId,
+    provideLayerHost,
+    pushLayer,
+    tourAbove,
+  } from './layer-stack.svelte';
   import { trapFocus } from './trap-focus';
 
   let {
@@ -27,6 +37,7 @@
     closeOnEscape = true,
     bare = false,
     takesFileDrops = false,
+    stepKey,
     dataTestid,
     children,
   }: {
@@ -50,6 +61,10 @@
         Modpacks modal). Any other dialog on top leaves every drop box under it out. Read once,
         when the dialog opens. */
     takesFileDrops?: boolean;
+    /** A value naming what the dialog shows — its step, its phase. When it changes and the
+        focus has fallen to <body>, the panel takes it. Omitted: the dialog never swaps its
+        content. */
+    stepKey?: unknown;
     /** Optional `data-testid` forwarded to the dialog panel element. */
     dataTestid?: string;
     children: Snippet;
@@ -83,6 +98,29 @@
     ),
   );
   provideLayerHost(layer);
+
+  // A step change takes the focused control with the old content: the focus
+  // falls to <body>, and the new step opens with nothing focused — nothing
+  // announced, Enter doing nothing. After the update (effects run after the
+  // DOM), the panel takes a focus nothing holds; the panel is the labelled
+  // element, so the new step's title is read out, and Tab goes on from it
+  // (trapFocus). Only on a CHANGE — at open, trapFocus places the initial focus
+  // — and only for the topmost dialog with no tour above it, the rule of
+  // trapFocus's Tab from <body>: a focus something holds (a toast's button, a
+  // tour's card) is never taken. Plain variable: an effect-local memory.
+  let panel = $state<HTMLDivElement | undefined>();
+  let shownStep: unknown = untrack(() => stepKey);
+  $effect(() => {
+    const key = stepKey;
+    if (key === shownStep) return;
+    shownStep = key;
+    untrack(() => {
+      const active = document.activeElement;
+      if (active !== null && active !== document.body) return;
+      if (!isTopModal(layer) || tourAbove(layer)) return;
+      panel?.focus();
+    });
+  });
 
   // A backdrop dismissal must be a deliberate click *outside* the panel: the
   // press and the release both land directly on the backdrop. We track the
@@ -133,6 +171,7 @@
   onmouseup={onBackdropMouseUp}
 >
   <div
+    bind:this={panel}
     use:trapFocus={layer}
     role="dialog"
     aria-modal="true"

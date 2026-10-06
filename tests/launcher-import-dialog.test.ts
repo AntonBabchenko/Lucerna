@@ -242,6 +242,35 @@ describe('LauncherImportDialog', () => {
     expect(getByTestId('discover-btn')).toBeTruthy();
   });
 
+  // A step change takes the control that held the focus with it (the picked row, Back): the
+  // next step opened with the focus on <body>, nothing announced. The dialog's panel takes it
+  // (Modal's stepKey; the open nit of the 2026-10-02 regression, and O4 of 2026-10-06).
+  it('keeps the keyboard focus in the dialog across its steps', async () => {
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { instances: [mockForeign], empty_launchers: [] },
+    });
+    const { getByTestId, getByRole } = render(LauncherImportDialog, {
+      props: { onClose: vi.fn() },
+    });
+    fireEvent.click(getByTestId('discover-btn'));
+    await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
+
+    const row = getByTestId('discovered-list').querySelector(
+      '[data-testid="instance-row"]',
+    ) as HTMLElement;
+    row.focus();
+    await fireEvent.click(row);
+    await waitFor(() => expect(getByTestId('back-btn')).toBeTruthy());
+    expect(document.activeElement).toBe(getByRole('dialog'));
+
+    const back = getByTestId('back-btn');
+    back.focus();
+    await fireEvent.click(back);
+    await waitFor(() => expect(getByTestId('discover-btn')).toBeTruthy());
+    expect(document.activeElement).toBe(getByRole('dialog'));
+  });
+
   it('browse-to-folder calls launcherImportInspectFolder and advances to step 2', async () => {
     openFileMock.mockResolvedValue('/some/path');
     (commands.launcherImportInspectFolder as ReturnType<typeof vi.fn>).mockResolvedValue({

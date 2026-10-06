@@ -1,5 +1,5 @@
 import { createEvent, fireEvent, render } from '@testing-library/svelte';
-import { createRawSnippet } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import Modal from '../../src/lib/ui/Modal.svelte';
 
@@ -137,6 +137,56 @@ describe('Modal', () => {
     await fireEvent.mouseDown(backdrop);
     await fireEvent.mouseUp(backdrop);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // A dialog that swaps its content (a step, a phase) loses the focused control with the old
+  // content, and the focus falls to <body> (here: blur() — the state a removal leaves). The panel
+  // takes it on a step change — never a focus something else holds, and never for a lower dialog.
+  describe('stepKey', () => {
+    const props = (stepKey: unknown) => ({
+      onClose: vi.fn(),
+      ariaLabel: 'x',
+      stepKey,
+      children: body(),
+    });
+
+    it('puts a focus lost to <body> on the panel when the step changes', async () => {
+      const { getByRole, rerender } = render(Modal, { props: props('pick') });
+      getByRole('button', { name: 'OK' }).focus();
+      (document.activeElement as HTMLElement).blur();
+      await rerender(props('review'));
+      await tick();
+      expect(document.activeElement).toBe(getByRole('dialog'));
+    });
+
+    it('leaves a focus that something else holds', async () => {
+      const { rerender } = render(Modal, { props: props('pick') });
+      const toastButton = document.createElement('button');
+      document.body.appendChild(toastButton);
+      toastButton.focus();
+      await rerender(props('review'));
+      await tick();
+      expect(document.activeElement).toBe(toastButton);
+      toastButton.remove();
+    });
+
+    it('does nothing while the step stays the same', async () => {
+      const { getByRole, rerender } = render(Modal, { props: props('pick') });
+      getByRole('button', { name: 'OK' }).focus();
+      (document.activeElement as HTMLElement).blur();
+      await rerender(props('pick'));
+      await tick();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('does nothing for a dialog under another one', async () => {
+      const lower = render(Modal, { props: props('pick') });
+      render(Modal, { props: { onClose: vi.fn(), ariaLabel: 'top', children: body('top') } });
+      (document.activeElement as HTMLElement | null)?.blur();
+      await lower.rerender(props('review'));
+      await tick();
+      expect(document.activeElement).toBe(document.body);
+    });
   });
 
   it('with two nested modals, Escape closes only the topmost', async () => {

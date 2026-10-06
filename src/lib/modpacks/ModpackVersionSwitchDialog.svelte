@@ -154,11 +154,14 @@
   }
 </script>
 
+<!-- stepKey: every step here replaces the control that held the focus (the picked row, Back,
+     the confirm, Retry while the list reloads); the panel takes the focus on each. -->
 <Modal
   ariaLabelledby="modpack-switch-title"
   onClose={dismiss}
   closeOnBackdrop={!flow.running}
   closeOnEscape={!flow.running}
+  stepKey={`${flow.phase}:${step}:${loadingVersions}`}
   panelClass="w-[560px] max-h-[80vh] p-5 flex flex-col gap-3"
 >
   <h3 id="modpack-switch-title" class="font-semibold text-base text-primary">
