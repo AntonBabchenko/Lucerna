@@ -10,7 +10,7 @@ use lucerna_lib::instances::schema::LoaderKind;
 use lucerna_lib::mods::installed;
 use lucerna_lib::mods::jar_scan_cache::ScanCache;
 use lucerna_lib::mods::platform::InstalledMod;
-use lucerna_lib::mods::preflight::{dependency_preflight_for_root, ViolationKind};
+use lucerna_lib::mods::preflight::{dependency_preflight_for_root, parse_instance, ViolationKind};
 use sha1::{Digest, Sha1};
 use std::io::{Cursor, Write};
 use tempfile::TempDir;
@@ -43,6 +43,24 @@ fn make_jar_raw(entries: &[(&str, &[u8])]) -> Vec<u8> {
         w.finish().unwrap();
     }
     buf
+}
+
+/// A javac-compiled class from `tests/fixtures/legacy_mod/classes/` — real
+/// constant-pool layout, length bytes included (see that directory's README).
+macro_rules! class {
+    ($path:literal) => {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/legacy_mod/classes/",
+            $path
+        ))
+        .as_slice()
+    };
+}
+
+/// `mcmod.info` naming one mod at one version.
+fn mcmod(modid: &str, version: &str) -> Vec<u8> {
+    format!(r#"[{{"modid":"{modid}","version":"{version}"}}]"#).into_bytes()
 }
 
 /// Register a jar bytes slice in the instance's installed-mods registry and
@@ -331,7 +349,7 @@ async fn legacy_instance_ignores_a_mods_toml_written_for_a_newer_era() {
         ),
         (
             "team/creative/EV.class",
-            b"\x00\x0fenhancedvisuals\x00\x1brequired-after:creativecore\x00" as &[u8],
+            class!("fixture/EnhancedVisuals.class"),
         ),
     ]);
     register(root, "EnhancedVisuals_v1.4.4_mc1.12.2.jar", &ev).await;
@@ -438,7 +456,7 @@ async fn a_legacy_provider_version_comes_from_mcmod_info_not_the_inert_mods_toml
         ),
         (
             "team/EV.class",
-            b"\x00\x02ev\x00\x1brequired-after:creativecore@[2.0,)\x00" as &[u8],
+            class!("fixture/Ev.class"),
         ),
     ]);
     register(root, "EnhancedVisuals.jar", &ev).await;
@@ -482,7 +500,7 @@ async fn a_provider_from_an_unread_descriptor_still_counts_as_installed() {
         ),
         (
             "team/D.class",
-            b"\x00\x03dep\x00\x18required-after:somelib\x00" as &[u8],
+            class!("fixture/Dep.class"),
         ),
     ]);
     register(root, "dependent.jar", &dependent).await;
@@ -590,7 +608,7 @@ async fn a_modern_scan_does_not_teach_the_legacy_scan_that_a_jar_needs_nothing()
         ),
         (
             "team/EV.class",
-            b"\x00\x02ev\x00\x1brequired-after:creativecore\x00" as &[u8],
+            class!("fixture/EvPlain.class"),
         ),
     ]);
     register(root, "EnhancedVisuals.jar", &ev).await;
@@ -663,4 +681,296 @@ async fn replacing_a_jars_bytes_in_place_invalidates_its_cached_scan() {
         b.violations[0].dep_id, "needs_two_and_then_some",
         "the cache must follow the bytes on disk, not the registry's expectation"
     );
+}
+
+// ── the legacy @Mod annotation (spec 2026-10-07) ───────────────────────────
+//
+// Every dependent fixture except MobDis starts with `required-after:forge@[…];`
+// — what real 1.12.2 mods do — so main's printable-run reader loses only that
+// clause and still sees the requirement under test; each dependent jar ships an
+// `mcmod.info`, so main's own-id guard is not what decides it.
+
+/// The report: OreLib's annotation says `3.6.0.1`, its `mcmod.info`
+/// `1.12.2-3.6.0.1`. FML compares the first; comparing the second flagged a pack
+/// that starts.
+#[tokio::test]
+async fn legacy_annotation_version_is_what_a_requirement_is_measured_against() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let orelib = make_jar_raw(&[
+        ("mcmod.info", &mcmod("orelib", "1.12.2-3.6.0.1")),
+        (
+            "org/orecruncher/LibBase.class",
+            class!("fixture/OreLib.class"),
+        ),
+    ]);
+    register(root, "OreLib-1.12.2-3.6.0.1.jar", &orelib).await;
+    let ds = make_jar_raw(&[
+        ("mcmod.info", &mcmod("dsurround", "1.12.2-3.6.1.0")),
+        (
+            "org/orecruncher/dsurround/ModBase.class",
+            class!("fixture/DynamicSurroundings.class"),
+        ),
+    ]);
+    register(root, "DynamicSurroundings-1.12.2-3.6.1.0.jar", &ds).await;
+
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert!(report.violations.is_empty(), "{:?}", report.violations);
+}
+
+/// No `version` in the annotation: FML reads `version.properties` →
+/// `<modid>.version` before `mcmod.info` (BoP's `mcmod.info` says `7.0.1`).
+#[tokio::test]
+async fn legacy_version_properties_comes_before_mcmod_info() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let bop = make_jar_raw(&[
+        ("mcmod.info", &mcmod("biomesoplenty", "7.0.1")),
+        (
+            "version.properties",
+            b"biomesoplenty.version=7.0.1.2445\n".as_slice(),
+        ),
+        (
+            "biomesoplenty/core/BiomesOPlenty.class",
+            class!("fixture/BopNoVersion.class"),
+        ),
+    ]);
+    register(root, "BiomesOPlenty-1.12.2-7.0.1.2445-universal.jar", &bop).await;
+    let dt = make_jar_raw(&[
+        ("mcmod.info", &mcmod("dynamictreesbop", "1.12.2-1.5.2")),
+        (
+            "dynamictreesbop/DynamicTreesBOP.class",
+            class!("fixture/DtBop.class"),
+        ),
+    ]);
+    register(root, "DynamicTreesBOP-1.12.2-1.5.2.jar", &dt).await;
+
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert!(report.violations.is_empty(), "{:?}", report.violations);
+}
+
+/// The authority runs both ways: `mcmod.info` can name a HIGHER version than
+/// the one FML compares (measured: futuremc 0.2.15 vs 0.2.6). Stripping a
+/// Minecraft prefix would not catch this; reading the annotation does.
+#[tokio::test]
+async fn legacy_annotation_beats_a_higher_mcmod_info() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let fut = make_jar_raw(&[
+        ("mcmod.info", &mcmod("futuremc", "0.2.15")),
+        (
+            "thedarkcolour/futuremc/FutureMC.class",
+            class!("fixture/FutureMc.class"),
+        ),
+    ]);
+    register(root, "future-mc-0.2.15.jar", &fut).await;
+    let dep = make_jar_raw(&[
+        ("mcmod.info", &mcmod("needsfuture", "1.0")),
+        ("x/NeedsFuture.class", class!("fixture/NeedsFuture.class")),
+    ]);
+    register(root, "needsfuture.jar", &dep).await;
+
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+    assert!(matches!(
+        report.violations[0].kind,
+        ViolationKind::VersionOutOfRange
+    ));
+    assert_eq!(
+        report.violations[0].installed_version.as_deref(),
+        Some("0.2.6")
+    );
+}
+
+/// A dependency string of 33–126 bytes: the length byte before it is printable,
+/// and main's reader glued it onto the first clause (`&required-after:…`) and
+/// dropped it. MobDismemberment's real string is exactly that, and its only one.
+#[tokio::test]
+async fn legacy_first_clause_survives_a_printable_length_byte() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let mob = make_jar_raw(&[
+        ("mcmod.info", &mcmod("mobdismemberment", "1.12.2-7.0.0")),
+        (
+            "me/ichun/mods/mobdismemberment/MobDismemberment.class",
+            class!("fixture/MobDis.class"),
+        ),
+    ]);
+    register(root, "MobDismemberment-1.12.2-7.0.0.jar", &mob).await;
+
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+    assert!(matches!(
+        report.violations[0].kind,
+        ViolationKind::MissingRequired
+    ));
+    assert_eq!(report.violations[0].dep_id, "ichunutil");
+}
+
+fn drp_medieval() -> Vec<u8> {
+    // Ships no mcmod.info at all — main's own-id guard never read it.
+    make_jar_raw(&[(
+        "drpmedieval/DRPMedievalMain.class",
+        class!("fixture/DrpMedieval.class"),
+    )])
+}
+
+/// PIN (green on main too): an annotation-only library is installed. Once the
+/// dependent's requirement is read, `drpcore` must count as present through its
+/// annotation alone — or every annotation-only library becomes a phantom.
+#[tokio::test]
+async fn legacy_annotation_only_library_counts_as_installed() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let core = make_jar_raw(&[(
+        "drpcore/DRPCoreMain.class",
+        class!("fixture/DrpCore.class"),
+    )]);
+    register(root, "drpcore-1.12.2-0.4.8.jar", &core).await;
+    register(root, "drpmedieval-1.12.2-0.3.6.jar", &drp_medieval()).await;
+
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert!(report.violations.is_empty(), "{:?}", report.violations);
+}
+
+/// The same dependent without its library: a jar with no `mcmod.info` still
+/// declares requirements FML enforces.
+#[tokio::test]
+async fn legacy_requirement_of_a_jar_without_mcmod_info_is_checked() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    register(root, "drpmedieval-1.12.2-0.3.6.jar", &drp_medieval()).await;
+
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+    assert_eq!(report.violations[0].dep_id, "drpcore");
+}
+
+/// `@version@` is what FML compares when a build forgot to substitute it. The
+/// comparison cannot be judged, so the pre-flight stays silent — and must NOT
+/// fall back to `mcmod.info`'s `1.0`, which FML never uses for this mod.
+#[tokio::test]
+async fn legacy_placeholder_version_does_not_fall_back_to_mcmod_info() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let sun = make_jar_raw(&[
+        ("mcmod.info", &mcmod("mobsunscreen", "1.0")),
+        ("x/Sunscreen.class", class!("fixture/Sunscreen.class")),
+    ]);
+    register(root, "mobsunscreen.jar", &sun).await;
+    let dep = make_jar_raw(&[
+        ("mcmod.info", &mcmod("needssun", "1.0")),
+        (
+            "x/NeedsSunscreen.class",
+            class!("fixture/NeedsSunscreen.class"),
+        ),
+    ]);
+    register(root, "needssun.jar", &dep).await;
+
+    let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert!(report.violations.is_empty(), "{:?}", report.violations);
+}
+
+/// `"useDependencyInformation": true` in `mcmod.info` makes FML take that mod's
+/// requirements from `mcmod.info` — unless the annotation says
+/// `useMetadata = false` (FMLModContainer.java:218).
+#[tokio::test]
+async fn legacy_use_dependency_information_hands_requirements_to_mcmod_info() {
+    let info =
+        br#"[{"modid":"udidep","version":"1.0","useDependencyInformation":true}]"#.as_slice();
+
+    let td = TempDir::new().unwrap();
+    let udi = make_jar_raw(&[
+        ("mcmod.info", info),
+        ("u/UdiDep.class", class!("fixture/UdiDep.class")),
+    ]);
+    register(td.path(), "udidep.jar", &udi).await;
+    let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert!(
+        report.violations.is_empty(),
+        "FML ignores the annotation here: {:?}",
+        report.violations
+    );
+
+    let td2 = TempDir::new().unwrap();
+    let forced = make_jar_raw(&[
+        ("mcmod.info", info),
+        ("u/UdiDep.class", class!("fixture/UdiDepExplicit.class")),
+    ]);
+    register(td2.path(), "udidep.jar", &forced).await;
+    let report =
+        dependency_preflight_for_root(td2.path(), None, LoaderKind::Forge, "1.12.2", None)
+            .await
+            .unwrap();
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+    assert_eq!(report.violations[0].dep_id, "absentlib");
+}
+
+/// A `@Mod` class that will not parse is "could not tell" — exactly like a zip
+/// that will not open: the jar is unjudged, and nothing is cached for it, so the
+/// next scan tries again instead of believing an emptiness nobody measured.
+#[tokio::test]
+async fn legacy_unreadable_mod_class_is_unjudged_and_never_cached() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let cache = root.join("mods-cache").join("jar-scans.json");
+    let full = class!("fixture/EnhancedVisuals.class");
+    let broken = make_jar_raw(&[
+        ("mcmod.info", &mcmod("enhancedvisuals", "1.3")),
+        (
+            "team/creative/enhancedvisuals/EnhancedVisuals.class",
+            &full[..full.len() - 8],
+        ),
+    ]);
+    let sha = register(root, "EnhancedVisuals.jar", &broken).await;
+
+    let report =
+        dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.12.2", None)
+            .await
+            .unwrap();
+    assert_eq!(report.unjudged, vec![sha.clone()], "{:?}", report.violations);
+    assert!(report.violations.is_empty(), "{:?}", report.violations);
+    assert!(
+        ScanCache::load(&cache).get(&sha).is_none(),
+        "a failure is never frozen into the cache"
+    );
+}
+
+/// Removal impact reads the same providers: removing an annotation-only library
+/// names the mod that needs it.
+#[tokio::test]
+async fn legacy_annotation_only_library_has_a_removal_impact() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let core = make_jar_raw(&[(
+        "drpcore/DRPCoreMain.class",
+        class!("fixture/DrpCore.class"),
+    )]);
+    let core_sha = register(root, "drpcore-1.12.2-0.4.8.jar", &core).await;
+    let medieval_sha = register(root, "drpmedieval-1.12.2-0.3.6.jar", &drp_medieval()).await;
+
+    let parsed = parse_instance(root, None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    let impact = parsed
+        .removal_impact(&std::collections::HashSet::from([core_sha]))
+        .unwrap();
+    let dependents: Vec<&str> = impact.dependents.iter().map(|d| d.sha1.as_str()).collect();
+    assert_eq!(dependents, vec![medieval_sha.as_str()]);
 }
