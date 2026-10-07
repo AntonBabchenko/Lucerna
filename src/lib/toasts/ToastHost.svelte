@@ -10,7 +10,6 @@
     toastList,
   } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
-  import { modalDepth } from '$lib/ui/layer-stack.svelte';
 
   onMount(() => {
     const un = events.gpuPrefApplied.listen((e) => {
@@ -25,16 +24,11 @@
   // (`src/routes/+page.svelte`). z-[var(--z-toast)] (200) keeps toasts above
   // EVERYTHING — modals (z-40-50), contextual tour overlays (z-100/101),
   // drag-drop dropzone highlights. Toasts are the only chrome that announces
-  // transient state; they must never be obscured — and must not obscure.
+  // transient state; they must never be obscured.
   //
-  // Two positions. At rest the stack sits top right, where the main window
-  // has no control. While any modal is open its panel is vertically centred:
-  // its header (and the ×) is not at the viewport top — at 820×520 the
-  // Settings header spans ~52–97 px, so a lower top offset would still cover
-  // the × — and a footer holds the primary action at the bottom right. No
-  // corner is free, so the stack moves to the bottom centre, newest nearest
-  // the edge (flex-col-reverse): footers are justify-end / justify-between,
-  // which leaves the middle clear, and a header's × is untouched.
+  // One position: the top right, a modal open or not (the maintainer's call,
+  // 2026-10-07, over UPD-17's bottom centre). Over a centred modal a toast may
+  // cover its header ×; it closes itself or with its own ×.
   // A timed toast waits while someone is reading it: its countdown pauses
   // while the pointer is over it or focus is inside it, and resumes with the
   // time that was left. Listeners, not ARIA: the card is not a widget.
@@ -71,11 +65,6 @@
 
   const toasts = $derived(toastList());
   const dismissLabel = $derived($t('common.dismissNotification'));
-  const placement = $derived(
-    modalDepth() > 0
-      ? 'bottom-4 left-1/2 -translate-x-1/2 flex-col-reverse'
-      : 'top-4 right-4 flex-col',
-  );
 </script>
 
 <!-- The aria-live region is ALWAYS in the DOM (even with zero toasts) so a
@@ -85,7 +74,7 @@
      each newly-added toast is announced on its own rather than re-reading the
      whole stack. -->
 <div
-  class="fixed z-[var(--z-toast)] flex gap-2 {placement}"
+  class="fixed top-4 right-4 z-[var(--z-toast)] flex flex-col gap-2"
   data-testid="toast-host"
   aria-live="polite"
   aria-atomic="false"

@@ -188,11 +188,11 @@ export const UPDATE_TOAST_TTL_MS = 5000;
 
 export type SkipOutcome = { ok: true; skipped: string | null } | { ok: false; error: string };
 
-/** "Skip this version": the startup check stops offering `version`. Returns
+/** "Don't remind me" (the `skip` key): the startup check stops offering `version`. Returns
  *  the skip as the backend persisted it. */
 export async function skipUpdate(version: string): Promise<SkipOutcome> {
   // The offer stays: a skipped version is still available — only the startup
-  // notice stops. Settings → Updates keeps showing it, with Stop skipping.
+  // notice stops. Settings → Updates keeps showing it, with Remind me again.
   try {
     const r = await commands.updateDismiss(version);
     return r.status === 'ok'
@@ -203,7 +203,7 @@ export async function skipUpdate(version: string): Promise<SkipOutcome> {
   }
 }
 
-/** "Stop skipping": the startup check offers the skipped version again. */
+/** "Remind me again": the startup check offers the skipped version again. */
 export async function stopSkipping(): Promise<SkipOutcome> {
   try {
     const r = await commands.updateClearDismissed();
@@ -216,7 +216,7 @@ export async function stopSkipping(): Promise<SkipOutcome> {
 }
 
 /** The startup notice for an available update: Update now, and a readable
- *  Skip this version. The × and the auto-hide only close it. */
+ *  Don't remind me. The × and the auto-hide only close it. */
 export function showUpdateToast(info: UpdateInfo): number {
   const tr = get(t);
   const version = info.latest;
