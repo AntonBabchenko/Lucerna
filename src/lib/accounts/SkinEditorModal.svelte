@@ -30,6 +30,7 @@
     faceRectAt,
     mirrorBlockAnchor,
     mirrorTexel,
+    type Layer,
   } from '$lib/accounts/skin-editor/atlas';
   import {
     clearOutsideAtlas,
@@ -82,7 +83,7 @@
 
   type Tool = 'pencil' | 'eraser' | 'eyedropper' | 'fill' | 'dodge' | 'burn' | 'noise' | 'pan';
   let tool = $state<Tool>('pencil');
-  let activeLayer = $state<'base' | 'overlay'>('base');
+  let activeLayer = $state<Layer>('base');
   let baseVisible = $state(true);
   let overlayVisible = $state(true);
   // svelte-ignore state_referenced_locally — the prop seeds the editable state

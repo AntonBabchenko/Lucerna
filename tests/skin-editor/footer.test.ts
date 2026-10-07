@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import SkinEditorFooter from '$lib/accounts/SkinEditorFooter.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
-import { revealTooltip } from '../test-utils/reveal-tooltip';
+import SkinEditorFooterBound from '../fixtures/SkinEditorFooterBound.svelte';
+
+// The tooltip state is module-level: a case that fails before hiding it must not leak a
+// visible tooltip into the next one.
+afterEach(() => hideTooltip());
 
 function setup(over: Record<string, unknown> = {}) {
   const props = {
@@ -78,11 +82,10 @@ describe('SkinEditorFooter — single choices are segmented controls (DESIGN.md 
     expect(p.onVariant).toHaveBeenCalledWith('slim');
   });
 
-  it('brush, paint layer and background are chosen in place', async () => {
-    setup();
-    await fireEvent.click(within(group('Brush')).getByRole('button', { name: 'Thick' }));
-    await fireEvent.click(within(group('Paint on')).getByRole('button', { name: 'Overlay' }));
-    await fireEvent.click(within(group('Background')).getByRole('button', { name: 'Light' }));
+  it('shows the choices it is given', () => {
+    setup({ pose: 'walk', variant: 'slim', brush: 5, activeLayer: 'overlay', bg: 'light' });
+    expect(nameOf(pressed(group('Pose'))[0])).toBe('Walk');
+    expect(nameOf(pressed(group('Model'))[0])).toBe('Slim');
     expect(nameOf(pressed(group('Brush'))[0])).toBe('Thick');
     expect(nameOf(pressed(group('Paint on'))[0])).toBe('Overlay');
     expect(nameOf(pressed(group('Background'))[0])).toBe('Light');
@@ -98,6 +101,35 @@ describe('SkinEditorFooter — single choices are segmented controls (DESIGN.md 
         .map((b) => b.getAttribute('aria-label'));
     expect(names('Brush')).toEqual(['Thin', 'Medium', 'Thick']);
     expect(names('Background')).toEqual(['Dark', 'Grey', 'Light']);
+  });
+});
+
+// The modal binds these four, and the eyedropper writes `colour` from the modal's side: the
+// move out of SkinEditorModal must keep both directions of each binding.
+describe('SkinEditorFooter — bound choices reach the editor and back', () => {
+  const bound = () => screen.getByTestId('bound').textContent;
+
+  it('a palette swatch, the custom colour and the segmented choices write through', async () => {
+    render(SkinEditorFooterBound);
+    const swatches = screen.getAllByRole('button', { name: /^#[0-9a-f]{6}$/ });
+    await fireEvent.click(swatches[1]);
+    expect(bound()).toBe('#3c3c3c|1|base|dark');
+    expect(swatches[1].className).toContain('outline-accent');
+    expect(swatches[0].className).not.toContain('outline-accent');
+    await fireEvent.input(screen.getByLabelText('Custom colour'), {
+      target: { value: '#00ff00' },
+    });
+    expect(bound()).toBe('#00ff00|1|base|dark');
+    await fireEvent.click(within(group('Brush')).getByRole('button', { name: 'Thick' }));
+    await fireEvent.click(within(group('Paint on')).getByRole('button', { name: 'Overlay' }));
+    await fireEvent.click(within(group('Background')).getByRole('button', { name: 'Light' }));
+    expect(bound()).toBe('#00ff00|5|overlay|light');
+  });
+
+  it('a colour the editor picks (the eyedropper) shows in the footer', async () => {
+    render(SkinEditorFooterBound);
+    await fireEvent.click(screen.getByTestId('pick-red'));
+    expect((screen.getByLabelText('Custom colour') as HTMLInputElement).value).toBe('#ff0000');
   });
 });
 
@@ -130,11 +162,14 @@ describe('SkinEditorFooter — file and library actions are icon buttons (DESIGN
     const btn = screen.getByRole('button', { name });
     expect(btn.classList.contains('btn-icon')).toBe(true);
     expect(btn.textContent?.trim()).toBe('');
-    // Disabled while busy, so the tooltip sits on a wrapper (DESIGN.md §5).
+    // Disabled while busy, so the tooltip sits on a wrapper (DESIGN.md §5). Keyboard focus
+    // lands on the button, as in a browser, and bubbles to the wrapper, which then holds a
+    // focus-visible descendant (happy-dom cannot model focus modality: stubbed).
     const wrapper = btn.parentElement as HTMLElement;
-    revealTooltip(wrapper);
+    wrapper.matches = (sel: string) => sel === ':has(:focus-visible)';
+    btn.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toBe(name);
-    hideTooltip(wrapper);
     await fireEvent.click(btn);
     expect(p[cb]).toHaveBeenCalledOnce();
   });
@@ -144,6 +179,12 @@ describe('SkinEditorFooter — file and library actions are icon buttons (DESIGN
     for (const [name] of ACTIONS) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
     }
+  });
+
+  it('Apply to account applies for a Microsoft account', async () => {
+    const p = setup({ isMicrosoft: true });
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply to account' }));
+    expect(p.onApply).toHaveBeenCalledOnce();
   });
 
   it('Apply to account stays the labelled primary action, offline-disabled', () => {

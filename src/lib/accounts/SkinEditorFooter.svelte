@@ -11,6 +11,7 @@
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import type { SkinVariant } from '$lib/ipc/bindings';
+  import type { Layer } from '$lib/accounts/skin-editor/atlas';
   import type { Rgba } from '$lib/accounts/skin-editor/buffer';
   import { skinPalette } from '$lib/accounts/skin-editor/palette.svelte';
   import { POSE_NAMES, type PoseName } from '$lib/accounts/skin-editor/poses';
@@ -25,8 +26,6 @@
   import SegmentedControl, { type SegmentOption } from '$lib/ui/SegmentedControl.svelte';
   import ToggleChip from '$lib/ui/ToggleChip.svelte';
   import { tooltip } from '$lib/ui/tooltip';
-
-  type PaintLayer = 'base' | 'overlay';
 
   let {
     colour = $bindable(),
@@ -53,7 +52,7 @@
   }: {
     colour: Rgba;
     brush: number;
-    activeLayer: PaintLayer;
+    activeLayer: Layer;
     bg: ViewerBg;
     pose: PoseName;
     onPose: (p: PoseName) => void;
@@ -280,7 +279,7 @@
         ariaLabel={$t('skinEditor.paintOn')}
         options={layerOptions}
         value={activeLayer}
-        onChange={(v) => (activeLayer = v as PaintLayer)}
+        onChange={(v) => (activeLayer = v as Layer)}
       />
     </div>
   </div>
