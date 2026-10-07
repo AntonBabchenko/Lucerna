@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
+import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { revealTooltip } from '../test-utils/reveal-tooltip';
 
 const BOXED = [
   { value: 'grid', icon: 'grid' as const, testId: 'layout-grid' },
@@ -113,6 +116,30 @@ describe('SegmentedControl', () => {
     expect(group.classList.contains('bg-control-track')).toBe(true);
     // overflow-hidden cut the 2 px outline-offset focus ring to a sliver.
     expect(group.classList.contains('overflow-hidden')).toBe(false);
+  });
+
+  // Brush sizes and background colours are pictures, not words: the option
+  // draws `content(option)`, and its label names it and becomes its tooltip,
+  // exactly as for an icon option.
+  it('a content option renders the snippet and is named and tooltipped by its label', () => {
+    const swatch = createRawSnippet((o: () => { value: string }) => ({
+      render: () => `<span data-swatch="${o().value}"></span>`,
+    }));
+    setup({
+      options: [
+        { value: 'dark', label: 'Dark', testId: 'bg-dark' },
+        { value: 'light', label: 'Light', testId: 'bg-light' },
+      ],
+      value: 'dark',
+      content: swatch,
+    });
+    const dark = screen.getByTestId('bg-dark');
+    expect(dark.querySelector('[data-swatch="dark"]')).not.toBeNull();
+    expect(dark.textContent?.trim()).toBe('');
+    expect(screen.getByRole('button', { name: 'Light' })).toBe(screen.getByTestId('bg-light'));
+    revealTooltip(dark);
+    expect(tooltipState.text).toBe('Dark');
+    hideTooltip(dark);
   });
 
   it('renders text labels and roving works in the inline variant', async () => {

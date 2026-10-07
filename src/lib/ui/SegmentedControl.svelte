@@ -1,3 +1,9 @@
+<script module lang="ts">
+  import type { IconName } from '$lib/ui/icons';
+
+  export type SegmentOption = { value: string; label?: string; icon?: IconName; testId?: string };
+</script>
+
 <script lang="ts">
   // A small two-variant segment control used by the browse-layout toggle and the
   // screenshot toggles (variant="boxed") and the page-size picker
@@ -5,16 +11,19 @@
   // arrow-key focus mirrors TabBar. Boxed: a recessed track whose chosen segment
   // is a neutral raised thumb with a small accent mark — a chosen option is a
   // state, so no btn-* purpose class (a CTA fill read as "press me").
-  // An option's `label` is rendered as visible text only when it has no `icon`;
-  // icon-only options use `label` (falling back to the group ariaLabel) as their
-  // accessible name + tooltip, so they stay compact but remain labelled.
+  // An option's `label` is rendered as visible text only when it has neither an
+  // `icon` nor a `content` snippet; a pictured option (icon or content) uses
+  // `label` (falling back to the group ariaLabel) as its accessible name +
+  // tooltip, so it stays compact but remains labelled. `content` draws options
+  // that are a picture rather than a word — the skin editor's brush sizes and
+  // background colours.
   // Settings uses the boxed variant for the theme, tip-level and game-start pickers, naming
   // the group through ariaLabel and linking its hint through describedby.
-  import { Icon, type IconName } from '$lib/ui/icons';
+  import type { Snippet } from 'svelte';
+  import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import { nextRovingIndex } from '$lib/ui/roving';
 
-  type Option = { value: string; label?: string; icon?: IconName; testId?: string };
   let {
     options,
     value,
@@ -24,8 +33,9 @@
     dataTestid,
     describedby,
     disabled = false,
+    content,
   }: {
-    options: Option[];
+    options: SegmentOption[];
     /** null = no value to show (a setting still loading or unreadable). */
     value: string | null;
     onChange: (v: string) => void;
@@ -37,6 +47,9 @@
     describedby?: string;
     /** Every option disabled and arrows ignored (pending / failed settings). */
     disabled?: boolean;
+    /** Draws each option instead of its label (brush dots, colour swatches). The label then
+     *  names the option and is its tooltip, as for an icon option. */
+    content?: Snippet<[SegmentOption]>;
   } = $props();
   // With no value (a setting still loading or unreadable) nothing is pressed, yet
   // the group keeps ONE tab stop — its first option — and the arrow keys start
@@ -78,11 +91,12 @@
 >
   {#each options as option, i (option.value)}
     {@const active = value === option.value}
+    {@const pictured = !!option.icon || !!content}
     <button
       bind:this={btnEls[i]}
       type="button"
       aria-pressed={active}
-      aria-label={option.icon ? (option.label ?? ariaLabel) : undefined}
+      aria-label={pictured ? (option.label ?? ariaLabel) : undefined}
       tabindex={i === tabStop ? 0 : -1}
       {disabled}
       data-testid={option.testId}
@@ -90,12 +104,14 @@
         ? // One weight for every segment, so a new choice never shifts widths. The
           // hover tint is half a thumb: it can never look chosen. focus-visible:z-10
           // lifts the global focus ring over the neighbouring thumb.
-          `relative inline-flex h-7 items-center justify-center rounded border pb-0.5 text-sm font-medium transition-colors focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50 ${option.icon ? 'px-2' : 'px-3'} ${active ? 'cursor-default border-border-emphasis bg-control-thumb text-primary' : 'border-transparent text-secondary enabled:hover:bg-control-thumb/50 enabled:hover:text-primary'}`
+          `relative inline-flex h-7 items-center justify-center rounded border pb-0.5 text-sm font-medium transition-colors focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50 ${pictured ? 'px-2' : 'px-3'} ${active ? 'cursor-default border-border-emphasis bg-control-thumb text-primary' : 'border-transparent text-secondary enabled:hover:bg-control-thumb/50 enabled:hover:text-primary'}`
         : `px-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${active ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'}`}
-      use:tooltip={option.icon ? (option.label ?? ariaLabel) : null}
+      use:tooltip={pictured ? (option.label ?? ariaLabel) : null}
       onclick={() => onChange(option.value)}
     >
-      {#if option.icon}<Icon name={option.icon} />{/if}{#if !option.icon}{option.label ?? ''}{/if}
+      {#if content}{@render content(option)}{:else if option.icon}<Icon
+          name={option.icon}
+        />{:else}{option.label ?? ''}{/if}
       {#if variant === 'boxed' && active}
         <!-- The chosen mark: the accent TEXT tier (bg-current + text-accent), which
              clears 3:1 on the thumb in both themes; plain --accent does not in dark. -->
