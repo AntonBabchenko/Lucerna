@@ -454,10 +454,7 @@ async fn a_legacy_provider_version_comes_from_mcmod_info_not_the_inert_mods_toml
             "mcmod.info",
             br#"[{"modid":"ev","version":"1.0"}]"# as &[u8],
         ),
-        (
-            "team/EV.class",
-            class!("fixture/Ev.class"),
-        ),
+        ("team/EV.class", class!("fixture/Ev.class")),
     ]);
     register(root, "EnhancedVisuals.jar", &ev).await;
 
@@ -498,10 +495,7 @@ async fn a_provider_from_an_unread_descriptor_still_counts_as_installed() {
             "mcmod.info",
             br#"[{"modid":"dep","version":"1.0"}]"# as &[u8],
         ),
-        (
-            "team/D.class",
-            class!("fixture/Dep.class"),
-        ),
+        ("team/D.class", class!("fixture/Dep.class")),
     ]);
     register(root, "dependent.jar", &dependent).await;
 
@@ -581,7 +575,7 @@ async fn the_preflight_stores_what_it_parsed_under_the_jars_on_disk_digest() {
     assert!(hit.manifest.is_some(), "the manifest the pre-flight read");
     assert!(hit.jij_provided.is_some(), "the JIJ pass it also ran");
     assert!(
-        hit.legacy_deps.is_none(),
+        hit.legacy.is_none(),
         "a modern-era scan never opened the annotation and must not claim it did"
     );
     assert!(hit.meta.is_none(), "and never ran the compat scan's reader");
@@ -606,10 +600,7 @@ async fn a_modern_scan_does_not_teach_the_legacy_scan_that_a_jar_needs_nothing()
             "mcmod.info",
             br#"[{"modid":"ev","version":"1.0"}]"# as &[u8],
         ),
-        (
-            "team/EV.class",
-            class!("fixture/EvPlain.class"),
-        ),
+        ("team/EV.class", class!("fixture/EvPlain.class")),
     ]);
     register(root, "EnhancedVisuals.jar", &ev).await;
 
@@ -830,10 +821,7 @@ fn drp_medieval() -> Vec<u8> {
 async fn legacy_annotation_only_library_counts_as_installed() {
     let td = TempDir::new().unwrap();
     let root = td.path();
-    let core = make_jar_raw(&[(
-        "drpcore/DRPCoreMain.class",
-        class!("fixture/DrpCore.class"),
-    )]);
+    let core = make_jar_raw(&[("drpcore/DRPCoreMain.class", class!("fixture/DrpCore.class"))]);
     register(root, "drpcore-1.12.2-0.4.8.jar", &core).await;
     register(root, "drpmedieval-1.12.2-0.3.6.jar", &drp_medieval()).await;
 
@@ -914,10 +902,9 @@ async fn legacy_use_dependency_information_hands_requirements_to_mcmod_info() {
         ("u/UdiDep.class", class!("fixture/UdiDepExplicit.class")),
     ]);
     register(td2.path(), "udidep.jar", &forced).await;
-    let report =
-        dependency_preflight_for_root(td2.path(), None, LoaderKind::Forge, "1.12.2", None)
-            .await
-            .unwrap();
+    let report = dependency_preflight_for_root(td2.path(), None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
     assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
     assert_eq!(report.violations[0].dep_id, "absentlib");
 }
@@ -944,7 +931,12 @@ async fn legacy_unreadable_mod_class_is_unjudged_and_never_cached() {
         dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.12.2", None)
             .await
             .unwrap();
-    assert_eq!(report.unjudged, vec![sha.clone()], "{:?}", report.violations);
+    assert_eq!(
+        report.unjudged,
+        vec![sha.clone()],
+        "{:?}",
+        report.violations
+    );
     assert!(report.violations.is_empty(), "{:?}", report.violations);
     assert!(
         ScanCache::load(&cache).get(&sha).is_none(),
@@ -958,10 +950,7 @@ async fn legacy_unreadable_mod_class_is_unjudged_and_never_cached() {
 async fn legacy_annotation_only_library_has_a_removal_impact() {
     let td = TempDir::new().unwrap();
     let root = td.path();
-    let core = make_jar_raw(&[(
-        "drpcore/DRPCoreMain.class",
-        class!("fixture/DrpCore.class"),
-    )]);
+    let core = make_jar_raw(&[("drpcore/DRPCoreMain.class", class!("fixture/DrpCore.class"))]);
     let core_sha = register(root, "drpcore-1.12.2-0.4.8.jar", &core).await;
     let medieval_sha = register(root, "drpmedieval-1.12.2-0.3.6.jar", &drp_medieval()).await;
 

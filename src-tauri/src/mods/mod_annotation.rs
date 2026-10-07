@@ -137,10 +137,7 @@ fn fml_scans_entry(name: &str) -> bool {
 
 /// Turn a jar's annotations into what the pre-flight reads: providers at FML's
 /// version (steps 1–2) and the requirements FML takes from the annotation.
-fn declarations(
-    zip: &mut Zip<'_>,
-    found: Vec<ModAnnotation>,
-) -> Result<LegacyAnnotations, String> {
+fn declarations(zip: &mut Zip<'_>, found: Vec<ModAnnotation>) -> Result<LegacyAnnotations, String> {
     let has_modid = |a: &ModAnnotation| a.modid.as_deref().is_some_and(|m| !m.is_empty());
     // Each file is read only if some annotation needs it: an unreadable file
     // nobody consults must not make the jar "could not tell".
@@ -474,11 +471,7 @@ enum Value<'a> {
 /// One annotation (JVMS §4.7.16): its type descriptor and `(name, value)` pairs.
 type Annotation<'a> = (&'a [u8], Vec<(&'a [u8], Value<'a>)>);
 
-fn annotation<'a>(
-    r: &mut Reader<'a>,
-    pool: &[Constant<'a>],
-    depth: u32,
-) -> Option<Annotation<'a>> {
+fn annotation<'a>(r: &mut Reader<'a>, pool: &[Constant<'a>], depth: u32) -> Option<Annotation<'a>> {
     let descriptor = utf8(pool, r.u2()?)?;
     let mut pairs = Vec::new();
     for _ in 0..r.u2()? {
@@ -490,11 +483,7 @@ fn annotation<'a>(
 
 /// JVMS §4.7.16.1: every tag is read or skipped structurally, so an element
 /// `@Mod` does not need can never desynchronise the cursor.
-fn element_value<'a>(
-    r: &mut Reader<'a>,
-    pool: &[Constant<'a>],
-    depth: u32,
-) -> Option<Value<'a>> {
+fn element_value<'a>(r: &mut Reader<'a>, pool: &[Constant<'a>], depth: u32) -> Option<Value<'a>> {
     if depth > MAX_ELEMENT_DEPTH {
         return None;
     }
@@ -664,7 +653,11 @@ mod tests {
             .iter()
             .all(|p| p.source == DescriptorSource::McmodAnnotation));
         let deps: Vec<&str> = out.deps.iter().map(|d| d.dep_id.as_str()).collect();
-        assert_eq!(deps, vec!["antiqueatlas"], "`after:forge` is load order only");
+        assert_eq!(
+            deps,
+            vec!["antiqueatlas"],
+            "`after:forge` is load order only"
+        );
     }
 
     #[test]
@@ -806,7 +799,9 @@ mod tests {
         let mut z = zip::ZipArchive::new(Cursor::new(j.as_slice())).unwrap();
         assert!(read_capped(&mut z, "big.txt", 99).is_err());
         assert_eq!(
-            read_capped(&mut z, "big.txt", 100).unwrap().map(|b| b.len()),
+            read_capped(&mut z, "big.txt", 100)
+                .unwrap()
+                .map(|b| b.len()),
             Some(100)
         );
         assert_eq!(read_capped(&mut z, "absent", 100), Ok(None));

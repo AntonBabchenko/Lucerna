@@ -71,11 +71,14 @@ impl DependencyKind {
 /// `mcmod.info`. A measured 1.12.2 jar shipped both, disagreeing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DescriptorSource {
-    /// `mcmod.info` — the Forge ≤ 1.12.2 JSON descriptor. PROVIDERS ONLY; its
-    /// own `dependencies` array is cosmetic on that era, which is why the
-    /// annotation below is a separate source rather than the same one.
+    /// `mcmod.info` — the Forge ≤ 1.12.2 JSON descriptor. PROVIDERS ONLY, and
+    /// display metadata to FML: its `version` answers only for a mod-id no
+    /// `@Mod` annotation names a version for, and its own `dependencies` array
+    /// is cosmetic on that era.
     McmodInfo,
-    /// `@Mod(dependencies = "…")` in a class constant pool — Forge ≤ 1.12.2.
+    /// The `@Mod` annotation on a class — Forge ≤ 1.12.2. Its `dependencies` are
+    /// the requirements FML enforces and its `version` is the version FML
+    /// compares them against (`mods::mod_annotation`).
     McmodAnnotation,
     /// `META-INF/mods.toml` — MinecraftForge ≥ 1.13, NeoForge ≤ 1.20.4.
     ModsToml,
@@ -121,7 +124,10 @@ pub struct ManifestDeps {
     /// Cannot be inferred from `provided` / `deps`: a `mods.toml` with only
     /// `[[dependencies]]` blocks contributes to neither yet still shadows a
     /// lower-ranked descriptor. `McmodAnnotation` never appears — it is a class
-    /// constant pool, not a file, and it is read by a separate pass.
+    /// annotation, not a file, read by a separate pass. `preflight::effective_rank`
+    /// relies on that: listed here, the annotation would shadow that jar's
+    /// `mcmod.info` and demote its versions to `ProviderIndex::build`'s
+    /// fallback bucket.
     pub sources_present: Vec<DescriptorSource>,
     /// The jar's PLATFORM declarations — `minecraft` and the loader ids —
     /// lifted out of `deps` before the loader/mc filter below. They are not mod
@@ -562,82 +568,6 @@ pub(crate) fn parse_legacy_dependency_string(raw: &str) -> Vec<DeclaredDep> {
         });
     }
     out
-}
-
-/// Widest printable-ASCII run containing byte index `at`.
-///
-/// A `CONSTANT_Utf8` entry is length-prefixed rather than NUL-terminated, so a
-/// run can occasionally merge with an adjacent constant. That is harmless here:
-/// the clause parser skips anything without a `required-*:` prefix, and the
-/// worst case is a trailing character on the last clause's range.
-fn printable_run(bytes: &[u8], at: usize) -> &str {
-    let printable = |b: u8| (0x20..=0x7e).contains(&b);
-    let mut start = at;
-    while start > 0 && printable(bytes[start - 1]) {
-        start -= 1;
-    }
-    let mut end = at;
-    while end < bytes.len() && printable(bytes[end]) {
-        end += 1;
-    }
-    std::str::from_utf8(&bytes[start..end]).unwrap_or("")
-}
-
-fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || needle.len() > hay.len() {
-        return None;
-    }
-    hay.windows(needle.len()).position(|w| w == needle)
-}
-
-/// Recover Forge ≤ 1.12.2 dependencies from the `@Mod(dependencies = …)`
-/// annotation, which is the only place that era declares them — `mcmod.info`'s
-/// own array is cosmetic.
-///
-/// `own_ids` are the jar's provided mod-ids (from `mcmod.info`). Clauses are
-/// accepted only from a class that also carries one of them as a constant: a
-/// library that merely mentions the syntax does not produce that pair, while the
-/// real `@Mod` class does — verified on `EnhancedVisuals.class`, where
-/// `enhancedvisuals` and `required-after:creativecore` sit side by side.
-///
-/// Stops at the first class in this jar that yields clauses under the guard,
-/// including when every clause names the loader or Minecraft and the filtered
-/// result is empty: that class IS the annotation, and continuing past it would
-/// only find false positives.
-///
-/// Cost: decompresses class entries until that class is found. Affordable once
-/// per jar, which is what the sha1-keyed scan cache exists for; it runs only for
-/// `DescriptorEra::Legacy` instances, so modern packs pay nothing.
-pub(crate) fn read_jar_legacy_deps(jar_bytes: &[u8], own_ids: &[String]) -> Vec<DeclaredDep> {
-    if own_ids.is_empty() {
-        return Vec::new();
-    }
-    let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(jar_bytes)) else {
-        return Vec::new();
-    };
-    // Collect entry names first to avoid borrow conflicts when reading bytes.
-    let names: Vec<String> = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
-        .filter(|n| n.ends_with(".class"))
-        .collect();
-    for name in names {
-        let Some(bytes) = entry_bytes(&mut zip, &name) else {
-            continue;
-        };
-        let Some(at) = find_subslice(&bytes, b"required-after:")
-            .or_else(|| find_subslice(&bytes, b"required-before:"))
-        else {
-            continue;
-        };
-        if !own_ids
-            .iter()
-            .any(|id| find_subslice(&bytes, id.as_bytes()).is_some())
-        {
-            continue;
-        }
-        return parse_legacy_dependency_string(printable_run(&bytes, at));
-    }
-    Vec::new()
 }
 
 /// The mod list of an `mcmod.info`, in either shape found in the wild: a bare
@@ -1513,7 +1443,7 @@ impl<'a> JarFactsReader<'a> {
                     // Neither reader runs here. `None`, not an empty vector —
                     // the pre-flight is the only caller that can say whether
                     // these are empty.
-                    legacy_deps: None,
+                    legacy: None,
                     jij_provided: None,
                 },
             ));
@@ -1939,50 +1869,6 @@ mod tests {
         assert!(
             parse_legacy_dependency_string("required-after:FML;required-after:forge").is_empty()
         );
-    }
-
-    #[test]
-    fn legacy_jar_scan_finds_the_annotation_and_guards_against_mentions() {
-        // A class constant pool is just bytes; the annotation value survives as a
-        // contiguous printable run, which is how `required-after:creativecore` was
-        // extracted from a real EnhancedVisuals.class.
-        let own = b"\x00\x0fenhancedvisuals\x00\x1brequired-after:creativecore\x00";
-        let deps = read_jar_legacy_deps(
-            &jar_raw("team/creative/EV.class", own),
-            &["enhancedvisuals".to_string()],
-        );
-        assert_eq!(deps.len(), 1);
-        assert_eq!(deps[0].dep_id, "creativecore");
-        assert_eq!(deps[0].source, DescriptorSource::McmodAnnotation);
-
-        // A class that merely MENTIONS the syntax without carrying the jar's own
-        // mod-id is not the @Mod class — e.g. a bundled copy of a loader utility.
-        let foreign = b"\x00\x1brequired-after:creativecore\x00";
-        assert!(read_jar_legacy_deps(
-            &jar_raw("some/lib/Parser.class", foreign),
-            &["enhancedvisuals".to_string()]
-        )
-        .is_empty());
-
-        // Non-class entries are never scanned.
-        assert!(read_jar_legacy_deps(
-            &jar_raw("assets/readme.txt", own),
-            &["enhancedvisuals".to_string()]
-        )
-        .is_empty());
-
-        // A jar that declares no mod-id of its own cannot be guarded, so it is
-        // never scanned at all.
-        assert!(read_jar_legacy_deps(&jar_raw("team/creative/EV.class", own), &[]).is_empty());
-
-        // The @Mod class whose only clauses are loader/MC ends the scan and
-        // contributes nothing — it must not fall through to another class.
-        let loader_only = b"\x00\x0fenhancedvisuals\x00\x14required-after:forge\x00";
-        assert!(read_jar_legacy_deps(
-            &jar_raw("team/creative/EV.class", loader_only),
-            &["enhancedvisuals".to_string()]
-        )
-        .is_empty());
     }
 
     /// `read_jar_dependency_ids` has no instance, so it cannot know which Forge
@@ -2994,7 +2880,8 @@ modId=\"evilseagull\"
         // Mechanically: `read_jar_manifest_deps` populates `provided` from
         // `mcmod.info` (`parse_mcmod_info_providers`) but never `deps`/
         // `platform` — the legacy `@Mod(dependencies = …)` annotation is the
-        // only source of those for this era (`read_jar_legacy_deps`, which
+        // only source of those for this era
+        // (`mod_annotation::read_jar_legacy_annotations`, whose clause parser
         // drops the `minecraft`/`forge` ids via `is_loader_or_mc` by design),
         // and `inspect_jar` never calls that reader at all. So
         // `platform_verdict` sees an empty `platform` list and reports
@@ -3130,7 +3017,7 @@ modId=\"evilseagull\"
             .expect("the jar is cached under its on-disk digest");
         assert!(hit.meta.is_some() && hit.manifest.is_some(), "both halves");
         assert!(
-            hit.legacy_deps.is_none() && hit.jij_provided.is_none(),
+            hit.legacy.is_none() && hit.jij_provided.is_none(),
             "the compat scan runs neither reader and must not claim it did"
         );
 
@@ -3148,7 +3035,7 @@ modId=\"evilseagull\"
                         ..JarMeta::default()
                     }),
                     manifest: Some(ManifestDeps::default()),
-                    legacy_deps: None,
+                    legacy: None,
                     jij_provided: None,
                 },
             )
@@ -3183,7 +3070,7 @@ modId=\"evilseagull\"
                 CachedScan {
                     meta: None,
                     manifest: Some(ManifestDeps::default()),
-                    legacy_deps: None,
+                    legacy: None,
                     jij_provided: Some(Vec::new()),
                 },
             )
