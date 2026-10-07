@@ -50,10 +50,10 @@ describe('the startup update notice', () => {
     h.updateDismiss.mockResolvedValue({ status: 'ok', data: '0.25.0' });
   });
 
-  it('offers Skip this version as a readable action', () => {
+  it("offers Don't remind me as a readable action", () => {
     const id = showUpdateToast(INFO);
     const t = toastList().find((x) => x.id === id)!;
-    expect(t.secondary?.label).toBe('Skip this version');
+    expect(t.secondary?.label).toBe("Don't remind me");
   });
 
   it('skips only when Skip is chosen', async () => {

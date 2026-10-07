@@ -2893,7 +2893,7 @@
           "openDataFolder": "open folder explorer finder files show browse"
         },
         "updates": {
-          "startupCheck": "update startup check automatic auto skip skipped",
+          "startupCheck": "update startup check automatic auto skip skipped remind reminder",
           "changelog": "changelog whats new version release notes patch history"
         },
         "help": {
@@ -2986,13 +2986,13 @@
         },
         "youHave": "You have {version}.",
         "releaseNotes": "Release notes",
-        "skip": "Skip this version",
-        "skipped": "You skipped {version}. Lucerna won't mention it at startup.",
-        "stopSkipping": "Stop skipping",
-        "skipFailed": "Couldn't skip this version: {error}",
-        "stopSkippingFailed": "Couldn't stop skipping: {error}",
+        "skip": "Don't remind me",
+        "skipped": "Lucerna won't remind you about {version} at startup.",
+        "stopSkipping": "Remind me again",
+        "skipFailed": "Couldn't turn the reminder off: {error}",
+        "stopSkippingFailed": "Couldn't turn the reminder back on: {error}",
         "verification": "Before it runs, the installer's checksum and its signature from Lucerna's release workflow are verified. If either doesn't match, nothing is installed.",
-        "skipUnknown": "Couldn't tell whether a version is skipped: {error}"
+        "skipUnknown": "Couldn't tell whether a reminder is off: {error}"
       },
       "onboarding": {
         "title": "Tour",
@@ -3331,10 +3331,10 @@
         "verifying": "Verifying…",
         "launching": "Starting the installer…"
       },
-      "dismissFailed": "Couldn't remember that you skipped this version — it may be offered again next launch"
+      "dismissFailed": "Couldn't save \"Don't remind me\" — Lucerna may remind you again next launch"
     },
     "whatsNew": {
-      "toast": "Updated to {version} — see what's new",
+      "toast": "Lucerna updated to {version}",
       "actionLabel": "What's new",
       "title": "What's new in Lucerna {version}"
     },
