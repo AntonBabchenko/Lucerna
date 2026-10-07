@@ -29,6 +29,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   twice.
 - **Notices stay at the top right, above everything**, an open dialog included;
   they used to move to the bottom centre while a dialog was open.
+- **The skin editor's controls look and work like the rest of the launcher.**
+  Pose, model, brush, paint layer and background are picked the way Settings
+  picks a theme, and loading, downloading and the library are icon buttons with
+  tooltips. The chosen tool is now highlighted, here and in the screenshot
+  annotator.
 
 ## [0.26.0] — 2026-10-07
 
