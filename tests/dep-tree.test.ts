@@ -75,7 +75,7 @@ describe('DepTree', () => {
     expect(onJump).not.toHaveBeenCalled();
   });
 
-  it('keeps a separate ↗ jump button for installed (satisfied) nodes', async () => {
+  it('keeps a separate «show in the list» button for installed (satisfied) nodes', async () => {
     const onJump = vi.fn();
     const onOpenDetail = vi.fn();
     render(DepTree, {
@@ -87,7 +87,7 @@ describe('DepTree', () => {
         onOpenDetail,
       },
     });
-    // 'Night' is satisfied (installed) → a distinct ↗ button jumps to its row.
+    // 'Night' is satisfied (installed) → a distinct «show in the list» button jumps to its row.
     await fireEvent.click(screen.getByRole('button', { name: 'Show Night in the list' }));
     expect(onJump).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'night' }));
     expect(onOpenDetail).not.toHaveBeenCalled();
@@ -577,7 +577,7 @@ describe('DepTree — node actions and rhythm', () => {
       leaf('d'),
     ];
     const { container } = render(DepTree, { props: treeProps({ nodes }) });
-    // A (a chevron), its open child B (a ↗), Arch (a button), D (a ↗).
+    // A (a chevron), its open child B, Arch, D — each with the three action columns.
     const rows = [...container.querySelectorAll('.tree-row')];
     expect(rows).toHaveLength(4);
     for (const row of rows) {

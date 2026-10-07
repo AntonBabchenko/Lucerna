@@ -20,7 +20,7 @@
   } from './violation-view';
 
   // «What stops the game» (spec §6.2): the pre-flight's blocking reasons, each
-  // with ↗ to its row and its fix. The same panel is the Play gate's list.
+  // with «show in the list» to its row and its fix. The same panel is the Play gate's list.
   let {
     report,
     instanceId = null,
@@ -60,7 +60,7 @@
     ownVersionOpener?: (v: DepViolation) => (() => void) | null;
     onFindAlternative?: (v: DepViolation) => void;
     onOpenModPage?: (v: DepViolation) => void;
-    // ↗ to the dependent's own row — only the Installed tab has a list.
+    // «Show in the list» to the dependent's own row — only the Installed tab has a list.
     onJumpToDependent?: (v: DepViolation) => void;
     // «Fix all (N)» over the fixable rows. The gate repairs through its own
     // primary instead and leaves it unset.
@@ -181,8 +181,9 @@
               ? (ownVersionOpener?.(v) ?? null)
               : null}
           {@const hasActions = showRowActions && (action !== 'none' || openOwn !== null)}
-          <!-- Three columns: the icon, the reason with its fixes, ↗. The row lines them up by
-               baseline, so the icon sits on the reason's first line whatever shares that line. The
+          <!-- Three columns: the icon, the reason with its fixes, «show in the list». The row lines
+               them up by baseline, so the icon sits on the reason's first line whatever shares that
+               line. The
                reason keeps a readable width (`basis-72`); its fixes sit beside it while both fit
                and wrap under it — one group, which wraps in itself — when they do not. `flex-1`
                gave it a basis of 0: fixed-width offers took the line and left it a word per line
@@ -215,8 +216,7 @@
                 class="btn-icon btn-icon-sm shrink-0 self-center"
                 aria-label={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
                 use:tooltip={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
-                onclick={() => onJumpToDependent?.(v)}
-                ><Icon name="locate" size={14} /></button
+                onclick={() => onJumpToDependent?.(v)}><Icon name="locate" size={14} /></button
               >
             {/if}
           </div>

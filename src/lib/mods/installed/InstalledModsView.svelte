@@ -650,7 +650,7 @@
     panelRow(key)?.querySelector<HTMLElement>('button')?.focus();
   }
 
-  // ↗ from a panel row. A search or a chip that hides the dependent is cleared
+  // «Show in the list» from a panel row (and, by project, from the trees). A search or a chip that hides the dependent is cleared
   // for the view that holds it: the problem view while it is a problem (it is,
   // while the report is current), else every mod. A report that predates a
   // removal names a mod no view holds — say so, and change no filter for

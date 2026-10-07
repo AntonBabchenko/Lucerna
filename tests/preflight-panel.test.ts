@@ -470,7 +470,7 @@ describe('PreflightPanel — what stops the game', () => {
     expect(onFixAll).toHaveBeenCalledOnce();
   });
 
-  it('jumps to the dependent row from ↗', async () => {
+  it('jumps to the dependent row from «show in the list»', async () => {
     const onJumpToDependent = vi.fn();
     render(PreflightPanel, { props: { report: reportWith(1), onJumpToDependent } });
     await fireEvent.click(screen.getByRole('button', { name: 'Show Mod 0 in the list' }));
@@ -755,7 +755,7 @@ describe('PreflightPanel — a narrow row', () => {
     expect(within(row).getAllByTestId('preflight-plan-offer')).toHaveLength(2);
   });
 
-  it("keeps the icon on the reason's first line and ↗ at the row's end", () => {
+  it("keeps the icon on the reason's first line and «show in the list» at the row's end", () => {
     const row = offersRow();
     // By baseline: the icon's line sits on the reason's first line, whether the fixes share that
     // line or wrap under it.

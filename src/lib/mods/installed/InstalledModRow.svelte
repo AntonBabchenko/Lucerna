@@ -266,7 +266,7 @@
 {/snippet}
 
 <div role="group" aria-label={installed.name}>
-  <!-- The row a ↗ scrolls into view and a removal moves focus into (`data-mod-row`): the card
+  <!-- The row «show in the list» scrolls into view and a removal moves focus into (`data-mod-row`): the card
        with its problem line, not the expanded DepSection below it. Pointing at it shows the
        card's own hover and nothing else — no other place this mod appears lights up. -->
   <div data-mod-row={rowKey}>

@@ -6,7 +6,7 @@ import DepSection from '$lib/mods/installed/DepSection.svelte';
 import type { RequiredByEntry } from '$lib/mods/installed/dep-graph.svelte';
 
 // A single installed (satisfied) dependency node. Clicking its NAME must open
-// the mod's info modal (onOpenDetail), while the separate ↗ button jumps to the
+// the mod's info modal (onOpenDetail), while the separate «show in the list» button jumps to the
 // installed row (onJump) — both must be reachable.
 const installedNode: DepTreeNode = {
   source: 'modrinth',
@@ -38,7 +38,7 @@ describe('dep-tree node name opens the mod detail modal', () => {
     expect(onJump).not.toHaveBeenCalled();
   });
 
-  it('keeps a separate ↗ jump button for installed dep nodes', async () => {
+  it('keeps a separate «show in the list» button for installed dep nodes', async () => {
     const onOpenDetail = vi.fn();
     const onJump = vi.fn();
     render(DepTree, {
@@ -51,7 +51,7 @@ describe('dep-tree node name opens the mod detail modal', () => {
       },
     });
 
-    // The name button (accessible name === the exact mod name) and the ↗ jump
+    // The name button (accessible name === the exact mod name) and the «show in the list»
     // button (accessible name from the jumpToTitle aria-label) are distinct.
     const nameBtn = screen.getByRole('button', { name: 'Bravo' });
     const arrow = screen.getByRole('button', { name: 'Show Bravo in the list' });
@@ -78,7 +78,7 @@ describe('"required by" entries are interactive', () => {
   ];
 
   // Pointing at the entry marks nothing (tests/installed-cross-highlight.test.ts): the way to the
-  // requiring mod's row is its ↗, below.
+  // requiring mod's row is its «show in the list», below.
   it('clicking a "required by" entry NAME opens the requiring mod', async () => {
     const onOpenDetail = vi.fn();
     render(DepSection, {
@@ -96,7 +96,7 @@ describe('"required by" entries are interactive', () => {
     expect(onOpenDetail).toHaveBeenCalledWith('modrinth', 'PA');
   });
 
-  it('a "required by" entry has a separate ↗ jump button that navigates to the requiring mod row', async () => {
+  it('a "required by" entry has a separate «show in the list» button that navigates to the requiring mod row', async () => {
     const onJump = vi.fn();
     const onOpenDetail = vi.fn();
     render(DepSection, {
