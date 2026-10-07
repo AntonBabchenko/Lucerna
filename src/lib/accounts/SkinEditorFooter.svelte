@@ -166,11 +166,15 @@
   const bgOptions = $derived(VIEWER_BGS.map((b) => ({ value: b, label: $t(BG_LABEL[b]) })));
 </script>
 
+<!-- The dot sits in an icon-sized box, so the three segments are as wide as an icon segment
+     and a thin brush does not shrink its thumb to a sliver. -->
 {#snippet brushDot(o: SegmentOption)}
-  <span
-    class="rounded-full bg-current"
-    style="width:{Number(o.value) * 2}px;height:{Number(o.value) * 2}px"
-  ></span>
+  <span class="inline-flex h-4 w-4 items-center justify-center">
+    <span
+      class="rounded-full bg-current"
+      style="width:{Number(o.value) * 2}px;height:{Number(o.value) * 2}px"
+    ></span>
+  </span>
 {/snippet}
 
 {#snippet bgSwatch(o: SegmentOption)}
