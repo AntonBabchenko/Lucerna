@@ -283,10 +283,16 @@ fn descriptor_rank(
     use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
     match loader {
         L::Forge => match era {
-            // Complementary, not competing: `mcmod.info` is the provider list,
-            // the annotation is the requirement list. Equal rank, both read.
+            // FML's own declaration outranks its display metadata. The
+            // annotation is the requirement list AND the version every
+            // requirement on that mod is measured against
+            // (`FMLModContainer.bindMetadata`: annotation → `version.properties`
+            // → `mcmod.info` → "1.0"); `mcmod.info` answers only for a mod-id no
+            // annotation names a version for. `effective_rank` never shadows it,
+            // because `McmodAnnotation` never enters `sources_present`.
             E::Legacy => match source {
-                S::McmodInfo | S::McmodAnnotation => Some(0),
+                S::McmodAnnotation => Some(0),
+                S::McmodInfo => Some(1),
                 S::ModsToml | S::NeoForgeToml | S::FabricJson | S::QuiltJson => None,
             },
             E::Modern => match source {
@@ -333,9 +339,12 @@ fn descriptor_rank(
 /// jar also ships one of a **strictly better** rank, because the loader reads
 /// only the better one and ignores this file for this jar.
 ///
-/// "Strictly better", not "the single best": equal ranks are complementary
-/// rather than alternative (see the Forge-legacy arm above), and a
-/// keep-only-the-top rule would drop half of what a 1.12.2 jar declares.
+/// "Strictly better", not "the single best": a file of equal rank never shadows
+/// another. On the legacy era the annotation (rank 0) would shadow `mcmod.info`
+/// (rank 1) by this rule, but it never can: `McmodAnnotation` is a class
+/// annotation, not a file, and never enters `sources_present`. So `mcmod.info`
+/// stays admitted and keeps answering for the mod-ids no annotation names a
+/// version for — exactly FML's fallback.
 /// `pub(crate)` so `mods::mc_compat` shares this authority rather than
 /// reimplementing it.
 pub(crate) fn effective_rank(
@@ -1895,10 +1904,51 @@ mod tests {
             "on MinecraftForge the mods.toml of a dual-descriptor jar IS read"
         );
 
-        // Equal ranks never shadow each other.
+        // `mcmod.info` is never shadowed on the legacy era: the annotation
+        // outranks it but, not being a file, never appears in `sources_present`.
         let legacy = [S::McmodInfo];
         assert!(effective_rank(S::McmodInfo, &legacy, L::Forge, E::Legacy).is_some());
         assert!(effective_rank(S::McmodAnnotation, &legacy, L::Forge, E::Legacy).is_some());
+    }
+
+    /// FML ≤ 1.12.2 measures a requirement against the `@Mod` annotation's
+    /// `version`, not `mcmod.info`'s (`FMLModContainer.bindMetadata`). Measured on
+    /// OreLib: annotation `3.6.0.1`, `mcmod.info` `1.12.2-3.6.0.1` — believing the
+    /// second flagged a pack that starts.
+    #[test]
+    fn a_legacy_provider_version_comes_from_the_annotation_before_mcmod_info() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+        let pv = |ver: Option<&str>, source| ProvidedMod {
+            mod_id: "orelib".into(),
+            version: ver.map(str::to_string),
+            source,
+        };
+        // Either order inside the jar: the rank decides, not the position.
+        for provided in [
+            vec![
+                pv(Some("1.12.2-3.6.0.1"), S::McmodInfo),
+                pv(Some("3.6.0.1"), S::McmodAnnotation),
+            ],
+            vec![
+                pv(Some("3.6.0.1"), S::McmodAnnotation),
+                pv(Some("1.12.2-3.6.0.1"), S::McmodInfo),
+            ],
+        ] {
+            let mods = vec![modz_from("aa", provided, vec![], vec![S::McmodInfo])];
+            let idx = ProviderIndex::build(&mods, &[], LoaderKind::Forge, E::Legacy);
+            assert_eq!(idx.get("orelib"), Some(&Some("3.6.0.1".to_string())));
+        }
+        // An annotation naming no version leaves `mcmod.info` to answer — FML's
+        // step 3. `sources_present` holding `McmodInfo` and never
+        // `McmodAnnotation` is what keeps that fallback admitted.
+        let silent = vec![modz_from(
+            "bb",
+            vec![pv(None, S::McmodAnnotation), pv(Some("7.0.1"), S::McmodInfo)],
+            vec![],
+            vec![S::McmodInfo],
+        )];
+        let idx = ProviderIndex::build(&silent, &[], LoaderKind::Forge, E::Legacy);
+        assert_eq!(idx.get("orelib"), Some(&Some("7.0.1".to_string())));
     }
 
     /// Which descriptor names a provider's VERSION decides what every range is
@@ -2027,12 +2077,11 @@ mod tests {
             descriptor_rank(S::QuiltJson, L::Quilt, E::Modern)
                 < descriptor_rank(S::FabricJson, L::Quilt, E::Modern)
         );
-        // The one tie in the table, and it is deliberate: on the legacy era
-        // these two are complementary, not competing — `mcmod.info` contributes
-        // providers and never dependencies, the annotation the reverse.
-        assert_eq!(
-            descriptor_rank(S::McmodInfo, L::Forge, E::Legacy),
+        // On the legacy era FML compares a requirement against the annotation's
+        // `version` and falls back to `mcmod.info`'s only when there is none.
+        assert!(
             descriptor_rank(S::McmodAnnotation, L::Forge, E::Legacy)
+                < descriptor_rank(S::McmodInfo, L::Forge, E::Legacy)
         );
     }
 
