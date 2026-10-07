@@ -640,6 +640,13 @@ pub(crate) fn read_jar_legacy_deps(jar_bytes: &[u8], own_ids: &[String]) -> Vec<
     Vec::new()
 }
 
+/// The mod list of an `mcmod.info`, in either shape found in the wild: a bare
+/// array of mod objects, or `{ "modList": [...] }`.
+pub(crate) fn mcmod_info_list(v: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    v.as_array()
+        .or_else(|| v.get("modList").and_then(|m| m.as_array()))
+}
+
 /// `mcmod.info` — the Forge ≤ 1.12.2 descriptor. PROVIDERS ONLY.
 ///
 /// Its `dependencies` array is cosmetic on that era: FML enforces the
@@ -648,16 +655,14 @@ pub(crate) fn read_jar_legacy_deps(jar_bytes: &[u8], own_ids: &[String]) -> Vec<
 /// `required-after:creativecore` annotation — reading this array as the
 /// requirement list would report the opposite of the truth.
 ///
-/// Two shapes are in the wild: a bare array of mod objects, and
-/// `{ "modList": [...] }`.
+/// Both shapes in the wild are read — see [`mcmod_info_list`].
 fn parse_mcmod_info_providers(json_text: &str, out: &mut ManifestDeps) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
         return;
     };
-    let list = v
-        .as_array()
-        .or_else(|| v.get("modList").and_then(|m| m.as_array()));
-    let Some(list) = list else { return };
+    let Some(list) = mcmod_info_list(&v) else {
+        return;
+    };
     for m in list {
         let Some(id) = m.get("modid").and_then(|x| x.as_str()) else {
             continue;
