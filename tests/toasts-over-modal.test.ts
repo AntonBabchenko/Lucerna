@@ -1,9 +1,6 @@
-// UPD-17. While a modal is open its panel is vertically centred: the header ×
-// is not at the viewport top and the footer's primary action sits bottom
-// right, so a toast at the top right covers the one control the user is about
-// to use (at 820×520 the Settings header spans ≈52–97 px). The stack moves to
-// the bottom centre for as long as any modal is open, newest nearest the
-// edge, and back to the top right when the last one unmounts.
+// Toasts sit at the top right and above everything, a modal included: the
+// maintainer asked for one place (2026-10-07), overriding UPD-17, which moved
+// the stack to the bottom centre while a modal was open.
 import { render } from '@testing-library/svelte';
 import { createRawSnippet, tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,28 +29,30 @@ beforeEach(clearToasts);
 afterEach(clearToasts);
 
 describe('toasts while a modal is open', () => {
-  it('sit at the bottom centre while a modal is open and return to the top right after it closes', async () => {
+  it('stay at the top right, above the modal, while it is open and after it closes', async () => {
     pushInfo('Heads up');
     const host = render(ToastHost).getByTestId('toast-host');
+    const atTopRight = () => {
+      expect(host.className).toContain('top-4');
+      expect(host.className).toContain('right-4');
+      expect(host.className).not.toContain('bottom-4');
+      expect(host.className).not.toContain('left-1/2');
+      // Above every modal (--z-modal 50) and tour (--z-tour 100).
+      expect(host.className).toContain('z-[var(--z-toast)]');
+    };
     expect(modalDepth()).toBe(0);
-    expect(host.className).toContain('top-4');
-    expect(host.className).not.toContain('bottom-4');
+    atTopRight();
 
     const modal = render(Modal, {
       props: { onClose: vi.fn(), ariaLabelledby: 'over-toasts-title', children: body },
     });
     await tick();
     expect(modalDepth()).toBe(1);
-    expect(host.className).toContain('bottom-4');
-    expect(host.className).toContain('left-1/2');
-    expect(host.className).toContain('-translate-x-1/2');
-    expect(host.className).toContain('flex-col-reverse');
-    expect(host.className).not.toContain('top-4');
+    atTopRight();
 
     modal.unmount();
     await tick();
     expect(modalDepth()).toBe(0);
-    expect(host.className).toContain('top-4');
-    expect(host.className).not.toContain('bottom-4');
+    atTopRight();
   });
 });

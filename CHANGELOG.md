@@ -21,6 +21,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Changed
+
+- **The update notice says "Don't remind me" instead of "Skip this version"**,
+  which only ever stopped the startup reminder: the version stays available in
+  Settings → Updates. The notice after an update no longer says "what's new"
+  twice.
+- **Notices stay at the top right, above everything**, an open dialog included;
+  they used to move to the bottom centre while a dialog was open.
+
 ### Fixed
 
 - **Minecraft 1.12.2 and older profiles no longer report a mod as too old when

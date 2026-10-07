@@ -114,12 +114,12 @@ describe('skipping a version', () => {
   it('is an explicit button that asks the backend and then says so', async () => {
     render(UpdatesPanel);
     await fireEvent.click(screen.getByTestId('check-updates-btn'));
-    await fireEvent.click(await screen.findByRole('button', { name: 'Skip this version' }));
+    await fireEvent.click(await screen.findByRole('button', { name: "Don't remind me" }));
     await waitFor(() => expect(h.updateDismiss).toHaveBeenCalledWith('0.25.0'));
     expect(
-      await screen.findByText("You skipped 0.25.0. Lucerna won't mention it at startup."),
+      await screen.findByText("Lucerna won't remind you about 0.25.0 at startup."),
     ).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Skip this version' })).toBeNull();
+    expect(screen.queryByRole('button', { name: "Don't remind me" })).toBeNull();
   });
 
   it('says why when the skip could not be saved', async () => {
@@ -129,18 +129,18 @@ describe('skipping a version', () => {
     });
     render(UpdatesPanel);
     await fireEvent.click(screen.getByTestId('check-updates-btn'));
-    await fireEvent.click(await screen.findByRole('button', { name: 'Skip this version' }));
-    expect(await screen.findByText(/Couldn't skip this version/)).toBeTruthy();
-    expect(screen.queryByText(/You skipped/)).toBeNull();
+    await fireEvent.click(await screen.findByRole('button', { name: "Don't remind me" }));
+    expect(await screen.findByText(/Couldn't turn the reminder off/)).toBeTruthy();
+    expect(screen.queryByText(/remind you about/)).toBeNull();
   });
 
-  it('shows a skip the backend reports, and Stop skipping undoes it', async () => {
+  it('shows a skip the backend reports, and Remind me again undoes it', async () => {
     h.updateSkippedVersion.mockResolvedValue({ status: 'ok', data: '0.25.0' });
     render(UpdatesPanel);
-    expect(await screen.findByText(/You skipped 0.25.0/)).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Stop skipping' }));
+    expect(await screen.findByText(/remind you about 0.25.0/)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Remind me again' }));
     await waitFor(() => expect(h.updateClearDismissed).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByText(/You skipped/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/remind you about/)).toBeNull());
   });
 });
 
@@ -151,7 +151,7 @@ describe('a skip that could not be read', () => {
       error: { kind: 'io', path: '<app_file>', details: 'locked' },
     });
     render(UpdatesPanel);
-    expect(await screen.findByText(/Couldn't tell whether a version is skipped/)).toBeTruthy();
+    expect(await screen.findByText(/Couldn't tell whether a reminder is off/)).toBeTruthy();
   });
 });
 

@@ -28,10 +28,10 @@ describe('a second action on a toast', () => {
       { label: 'Update now', run: () => {} },
       [],
       {
-        secondary: { label: 'Skip this version', run: skip },
+        secondary: { label: "Don't remind me", run: skip },
       },
     );
-    const second = await screen.findByRole('button', { name: 'Skip this version' });
+    const second = await screen.findByRole('button', { name: "Don't remind me" });
     const first = screen.getByRole('button', { name: 'Update now' });
     expect(second.className).toContain('btn-ghost');
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
