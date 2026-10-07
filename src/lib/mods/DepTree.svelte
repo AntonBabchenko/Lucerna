@@ -80,7 +80,9 @@
   // its parent declares optional says so itself — or it reads as required and missing.
   const optionalBelowTop = (n: DepTreeNode) => depth > 0 && n.declared === 'optional';
   // A node with a row in the list — installed, or there but switched off: it can be switched,
-  // removed and shown; an absent one can only be installed.
+  // removed and shown; an absent one can only be installed. A node whose install is in flight
+  // (`ctx.installing`) acts on nothing until the install is done: the graph can already say
+  // «installed» while the list has no row yet, and so no jar for the switch, Remove or «show».
   const hasRow = (n: DepTreeNode) => n.installed || !!n.disabled;
   // The panel's own mod met again below. Plainly installed, «this mod» IS its state (the green
   // «installed» would say nothing about the mod the panel hangs under); in any other state — a
@@ -189,10 +191,9 @@
 
   // The row is the pointer's way to the mod's details, as a list row is (spec 2026-10-07 D1); the
   // name button stays the keyboard's (Enter). The row's own buttons act for themselves — the name
-  // too, whose click bubbles here — and a drag that selected text is no click on the row.
+  // too, whose click bubbles here. (No text can be selected here: the app is `user-select: none`.)
   function onRowClick(e: MouseEvent, n: DepTreeNode) {
     if ((e.target as Element).closest('button')) return;
-    if ((window.getSelection()?.toString() ?? '') !== '') return;
     onOpenDetail(n.source, n.project_id);
   }
 </script>
@@ -220,11 +221,12 @@
     })}
     {@const selfState = selfAsState(n, state)}
     {@const present = hasRow(n)}
-    {@const busy = !present && ctx.installing(k)}
+    {@const busy = ctx.installing(k)}
+    {@const acts = present && !busy}
     {@const toggleLabel = n.installed
       ? $t('mods.deps.disableAriaLabel', { name: n.name })
       : $t('mods.deps.enableAriaLabel', { name: n.name })}
-    {@const presenceLabel = present
+    {@const presenceLabel = acts
       ? $t('mods.deps.uninstallAriaLabel', { name: n.name })
       : n.declared === 'required'
         ? $t('mods.deps.installAriaLabel', { name: n.name })
@@ -293,8 +295,8 @@
             >
           {/if}
         </span>
-        <span class="ms-auto flex shrink-0 items-center">
-          <span class="me-1 inline-flex items-center gap-1 whitespace-nowrap" data-state-group>
+        <span class="ml-auto flex shrink-0 items-center">
+          <span class="mr-1 inline-flex items-center gap-1 whitespace-nowrap" data-state-group>
             {#if selfState}
               <span
                 id="{id}-state"
@@ -389,10 +391,10 @@
             <button
               type="button"
               class="btn-icon btn-icon-sm {n.installed ? 'btn-icon-success' : '!text-muted'}"
-              disabled={!present}
+              disabled={!acts}
               tabindex={tab}
               aria-label={toggleLabel}
-              use:tooltip={present ? toggleLabel : null}
+              use:tooltip={acts ? toggleLabel : null}
               onclick={() => (n.installed ? ctx.onDisable(n) : ctx.onEnable(n))}
               ><Icon name="power" size={15} /></button
             >
@@ -402,15 +404,15 @@
                  turns installed under it when the install lands. -->
             <button
               type="button"
-              class="btn-icon btn-icon-sm {present ? 'btn-icon-danger' : '!text-accent'}"
+              class="btn-icon btn-icon-sm {acts ? 'btn-icon-danger' : '!text-accent'}"
               tabindex={tab}
               aria-label={presenceLabel}
               aria-busy={busy ? 'true' : undefined}
               aria-disabled={busy ? 'true' : undefined}
               use:tooltip={busy ? null : presenceLabel}
               onclick={() => {
+                if (busy) return;
                 if (present) ctx.onUninstall(n);
-                else if (busy) return;
                 else if (n.declared === 'required') onInstall(n, dependentSha1);
                 else onAdd(n, dependentSha1);
               }}
@@ -432,10 +434,10 @@
             <button
               type="button"
               class="btn-icon btn-icon-sm"
-              disabled={!present}
+              disabled={!acts}
               tabindex={tab}
               aria-label={jumpLabel}
-              use:tooltip={present ? jumpLabel : null}
+              use:tooltip={acts ? jumpLabel : null}
               onclick={() => onJump(n)}><Icon name="locate" size={15} /></button
             >
           </span>

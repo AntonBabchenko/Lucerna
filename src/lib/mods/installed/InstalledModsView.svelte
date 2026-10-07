@@ -372,24 +372,23 @@
       void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
     },
     // The row's own Disable and Remove, for the jar the node stands for (spec 2026-10-07 D3a).
-    // Focus stays on the tree's button — its column keeps one element whatever the node's state
-    // — so the list's refocus is a no-op, unless the panel itself went: its own mod was the one
-    // switched off or removed.
+    // The tree acts only on a node whose install is done (`installing`), so a missing jar here
+    // means the graph has not caught up with a change that is already re-resolving it.
     onDisable: (node) => {
       const sha1 = enabledShaByKey.get(`${node.source}:${node.project_id}`);
-      // Switched off or removed since the graph was built: that change is already re-resolving it.
       if (!sha1) return;
+      const had = document.activeElement;
       const index = pagedIndexOf((r) => r.installed.sha1 === sha1);
       void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], false).then(() =>
-        refocusAfterRemoval(index),
+        refocusIfGone(had, index),
       );
     },
     onUninstall: (node) => {
       const sha1 = jarOf(node);
       const row = sha1 ? rowBySha.get(sha1) : undefined;
-      // Removed since the graph was built: that removal is already re-resolving it.
       if (!row) return;
-      void uninstall(row);
+      const had = document.activeElement;
+      void uninstall(row, (index) => refocusIfGone(had, index));
     },
     installing: (key) => deps.isInstalling(key),
     conflictOf: (node, dependentSha1) => edgeConflict(blockingViolations, node, dependentSha1),
@@ -678,8 +677,10 @@
     project_id: string;
     name: string;
     installed?: boolean;
+    sha1?: string;
   }): Promise<void> {
-    const sha1 = jarOf(target);
+    // A «Required by» entry knows its very jar; a tree node is looked up by project.
+    const sha1 = target.sha1 ?? jarOf(target);
     if (!sha1) {
       pushInfo(get(t)('mods.preflight.dependentGone', { name: target.name }));
       return Promise.resolve();
@@ -951,7 +952,10 @@
       !row.installed.enabled,
     );
   }
-  async function uninstall(row: Row) {
+  async function uninstall(
+    row: Row,
+    refocus: (index: number) => Promise<void> = refocusAfterRemoval,
+  ) {
     if (!instanceId) return;
     const target = [{ sha1: row.installed.sha1, name: rowDisplayName(row) }];
     const index = pagedIndexOf((r) => r.installed.sha1 === row.installed.sha1);
@@ -962,11 +966,20 @@
         await data.refresh();
         deps.reloadGraph();
         preflight.invalidate();
-        await refocusAfterRemoval(index);
+        await refocus(index);
       }
     } finally {
       shellBusy = false;
     }
+  }
+  // After a tree's Disable or Remove, focus is the list's to place only when the control that had
+  // it left the page — the panel went with its own mod. A tree button keeps its element whatever
+  // the node becomes, so it is normally still there; and a click that focused nothing (WebKit
+  // focuses no button) lost nothing, so neither focus nor the view is pulled into the list.
+  async function refocusIfGone(had: Element | null, index: number): Promise<void> {
+    await tick();
+    if (had === null || had === document.body || had.isConnected) return;
+    await refocusAfterRemoval(index);
   }
   // The bulk bar's Remove: the removed rows' place is where the first of them was.
   async function bulkUninstall(): Promise<void> {

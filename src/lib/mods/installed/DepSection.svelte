@@ -22,7 +22,13 @@
     requiredBy: RequiredByEntry[];
     // The node and the mod that declared it (null under an absent parent) — see DepTree.
     onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
-    onJump: (target: { source: ModSource; project_id: string; name: string }) => void;
+    // A «Required by» entry passes its jar too: the jump goes to that very row.
+    onJump: (target: {
+      source: ModSource;
+      project_id: string;
+      name: string;
+      sha1?: string;
+    }) => void;
     onOpenDetail: (source: ModSource, projectId: string) => void;
     // What the trees need to say what the loader does about each dependency.
     treeCtx?: DepTreeCtx;
@@ -37,10 +43,9 @@
   const rootKey = $derived(`${root.source}:${root.project_id}`);
 
   // A chip is clicked like a tree row (spec 2026-10-07 D6): anywhere on it opens the mod, except
-  // its own buttons (the name's click bubbles here too) and a drag that selected text.
+  // its own buttons (the name's click bubbles here too).
   function onChipClick(e: MouseEvent, entry: RequiredByEntry) {
     if ((e.target as Element).closest('button')) return;
-    if ((window.getSelection()?.toString() ?? '') !== '') return;
     onOpenDetail(entry.source, entry.projectId);
   }
 </script>
@@ -109,7 +114,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions — the
              pointer's shortcut to the name button, which is the keyboard path. -->
         <span
-          class="group inline-flex cursor-pointer items-center rounded ps-1.5 transition-colors hover:bg-subtle"
+          class="group inline-flex cursor-pointer items-center rounded pl-1.5 transition-colors hover:bg-subtle"
           onclick={(ev) => onChipClick(ev, e)}
         >
           <button
@@ -122,7 +127,8 @@
             class="btn-icon btn-icon-sm"
             use:tooltip={$t('mods.deps.jumpToTitle', { name: e.name })}
             aria-label={$t('mods.deps.jumpToTitle', { name: e.name })}
-            onclick={() => onJump({ source: e.source, project_id: e.projectId, name: e.name })}
+            onclick={() =>
+              onJump({ source: e.source, project_id: e.projectId, name: e.name, sha1: e.sha1 })}
             ><Icon name="locate" size={15} /></button
           >
         </span>

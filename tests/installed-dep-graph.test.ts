@@ -435,6 +435,53 @@ describe('createDepGraph', () => {
     ]);
   });
 
+  // The node's own spinner (spec 2026-10-07 D3): its key is in flight from the click until the
+  // list is re-read — past the graph reload, which can say «installed» before the list has the
+  // row — and a second click meanwhile adds nothing.
+  it('a tree install keeps its node in flight until the list is re-read, and ignores a second click', async () => {
+    mocks.modsVersions.mockClear();
+    mocks.modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [{ source: 'modrinth', project_id: 'PL', version_id: 'vl' }],
+    });
+    let land: (v: unknown) => void = () => {};
+    mocks.modsInstallWithDeps.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve;
+      }),
+    );
+    let flightAtRefresh: boolean | null = null;
+    const d = createDepGraph(
+      () => 'i',
+      () => [],
+      {
+        ...ctx,
+        refresh: async () => {
+          flightAtRefresh = d.isInstalling('modrinth:PL');
+        },
+      },
+    );
+    const node = {
+      source: 'modrinth',
+      project_id: 'PL',
+      name: 'Lib',
+      installed: false,
+      declared: 'required',
+      cycle: false,
+      children: [],
+    } as unknown as DepTreeNode;
+
+    const first = d.installDepNode(node, null);
+    expect(d.isInstalling('modrinth:PL')).toBe(true);
+    await d.installDepNode(node, null);
+    expect(mocks.modsVersions).toHaveBeenCalledTimes(1);
+
+    land({ status: 'error', error: { kind: 'instance_busy' } });
+    await first;
+    expect(flightAtRefresh).toBe(true);
+    expect(d.isInstalling('modrinth:PL')).toBe(false);
+  });
+
   it('a tree install names the dependencies that came along with it', async () => {
     const toasts = await import('$lib/toasts/toasts.svelte');
     mocks.modsVersions.mockResolvedValue({

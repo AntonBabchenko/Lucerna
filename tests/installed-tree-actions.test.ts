@@ -68,8 +68,14 @@ const h = vi.hoisted(() => {
     modsRemovalImpact: vi.fn(),
     modsUninstall: vi.fn(),
     modsDisable: vi.fn(),
+    pushInfo: vi.fn(),
   };
 });
+
+vi.mock('$lib/toasts/toasts.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/toasts/toasts.svelte')>()),
+  pushInfo: h.pushInfo,
+}));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -122,6 +128,19 @@ const reset = () => {
   h.modsRemovalImpact.mockReset();
   h.modsUninstall.mockReset();
   h.modsDisable.mockReset();
+  h.pushInfo.mockReset();
+};
+// The removal the tests below ask for: Balm's jar goes, and the list and the graph say so.
+const balmRemoved = () => {
+  h.modsRemovalImpact.mockResolvedValue({ status: 'ok', data: { dependents: [], order: [] } });
+  h.modsUninstall.mockImplementation(() => {
+    h.state.rows = [h.mod('a', 'PA', 'Alpha')];
+    h.state.graph = h.graphWith(false);
+    return Promise.resolve({
+      status: 'ok',
+      data: { token: 't', items: [{ sha1: 'balm-sha', name: 'Balm' }] },
+    });
+  });
 };
 // Alpha's relation cell opens its dependency section.
 const openAlphaTree = async () => {
@@ -138,16 +157,7 @@ const openAlphaTree = async () => {
 describe('the dependency tree’s actions go the row’s way', () => {
   it('Remove asks the removal impact for the node’s jar, removes it, and keeps focus there', async () => {
     reset();
-    h.modsRemovalImpact.mockResolvedValue({ status: 'ok', data: { dependents: [], order: [] } });
-    h.modsUninstall.mockImplementation(() => {
-      // The jar is gone: the list re-reads without it, the graph comes back with Balm absent.
-      h.state.rows = [h.mod('a', 'PA', 'Alpha')];
-      h.state.graph = h.graphWith(false);
-      return Promise.resolve({
-        status: 'ok',
-        data: { token: 't', items: [{ sha1: 'balm-sha', name: 'Balm' }] },
-      });
-    });
+    balmRemoved();
     render(InstalledModsView, { props: props('tree-remove') });
     await openAlphaTree();
     const remove = await screen.findByRole('button', { name: 'Remove Balm' });
@@ -195,5 +205,34 @@ describe('the dependency tree’s actions go the row’s way', () => {
       expect(document.querySelector('[data-mod-row="modrinth:PBALM"]')).not.toBeNull(),
     );
     expect((search as HTMLInputElement).value).toBe('');
+  });
+
+  // WebKit (the macOS build) focuses no button on a click. Nothing had focus, so nothing lost it:
+  // the list's refocus-after-removal must not pull focus — and the view — to a list row.
+  it('a Remove whose click focused nothing pulls no focus into the list', async () => {
+    reset();
+    balmRemoved();
+    render(InstalledModsView, { props: props('tree-remove-unfocused') });
+    await openAlphaTree();
+    const remove = await screen.findByRole('button', { name: 'Remove Balm' });
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    await fireEvent.click(remove);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Install Balm' })).toBe(remove));
+    expect(document.activeElement?.closest('[data-mod-row]') ?? null).toBeNull();
+  });
+
+  // The graph can still say «installed» for a jar the list no longer has (a removal it has not
+  // caught up with): «show in the list» says the mod is gone rather than doing nothing.
+  it('«show in the list» on a mod the list no longer has says so', async () => {
+    reset();
+    h.state.rows = [h.mod('a', 'PA', 'Alpha')];
+    render(InstalledModsView, { props: props('tree-locate-gone') });
+    await openAlphaTree();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show Balm in the list' }));
+
+    await waitFor(() => expect(h.pushInfo).toHaveBeenCalledWith('Balm is no longer installed'));
   });
 });

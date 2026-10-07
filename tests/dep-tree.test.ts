@@ -708,6 +708,32 @@ describe('DepTree — every row carries the list’s actions', () => {
     await fireEvent.click(idle);
     expect(onInstall).toHaveBeenCalledTimes(1);
   });
+
+  // The install's graph reload can land before the list has the new row: the node already says
+  // «installed», but no jar is listed for its switch, Remove or «show» to act on. Until the install
+  // is done the node stays busy and none of them acts.
+  it('a node stays busy until its install is done, even once the graph says it is there', async () => {
+    const onUninstall = vi.fn();
+    const onDisable = vi.fn();
+    const onJump = vi.fn();
+    render(DepTree, {
+      props: treeProps({
+        nodes: [leaf('arch', { name: 'Arch' })],
+        onJump,
+        ctx: ctxWith({ installing: () => true, onUninstall, onDisable }),
+      }),
+    });
+    const presence = screen.getByRole('button', { name: 'Install Arch' });
+    expect(presence.getAttribute('aria-busy')).toBe('true');
+    await fireEvent.click(presence);
+    const toggle = screen.getByRole('button', { name: 'Disable Arch' });
+    const locate = screen.getByRole('button', { name: 'Show Arch in the list' });
+    expect(toggle.hasAttribute('disabled')).toBe(true);
+    expect(locate.hasAttribute('disabled')).toBe(true);
+    expect(onUninstall).not.toHaveBeenCalled();
+    expect(onDisable).not.toHaveBeenCalled();
+    expect(onJump).not.toHaveBeenCalled();
+  });
 });
 
 // Spec 2026-10-07 D1: pointing at a row fills it like a list row, and the row is the pointer's way
@@ -741,17 +767,6 @@ describe('DepTree — the row is the target', () => {
     render(DepTree, { props: treeProps({ onOpenDetail }) });
     await fireEvent.click(rowOf('B'));
     expect(onOpenDetail.mock.calls).toEqual([['modrinth', 'b']]);
-  });
-
-  it('a drag that selected text opens nothing', async () => {
-    const onOpenDetail = vi.fn();
-    render(DepTree, { props: treeProps({ onOpenDetail }) });
-    const selection = vi
-      .spyOn(window, 'getSelection')
-      .mockReturnValue({ toString: () => 'D' } as Selection);
-    await fireEvent.click(rowOf('D'));
-    selection.mockRestore();
-    expect(onOpenDetail).not.toHaveBeenCalled();
   });
 
   it('the name reads as the row’s, not as a link', () => {

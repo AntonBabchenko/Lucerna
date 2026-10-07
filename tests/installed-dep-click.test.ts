@@ -113,7 +113,13 @@ describe('"required by" entries are interactive', () => {
     expect(arrow.querySelector('.lucide-locate-fixed')).toBeTruthy();
 
     await fireEvent.click(arrow);
-    expect(onJump).toHaveBeenCalledWith({ source: 'modrinth', project_id: 'PA', name: 'Alpha' });
+    // The entry knows its jar: the jump goes to that very row, never a namesake's.
+    expect(onJump).toHaveBeenCalledWith({
+      source: 'modrinth',
+      project_id: 'PA',
+      name: 'Alpha',
+      sha1: 'a',
+    });
     expect(onOpenDetail).not.toHaveBeenCalled();
   });
 

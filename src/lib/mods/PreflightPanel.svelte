@@ -183,9 +183,8 @@
           {@const hasActions = showRowActions && (action !== 'none' || openOwn !== null)}
           <!-- Three columns: the icon, the reason with its fixes, «show in the list». The row lines
                them up by baseline, so the icon sits on the reason's first line whatever shares that
-               line. The
-               reason keeps a readable width (`basis-72`); its fixes sit beside it while both fit
-               and wrap under it — one group, which wraps in itself — when they do not. `flex-1`
+               line. The reason keeps a readable width (`basis-72`); its fixes sit beside it while
+               both fit and wrap under it — one group, which wraps in itself — when they do not. `flex-1`
                gave it a basis of 0: fixed-width offers took the line and left it a word per line
                (plan §5c, screenshot n03b). -->
           <div
