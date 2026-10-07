@@ -21,6 +21,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Fixed
+
+- **Minecraft 1.12.2 and older profiles no longer report a mod as too old when
+  it is not.** The panel of what stops the game blocked profiles that start,
+  saying an installed dependency was older than required. Requirements it used
+  to miss are now checked as well.
+
 ## [0.26.0] — 2026-10-07
 
 ### Added
