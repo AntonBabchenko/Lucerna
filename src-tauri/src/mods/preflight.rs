@@ -1025,7 +1025,8 @@ pub(crate) fn provided_version(
 #[derive(Debug, Clone)]
 pub struct ParsedRow {
     /// Registry digest and name; the manifest has the legacy-era `@Mod`
-    /// requirements merged into `deps`.
+    /// requirements merged into `deps` and its providers into `provided`
+    /// ([`JarScan::into_parts`]).
     pub parsed: ParsedMod,
     /// Jar-in-Jar providers: an embedded library answers only for an id
     /// nothing top-level claims, and only while its host is switched on.
@@ -1705,8 +1706,16 @@ async fn scan_row(
     }
     // Jar missing from disk: "could not tell", reported by the caller.
     let bytes = crate::mods::local::read_jar_for(mods_dir, &m.filename).await?;
-    // Unreadable zip: the same.
-    let s = scan_jar(bytes, want_legacy).await?;
+    // Unreadable zip, or a legacy class the annotation reader could not read:
+    // the same. Logged by name — the reader below sees only bytes, so its own
+    // line names the entry but not the jar.
+    let Some(s) = scan_jar(bytes, want_legacy).await else {
+        crate::diag!(
+            "[mods] pre-flight could not read {}; it is reported as unjudged",
+            m.filename
+        );
+        return None;
+    };
     // Only a key computed from the real bytes may be written: without one we do
     // not know WHICH jar this record describes.
     if let Some(k) = cache_key {

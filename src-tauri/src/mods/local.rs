@@ -2010,8 +2010,8 @@ modId=\"b\"
 
     /// A provided mod-id is only half a fact: which file declared it decides
     /// whether its VERSION is the one the loader will see. `mcmod.info` needs a
-    /// source of its own — `McmodAnnotation` is the class constant pool, a
-    /// different file entirely.
+    /// source of its own — `McmodAnnotation` is the `@Mod` annotation on a class,
+    /// read by `mod_annotation`, not this file at all.
     #[test]
     fn providers_carry_their_descriptor_source() {
         let toml = "[[mods]]\nmodId=\"a\"\nversion=\"1.0\"\n";

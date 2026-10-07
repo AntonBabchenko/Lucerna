@@ -926,6 +926,10 @@ async fn legacy_unreadable_mod_class_is_unjudged_and_never_cached() {
         ),
     ]);
     let sha = register(root, "EnhancedVisuals.jar", &broken).await;
+    // A healthy jar alongside, so the cache file is really written and the
+    // absence below is a decision, not an empty file.
+    let core = make_jar_raw(&[("drpcore/DRPCoreMain.class", class!("fixture/DrpCore.class"))]);
+    let healthy = register(root, "drpcore.jar", &core).await;
 
     let report =
         dependency_preflight_for_root(root, Some(&cache), LoaderKind::Forge, "1.12.2", None)
@@ -938,8 +942,10 @@ async fn legacy_unreadable_mod_class_is_unjudged_and_never_cached() {
         report.violations
     );
     assert!(report.violations.is_empty(), "{:?}", report.violations);
+    let stored = ScanCache::load(&cache);
+    assert!(stored.get(&healthy).is_some(), "the readable jar is cached");
     assert!(
-        ScanCache::load(&cache).get(&sha).is_none(),
+        stored.get(&sha).is_none(),
         "a failure is never frozen into the cache"
     );
 }

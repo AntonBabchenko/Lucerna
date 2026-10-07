@@ -153,11 +153,12 @@ fn declarations(zip: &mut Zip<'_>, found: Vec<ModAnnotation>) -> Result<LegacyAn
         .iter()
         .any(|a| has_modid(a) && a.dependencies.as_deref().is_some_and(|d| !d.is_empty()))
     {
-        read_capped(zip, "mcmod.info", MAX_MCMOD_INFO_BYTES)?
-            .map(|b| uses_dependency_information(&String::from_utf8_lossy(&b)))
-            .unwrap_or_default()
+        match read_capped(zip, "mcmod.info", MAX_MCMOD_INFO_BYTES)? {
+            Some(b) => uses_dependency_information(&String::from_utf8_lossy(&b)),
+            None => McmodDepsRule::Listed(HashSet::new()),
+        }
     } else {
-        HashSet::new()
+        McmodDepsRule::Listed(HashSet::new())
     };
 
     let mut out = LegacyAnnotations::default();
@@ -179,7 +180,7 @@ fn declarations(zip: &mut Zip<'_>, found: Vec<ModAnnotation>) -> Result<LegacyAn
         // FML takes this mod's requirements from `mcmod.info` instead. Dropping
         // the clauses can only miss a requirement, never invent one; reading
         // `requiredMods` is a follow-up.
-        let fml_reads_mcmod_deps = a.use_metadata != Some(false) && mcmod_rules.contains(&modid);
+        let fml_reads_mcmod_deps = a.use_metadata != Some(false) && mcmod_rules.covers(&modid);
         if !fml_reads_mcmod_deps {
             for dep in a
                 .dependencies
@@ -236,25 +237,54 @@ fn properties_value(text: &str, key: &str) -> Result<Option<String>, String> {
     Ok(value)
 }
 
-/// Mod-ids whose `mcmod.info` entry sets `useDependencyInformation`, keyed by
-/// the exact mod-id `MetadataCollection.getMetadataForId` looks up. Gson reads a
-/// boolean from a JSON `true` or from a string `Boolean.parseBoolean` accepts.
-/// An unparseable file is FML's empty collection ("It will be ignored"): none.
-fn uses_dependency_information(json_text: &str) -> HashSet<String> {
+/// Which mods FML takes the requirements of from `mcmod.info` rather than from
+/// the annotation (`useDependencyInformation`).
+enum McmodDepsRule {
+    /// Exactly these mod-ids, matched as `MetadataCollection.getMetadataForId`
+    /// matches them: by exact mod-id.
+    Listed(HashSet<String>),
+    /// Could not tell: the file names the flag but our strict parser rejects
+    /// it, while FML's Gson parser is lenient (`JsonParser.parse(Reader)`
+    /// accepts comments, single quotes, unquoted names). Every mod of the jar is
+    /// treated as setting it, which can only drop requirements, never invent one.
+    Unknown,
+}
+
+impl McmodDepsRule {
+    fn covers(&self, modid: &str) -> bool {
+        match self {
+            Self::Listed(ids) => ids.contains(modid),
+            Self::Unknown => true,
+        }
+    }
+}
+
+/// Read `useDependencyInformation` out of an `mcmod.info`. Gson reads a boolean
+/// from a JSON `true` or from a string `Boolean.parseBoolean` accepts. A file
+/// our parser rejects is FML's empty collection ("It will be ignored") only if
+/// Gson rejects it too, which cannot be known here — so it lists nobody when it
+/// never names the flag, and is `Unknown` when it does.
+fn uses_dependency_information(json_text: &str) -> McmodDepsRule {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
-        return HashSet::new();
+        return if json_text.contains("useDependencyInformation") {
+            McmodDepsRule::Unknown
+        } else {
+            McmodDepsRule::Listed(HashSet::new())
+        };
     };
     let Some(list) = mcmod_info_list(&v) else {
-        return HashSet::new();
+        return McmodDepsRule::Listed(HashSet::new());
     };
     let flag = |f: &serde_json::Value| {
         f.as_bool()
             .unwrap_or_else(|| f.as_str().is_some_and(|s| s.eq_ignore_ascii_case("true")))
     };
-    list.iter()
-        .filter(|m| m.get("useDependencyInformation").is_some_and(flag))
-        .filter_map(|m| m.get("modid").and_then(|x| x.as_str()).map(str::to_string))
-        .collect()
+    McmodDepsRule::Listed(
+        list.iter()
+            .filter(|m| m.get("useDependencyInformation").is_some_and(flag))
+            .filter_map(|m| m.get("modid").and_then(|x| x.as_str()).map(str::to_string))
+            .collect(),
+    )
 }
 
 /// ISO-8859-1, the encoding `Properties.load(InputStream)` reads.
@@ -324,6 +354,13 @@ pub(crate) fn mod_annotations(class: &[u8]) -> Option<Vec<ModAnnotation>> {
         for _ in 0..a.u2()? {
             let (descriptor, pairs) = annotation(&mut a, &pool, 0)?;
             if descriptor == MOD_DESCRIPTOR || descriptor == CPW_MOD_DESCRIPTOR {
+                // `@Mod` is not repeatable, so javac never writes a second one.
+                // A class that carries more is crafted, and refusing it here —
+                // before collecting — keeps a few bytes per empty annotation
+                // from multiplying into an allocation that aborts the process.
+                if !out.is_empty() {
+                    return None;
+                }
                 out.push(mod_annotation(pairs));
             }
         }
@@ -730,6 +767,90 @@ mod tests {
             ("version.properties", b"orelib.version=\\x".as_slice()),
         ]);
         assert!(read_jar_legacy_annotations(&named).is_some());
+
+        // Present but over its cap: not "absent", which would hand the version
+        // to `mcmod.info`.
+        let mut big = vec![b'#'; MAX_PROPERTIES_BYTES as usize];
+        big.extend_from_slice(b"\nbiomesoplenty.version=7.0.1.2445\n");
+        let huge_props = jar(&[
+            ("b/Bop.class", fixture!("fixture/BopNoVersion.class")),
+            ("version.properties", big.as_slice()),
+        ]);
+        assert_eq!(read_jar_legacy_annotations(&huge_props), None);
+
+        // The same for `mcmod.info` when an annotation declares requirements:
+        // it decides whether FML reads them at all.
+        let huge_info = vec![b' '; MAX_MCMOD_INFO_BYTES as usize + 1];
+        let j = jar(&[
+            ("u/U.class", fixture!("fixture/UdiDep.class")),
+            ("mcmod.info", huge_info.as_slice()),
+        ]);
+        assert_eq!(read_jar_legacy_annotations(&j), None);
+    }
+
+    /// `JsonParser.parse(Reader)` is lenient, so FML accepts an `mcmod.info` our
+    /// strict parser rejects. When such a file names the flag, whether FML reads
+    /// the annotation's clauses cannot be told — and the answer that can never
+    /// invent a requirement is "it does not".
+    #[test]
+    fn an_mcmod_info_only_gson_accepts_cannot_hand_us_the_requirements() {
+        let lenient =
+            b"// generated\n[{\"modid\":\"udidep\",\"useDependencyInformation\":true}]".as_slice();
+        let j = jar(&[
+            ("u/U.class", fixture!("fixture/UdiDep.class")),
+            ("mcmod.info", lenient),
+        ]);
+        assert!(read_jar_legacy_annotations(&j).unwrap().deps.is_empty());
+    }
+
+    /// A zip entry may declare a smaller size than it inflates to; the cap is
+    /// enforced on the bytes read, not on the header's claim.
+    #[test]
+    fn a_lying_entry_size_does_not_slip_past_the_cap() {
+        let mut j = jar(&[("big.txt", [b'a'; 200].as_slice())]);
+        // Patch the uncompressed size (200) down to 10 in the local header
+        // (offset 22) and the central directory header (offset 24).
+        let patch = |bytes: &mut Vec<u8>, sig: &[u8; 4], offset: usize| {
+            let at = find_subslice(bytes, sig).expect("header present") + offset;
+            bytes[at..at + 4].copy_from_slice(&10u32.to_le_bytes());
+        };
+        patch(&mut j, b"PK\x03\x04", 22);
+        patch(&mut j, b"PK\x01\x02", 24);
+        let mut z = zip::ZipArchive::new(Cursor::new(j.as_slice())).unwrap();
+        assert_eq!(
+            z.by_name("big.txt").unwrap().size(),
+            10,
+            "the lie is believed"
+        );
+        assert!(read_capped(&mut z, "big.txt", 100).is_err());
+    }
+
+    /// `@Mod` is not repeatable; a class carrying two is crafted and is refused
+    /// outright rather than collected. Hand-built, because javac cannot emit it.
+    #[test]
+    fn a_class_with_two_mod_annotations_is_refused() {
+        let class = |annotations: u16| {
+            let mut c = vec![0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 3];
+            for s in [b"RuntimeVisibleAnnotations".as_slice(), MOD_DESCRIPTOR] {
+                c.push(1);
+                c.extend_from_slice(&(s.len() as u16).to_be_bytes());
+                c.extend_from_slice(s);
+            }
+            // access, this, super, interfaces, fields, methods, one attribute.
+            c.extend_from_slice(&[0, 0x21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1]);
+            let body_len = 2 + 4 * u32::from(annotations);
+            c.extend_from_slice(&body_len.to_be_bytes());
+            c.extend_from_slice(&annotations.to_be_bytes());
+            for _ in 0..annotations {
+                c.extend_from_slice(&[0, 2, 0, 0]); // type #2, no pairs
+            }
+            c
+        };
+        assert_eq!(
+            mod_annotations(&class(1)),
+            Some(vec![ModAnnotation::default()])
+        );
+        assert_eq!(mod_annotations(&class(2)), None);
     }
 
     #[test]
@@ -765,9 +886,12 @@ mod tests {
             "Gson's boolean"
         );
         assert_eq!(
-            with(b"{ not json".as_slice(), fixture!("fixture/UdiDep.class")),
+            with(
+                b"not json at all".as_slice(),
+                fixture!("fixture/UdiDep.class")
+            ),
             1,
-            "an unparseable mcmod.info is FML's empty collection"
+            "an unparseable mcmod.info that never names the flag is no rule"
         );
     }
 
