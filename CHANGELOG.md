@@ -32,8 +32,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **The skin editor's controls look and work like the rest of the launcher.**
   Pose, model, brush, paint layer and background are picked the way Settings
   picks a theme, and loading, downloading and the library are icon buttons with
-  tooltips. The chosen tool is now highlighted, here and in the screenshot
-  annotator.
+  tooltips. The chosen tool is now highlighted, as is the line thickness in the
+  screenshot annotator.
+
+### Fixed
+
+- **Icon buttons that can be disabled show their tooltip to the keyboard too.**
+  Tabbing to one, such as a page step in a narrow window, showed nothing: the
+  tooltip appeared only under the mouse.
 
 ## [0.26.0] — 2026-10-07
 
