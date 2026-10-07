@@ -88,7 +88,9 @@
     // A dependency's Install / Add in the tree, with the mod that declared it (null under an
     // absent parent).
     onInstallDep: (node: DepTreeNode, dependentSha1: string | null) => void;
-    onJump: (target: { source: ModSource; project_id: string }) => void;
+    // «Show in the list» from the tree or «Required by» (the tree passes its node, which also says
+    // whether it is installed or switched off).
+    onJump: (target: { source: ModSource; project_id: string; name: string }) => void;
     onProblemFix?: (fix: RowFix) => void;
     // «and N more»: reveal this mod's rows in the «What stops the game» panel.
     onRevealProblems?: () => void;

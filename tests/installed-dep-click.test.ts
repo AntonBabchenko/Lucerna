@@ -56,7 +56,7 @@ describe('dep-tree node name opens the mod detail modal', () => {
     const nameBtn = screen.getByRole('button', { name: 'Bravo' });
     const arrow = screen.getByRole('button', { name: 'Show Bravo in the list' });
     expect(arrow).not.toBe(nameBtn);
-    expect(arrow.querySelector('.lucide-arrow-up-right')).toBeTruthy();
+    expect(arrow.querySelector('.lucide-locate-fixed')).toBeTruthy();
 
     await fireEvent.click(arrow);
     expect(onJump).toHaveBeenCalledWith(installedNode);
@@ -110,10 +110,59 @@ describe('"required by" entries are interactive', () => {
     });
 
     const arrow = screen.getByRole('button', { name: 'Show Alpha in the list' });
-    expect(arrow.querySelector('.lucide-arrow-up-right')).toBeTruthy();
+    expect(arrow.querySelector('.lucide-locate-fixed')).toBeTruthy();
 
     await fireEvent.click(arrow);
-    expect(onJump).toHaveBeenCalledWith({ source: 'modrinth', project_id: 'PA' });
+    expect(onJump).toHaveBeenCalledWith({ source: 'modrinth', project_id: 'PA', name: 'Alpha' });
     expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  // Spec 2026-10-07 D6: an entry is a chip with the row's hover fill, so a click on it — not only
+  // on its name — opens the mod; the name reads as the chip's text, not as a link.
+  it('a click on a "required by" chip opens the requiring mod; its name is no link', async () => {
+    const onOpenDetail = vi.fn();
+    const onJump = vi.fn();
+    render(DepSection, {
+      props: { root, requiredBy, onInstall: () => {}, onJump, onOpenDetail },
+    });
+    const name = screen.getByRole('button', { name: 'Alpha' });
+    expect(name.classList).not.toContain('btn-tertiary');
+    const chip = name.parentElement as HTMLElement;
+    expect(chip.classList).toContain('hover:bg-subtle');
+    await fireEvent.click(chip);
+    expect(onOpenDetail.mock.calls).toEqual([['modrinth', 'PA']]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Show Alpha in the list' }));
+    expect(onOpenDetail).toHaveBeenCalledTimes(1);
+    expect(onJump).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The graph seeds every path with the panel's own mod, so it comes back one level down or deeper
+// (spec 2026-10-07 D5): the section names it for every level of its trees.
+describe('DepSection tells its trees which mod is its own', () => {
+  it('a nested edge back to the panel’s mod reads «this mod»', async () => {
+    render(DepSection, {
+      props: {
+        root: {
+          sha1: 'a',
+          source: 'modrinth' as const,
+          project_id: 'PA',
+          name: 'Alpha',
+          required: [
+            {
+              ...installedNode,
+              children: [{ ...installedNode, project_id: 'PA', name: 'Alpha', cycle: true }],
+            },
+          ],
+          optional: [],
+        },
+        requiredBy: [],
+        onInstall: () => {},
+        onJump: () => {},
+        onOpenDetail: () => {},
+      },
+    });
+    expect(screen.getByText('this mod')).toBeTruthy();
+    expect(screen.queryByText('expanded above')).toBeNull();
   });
 });

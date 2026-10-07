@@ -216,7 +216,7 @@
                 aria-label={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
                 use:tooltip={$t('mods.deps.jumpToTitle', { name: v.dependent_name })}
                 onclick={() => onJumpToDependent?.(v)}
-                ><Icon name="arrowUpRight" size={14} /></button
+                ><Icon name="locate" size={14} /></button
               >
             {/if}
           </div>

@@ -340,8 +340,12 @@ describe('DepTree — each absent dependency says what the loader does', () => {
     });
     expect(screen.getByText('version mismatch')).toBeTruthy();
     const fix = screen.getByRole('button', { name: 'Fix the version conflict with Sodium' });
-    // Its visible text is the panel's «Fix…»; the name only adds which node it is for.
-    expect(fix.textContent?.trim()).toBe('Fix…');
+    // Icon-only like every action in the tree (maintainer, 2026-10-07): the wrench, its name in
+    // the tooltip. It belongs to the state it remedies, so it sits in the state's group, before
+    // the icon columns.
+    expect(fix.textContent?.trim()).toBe('');
+    expect(fix.querySelector('.lucide-wrench')).toBeTruthy();
+    expect(fix.closest('[data-state-group]')).toBeTruthy();
     await fireEvent.click(fix);
     expect(conflictOf).toHaveBeenCalledWith(sodium, 'a');
     expect(onPlan).toHaveBeenCalledWith(conflict);
@@ -451,8 +455,8 @@ describe('DepTree — a WAI-ARIA tree', () => {
       [...(el.firstElementChild?.querySelectorAll('button') ?? [])].map((b) =>
         b.getAttribute('tabindex'),
       );
-    // name, ↗ — the chevron is a mouse affordance, never a tab stop
-    expect(tabIndexes(item('A')).filter((t) => t !== '-1')).toEqual(['0', '0']);
+    // name, switch, remove, show in the list — the chevron is a mouse affordance, never a tab stop
+    expect(tabIndexes(item('A')).filter((t) => t !== '-1')).toEqual(['0', '0', '0', '0']);
     expect(tabIndexes(item('D')).every((t) => t === '-1')).toBe(true);
   });
 
@@ -519,13 +523,13 @@ describe('DepTree — a WAI-ARIA tree', () => {
   });
 });
 
-// Plan §5b V2 (screenshots 06b–06d), spec §6.3: a node's action is a labelled button like
-// «Включить» — the download glyph alone read as nothing next to it; a mark after the state is set
-// apart («установлен · зависимости неизвестны», not run together); a disabled node jumps to its
-// row like an installed one; and every row is one height, a row with a button or a chevron in
-// the same rhythm as one without.
+// Spec 2026-10-07: a node's actions are the Installed row's own icon buttons (ModCard), in
+// columns that line up at every depth; a mark after the state is set apart («установлен ·
+// зависимости неизвестны», not run together); a disabled node jumps to its row like an installed
+// one; and every row is one height, a row with a button or a chevron in the same rhythm as one
+// without.
 describe('DepTree — node actions and rhythm', () => {
-  it('an absent dependency’s Install and Add are labelled buttons', async () => {
+  it('an absent dependency’s Install and Add are the list’s icon buttons', async () => {
     const onInstall = vi.fn();
     const onAdd = vi.fn();
     const nodes = [
@@ -534,13 +538,16 @@ describe('DepTree — node actions and rhythm', () => {
     ];
     render(DepTree, { props: treeProps({ nodes, onInstall, onAdd }) });
     const install = screen.getByRole('button', { name: 'Install Arch' });
-    expect(install.textContent?.trim()).toBe('Install');
-    expect(install).toHaveBtnVariant('secondary');
-    expect(install).toHaveBtnSize('xs');
+    expect(install.textContent?.trim()).toBe('');
+    expect(install.classList).toContain('btn-icon');
+    expect(install.classList).toContain('btn-icon-sm');
+    expect(install.classList).toContain('!text-accent');
+    expect(install.querySelector('.lucide-download')).toBeTruthy();
     const add = screen.getByRole('button', { name: 'Add Extra' });
-    expect(add.textContent?.trim()).toBe('Add');
     await fireEvent.click(add);
     expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'extra' }), null);
+    await fireEvent.click(install);
+    expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'arch' }), null);
   });
 
   it('sets «dependencies unknown» apart from the state before it', () => {
@@ -577,5 +584,253 @@ describe('DepTree — node actions and rhythm', () => {
       expect(row.classList).toContain('min-h-7');
       expect(row.className).not.toMatch(/\bpy-/);
     }
+  });
+});
+
+// Maintainer, 2026-10-07: every row carries the Installed row's actions — the switch, install or
+// remove, and «show in the list» — drawn on every row and inactive where they cannot act, so the
+// columns never have holes.
+describe('DepTree — every row carries the list’s actions', () => {
+  const ctxWith = (over: Partial<DepTreeCtx> = {}): DepTreeCtx => ({ ...EMPTY_TREE_CTX, ...over });
+
+  it('an installed dependency: switch off, remove, show in the list', async () => {
+    const onDisable = vi.fn();
+    const onUninstall = vi.fn();
+    const onJump = vi.fn();
+    const x = leaf('px', { name: 'Xaero' });
+    render(DepTree, {
+      props: treeProps({ nodes: [x], onJump, ctx: ctxWith({ onDisable, onUninstall }) }),
+    });
+    const off = screen.getByRole('button', { name: 'Disable Xaero' });
+    expect(off.classList).toContain('btn-icon-success');
+    expect(off.querySelector('.lucide-power')).toBeTruthy();
+    const remove = screen.getByRole('button', { name: 'Remove Xaero' });
+    expect(remove.classList).toContain('btn-icon-danger');
+    const locate = screen.getByRole('button', { name: 'Show Xaero in the list' });
+    expect(locate.querySelector('.lucide-locate-fixed')).toBeTruthy();
+    expect(locate.hasAttribute('disabled')).toBe(false);
+    await fireEvent.click(off);
+    await fireEvent.click(remove);
+    await fireEvent.click(locate);
+    expect(onDisable).toHaveBeenCalledWith(x);
+    expect(onUninstall).toHaveBeenCalledWith(x);
+    expect(onJump).toHaveBeenCalledWith(x);
+  });
+
+  it('a switched-off dependency: switch on, remove, show in the list', async () => {
+    const onEnable = vi.fn();
+    const onUninstall = vi.fn();
+    const x = leaf('px', { name: 'Xaero', installed: false, disabled: true });
+    render(DepTree, { props: treeProps({ nodes: [x], ctx: ctxWith({ onEnable, onUninstall }) }) });
+    const on = screen.getByRole('button', { name: 'Enable Xaero' });
+    expect(on.classList).toContain('!text-muted');
+    await fireEvent.click(on);
+    expect(onEnable).toHaveBeenCalledWith(x);
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove Xaero' }));
+    expect(onUninstall).toHaveBeenCalledWith(x);
+    const locate = screen.getByRole('button', { name: 'Show Xaero in the list' });
+    expect(locate.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('an absent dependency keeps the columns: its switch and «show» are there, inactive', () => {
+    render(DepTree, {
+      props: treeProps({ nodes: [leaf('arch', { name: 'Arch', installed: false })] }),
+    });
+    const toggle = screen.getByRole('button', { name: 'Enable Arch' });
+    const locate = screen.getByRole('button', { name: 'Show Arch in the list' });
+    for (const b of [toggle, locate]) {
+      expect(b.hasAttribute('disabled')).toBe(true);
+      // A disabled button fires no pointer events: the reason's tooltip is its wrapper's (§5).
+      expect(b.parentElement?.tagName).toBe('SPAN');
+      expect(b.parentElement?.getAttribute('data-slot')).not.toBeNull();
+    }
+    expect(screen.queryByRole('button', { name: 'Remove Arch' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Install Arch' }).hasAttribute('disabled')).toBe(
+      false,
+    );
+  });
+
+  it('every row has the three columns, in the list’s order', () => {
+    const nodes = [
+      leaf('x', { name: 'Xaero' }),
+      leaf('arch', { name: 'Arch', installed: false }),
+      leaf('off', { name: 'Off', installed: false, disabled: true }),
+    ];
+    render(DepTree, { props: treeProps({ nodes }) });
+    for (const name of ['Xaero', 'Arch', 'Off']) {
+      const slots = [...(item(name).firstElementChild?.querySelectorAll('[data-slot]') ?? [])];
+      expect(slots.map((el) => el.getAttribute('data-slot'))).toEqual([
+        'toggle',
+        'presence',
+        'locate',
+      ]);
+    }
+  });
+
+  // Focus survives a removal (DESIGN.md §13): each column keeps ONE button whatever the node's
+  // state, so the button the user pressed is still there — still focused — when the graph comes
+  // back with the node absent or switched off.
+  it('a column’s button is one element across the node’s states', async () => {
+    const x = leaf('px', { name: 'Xaero' });
+    const { rerender } = render(DepTree, { props: treeProps({ nodes: [x] }) });
+    const remove = screen.getByRole('button', { name: 'Remove Xaero' });
+    const toggle = screen.getByRole('button', { name: 'Disable Xaero' });
+    await rerender(treeProps({ nodes: [{ ...x, installed: false, disabled: true }] }));
+    expect(screen.getByRole('button', { name: 'Enable Xaero' })).toBe(toggle);
+    expect(screen.getByRole('button', { name: 'Remove Xaero' })).toBe(remove);
+    await rerender(treeProps({ nodes: [{ ...x, installed: false, disabled: false }] }));
+    expect(screen.getByRole('button', { name: 'Install Xaero' })).toBe(remove);
+  });
+
+  it('an install in flight spins on its own node, and another click there does nothing', async () => {
+    const onInstall = vi.fn();
+    const nodes = [
+      leaf('arch', { name: 'Arch', installed: false }),
+      leaf('lib', { name: 'Lib', installed: false }),
+    ];
+    render(DepTree, {
+      props: treeProps({
+        nodes,
+        onInstall,
+        ctx: ctxWith({ installing: (k) => k === 'modrinth:arch' }),
+      }),
+    });
+    const busy = screen.getByRole('button', { name: 'Install Arch' });
+    expect(busy.getAttribute('aria-busy')).toBe('true');
+    // aria-disabled, not disabled: a disabled button drops focus, and the node flips to
+    // installed under it when the install lands.
+    expect(busy.getAttribute('aria-disabled')).toBe('true');
+    expect(busy.querySelector('[role="status"]')).toBeTruthy();
+    await fireEvent.click(busy);
+    expect(onInstall).not.toHaveBeenCalled();
+    const idle = screen.getByRole('button', { name: 'Install Lib' });
+    expect(idle.getAttribute('aria-busy')).not.toBe('true');
+    await fireEvent.click(idle);
+    expect(onInstall).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Spec 2026-10-07 D1: pointing at a row fills it like a list row, and the row is the pointer's way
+// to the mod's details — the name stays the keyboard's (Enter).
+describe('DepTree — the row is the target', () => {
+  const rowOf = (name: string) => item(name).firstElementChild as HTMLElement;
+
+  it('a click on the row opens the mod’s details', async () => {
+    const onOpenDetail = vi.fn();
+    render(DepTree, { props: treeProps({ onOpenDetail }) });
+    await fireEvent.click(rowOf('D'));
+    expect(onOpenDetail.mock.calls).toEqual([['modrinth', 'd']]);
+  });
+
+  it('a click on one of its buttons is that button’s alone', async () => {
+    const onOpenDetail = vi.fn();
+    const onUninstall = vi.fn();
+    render(DepTree, {
+      props: treeProps({ onOpenDetail, ctx: { ...EMPTY_TREE_CTX, onUninstall } }),
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'D' }));
+    expect(onOpenDetail).toHaveBeenCalledTimes(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove D' }));
+    expect(onUninstall).toHaveBeenCalledTimes(1);
+    await fireEvent.click(item('A').querySelector('[data-tree-toggle]') as HTMLElement);
+    expect(onOpenDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('a nested row opens its own mod, never its parents’', async () => {
+    const onOpenDetail = vi.fn();
+    render(DepTree, { props: treeProps({ onOpenDetail }) });
+    await fireEvent.click(rowOf('B'));
+    expect(onOpenDetail.mock.calls).toEqual([['modrinth', 'b']]);
+  });
+
+  it('a drag that selected text opens nothing', async () => {
+    const onOpenDetail = vi.fn();
+    render(DepTree, { props: treeProps({ onOpenDetail }) });
+    const selection = vi
+      .spyOn(window, 'getSelection')
+      .mockReturnValue({ toString: () => 'D' } as Selection);
+    await fireEvent.click(rowOf('D'));
+    selection.mockRestore();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it('the name reads as the row’s, not as a link', () => {
+    render(DepTree, { props: treeProps() });
+    expect(screen.getByRole('button', { name: 'D' }).classList).not.toContain('btn-tertiary');
+    expect(rowOf('D').classList).toContain('hover:bg-subtle');
+    expect(rowOf('D').classList).toContain('cursor-pointer');
+  });
+});
+
+// Spec 2026-10-07 D5: «⟳ цикл» told the user nothing. The graph seeds every path with the panel's
+// own mod (depgraph.rs), so an edge back to it is a cycle — said as «this mod»; any other repeat
+// is «expanded above».
+describe('DepTree — the cycle mark says what it is', () => {
+  const selfUnder = (props: Record<string, unknown> = {}) =>
+    treeProps({
+      rootKey: 'modrinth:a',
+      nodes: [leaf('b', { children: [leaf('a', { name: 'Alpha', cycle: true })] })],
+      ...props,
+    });
+
+  it('the panel’s own mod, met again below, has «this mod» as its state', () => {
+    render(DepTree, { props: selfUnder() });
+    const self = item('Alpha');
+    expect(self.querySelector('[id$="-state"]')?.textContent?.trim()).toBe('this mod');
+    // No second element for the mark: the description names only what is in the DOM.
+    expect(self.querySelector('[id$="-cycle"]')).toBeNull();
+    expect(describedText(self)).toBe('this mod');
+    expect(self.querySelector('.lucide-corner-left-up')).toBeTruthy();
+    // Its actions are an installed node's — the same as the row the panel hangs under.
+    expect(screen.getByRole('button', { name: 'Remove Alpha' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Show Alpha in the list' }).hasAttribute('disabled'),
+    ).toBe(false);
+  });
+
+  it('a version mismatch on that edge keeps its state and Fix; the mark follows it', () => {
+    const conflict: DepViolation = {
+      kind: 'version_out_of_range',
+      dependent_name: 'B',
+      dependent_sha1: 'b-sha',
+      dep_id: 'a',
+      needed: '>=2',
+      needed_desc: rawRangeDesc('>=2'),
+      installed_version: '1.0',
+      provider_project: { source: 'modrinth', project_id: 'a', version_id: null },
+      provider_sha1: null,
+      family: null,
+    };
+    render(DepTree, {
+      props: selfUnder({
+        ctx: {
+          ...EMPTY_TREE_CTX,
+          report: { violations: [conflict] },
+          enabledShaOf: () => 'b-sha',
+          conflictOf: () => conflict,
+        },
+      }),
+    });
+    const self = item('Alpha');
+    expect(self.getAttribute('data-node-state')).toBe('out_of_range');
+    expect(describedText(self)).toBe('version mismatch this mod');
+    expect(
+      screen.getByRole('button', { name: 'Fix the version conflict with Alpha' }),
+    ).toBeTruthy();
+  });
+
+  it('any other repeat keeps its state; «expanded above» follows it, set apart', () => {
+    render(DepTree, {
+      props: treeProps({
+        rootKey: 'modrinth:root',
+        nodes: [leaf('b', { children: [leaf('x', { name: 'Xaero', cycle: true })] })],
+      }),
+    });
+    const x = item('Xaero');
+    expect(describedText(x)).toBe('installed expanded above');
+    const mark = x.querySelector('[id$="-cycle"]') as HTMLElement;
+    expect(mark.textContent?.trim()).toBe('expanded above');
+    expect(mark.previousElementSibling?.textContent?.trim()).toBe('·');
+    expect(screen.queryByText('cycle')).toBeNull();
   });
 });

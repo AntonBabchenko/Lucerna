@@ -22,7 +22,7 @@
     requiredBy: RequiredByEntry[];
     // The node and the mod that declared it (null under an absent parent) — see DepTree.
     onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
-    onJump: (target: { source: ModSource; project_id: string }) => void;
+    onJump: (target: { source: ModSource; project_id: string; name: string }) => void;
     onOpenDetail: (source: ModSource, projectId: string) => void;
     // What the trees need to say what the loader does about each dependency.
     treeCtx?: DepTreeCtx;
@@ -33,6 +33,16 @@
   const optId = $derived(`dep-opt-${root.sha1}`);
   // Why the platform could not describe this mod's installed version, when it could not.
   const unknownWhy = $derived(root.deps_unknown ?? null);
+  // The panel's own mod, for every level of its trees: an edge back to it reads «this mod».
+  const rootKey = $derived(`${root.source}:${root.project_id}`);
+
+  // A chip is clicked like a tree row (spec 2026-10-07 D6): anywhere on it opens the mod, except
+  // its own buttons (the name's click bubbles here too) and a drag that selected text.
+  function onChipClick(e: MouseEvent, entry: RequiredByEntry) {
+    if ((e.target as Element).closest('button')) return;
+    if ((window.getSelection()?.toString() ?? '') !== '') return;
+    onOpenDetail(entry.source, entry.projectId);
+  }
 </script>
 
 <!-- onAdd and onInstall both resolve to the same install handler here: in this
@@ -61,6 +71,7 @@
     <DepTree
       nodes={root.required}
       labelledby={reqId}
+      {rootKey}
       dependentSha1={root.sha1}
       ctx={treeCtx}
       {onInstall}
@@ -76,6 +87,7 @@
     <DepTree
       nodes={root.optional}
       labelledby={optId}
+      {rootKey}
       dependentSha1={root.sha1}
       ctx={treeCtx}
       {onInstall}
@@ -88,24 +100,30 @@
     <div class="text-[10px] uppercase tracking-wide text-muted mt-2">
       {$t('mods.installed.sectionRequiredBy')}
     </div>
-    <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+    <div class="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs">
       {#each requiredBy as e (e.sha1)}
-        <!-- Name opens the mod's info modal; the separate ↗ jumps to the
-             requiring mod's own row — mirroring the dependency tree. The two
-             stay together when the list wraps. -->
-        <span class="inline-flex items-center gap-1">
+        <!-- A chip, not a row: a library can be required by dozens of mods. It reads like a
+             tree row — the row's hover fill, a click on it opens the mod — and its locate button
+             shows the requiring mod's own row, as in the tree. The two stay together when the
+             list wraps. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions — the
+             pointer's shortcut to the name button, which is the keyboard path. -->
+        <span
+          class="group inline-flex cursor-pointer items-center rounded ps-1.5 transition-colors hover:bg-subtle"
+          onclick={(ev) => onChipClick(ev, e)}
+        >
           <button
             type="button"
-            class="btn-tertiary"
+            class="rounded text-left text-secondary transition-colors group-hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
             onclick={() => onOpenDetail(e.source, e.projectId)}>{e.name}</button
           >
           <button
             type="button"
-            class="text-accent inline-flex items-center justify-center"
+            class="btn-icon btn-icon-sm"
             use:tooltip={$t('mods.deps.jumpToTitle', { name: e.name })}
             aria-label={$t('mods.deps.jumpToTitle', { name: e.name })}
-            onclick={() => onJump({ source: e.source, project_id: e.projectId })}
-            ><Icon name="arrowUpRight" size={12} /></button
+            onclick={() => onJump({ source: e.source, project_id: e.projectId, name: e.name })}
+            ><Icon name="locate" size={15} /></button
           >
         </span>
       {/each}

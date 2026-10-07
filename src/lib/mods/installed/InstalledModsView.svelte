@@ -371,9 +371,37 @@
       if (!sha1) return;
       void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
     },
+    // The row's own Disable and Remove, for the jar the node stands for (spec 2026-10-07 D3a).
+    // Focus stays on the tree's button — its column keeps one element whatever the node's state
+    // — so the list's refocus is a no-op, unless the panel itself went: its own mod was the one
+    // switched off or removed.
+    onDisable: (node) => {
+      const sha1 = enabledShaByKey.get(`${node.source}:${node.project_id}`);
+      // Switched off or removed since the graph was built: that change is already re-resolving it.
+      if (!sha1) return;
+      const index = pagedIndexOf((r) => r.installed.sha1 === sha1);
+      void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], false).then(() =>
+        refocusAfterRemoval(index),
+      );
+    },
+    onUninstall: (node) => {
+      const sha1 = jarOf(node);
+      const row = sha1 ? rowBySha.get(sha1) : undefined;
+      // Removed since the graph was built: that removal is already re-resolving it.
+      if (!row) return;
+      void uninstall(row);
+    },
+    installing: (key) => deps.isInstalling(key),
     conflictOf: (node, dependentSha1) => edgeConflict(blockingViolations, node, dependentSha1),
     onPlan: (v) => fixVersion(v),
   };
+  // The jar a tree node or a «Required by» entry stands for: an installed node's enabled jar, a
+  // switched-off one's disabled jar — the maps the tree's Enable already reads.
+  function jarOf(node: { source: string; project_id: string; installed?: boolean }): string | null {
+    const key = `${node.source}:${node.project_id}`;
+    if (node.installed === false) return disabledShaByKey.get(key) ?? null;
+    return enabledShaByKey.get(key) ?? disabledShaByKey.get(key) ?? null;
+  }
 
   // Reset per-row remediation state on instance switch. The keys are dep-based
   // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
@@ -627,10 +655,12 @@
   // while the report is current), else every mod. A report that predates a
   // removal names a mod no view holds — say so, and change no filter for
   // nothing (clearing them would show nothing anyway).
-  async function jumpToDependent(v: DepViolation): Promise<void> {
-    const sha1 = v.dependent_sha1;
+  function jumpToDependent(v: DepViolation): Promise<void> {
+    return jumpToJar(v.dependent_sha1, v.dependent_name);
+  }
+  async function jumpToJar(sha1: string, name: string): Promise<void> {
     if (await deps.jumpToSha1(sha1)) return;
-    const gone = () => pushInfo(get(t)('mods.preflight.dependentGone', { name: v.dependent_name }));
+    const gone = () => pushInfo(get(t)('mods.preflight.dependentGone', { name }));
     if (!rowBySha.has(sha1)) {
       gone();
       return;
@@ -640,6 +670,21 @@
     await tick();
     // Removed in the meantime (the list re-read while the view changed).
     if (!(await deps.jumpToSha1(sha1))) gone();
+  }
+  // The tree's and «Required by»'s locate: the same way, once the jar is looked up by project —
+  // never a silent nothing when a search hides the row (spec 2026-10-07 D4a).
+  function jumpToProject(target: {
+    source: ModSource;
+    project_id: string;
+    name: string;
+    installed?: boolean;
+  }): Promise<void> {
+    const sha1 = jarOf(target);
+    if (!sha1) {
+      pushInfo(get(t)('mods.preflight.dependentGone', { name: target.name }));
+      return Promise.resolve();
+    }
+    return jumpToJar(sha1, nameBySha.get(sha1) ?? target.name);
   }
 
   // «Fix all (N)»: the Play gate's repair (fix-all.ts), then a FRESH pre-flight
@@ -1231,7 +1276,7 @@
           onShowChangelog={() => openChangelog(row)}
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
-          onJump={deps.jumpToMod}
+          onJump={jumpToProject}
           onProblemFix={(fix) => onRowFix(row, fix)}
           onRevealProblems={() => {
             const first = violationsBySha.get(row.installed.sha1)?.[0];

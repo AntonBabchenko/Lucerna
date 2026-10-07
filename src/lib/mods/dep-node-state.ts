@@ -35,6 +35,12 @@ export type DepTreeCtx = {
   enabledShaOf: (projectKey: string) => string | null;
   /** Switch a disabled dependency back on (the host looks its jar up by project). */
   onEnable: (node: DepTreeNode) => void;
+  /** Switch an installed dependency off — its enabled jar, by the row's own guarded path. */
+  onDisable: (node: DepTreeNode) => void;
+  /** Remove the jar a node stands for (enabled or switched off), by the row's own guarded path. */
+  onUninstall: (node: DepTreeNode) => void;
+  /** Whether an Install / Add of this `source:project_id` is in flight. */
+  installing: (projectKey: string) => boolean;
   /**
    * The version conflict an out-of-range node stands for — `dependentSha1`'s (this level's
    * dependent) own, `edgeConflict` over the violations the host can fix — or null when the host
@@ -50,6 +56,9 @@ export const EMPTY_TREE_CTX: DepTreeCtx = {
   projectOf: () => null,
   enabledShaOf: () => null,
   onEnable: () => {},
+  onDisable: () => {},
+  onUninstall: () => {},
+  installing: () => false,
   conflictOf: () => null,
   onPlan: () => {},
 };
