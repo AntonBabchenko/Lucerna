@@ -305,8 +305,7 @@
   >
     <button
       type="button"
-      class="btn-icon btn-icon-sm"
-      class:text-accent={tool === 'pan'}
+      class="btn-icon btn-icon-sm {tool === 'pan' ? '!text-accent' : ''}"
       aria-pressed={tool === 'pan'}
       aria-label={$t('screenshots.toolPan')}
       use:tooltip={$t('screenshots.toolPan')}
@@ -352,8 +351,7 @@
           <span class="mx-0.5 h-5 w-px bg-border-subtle"></span>
           <button
             type="button"
-            class="btn-icon btn-icon-sm"
-            class:text-accent={!markerThick}
+            class="btn-icon btn-icon-sm {!markerThick ? '!text-accent' : ''}"
             aria-pressed={!markerThick}
             aria-label={$t('screenshots.thin')}
             use:tooltip={$t('screenshots.thin')}
@@ -363,8 +361,7 @@
           </button>
           <button
             type="button"
-            class="btn-icon btn-icon-sm"
-            class:text-accent={markerThick}
+            class="btn-icon btn-icon-sm {markerThick ? '!text-accent' : ''}"
             aria-pressed={markerThick}
             aria-label={$t('screenshots.thick')}
             use:tooltip={$t('screenshots.thick')}
@@ -380,8 +377,7 @@
       <button
         bind:this={eraserBtnEl}
         type="button"
-        class="btn-icon btn-icon-sm"
-        class:text-accent={tool === 'eraser'}
+        class="btn-icon btn-icon-sm {tool === 'eraser' ? '!text-accent' : ''}"
         aria-pressed={tool === 'eraser'}
         aria-haspopup="true"
         aria-expanded={openPopover === 'eraser'}
@@ -399,8 +395,7 @@
         >
           <button
             type="button"
-            class="btn-icon btn-icon-sm"
-            class:text-accent={!eraserThick}
+            class="btn-icon btn-icon-sm {!eraserThick ? '!text-accent' : ''}"
             aria-pressed={!eraserThick}
             aria-label={$t('screenshots.thin')}
             use:tooltip={$t('screenshots.thin')}
@@ -410,8 +405,7 @@
           </button>
           <button
             type="button"
-            class="btn-icon btn-icon-sm"
-            class:text-accent={eraserThick}
+            class="btn-icon btn-icon-sm {eraserThick ? '!text-accent' : ''}"
             aria-pressed={eraserThick}
             aria-label={$t('screenshots.thick')}
             use:tooltip={$t('screenshots.thick')}
@@ -425,8 +419,7 @@
     </div>
     <button
       type="button"
-      class="btn-icon btn-icon-sm"
-      class:text-accent={tool === 'crop'}
+      class="btn-icon btn-icon-sm {tool === 'crop' ? '!text-accent' : ''}"
       aria-pressed={tool === 'crop'}
       aria-label={$t('screenshots.toolCrop')}
       use:tooltip={$t('screenshots.toolCrop')}
