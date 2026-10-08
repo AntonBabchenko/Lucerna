@@ -996,6 +996,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modsLearnCrossIds: (instanceId: string) => typedError<CrossIdsOutcome, Error>(__TAURI_INVOKE("mods_learn_cross_ids", { instanceId })),
 	/**
+	 *  The instance's alias map (spec 2026-10-08 aliases-everywhere D3): each id on the other
+	 *  platform an installed project is known by, with that project's own identity — what the
+	 *  Browse badge and the version pickers consult besides the rows' own keys. Read-only; the
+	 *  registry read reconciles, as `mods_list_installed`'s does. A sidecar that exists and cannot be
+	 *  read is an error (the caller keeps what it had); an absent or unparsable one is no aliases.
+	 */
+	modsCrossAliases: (instanceId: string) => typedError<CrossAlias[], Error>(__TAURI_INVOKE("mods_cross_aliases", { instanceId })),
+	/**
 	 *  Apply one mod update: resolve `target`'s required dependencies,
 	 *  pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
 	 *  the dependencies the instance does not already have, and preserve the old
@@ -2545,6 +2553,7 @@ export const events = {
 	modInstalled: makeEvent<ModInstalled>("mod-installed"),
 	modToggle: makeEvent<ModToggle>("mod-toggle"),
 	modUninstalled: makeEvent<ModUninstalled>("mod-uninstalled"),
+	modsCrossIdsLearned: makeEvent<ModsCrossIdsLearned>("mods-cross-ids-learned"),
 	modsReconciled: makeEvent<ModsReconciled>("mods-reconciled"),
 	processExited: makeEvent<ProcessExited>("process-exited"),
 	processSpawned: makeEvent<ProcessSpawned>("process-spawned"),
@@ -3197,11 +3206,19 @@ export type CropFrac = {
 	h: number | null,
 };
 
+/**  One alias of an installed project: its id on the other platform, with its own identity. */
+export type CrossAlias = {
+	alias_source: ModSource,
+	alias_project_id: string,
+	own_source: ModSource,
+	own_project_id: string,
+};
+
 /**  What one learning pass of [`mods_learn_cross_ids`] found. */
 export type CrossIdsOutcome = {
 	/**
 	 *  How many installed projects got (or changed) their id on the other platform. Above zero,
-	 *  the dependency graph is stale and is asked for again.
+	 *  the dependency graph is stale: the command says so with `ModsCrossIdsLearned`.
 	 */
 	learned: number,
 };
@@ -6538,6 +6555,16 @@ export type ModpackVersionEntry = {
 };
 
 export type ModsAuthKind = "missing" | "invalid";
+
+/**
+ *  A cross-ids pass learned at least one installed project's id on the other platform (spec
+ *  2026-10-08 aliases-everywhere D4). The page drops the profile's cached dependency graph and
+ *  moves its alias generation; the views holding its graph or alias map read them again.
+ */
+export type ModsCrossIdsLearned = {
+	instance_id: string,
+	learned: number,
+};
 
 /**
  *  The instance's `mods/` directory changed without us: `reconcile` found jars

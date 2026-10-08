@@ -84,6 +84,28 @@ pub struct Canon {
 }
 
 impl Canon {
+    /// The canon of an instance's `rows`: their alias map, and each row's display name by own
+    /// key — the summary's, as the tree names every node, else the registry's.
+    pub fn of(
+        aliases: crate::mods::cross_ids::AliasMap,
+        rows: &[crate::mods::platform::InstalledMod],
+        summaries: &HashMap<(ModSource, String), crate::mods::platform::ModSummary>,
+    ) -> Canon {
+        let names = rows
+            .iter()
+            .filter_map(|m| {
+                let source = m.source?;
+                let pid = m.project_id.clone()?;
+                let name = summaries
+                    .get(&(source, pid.clone()))
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| m.name.clone());
+                Some((key(source, &pid), name))
+            })
+            .collect();
+        Canon { aliases, names }
+    }
+
     /// `deps` with every child under its installed identity, each project once: within a list
     /// the first stays, and an optional child that is also required is the required one (the tree
     /// keys its items by project, and one project is one item).
@@ -451,6 +473,69 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn installed_row(
+        source: ModSource,
+        pid: &str,
+        name: &str,
+    ) -> crate::mods::platform::InstalledMod {
+        crate::mods::platform::InstalledMod {
+            filename: format!("{pid}.jar"),
+            sha1: pid.into(),
+            source: Some(source),
+            project_id: Some(pid.into()),
+            version_id: None,
+            name: name.into(),
+            version_number: None,
+            installed_at: "2026-10-08T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        }
+    }
+
+    fn summary(pid: &str, name: &str) -> crate::mods::platform::ModSummary {
+        crate::mods::platform::ModSummary {
+            source: ModSource::Modrinth,
+            project_id: pid.into(),
+            slug: None,
+            name: name.into(),
+            summary: "".into(),
+            icon_url: None,
+            downloads: 1.0,
+            author: "a".into(),
+            updated_at: None,
+            loaders: None,
+            library: None,
+        }
+    }
+
+    // Pin (spec 2026-10-08 aliases-everywhere): a node is named as the tree names every node —
+    // the platform's project title — and a row with no summary keeps its registry name.
+    #[test]
+    fn canon_names_a_row_by_its_summary_else_by_the_registry() {
+        let rows = [
+            installed_row(ModSource::Modrinth, "MJX", "SRParasites-1.12.2v1.9.21"),
+            installed_row(ModSource::Modrinth, "LIB", "Some Lib"),
+        ];
+        let summaries = HashMap::from([(
+            (ModSource::Modrinth, "MJX".to_string()),
+            summary("MJX", "Scape and Run: Parasites"),
+        )]);
+        let canon = Canon::of(
+            crate::mods::cross_ids::AliasMap::default(),
+            &rows,
+            &summaries,
+        );
+        assert_eq!(
+            canon.names.get("modrinth:MJX").map(String::as_str),
+            Some("Scape and Run: Parasites")
+        );
+        assert_eq!(
+            canon.names.get("modrinth:LIB").map(String::as_str),
+            Some("Some Lib")
+        );
+    }
 
     fn child(pid: &str, name: &str) -> DepChild {
         DepChild {

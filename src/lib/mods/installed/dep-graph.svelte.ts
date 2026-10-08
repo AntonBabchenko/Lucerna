@@ -1,4 +1,4 @@
-import { tick } from 'svelte';
+import { tick, untrack } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
@@ -11,6 +11,7 @@ import {
   type ModSource,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { crossIdsGeneration } from '$lib/mods/cross-ids.svelte';
 import { modWriteReason } from '$lib/mods/mod-ops.svelte';
 import { installDependency, installModWithDeps } from '$lib/tasks/adapters/mod-install';
 import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -145,6 +146,9 @@ export function createDepGraph(
     const id = getInstanceId();
     if (!id) return;
     const ticket = ++loadTicket;
+    // The profile's alias generation when the graph was asked for (untracked: this also runs
+    // inside the seed effect, which must not re-run on a bump).
+    const gen = untrack(() => crossIdsGeneration(id));
     graphLoading = true;
     error = null;
     const r = await commands.modsDependencyGraph(id);
@@ -155,7 +159,10 @@ export function createDepGraph(
     if (r.status === 'ok') {
       graph = r.data;
       // Only a settled answer is the session's; one the platform could not be reached for is
-      // asked for again on the next open — and never leaves an older graph behind it.
+      // asked for again on the next open — and never leaves an older graph behind it. An answer
+      // asked for before a pass learned an id predates its aliases: it is not kept either, and the
+      // cache is left as the page left it (a view that closed mid-load still keeps a good one).
+      if (untrack(() => crossIdsGeneration(id)) !== gen) return;
       if (isSettledGraph(r.data)) depGraphCache.set(id, r.data);
       else depGraphCache.delete(id);
     } else {
@@ -344,6 +351,19 @@ export function createDepGraph(
           graph = null;
           void reloadGraphNow();
         }
+      });
+      // A pass that learned an id for this profile makes its graph stale (spec 2026-10-08
+      // aliases-everywhere D4; the page moves the generation on the backend's word). Its own
+      // effect, so a bump neither resets `expanded` nor goes through the cache seed above; and
+      // the remembered pair makes a profile switch no bump — nor another profile's bump, which
+      // re-runs this effect too (a SvelteMap key that is missing tracks the whole map).
+      let seen: { id: string | null; gen: number } = { id: null, gen: 0 };
+      $effect(() => {
+        const id = getInstanceId();
+        const gen = id === null ? 0 : crossIdsGeneration(id);
+        const prev = seen;
+        seen = { id, gen };
+        if (id !== null && prev.id === id && prev.gen !== gen) untrack(() => invalidateGraph());
       });
     });
   } catch {

@@ -49,7 +49,13 @@
     offPlatformRows,
     type OffPlatformRow,
   } from '$lib/mods/off-platform';
-  import { switchTarget } from '$lib/mods/version-switch';
+  import { isInstalledBuild, switchTarget } from '$lib/mods/version-switch';
+  import {
+    aliasesFor,
+    crossIdsGeneration,
+    learnCrossIds,
+    loadAliases,
+  } from '$lib/mods/cross-ids.svelte';
   import {
     disableMods,
     enableMods,
@@ -378,7 +384,31 @@
     // pageHits derives from installedMods via installedFor, so the current
     // page's badges (and the optional local hide-installed filter) update
     // reactively once this list resolves — no refetch needed.
+    //
+    // The ids on the other platform follow the list (an alias belongs to a current row), and the
+    // browser runs the learning pass itself: the Installed pane mounts only once opened, so a user
+    // who installs from one platform and browses the other would otherwise never get the alias
+    // (spec 2026-10-08 aliases-everywhere D3). One pass per profile, shared; nothing to ask is no
+    // request.
+    if (isMod) {
+      void loadAliases(reqId);
+      void learnCrossIds(reqId);
+    }
   }
+
+  // A pass that learned an id moves the profile's generation (the page, on the backend's word):
+  // only the alias map is read again — never the list effect below, which re-lists and re-fetches
+  // names.
+  $effect(() => {
+    const id = instanceId;
+    if (!id || !isMod) return;
+    void crossIdsGeneration(id);
+    untrack(() => void loadAliases(id));
+  });
+  // Alias key → own key (`source:project_id`) for the mods kind; empty otherwise.
+  const aliases = $derived(
+    instanceId && isMod ? aliasesFor(instanceId) : new Map<string, string>(),
+  );
 
   $effect(() => {
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
@@ -520,8 +550,14 @@
       };
     }
     // Exact platform-and-id match first.
-    const exact = installedById.get(`${card.source}:${card.project_id}`);
+    const key = `${card.source}:${card.project_id}`;
+    const exact = installedById.get(key);
     if (exact) return exact;
+    // Then the project's id on the other platform, learned from the installed jar's bytes (spec
+    // 2026-10-08 aliases-everywhere): certain where the name match below only guesses.
+    const own = aliases.get(key);
+    const aliased = own ? installedById.get(own) : undefined;
+    if (aliased) return aliased;
     // Cross-platform fallback against the fetched project name. We
     // normalize both sides (strip platform suffixes, lowercase,
     // alphanumeric-only) so "Cloth Config API" matches "Cloth Config
@@ -532,6 +568,18 @@
     if (cardKey === '') return null;
     return installedByNameKey.get(cardKey) ?? null;
   }
+
+  // The installed build the detail modal marks: by the project's own key or its id on the other
+  // platform — never the name. A pick in the modal goes through `startInstall` with a card built
+  // from the picked VERSION (its title is no project name), so only an identity can make it a
+  // switch; a name match marking a build here would label a fresh install «Switch» (spec
+  // 2026-10-08 aliases-everywhere D3, review M1).
+  const drawerInstalled = $derived.by((): InstalledMod | null => {
+    if (!isMod || drawerProject === null) return null;
+    const key = `${source}:${drawerProject}`;
+    const own = aliases.get(key);
+    return installedById.get(key) ?? (own ? installedById.get(own) : undefined) ?? null;
+  });
 
   // The current server page, re-ranked so title matches come first (see
   // prioritizeByTitle), then optionally narrowed by the local hide-installed
@@ -1219,7 +1267,12 @@
       // calls — any failure after the removal (resolution, download,
       // verification) left the user with no version of the mod at all. Like
       // «Update», a switch does not offer optional dependencies.
-      const oldSha1 = switchTarget(installedFor(card), primary);
+      // The pick IS the installed build (its version id or its bytes): there is nothing to
+      // install. It used to fall through to a fresh install, which re-recorded the row under this
+      // card's platform — or, with other bytes, put a second jar beside it.
+      const current = installedFor(card);
+      if (current && isInstalledBuild(primary, current.version_id, current.sha1)) return;
+      const oldSha1 = switchTarget(current, primary);
       if (oldSha1) {
         const switchName =
           installedMods.find((r) => r.installed.sha1 === oldSha1)?.projectName ?? card.name;
@@ -1434,14 +1487,8 @@
       {kind}
       installedVersionId={isDatapack
         ? (datapackById.get(`${source}:${drawerProject}`)?.pack.version_id ?? null)
-        : (installedMods.find(
-            (r) => r.installed.source === source && r.installed.project_id === drawerProject,
-          )?.installed.version_id ?? null)}
-      installedSha1={isMod
-        ? (installedMods.find(
-            (r) => r.installed.source === source && r.installed.project_id === drawerProject,
-          )?.installed.sha1 ?? null)
-        : null}
+        : (drawerInstalled?.version_id ?? null)}
+      installedSha1={isMod ? (drawerInstalled?.sha1 ?? null) : null}
       {installingVersionId}
       onClose={() => (drawerProject = null)}
       onInstall={(v, opts) => {

@@ -100,7 +100,7 @@ pub struct OnDisk {
 }
 
 /// One project identity: its platform and its id there.
-type Ident = (ModSource, String);
+pub type Ident = (ModSource, String);
 
 fn platform_name(source: ModSource) -> Option<&'static str> {
     match source {
@@ -155,23 +155,37 @@ fn sidecar_lock() -> &'static tokio::sync::Mutex<()> {
 /// The sidecar, or an empty one: it is a derived cache, so an unreadable file is relearned, never
 /// an error for the caller.
 pub async fn load(instance_root: &Path) -> OnDisk {
+    match read(instance_root).await {
+        Ok(d) => d,
+        Err(e) => {
+            crate::diag!(
+                "[cross-ids] cannot read {}: {e} — relearning",
+                path(instance_root).display()
+            );
+            OnDisk::default()
+        }
+    }
+}
+
+/// The sidecar as [`load`] reads it, but a file that is there and cannot be read is an error, not
+/// an empty map: for a caller that keeps what it had rather than act on «no aliases» it cannot
+/// vouch for (`mods_cross_aliases`). Absent is empty; unparsable is empty too — the next pass
+/// rewrites it whole, as it would a missing one.
+pub async fn read(instance_root: &Path) -> std::io::Result<OnDisk> {
     let p = path(instance_root);
     let bytes = match fs::read(&p).await {
         Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return OnDisk::default(),
-        Err(e) => {
-            crate::diag!("[cross-ids] cannot read {}: {e} — relearning", p.display());
-            return OnDisk::default();
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(OnDisk::default()),
+        Err(e) => return Err(e),
     };
     match serde_json::from_slice::<OnDisk>(&bytes) {
-        Ok(d) => d,
+        Ok(d) => Ok(d),
         Err(e) => {
             crate::diag!(
                 "[cross-ids] {} is unreadable: {e} — relearning",
                 p.display()
             );
-            OnDisk::default()
+            Ok(OnDisk::default())
         }
     }
 }
@@ -244,6 +258,11 @@ impl AliasMap {
     /// The installed project `(source, project_id)` is the same as, when it is an alias.
     pub fn own_of(&self, source: ModSource, project_id: &str) -> Option<&Ident> {
         self.by_alias.get(&(source, project_id.to_string()))
+    }
+
+    /// Every alias, with the row's own identity it stands for.
+    pub fn pairs(&self) -> impl Iterator<Item = (&Ident, &Ident)> {
+        self.by_alias.iter()
     }
 
     /// Every alias as an install-pruning key. A CurseForge id that is not a number cannot be a
@@ -548,7 +567,9 @@ async fn fingerprint(asks: Vec<Ask>) -> Result<Vec<Ask>, Error> {
 
 /// One learning pass over an instance (spec §4). Returns how many aliases are new or changed.
 /// Nothing to ask → no request and no file read. Best-effort: platform failures leave their jars
-/// unknown; only reading the registry is an error.
+/// unknown; only reading the registry is an error. This has no AppHandle: a command that runs a
+/// pass emits `ModsCrossIdsLearned` when it learned something, so the views re-read (spec
+/// 2026-10-08 aliases-everywhere D4).
 pub async fn learn(
     instance_root: &Path,
     modrinth_base: &str,
@@ -1378,6 +1399,39 @@ mod tests {
         let map = alias_map(&disk, &rows);
         assert_eq!(map.own_of(ModSource::Curseforge, "9"), None);
         assert_eq!(map.own_of(ModSource::Modrinth, "X"), None);
+    }
+
+    // Review L1 (spec 2026-10-08 aliases-everywhere): `mods_cross_aliases` keeps the browser's map
+    // when the sidecar is there but cannot be read; only `load`, the guards' derived cache, turns
+    // that into «nothing learned».
+    #[tokio::test]
+    async fn read_tells_an_unreadable_sidecar_from_an_absent_one() {
+        let td = tempfile::tempdir().unwrap();
+        assert!(
+            read(td.path()).await.unwrap().aliases.is_empty(),
+            "absent is empty"
+        );
+        // A directory where the file goes: `fs::read` fails with something other than NotFound.
+        std::fs::create_dir_all(path(td.path())).unwrap();
+        assert!(read(td.path()).await.is_err(), "unreadable is an error");
+        assert!(
+            load(td.path()).await.aliases.is_empty(),
+            "load stays a derived cache"
+        );
+    }
+
+    // One step only: row A's id on CurseForge is 1; a stale entry for curseforge:1 (its row is
+    // gone) still names modrinth:C. C is not A — an alias never chains (pin: `alias_map` reads
+    // only the current rows' entries).
+    #[test]
+    fn an_alias_of_an_alias_is_no_alias() {
+        let disk = disk_with(&[
+            ("modrinth:A", "curseforge", "1"),
+            ("curseforge:1", "modrinth", "C"),
+        ]);
+        let map = alias_map(&disk, &[row(ModSource::Modrinth, "A", true)]);
+        assert!(map.own_of(ModSource::Curseforge, "1").is_some());
+        assert_eq!(map.own_of(ModSource::Modrinth, "C"), None);
     }
 
     #[test]

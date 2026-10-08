@@ -428,6 +428,9 @@ pub async fn restore(instance_root: &Path, token: &str) -> Result<Restored, Erro
         details: e.to_string(),
     })?;
     let registry = installed::list(instance_root).await?;
+    // A project installed again under its other platform's id is installed too (spec 2026-10-08
+    // aliases-everywhere): Sodium from CurseForge is the Modrinth Sodium being restored.
+    let aliases = crate::mods::cross_ids::load_alias_map(instance_root, &registry).await;
     let mods = installed::mods_dir(instance_root);
     fs::create_dir_all(&mods)
         .await
@@ -444,7 +447,7 @@ pub async fn restore(instance_root: &Path, token: &str) -> Result<Restored, Erro
     };
     let mut kept_in_trash = 0usize;
     for item in record.items {
-        match restore_item(&dir, &mods, instance_root, &registry, &item).await {
+        match restore_item(&dir, &mods, instance_root, &registry, &aliases, &item).await {
             Ok(Item::Back) => {
                 out.report.restored.push(item.row.name.clone());
                 out.rows.push(item.row);
@@ -478,6 +481,7 @@ async fn restore_item(
     mods: &Path,
     instance_root: &Path,
     registry: &[InstalledMod],
+    aliases: &crate::mods::cross_ids::AliasMap,
     item: &RecordItem,
 ) -> Result<Item, Error> {
     let row = &item.row;
@@ -487,9 +491,14 @@ async fn restore_item(
             && m.source == row.source
             && m.project_id == row.project_id
     };
-    if registry
-        .iter()
-        .any(|m| m.sha1.eq_ignore_ascii_case(&row.sha1) || same_project(m))
+    let installed_as_alias = match (row.source, row.project_id.as_deref()) {
+        (Some(source), Some(project_id)) => aliases.own_of(source, project_id).is_some(),
+        _ => false,
+    };
+    if installed_as_alias
+        || registry
+            .iter()
+            .any(|m| m.sha1.eq_ignore_ascii_case(&row.sha1) || same_project(m))
     {
         return Ok(Item::Skipped(RestoreSkipReason::AlreadyInstalled));
     }
@@ -627,6 +636,17 @@ mod tests {
         project: &str,
         enabled: bool,
     ) -> InstalledMod {
+        place_from(root, file, body, ModSource::Modrinth, project, enabled).await
+    }
+
+    async fn place_from(
+        root: &Path,
+        file: &str,
+        body: &[u8],
+        source: ModSource,
+        project: &str,
+        enabled: bool,
+    ) -> InstalledMod {
         let dir = installed::mods_dir(root);
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let on_disk = if enabled {
@@ -638,7 +658,7 @@ mod tests {
         let row = InstalledMod {
             filename: file.into(),
             sha1: hex::encode(Sha1::digest(body)),
-            source: Some(ModSource::Modrinth),
+            source: Some(source),
             project_id: Some(project.into()),
             version_id: Some(format!("{project}-v1")),
             name: project.to_uppercase(),
@@ -814,6 +834,43 @@ mod tests {
         assert!(
             !installed::mods_dir(root).join("a.jar").exists(),
             "never two builds of one mod"
+        );
+    }
+
+    // Spec 2026-10-08 aliases-everywhere: Sodium removed from Modrinth, then installed again from
+    // CurseForge — which learned its Modrinth id. Undoing the removal would be two copies of one
+    // mod id.
+    #[tokio::test]
+    async fn restore_skips_a_project_installed_again_from_the_other_platform() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let a = place(root, "sodium-mr.jar", b"MR", "AANobbMI", true).await;
+        let t = uninstall_to_trash(root, &[a.sha1.clone()], SystemTime::now())
+            .await
+            .unwrap();
+        place_from(
+            root,
+            "sodium-cf.jar",
+            b"CF",
+            ModSource::Curseforge,
+            "394468",
+            true,
+        )
+        .await;
+        tokio::fs::write(
+            crate::mods::cross_ids::path(root),
+            br#"{"version":1,"aliases":{"curseforge:394468":{"modrinth":"AANobbMI"}},"checked":{}}"#,
+        )
+        .await
+        .unwrap();
+        let out = restore(root, &t.receipt.token).await.unwrap();
+        assert_eq!(
+            out.report.skipped.first().map(|s| s.reason),
+            Some(RestoreSkipReason::AlreadyInstalled)
+        );
+        assert!(
+            !installed::mods_dir(root).join("sodium-mr.jar").exists(),
+            "never two copies of one mod"
         );
     }
 

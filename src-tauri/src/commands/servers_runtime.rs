@@ -2832,9 +2832,24 @@ pub async fn server_install_mod(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     let loader = require_mod_loader(&file)?;
-    let report = crate::commands::install_version_into_dir(
+
+    // What the server has, by project, prunes the dependency closure (spec 2026-10-08
+    // aliases-everywhere D2) — read before anything is downloaded. Reconciled off the async
+    // executor (a full byte read + Sha1 of every new jar), as `server_update_one` does: a mods dir
+    // or a sidecar that cannot be read stops the install here, where it used to go ahead blind.
+    let entries = {
+        let dir = p.mods.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::servers_runtime::installed::reconcile_on_list(&dir)
+        })
+        .await
+        .map_err(|e| Error::io("<reconcile>", e))??
+    };
+    let keys = crate::servers_runtime::installed::project_keys(&entries, None);
+    let run = crate::commands::install_version_into_dir(
         &base,
         &p.mods,
+        &keys,
         source,
         &project_id,
         &version_id,
@@ -2843,40 +2858,38 @@ pub async fn server_install_mod(
     )
     .await?;
 
-    // Record the user-picked primary's identity so the enriched list can show it.
-    // The mods kernel pushes the primary LAST (deps first). Best-effort AND off the
-    // async executor: `sha1_of` does a full-file jar read and `upsert` writes the
-    // sidecar — both blocking, so run them in `spawn_blocking` (mirrors
-    // `install_local_plugin`). A sidecar failure must never fail an install already
-    // completed on disk.
-    // Fast-follow: `copy_version_into_dir` already verifies this sha1 during the
-    // download; a future change could thread it out of `InstallMissingReport` to
-    // skip this re-read (deferred — that struct is shared with the client path).
-    if let Some(primary) = report.installed.last() {
-        let dir = p.mods.clone();
-        let primary = primary.clone();
-        let (src, pid, vid) = (source, project_id, version_id);
-        let _ = tokio::task::spawn_blocking(move || {
-            let jar = dir.join(&primary);
-            if let Ok(sha1) = crate::servers_runtime::installed::sha1_of(&jar) {
-                let _ = crate::servers_runtime::installed::upsert(
-                    &dir,
-                    crate::servers_runtime::installed::ServerInstalledRecord {
-                        filename: primary,
-                        sha1: sha1.to_ascii_lowercase(),
-                        source: Some(src),
-                        project_id: Some(pid),
-                        version_id: Some(vid),
-                        name: None,
-                        version_number: None,
-                        enrich_attempted: false,
-                    },
-                );
-            }
-        })
-        .await;
+    // Every jar the kernel wrote gets its identity — the dependencies too, so the next install
+    // prunes by project. The SHA-1s are the ones the kernel verified while copying, so no jar is
+    // read again.
+    record_written(&id, &p.mods, &run.written).await;
+    Ok(run.report)
+}
+
+/// Record the identity of every jar an install wrote into a server's `mods/`, in one sidecar
+/// section, off the async executor. A record that cannot be written leaves its jar identity-less
+/// — as an adopted jar is until enrichment — but the jar is in place, so the install stands; the
+/// failure is logged, naming the server.
+async fn record_written(
+    id: &str,
+    mods: &std::path::Path,
+    written: &[crate::servers_runtime::installed::WrittenJar],
+) {
+    let records = crate::servers_runtime::installed::records_of_written(written);
+    if records.is_empty() {
+        return;
     }
-    Ok(report)
+    let dir = mods.to_path_buf();
+    match tokio::task::spawn_blocking(move || {
+        crate::servers_runtime::installed::upsert_all(&dir, records)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            crate::diag!("servers: installed into {id}, but its records were not written: {e}")
+        }
+        Err(e) => crate::diag!("servers: installed into {id}, but the record task failed: {e}"),
+    }
 }
 
 /// Adapt a registry record (identity-bearing) into the `InstalledMod` shape
@@ -3174,21 +3187,30 @@ pub async fn server_update_one(
         .map_err(|e| Error::io("<reconcile>", e))??
     };
 
+    // What stays once the old jar is swapped out prunes the update's dependencies (spec
+    // 2026-10-08 aliases-everywhere D2) — taken before `entries` is consumed below.
+    let keys = crate::servers_runtime::installed::project_keys(&entries, Some(&old_sha1));
     let old = entries
         .into_iter()
         .find(|e| e.record.sha1.eq_ignore_ascii_case(&old_sha1))
         .ok_or_else(|| Error::ServerContentStale)?;
 
-    let report = crate::commands::install_version_into_dir(
-        &base,
-        &p.mods,
-        target.source,
-        &target.project_id,
-        &target.version_id,
-        &file.mc_version,
-        loader,
-    )
-    .await?;
+    let crate::commands::IntoDirInstall { report, written } =
+        crate::commands::install_version_into_dir(
+            &base,
+            &p.mods,
+            &keys,
+            target.source,
+            &target.project_id,
+            &target.version_id,
+            &file.mc_version,
+            loader,
+        )
+        .await?;
+    // The dependencies the update brought get their identities now, whatever the swap below
+    // does; the primary is last in `written` and its record is the swap's (`replace`).
+    let deps_written = written.split_last().map_or(&[][..], |(_, deps)| deps);
+    record_written(&id, &p.mods, deps_written).await;
 
     // Derive the swap from the ACTUAL installed primary, never the caller's
     // `target`: `install_version_into_dir` re-resolves the version server-side

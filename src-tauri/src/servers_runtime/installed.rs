@@ -387,6 +387,73 @@ pub fn upsert(jar_dir: &Path, record: ServerInstalledRecord) -> Result<()> {
     sidecar.save(&records)
 }
 
+/// Insert or replace several records in ONE critical section — every jar one install wrote.
+pub fn upsert_all(jar_dir: &Path, records: Vec<ServerInstalledRecord>) -> Result<()> {
+    let sidecar = lock(jar_dir);
+    let mut current = sidecar.load()?;
+    current.retain(|r| !records.iter().any(|n| n.sha1.eq_ignore_ascii_case(&r.sha1)));
+    current.extend(records);
+    sidecar.save(&current)
+}
+
+/// One jar the install kernel wrote: its on-disk name and the version it is.
+pub struct WrittenJar {
+    pub filename: String,
+    pub version: crate::mods::platform::ModVersion,
+}
+
+/// The records of the jars an install wrote — every one, dependencies included. Only the
+/// primary's used to be recorded, so a dependency stayed identity-less until enrichment, and the
+/// next install could not recognise it by project (spec 2026-10-08 aliases-everywhere D2). The
+/// SHA-1 is the version's, which the kernel verified while copying (`copy_version_into_dir`); a
+/// version without one is never written, and gets no record here.
+pub fn records_of_written(written: &[WrittenJar]) -> Vec<ServerInstalledRecord> {
+    written
+        .iter()
+        .filter_map(|w| {
+            let sha1 = w
+                .version
+                .primary_file
+                .sha1
+                .as_deref()?
+                .trim()
+                .to_ascii_lowercase();
+            Some(ServerInstalledRecord {
+                filename: w.filename.clone(),
+                sha1,
+                source: Some(w.version.source),
+                project_id: Some(w.version.project_id.clone()),
+                version_id: Some(w.version.version_id.clone()),
+                name: Some(w.version.name.clone()),
+                version_number: Some(w.version.version_number.clone()),
+                enrich_attempted: true,
+            })
+        })
+        .collect()
+}
+
+/// What the server's jar dir has, by project: the keys of its ENABLED jars with an identity
+/// (`deps::ProjectKey::of_row`, the instance rows' strict rule), minus `except_sha1` — the jar an
+/// update replaces. Same platform only: a server keeps no other-platform ids.
+///
+/// A set-aside jar does not count, as the kernel's file-name view already says: a
+/// `.jar.disabled` copy does not load, so an enabled one is installed beside it. On a server a
+/// jar is set aside by the user or by the quarantine, which keeps every library a kept mod
+/// requires (`mod_classify`'s dependency rescue).
+pub fn project_keys(
+    entries: &[ServerInstalledEntry],
+    except_sha1: Option<&str>,
+) -> HashSet<crate::mods::deps::ProjectKey> {
+    entries
+        .iter()
+        .filter(|e| e.enabled)
+        .filter(|e| except_sha1.is_none_or(|s| !e.record.sha1.eq_ignore_ascii_case(s)))
+        .filter_map(|e| {
+            crate::mods::deps::ProjectKey::of_row(e.record.source, e.record.project_id.as_deref())
+        })
+        .collect()
+}
+
 /// Swap the row for `old_sha1` for `record` in ONE critical section — the
 /// registry half of an update, after its file swap. As two calls (remove, then
 /// upsert) a listing in between would see the new jar with no row, and a crash
@@ -440,6 +507,136 @@ pub fn apply_enrichment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mods::deps::ProjectKey;
+    use crate::mods::platform::{ModFile, ModVersion};
+
+    fn version(project_id: &str, filename: &str, sha1: Option<&str>) -> ModVersion {
+        ModVersion {
+            source: ModSource::Modrinth,
+            project_id: project_id.into(),
+            version_id: format!("{project_id}-v"),
+            name: format!("{project_id} 1.0"),
+            version_number: "1.0".into(),
+            mc_versions: vec!["1.20.1".into()],
+            loaders: vec![],
+            primary_file: ModFile {
+                filename: filename.into(),
+                url: format!("https://cdn.modrinth.com/{filename}"),
+                sha1: sha1.map(Into::into),
+                size: 1.0,
+                distribution_allowed: true,
+                sha256: None,
+            },
+            deps: vec![],
+            published_at: None,
+        }
+    }
+
+    fn written(project_id: &str, filename: &str, sha1: &str) -> WrittenJar {
+        WrittenJar {
+            filename: filename.into(),
+            version: version(project_id, filename, Some(sha1)),
+        }
+    }
+
+    fn entry(
+        sha: &str,
+        source: Option<ModSource>,
+        project_id: Option<&str>,
+        enabled: bool,
+    ) -> ServerInstalledEntry {
+        ServerInstalledEntry {
+            record: ServerInstalledRecord {
+                filename: format!("{sha}.jar"),
+                sha1: sha.into(),
+                source,
+                project_id: project_id.map(Into::into),
+                version_id: None,
+                name: None,
+                version_number: None,
+                enrich_attempted: false,
+            },
+            enabled,
+        }
+    }
+
+    // Spec 2026-10-08 aliases-everywhere D2: a mod installed onto a server brings Fabric API as a
+    // dependency. Its jar gets a record too, so the next install recognises Fabric API by project.
+    #[test]
+    fn every_written_jar_gets_its_record() {
+        let recs = records_of_written(&[
+            written("P7dR8mSH", "fabric-api-0.92.jar", "FAPI-SHA"),
+            written("MOD", "mod.jar", "mod-sha"),
+        ]);
+        assert_eq!(
+            recs.len(),
+            2,
+            "the dependency is recorded, not only the primary"
+        );
+        assert_eq!(recs[0].filename, "fabric-api-0.92.jar");
+        assert_eq!(recs[0].project_id.as_deref(), Some("P7dR8mSH"));
+        assert_eq!(recs[0].source, Some(ModSource::Modrinth));
+        assert_eq!(recs[0].sha1, "fapi-sha", "lowercased, as every sidecar key");
+        assert!(recs[0].enrich_attempted);
+    }
+
+    #[test]
+    fn a_written_version_without_a_sha1_gets_no_record() {
+        let jar = WrittenJar {
+            filename: "x.jar".into(),
+            version: version("X", "x.jar", None),
+        };
+        assert!(records_of_written(&[jar]).is_empty());
+    }
+
+    #[test]
+    fn project_keys_are_the_enabled_identified_jars_only() {
+        let entries = vec![
+            entry("a", Some(ModSource::Modrinth), Some("A"), true),
+            entry("b", Some(ModSource::Modrinth), Some("B"), false), // set aside
+            entry("c", None, None, true),                            // no identity
+            entry("d", Some(ModSource::Curseforge), Some("x9"), true), // not a CurseForge id
+            entry("e", Some(ModSource::Modrinth), Some("E"), true),  // the jar an update replaces
+        ];
+        assert_eq!(
+            project_keys(&entries, Some("E")),
+            HashSet::from([ProjectKey::Modrinth("A".into())])
+        );
+    }
+
+    // The kernel prunes its closure with `deps::is_installed`: Fabric API recorded under one file
+    // name satisfies a dependency on a newer Fabric API file.
+    #[test]
+    fn a_dependency_present_under_another_file_name_is_installed_for_the_kernel() {
+        let entries = vec![entry(
+            "fapi-old",
+            Some(ModSource::Modrinth),
+            Some("P7dR8mSH"),
+            true,
+        )];
+        let newer = version("P7dR8mSH", "fabric-api-0.92.jar", Some("new"));
+        let names = HashSet::from(["fabric-api-0.90.jar".to_string()]);
+        assert!(crate::mods::deps::is_installed(
+            &newer,
+            &project_keys(&entries, None),
+            &names
+        ));
+    }
+
+    #[test]
+    fn upsert_all_writes_every_record_in_one_go_and_replaces_by_sha() {
+        let dir = tempfile::tempdir().unwrap();
+        upsert(dir.path(), rec("old.jar", "aa")).unwrap();
+        upsert_all(dir.path(), vec![rec("new.jar", "AA"), rec("dep.jar", "bb")]).unwrap();
+        let mut names: Vec<String> = lock(dir.path())
+            .load()
+            .unwrap()
+            .into_iter()
+            .map(|r| r.filename)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["dep.jar", "new.jar"]);
+    }
 
     fn rec(filename: &str, sha: &str) -> ServerInstalledRecord {
         ServerInstalledRecord {

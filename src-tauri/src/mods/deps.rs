@@ -67,7 +67,13 @@ impl ProjectKey {
     /// keyed for certain gets no key at all — the install path's rule before
     /// it moved here.
     pub fn of_installed(m: &InstalledMod) -> Option<ProjectKey> {
-        match (m.source, m.project_id.as_deref()) {
+        ProjectKey::of_row(m.source, m.project_id.as_deref())
+    }
+
+    /// The key of a row's identity (`source`, `project_id`), when it has one — the strict rule of
+    /// [`ProjectKey::of_installed`], shared with an own server's sidecar records.
+    pub fn of_row(source: Option<ModSource>, project_id: Option<&str>) -> Option<ProjectKey> {
+        match (source, project_id) {
             (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
             (Some(ModSource::Curseforge), Some(pid)) => {
                 pid.parse().ok().map(ProjectKey::Curseforge)
@@ -146,6 +152,15 @@ impl InstalledView {
         self.keys.extend(aliases);
         self
     }
+}
+
+/// What an instance has, by the one rule every install pruner and guard applies: its rows' own
+/// keys and their ids on the other platform (spec 2026-10-08 aliases-everywhere, D1).
+pub fn installed_view(
+    rows: &[InstalledMod],
+    aliases: &crate::mods::cross_ids::AliasMap,
+) -> InstalledView {
+    InstalledView::of(rows).with_aliases(aliases.project_keys())
 }
 
 /// Whether the instance already has `v`: its project is in `installed`, or an
@@ -646,6 +661,44 @@ mod tests {
         }
     }
 
+    // Spec 2026-10-08 aliases-everywhere: the one view the install, the plan and the migration
+    // build — a project installed from Modrinth is present under its CurseForge id too, whether
+    // its jar is on or off.
+    #[test]
+    fn installed_view_counts_the_aliases_of_enabled_and_disabled_rows() {
+        let rows = vec![
+            row("on", Some(ModSource::Modrinth), Some("MJX"), "on.jar", true),
+            row(
+                "off",
+                Some(ModSource::Modrinth),
+                Some("SOD"),
+                "off.jar",
+                false,
+            ),
+        ];
+        let aliases = crate::mods::cross_ids::AliasMap::from_pairs(&[
+            (
+                (ModSource::Curseforge, "258587".into()),
+                (ModSource::Modrinth, "MJX".into()),
+            ),
+            (
+                (ModSource::Curseforge, "394468".into()),
+                (ModSource::Modrinth, "SOD".into()),
+            ),
+        ]);
+        let view = installed_view(&rows, &aliases);
+        assert!(view.keys.contains(&ProjectKey::Curseforge(258587)));
+        assert!(
+            view.keys.contains(&ProjectKey::Curseforge(394468)),
+            "a disabled copy is a second jar of one mod id too"
+        );
+        assert!(view.keys.contains(&ProjectKey::Modrinth("MJX".into())));
+        assert_eq!(
+            view.enabled_filenames,
+            HashSet::from(["on.jar".to_string()])
+        );
+    }
+
     #[test]
     fn installed_view_counts_disabled_projects_but_only_enabled_file_names() {
         // The two views `mods_install_with_deps` / `mods_resolve_install_plan`
@@ -957,8 +1010,12 @@ mod tests {
             &target,
             &resolved,
         );
-        let requires =
-            crate::mods::orphans::requires_edges(&registry_before, Some(old_sha1), resolved.iter());
+        let requires = crate::mods::orphans::requires_edges(
+            &registry_before,
+            &InstalledView::of(&registry_before).keys,
+            Some(old_sha1),
+            resolved.iter(),
+        );
         let outcome = update_one(
             dd,
             root,
