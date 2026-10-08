@@ -31,6 +31,7 @@ pub mod jar_scan_cache;
 pub mod local;
 pub mod mc_compat;
 pub mod migration;
+pub mod mod_annotation;
 pub mod modpack;
 pub mod modrinth;
 pub mod optimise;
