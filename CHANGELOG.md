@@ -41,6 +41,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
   search or a filter hid the mod's row, it did nothing; now it clears them and
   scrolls to the row.
 
+### Fixed
+
+- **Minecraft 1.12.2 and older profiles no longer report a mod as too old when
+  it is not.** The "What stops the game" panel blocked profiles that start,
+  saying an installed dependency was older than required. Requirements it used
+  to miss are now checked as well.
+
 ## [0.26.0] — 2026-10-07
 
 ### Added
