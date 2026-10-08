@@ -88,6 +88,9 @@ export type DepsTourInput = {
   screenFree: boolean;
   /** This profile's list, its graph and its pre-flight have answered; nothing re-checks. */
   settled: boolean;
+  /** The focus is in a text field — a search being typed. A card that took the focus now would
+   *  turn the next Enter into "Next" (D6's reason), so the attempt is spent instead. */
+  typing: boolean;
   /** Read only at the moment of the attempt. */
   pick: () => DepsTourTarget | null;
 };
@@ -108,6 +111,7 @@ function attempt(
   input: DepsTourInput,
 ): DepsTourState {
   if (!input.screenFree || !input.settled) return armed;
+  if (input.typing) return { kind: 'spent', instanceId: armed.instanceId };
   const target = input.pick();
   return target
     ? { kind: 'held', instanceId: armed.instanceId, target }

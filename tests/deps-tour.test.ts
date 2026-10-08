@@ -118,6 +118,7 @@ describe('nextDepsTourState — one attempt per entry', () => {
     instanceId: 'i1',
     screenFree: true,
     settled: true,
+    typing: false,
     pick: () => T,
   };
 
@@ -150,6 +151,19 @@ describe('nextDepsTourState — one attempt per entry', () => {
     const left = nextDepsTourState(spent, { ...on, onInstalled: false });
     expect(left).toBe(DEPS_TOUR_IDLE);
     expect(nextDepsTourState(left, on)).toEqual({ kind: 'held', instanceId: 'i1', target: T });
+  });
+
+  // The list settles seconds after an entry when the graph is not cached; by then the user may be
+  // typing a search. A card taking the focus then turns their next Enter into "Next" (D6's
+  // reason), so an attempt that lands mid-typing is spent, not started and not postponed.
+  it('spends the attempt when it lands while the user is typing', () => {
+    const pick = vi.fn(() => T);
+    const armed = nextDepsTourState(DEPS_TOUR_IDLE, { ...on, settled: false, pick });
+    expect(nextDepsTourState(armed, { ...on, typing: true, pick })).toEqual({
+      kind: 'spent',
+      instanceId: 'i1',
+    });
+    expect(pick).not.toHaveBeenCalled();
   });
 
   it('keeps its target through its own tour, a reload, paging and a screen owner', () => {

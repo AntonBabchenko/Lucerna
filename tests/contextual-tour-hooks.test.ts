@@ -113,3 +113,62 @@ describe('ContextualTour reveal', () => {
     expect((scroll.mock.contexts.at(-1) as Element).getAttribute('data-tour-ctx')).toBe('hook-b');
   });
 });
+
+// The card's side is decided by its rendered height (found live: the RU Requires card of the deps
+// tour is 290 px, the budget 220 — judged by the budget it went below and lost its buttons under
+// the window). The height reaches the placement through a ResizeObserver on the card.
+describe("ContextualTour placement by the card's real height", () => {
+  let fire: (() => void) | null = null;
+  const box = (top: number, height: number) =>
+    ({
+      x: 100,
+      y: top,
+      top,
+      bottom: top + height,
+      left: 100,
+      right: 300,
+      width: 200,
+      height,
+      toJSON() {},
+    }) as DOMRect;
+  beforeEach(() => {
+    localStorage.clear();
+    __resetLayers();
+    tourState.active = false;
+    fire = null;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          fire = () => cb([], this as unknown as ResizeObserver);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    // Anchor A 300 px above the window's bottom: a 220 px card fits under it, a 290 px one does not.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.getAttribute('data-tour-ctx') === 'hook-a'
+        ? box(window.innerHeight - 300, 55)
+        : box(0, 0);
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('moves the card above its anchor once its real height does not fit below', async () => {
+    render(TourHooks, { props: { steps: STEPS, spy: () => {} } });
+    await settle();
+    const card = screen.getByTestId('contextual-tour-popover');
+    expect(card.getAttribute('style')).toMatch(/^top:/);
+    Object.defineProperty(card, 'offsetHeight', { configurable: true, get: () => 290 });
+    fire?.();
+    await settle();
+    expect(card.getAttribute('style')).toMatch(/^bottom:/);
+  });
+});

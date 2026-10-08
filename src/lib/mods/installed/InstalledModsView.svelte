@@ -1113,11 +1113,26 @@
       instanceId,
       screenFree: !screenOwnedElsewhere() && !anyTourRunning(),
       settled: depsTourSettled,
+      // Read when the attempt is made, not tracked: focus is no reactive state.
+      typing: typingInTextField(),
       pick: () => pickDepsTourTarget(filters.paged.map(depsTourRow)),
     });
     // Same object when nothing changed: the write, and so the re-run, happens only on a change.
     if (next !== depsTour) depsTour = next;
   });
+  function typingInTextField(): boolean {
+    if (typeof document === 'undefined') return false;
+    const el = document.activeElement as HTMLElement | null;
+    return (
+      !!el &&
+      (el.isContentEditable ||
+        el.tagName === 'TEXTAREA' ||
+        (el.tagName === 'INPUT' &&
+          !['button', 'checkbox', 'radio', 'range', 'submit', 'reset'].includes(
+            (el as HTMLInputElement).type,
+          )))
+    );
+  }
   const depsTourTarget = $derived(depsTour.kind === 'held' ? depsTour.target : null);
   const depsTourStepList = $derived(depsTourTarget ? depsTourSteps(depsTourTarget) : []);
   // From step 2 on the mod's panel is open (D2); ContextualTour calls this untracked.

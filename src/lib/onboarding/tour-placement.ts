@@ -52,8 +52,9 @@ export function popoverStyle(
       // Never above the window's top edge (an anchor scrolled up out of view, see `right`).
       return `top:${Math.max(MARGIN, r.bottom + GAP)}px; left:${leftCoord}px;`;
     }
-    // Above, when the card's top stays inside the window there. Its own threshold (0, not MARGIN)
-    // keeps every placement that was on screen before exactly where it was.
+    // Above, when the card's top stays inside the window there. The threshold is 0, not MARGIN: an
+    // above-placed card that was fully on screen before stays where it was. (The `top` clamps
+    // above, and in `right`, may nudge an anchor within MARGIN of the top edge by a few pixels.)
     const fitsAbove = r.top - GAP - height >= 0;
     if (fitsAbove) {
       return `bottom:${Math.max(MARGIN, vh - r.top + GAP)}px; left:${leftCoord}px;`;

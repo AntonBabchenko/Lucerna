@@ -145,6 +145,55 @@ describe('the dependencies tour in Installed', () => {
     expect(document.querySelector('[data-dep-section]')).toBeNull();
   });
 
+  it('ends, burned, when the list leaves the screen mid-tour', async () => {
+    const p = props(true);
+    const { rerender } = render(InstalledModsView, { props: p });
+    await listReady();
+    await waitFor(() => expect(card()).not.toBeNull());
+    await rerender({ ...p, visible: false });
+    await waitFor(() => expect(card()).toBeNull());
+    await quiet();
+    expect(localStorage.getItem('ftl.tour.deps.v1.done')).toBe('1');
+  });
+
+  it('steps away unburned while another surface owns the screen, and starts over after', async () => {
+    render(InstalledModsView, { props: props(true) });
+    await listReady();
+    await waitFor(() => expect(card()).not.toBeNull());
+    const next = document.querySelector<HTMLElement>('[data-tour-primary]');
+    if (!next) throw new Error('no tour primary button on screen');
+    await fireEvent.click(next);
+    await waitFor(() => expect(screen.getByText(/2 of 4/)).toBeTruthy());
+
+    tourState.active = true;
+    await waitFor(() => expect(card()).toBeNull());
+    await quiet();
+    expect(localStorage.getItem('ftl.tour.deps.v1.done')).toBeNull();
+
+    tourState.active = false;
+    await waitFor(() => expect(card()).not.toBeNull());
+    expect(screen.getByText(/1 of 4/)).toBeTruthy();
+  });
+
+  it('ends when the profile switches mid-tour', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    const p = props(true);
+    const { rerender } = render(InstalledModsView, { props: p });
+    await listReady();
+    await waitFor(() => expect(card()).not.toBeNull());
+    // The new profile's list stays in flight: nothing may start on the blanked list meanwhile.
+    let land: (v: unknown) => void = () => {};
+    vi.mocked(commands.modsListInstalled).mockImplementationOnce(
+      () => new Promise((r) => (land = r)) as never,
+    );
+    await rerender({ ...p, instanceId: `${p.instanceId}-b` });
+    await waitFor(() => expect(card()).toBeNull());
+    await quiet();
+    expect(localStorage.getItem('ftl.tour.deps.v1.done')).toBe('1');
+    expect(document.querySelector('[data-tour-ctx^="deps-"]')).toBeNull();
+    land({ status: 'ok', data: v.rows });
+  });
+
   it('waits for another tour and starts once it ends', async () => {
     const release = insertTour(newLayerId('addons-like'), null, () => {});
     render(InstalledModsView, { props: props(true) });
