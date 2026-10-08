@@ -183,16 +183,54 @@ async fn save(instance_root: &Path, disk: &OnDisk) -> std::io::Result<()> {
     let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
     let tmp = final_path.with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
     let bytes = serde_json::to_vec_pretty(disk).map_err(std::io::Error::other)?;
-    fs::write(&tmp, &bytes).await?;
-    if let Err(e) = fs::rename(&tmp, &final_path).await {
-        // The temp file is this write's own and useless now; one that cannot be removed is a
-        // stray file no read ever opens — said, and the rename's error is what the caller gets.
-        if let Err(rm) = fs::remove_file(&tmp).await {
-            crate::diag!("[cross-ids] cannot remove {}: {rm}", tmp.display());
+    if let Err(e) = write_then_rename(&tmp, &final_path, &bytes).await {
+        // The temp file is this write's own and useless now: removed. One that never came to be
+        // is fine; one that cannot be removed is a stray file no read ever opens — said. The
+        // write's error is what the caller gets.
+        match fs::remove_file(&tmp).await {
+            Ok(()) => {}
+            Err(rm) if rm.kind() == std::io::ErrorKind::NotFound => {}
+            Err(rm) => crate::diag!("[cross-ids] cannot remove {}: {rm}", tmp.display()),
         }
         return Err(e);
     }
     Ok(())
+}
+
+async fn write_then_rename(tmp: &Path, final_path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    fs::write(tmp, bytes).await?;
+    fs::rename(tmp, final_path).await
+}
+
+/// Write `disk` if the instance is still there, and say whether it was written. A pass spans
+/// network time: an instance deleted meanwhile does not get its `lucerna/` back.
+async fn write_if_present(instance_root: &Path, disk: &OnDisk) -> bool {
+    match fs::metadata(instance_root).await {
+        Ok(meta) if meta.is_dir() => match save(instance_root, disk).await {
+            Ok(()) => true,
+            Err(e) => {
+                crate::diag!(
+                    "[cross-ids] cannot write {}: {e} — asked again next pass",
+                    path(instance_root).display()
+                );
+                false
+            }
+        },
+        Ok(_) => {
+            crate::diag!(
+                "[cross-ids] {} is not a directory — not written",
+                instance_root.display()
+            );
+            false
+        }
+        Err(e) => {
+            crate::diag!(
+                "[cross-ids] {} is gone ({e}) — not written",
+                instance_root.display()
+            );
+            false
+        }
+    }
 }
 
 /// Alias identity → the installed row's own identity: what every «is this project installed?»
@@ -323,35 +361,41 @@ fn needs_asking(probe: Option<Probe>, alias_present: bool, now: i64) -> bool {
     }
 }
 
-/// The last time CurseForge (at `base`) refused the key, per API base: a dead key is not asked
-/// again on every refresh.
+/// When CurseForge (at `base`) last refused a key, per base and key: a dead key is not asked
+/// again on every refresh, and a new key is asked at once. The key is kept only as a hash.
 fn cf_refused() -> &'static Mutex<HashMap<String, Instant>> {
     static REFUSED: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
     REFUSED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn cf_refused_recently(base: &str) -> bool {
+fn refusal_key(base: &str, key: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut h);
+    format!("{base}#{:x}", h.finish())
+}
+
+fn cf_refused_recently(base: &str, key: &str) -> bool {
+    let k = refusal_key(base, key);
+    let recent = |map: &HashMap<String, Instant>| {
+        map.get(&k)
+            .is_some_and(|at| at.elapsed() < CF_REFUSED_BACKOFF)
+    };
     match cf_refused().lock() {
-        Ok(map) => map
-            .get(base)
-            .is_some_and(|at| at.elapsed() < CF_REFUSED_BACKOFF),
-        // A poisoned map only ever held instants: ask again rather than stay silent forever.
-        Err(poisoned) => poisoned
-            .into_inner()
-            .get(base)
-            .is_some_and(|at| at.elapsed() < CF_REFUSED_BACKOFF),
+        Ok(map) => recent(&map),
+        // A poisoned map only ever held instants: read it as it is.
+        Err(poisoned) => recent(&poisoned.into_inner()),
     }
 }
 
-fn mark_cf_refused(base: &str) {
+fn mark_cf_refused(base: &str, key: &str) {
+    let k = refusal_key(base, key);
     match cf_refused().lock() {
         Ok(mut map) => {
-            map.insert(base.to_string(), Instant::now());
+            map.insert(k, Instant::now());
         }
         Err(poisoned) => {
-            poisoned
-                .into_inner()
-                .insert(base.to_string(), Instant::now());
+            poisoned.into_inner().insert(k, Instant::now());
         }
     }
 }
@@ -391,76 +435,87 @@ struct CfHash {
 const CF_ALGO_SHA1: u32 = 1;
 
 enum CfOutcome {
-    /// Answered: SHA-1 → mod id, for the jars it has. Any asked jar not in it is absent.
-    Answered(HashMap<String, String>),
+    /// Answered. `found`: SHA-1 → mod id, for the jars it has. `unconfirmed`: jars whose
+    /// fingerprint it matched with no SHA-1 to confirm it by — could not tell. Any other asked jar
+    /// is absent.
+    Answered {
+        found: HashMap<String, String>,
+        unconfirmed: HashSet<String>,
+    },
     /// 401 / 403: the key was refused.
     Refused,
     /// Could not tell: transport, another status, an unreadable answer.
     Failed,
 }
 
-/// Ask CurseForge which of these jars it has. A fingerprint match counts only when the file's
-/// SHA-1 is the jar's: a 32-bit fingerprint alone can collide with an unrelated file. Never
-/// clears the key on a refusal (unlike `CurseForgeClient::files_by_fingerprint`): this runs in
-/// the background and must not end the user's interactive session.
-async fn resolve_curseforge(base: &str, key: &str, jars: &[(u32, String)]) -> CfOutcome {
-    let mut found = HashMap::new();
-    for chunk in jars.chunks(CHUNK) {
-        let fingerprints: Vec<u32> = chunk.iter().map(|(fp, _)| *fp).collect();
-        let url = format!("{base}/v1/fingerprints");
-        let body = serde_json::to_vec(&serde_json::json!({ "fingerprints": fingerprints }))
-            .expect("a fixed-shape JSON object always serializes");
-        let resp = match crate::network::request::post(
-            &url,
-            &[("x-api-key", key), ("content-type", "application/json")],
-            &body,
-            "mods",
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                crate::diag!("[cross-ids] curseforge fingerprints failed: {e}");
-                return CfOutcome::Failed;
-            }
-        };
-        if resp.status == 401 || resp.status == 403 {
-            crate::diag!(
-                "[cross-ids] curseforge refused the key (HTTP {})",
-                resp.status
-            );
-            return CfOutcome::Refused;
-        }
-        if !(200..300).contains(&resp.status) {
-            crate::diag!("[cross-ids] curseforge fingerprints HTTP {}", resp.status);
+/// Ask CurseForge which of these jars (one chunk) it has. A fingerprint match counts only when
+/// the file's SHA-1 is the jar's: a 32-bit fingerprint alone can collide with an unrelated file.
+/// Never clears the key on a refusal (unlike `CurseForgeClient::files_by_fingerprint`): this
+/// runs in the background and must not end the user's interactive session.
+async fn resolve_curseforge(base: &str, key: &str, chunk: &[(u32, String)]) -> CfOutcome {
+    let fingerprints: Vec<u32> = chunk.iter().map(|(fp, _)| *fp).collect();
+    let url = format!("{base}/v1/fingerprints");
+    let body = serde_json::to_vec(&serde_json::json!({ "fingerprints": fingerprints }))
+        .expect("a fixed-shape JSON object always serializes");
+    let resp = match crate::network::request::post(
+        &url,
+        &[("x-api-key", key), ("content-type", "application/json")],
+        &body,
+        "mods",
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            crate::diag!("[cross-ids] curseforge fingerprints failed: {e}");
             return CfOutcome::Failed;
         }
-        let parsed: CfEnvelope = match serde_json::from_slice(&resp.body) {
-            Ok(p) => p,
-            Err(e) => {
-                crate::diag!("[cross-ids] curseforge fingerprints unreadable: {e}");
-                return CfOutcome::Failed;
+    };
+    if resp.status == 401 || resp.status == 403 {
+        crate::diag!(
+            "[cross-ids] curseforge refused the key (HTTP {})",
+            resp.status
+        );
+        return CfOutcome::Refused;
+    }
+    if !(200..300).contains(&resp.status) {
+        crate::diag!("[cross-ids] curseforge fingerprints HTTP {}", resp.status);
+        return CfOutcome::Failed;
+    }
+    let parsed: CfEnvelope = match serde_json::from_slice(&resp.body) {
+        Ok(p) => p,
+        Err(e) => {
+            crate::diag!("[cross-ids] curseforge fingerprints unreadable: {e}");
+            return CfOutcome::Failed;
+        }
+    };
+    let mut found = HashMap::new();
+    let mut unconfirmed = HashSet::new();
+    for m in parsed.data.exact_matches {
+        let ours: Vec<&String> = chunk
+            .iter()
+            .filter(|(fp, _)| *fp == m.file.file_fingerprint)
+            .map(|(_, sha)| sha)
+            .collect();
+        if ours.is_empty() {
+            continue;
+        }
+        let file_sha = m
+            .file
+            .hashes
+            .iter()
+            .find(|h| h.algo == CF_ALGO_SHA1)
+            .map(|h| h.value.to_ascii_lowercase());
+        match file_sha {
+            Some(file_sha) => {
+                if ours.iter().any(|sha| **sha == file_sha) {
+                    found.insert(file_sha, m.file.mod_id.to_string());
+                }
             }
-        };
-        for m in parsed.data.exact_matches {
-            let Some(file_sha) = m
-                .file
-                .hashes
-                .iter()
-                .find(|h| h.algo == CF_ALGO_SHA1)
-                .map(|h| h.value.to_ascii_lowercase())
-            else {
-                continue;
-            };
-            let ours = chunk
-                .iter()
-                .any(|(fp, sha)| *fp == m.file.file_fingerprint && *sha == file_sha);
-            if ours {
-                found.insert(file_sha, m.file.mod_id.to_string());
-            }
+            None => unconfirmed.extend(ours.into_iter().cloned()),
         }
     }
-    CfOutcome::Answered(found)
+    CfOutcome::Answered { found, unconfirmed }
 }
 
 /// Fingerprint the jars that have none cached. A jar that cannot be read is left out (said): it
@@ -527,11 +582,7 @@ pub async fn learn(
         if !needs_asking(checked.and_then(|c| c.probe(other)), alias_present, now) {
             continue;
         }
-        let path = if m.enabled {
-            mods_dir.join(&m.filename)
-        } else {
-            mods_dir.join(format!("{}.disabled", m.filename))
-        };
+        let path = mods_dir.join(installed::on_disk_name(m));
         let ask = Ask {
             sha,
             own,
@@ -551,51 +602,55 @@ pub async fn learn(
     let mut fingerprints: Vec<(String, u32)> = Vec::new();
 
     // CurseForge: only with a key that was not just refused — otherwise these jars stay unknown,
-    // and none of them is read.
+    // and none of them is read. One request per chunk: a chunk that fails leaves only its own jars
+    // unknown.
     match cf_key {
-        Some(k) if !ask_cf.is_empty() && !cf_refused_recently(cf_base) => {
+        Some(k) if !ask_cf.is_empty() && !cf_refused_recently(cf_base, k) => {
             let asked = fingerprint(ask_cf).await?;
             for a in &asked {
                 if let Some(fp) = a.fingerprint {
                     fingerprints.push((a.sha.clone(), fp));
                 }
             }
-            let jars: Vec<(u32, String)> = asked
-                .iter()
-                .filter_map(|a| Some((a.fingerprint?, a.sha.clone())))
-                .collect();
-            match resolve_curseforge(cf_base, k, &jars).await {
-                CfOutcome::Answered(found) => {
-                    for a in asked {
-                        let id = found.get(&a.sha).cloned();
-                        answers.push(Answer {
-                            sha: a.sha,
-                            own: a.own,
-                            platform: ModSource::Curseforge,
-                            found: id,
-                        });
+            for chunk in asked.chunks(CHUNK) {
+                let jars: Vec<(u32, String)> = chunk
+                    .iter()
+                    .filter_map(|a| Some((a.fingerprint?, a.sha.clone())))
+                    .collect();
+                match resolve_curseforge(cf_base, k, &jars).await {
+                    CfOutcome::Answered { found, unconfirmed } => {
+                        for a in chunk.iter().filter(|a| !unconfirmed.contains(&a.sha)) {
+                            answers.push(Answer {
+                                sha: a.sha.clone(),
+                                own: a.own.clone(),
+                                platform: ModSource::Curseforge,
+                                found: found.get(&a.sha).cloned(),
+                            });
+                        }
                     }
+                    CfOutcome::Refused => {
+                        mark_cf_refused(cf_base, k);
+                        break;
+                    }
+                    CfOutcome::Failed => {}
                 }
-                CfOutcome::Refused => mark_cf_refused(cf_base),
-                CfOutcome::Failed => {}
             }
         }
         _ => {}
     }
 
-    // Modrinth: by SHA-1, no key.
-    if !ask_mr.is_empty() {
-        let client = crate::mods::modrinth::ModrinthClient::with_base(modrinth_base);
-        let shas: Vec<&str> = ask_mr.iter().map(|a| a.sha.as_str()).collect();
+    // Modrinth: by SHA-1, no key; per chunk, like CurseForge.
+    let client = crate::mods::modrinth::ModrinthClient::with_base(modrinth_base);
+    for chunk in ask_mr.chunks(CHUNK) {
+        let shas: Vec<&str> = chunk.iter().map(|a| a.sha.as_str()).collect();
         match client.project_ids_by_hash(&shas).await {
             Ok(found) => {
-                for a in ask_mr {
-                    let id = found.get(&a.sha).cloned();
+                for a in chunk {
                     answers.push(Answer {
-                        sha: a.sha,
-                        own: a.own,
+                        sha: a.sha.clone(),
+                        own: a.own.clone(),
                         platform: ModSource::Modrinth,
-                        found: id,
+                        found: found.get(&a.sha).cloned(),
                     });
                 }
             }
@@ -612,7 +667,8 @@ pub async fn learn(
 
 /// Fold a pass's answers into the sidecar under its lock, against the registry as it is NOW (an
 /// overlapping pass's entries survive; rows removed meanwhile are pruned), and write if anything
-/// changed and the instance still exists. A failed write is said; what was learned still counts.
+/// changed and the instance still exists. Returns how many aliases the WRITTEN file has that it
+/// did not have before: what is not written is not learned — every reader takes the file.
 async fn merge(
     instance_root: &Path,
     answers: &[Answer],
@@ -623,7 +679,6 @@ async fn merge(
     let rows = installed::list(instance_root).await?;
     let before = load(instance_root).await;
     let mut disk = before.clone();
-    let mut learned = 0u32;
 
     for (sha, fp) in fingerprints {
         disk.checked.entry(sha.clone()).or_default().fingerprint = Some(*fp);
@@ -642,14 +697,13 @@ async fn merge(
             continue;
         };
         let entry = disk.aliases.entry(key(&a.own)).or_default();
-        if entry.get(name) != Some(id) {
-            if let Some(old) = entry.insert(name.to_string(), id.clone()) {
+        if let Some(old) = entry.insert(name.to_string(), id.clone()) {
+            if &old != id {
                 crate::diag!(
                     "[cross-ids] {} on {name} is now {id} (was {old})",
                     key(&a.own)
                 );
             }
-            learned += 1;
         }
     }
 
@@ -660,30 +714,21 @@ async fn merge(
     disk.checked.retain(|sha, _| shas.contains(sha));
     disk.aliases.retain(|own, _| owns.contains(own));
 
-    if disk != before {
-        disk.version = FILE_VERSION;
-        match fs::metadata(instance_root).await {
-            Ok(meta) if meta.is_dir() => {
-                if let Err(e) = save(instance_root, &disk).await {
-                    crate::diag!(
-                        "[cross-ids] cannot write {}: {e} — redone next pass",
-                        path(instance_root).display()
-                    );
-                }
-            }
-            // The instance went away while the platforms answered: its `lucerna/` is not
-            // brought back.
-            Ok(_) => crate::diag!(
-                "[cross-ids] {} is not a directory — not written",
-                instance_root.display()
-            ),
-            Err(e) => crate::diag!(
-                "[cross-ids] {} is gone ({e}) — not written",
-                instance_root.display()
-            ),
-        }
+    if disk == before {
+        return Ok(0);
     }
-    Ok(learned)
+    let learned = disk
+        .aliases
+        .iter()
+        .flat_map(|(own, by)| by.iter().map(move |(name, id)| (own, name, id)))
+        .filter(|(own, name, id)| before.aliases.get(*own).and_then(|b| b.get(*name)) != Some(*id))
+        .count();
+    disk.version = FILE_VERSION;
+    if !write_if_present(instance_root, &disk).await {
+        return Ok(0);
+    }
+    // safe: bounded by the installed rows, nowhere near 2^32.
+    Ok(learned as u32)
 }
 
 #[cfg(test)]
@@ -1066,6 +1111,205 @@ mod tests {
         let disk = load(td.path()).await;
         assert!(!disk.checked.contains_key(&sha));
         assert!(!disk.aliases.contains_key("curseforge:55"));
+    }
+
+    #[tokio::test]
+    async fn a_fingerprint_match_with_no_sha1_to_confirm_it_stays_unknown() {
+        let td = TempDir::new().unwrap();
+        let bytes = b"matched but unconfirmed";
+        let sha = add_jar(td.path(), "u.jar", bytes, ModSource::Modrinth, "MU", true).await;
+        let fp = crate::mods::enrich::curseforge_fingerprint(bytes);
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(wpath("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "exactMatches": [ { "file": { "modId": 7, "fileFingerprint": fp,
+                    "hashes": [ { "value": "md5", "algo": 2 } ] } } ] }
+            })))
+            .expect(2)
+            .mount(&s)
+            .await;
+        let _seam = allow_local();
+
+        for now in [NOW, NOW + 1] {
+            assert_eq!(
+                learn(td.path(), &s.uri(), &s.uri(), Some("k-unconfirmed"), now)
+                    .await
+                    .unwrap(),
+                0
+            );
+        }
+        let disk = load(td.path()).await;
+        assert!(disk.aliases.is_empty());
+        assert_eq!(disk.checked[&sha].curseforge, None, "not «absent»");
+        assert_eq!(disk.checked[&sha].fingerprint, Some(fp));
+    }
+
+    #[tokio::test]
+    async fn a_failed_chunk_keeps_the_other_chunks_answers() {
+        let td = TempDir::new().unwrap();
+        let mut shas = Vec::new();
+        for i in 0..=CHUNK {
+            let pid = (1000 + i).to_string();
+            let bytes = format!("cf jar {i}");
+            shas.push(
+                add_jar(
+                    td.path(),
+                    &format!("{pid}.jar"),
+                    bytes.as_bytes(),
+                    ModSource::Curseforge,
+                    &pid,
+                    true,
+                )
+                .await,
+            );
+        }
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(wpath("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(wpath("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam = allow_local();
+
+        learn(td.path(), &s.uri(), &s.uri(), None, NOW)
+            .await
+            .unwrap();
+
+        let disk = load(td.path()).await;
+        let answered: Vec<&String> = disk
+            .checked
+            .iter()
+            .filter(|(_, c)| c.modrinth.is_some())
+            .map(|(sha, _)| sha)
+            .collect();
+        assert_eq!(
+            answered.len(),
+            1,
+            "only the one-jar chunk answered: {answered:?}"
+        );
+        assert!(shas.contains(answered[0]));
+    }
+
+    #[tokio::test]
+    async fn a_jar_left_unknown_without_a_key_is_asked_once_a_key_is_there() {
+        let td = TempDir::new().unwrap();
+        let bytes = b"keyless first";
+        let sha = add_jar(td.path(), "k.jar", bytes, ModSource::Modrinth, "MK", true).await;
+        let fp = crate::mods::enrich::curseforge_fingerprint(bytes);
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(wpath("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(cf_body(fp, 31, &sha)))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam = allow_local();
+
+        learn(td.path(), &s.uri(), &s.uri(), None, NOW)
+            .await
+            .unwrap();
+        let learned = learn(td.path(), &s.uri(), &s.uri(), Some("k-later"), NOW + 1)
+            .await
+            .unwrap();
+
+        assert_eq!(learned, 1);
+    }
+
+    #[tokio::test]
+    async fn a_new_key_is_asked_at_once_after_another_was_refused() {
+        let td = TempDir::new().unwrap();
+        let bytes = b"refused then replaced";
+        let sha = add_jar(td.path(), "r.jar", bytes, ModSource::Modrinth, "MR", true).await;
+        let fp = crate::mods::enrich::curseforge_fingerprint(bytes);
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(wpath("/v1/fingerprints"))
+            .and(wiremock::matchers::header("x-api-key", "dead"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(wpath("/v1/fingerprints"))
+            .and(wiremock::matchers::header("x-api-key", "fresh"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(cf_body(fp, 32, &sha)))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam = allow_local();
+
+        learn(td.path(), &s.uri(), &s.uri(), Some("dead"), NOW)
+            .await
+            .unwrap();
+        learn(td.path(), &s.uri(), &s.uri(), Some("dead"), NOW)
+            .await
+            .unwrap();
+        let learned = learn(td.path(), &s.uri(), &s.uri(), Some("fresh"), NOW)
+            .await
+            .unwrap();
+
+        assert_eq!(learned, 1);
+    }
+
+    #[tokio::test]
+    async fn what_cannot_be_written_is_not_learned_and_leaves_no_temp_file() {
+        let td = TempDir::new().unwrap();
+        let sha = add_jar(
+            td.path(),
+            "w.jar",
+            b"cf unwritable",
+            ModSource::Curseforge,
+            "66",
+            true,
+        )
+        .await;
+        // A directory where the file goes: the rename onto it fails on every platform.
+        tokio::fs::create_dir_all(path(td.path())).await.unwrap();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(wpath("/v2/version_files"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ sha.clone(): { "project_id": "MR66" } })),
+            )
+            .mount(&s)
+            .await;
+        let _seam = allow_local();
+
+        let learned = learn(td.path(), &s.uri(), &s.uri(), None, NOW)
+            .await
+            .unwrap();
+
+        assert_eq!(learned, 0);
+        let mut left = Vec::new();
+        let mut dir = tokio::fs::read_dir(installed::registry_dir(td.path()))
+            .await
+            .unwrap();
+        while let Some(e) = dir.next_entry().await.unwrap() {
+            left.push(e.file_name().to_string_lossy().into_owned());
+        }
+        assert!(
+            left.iter().all(|n| !n.contains(".tmp.")),
+            "temp files left: {left:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_instance_gone_meanwhile_does_not_get_its_folder_back() {
+        let td = TempDir::new().unwrap();
+        let gone = td.path().join("deleted-instance");
+
+        assert!(!write_if_present(&gone, &OnDisk::default()).await);
+        assert!(!gone.exists());
     }
 
     fn row(source: ModSource, pid: &str, enabled: bool) -> InstalledMod {
