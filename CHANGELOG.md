@@ -21,6 +21,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **Backgrounds for the skin editor.** Besides a neutral grey, the model can stand in
+  the plains, the Nether or a stronghold: a pixel-art panorama that turns with the
+  camera, like the game's title screen. The editor remembers the last one.
+
 ### Changed
 
 - **The update notice says "Don't remind me" instead of "Skip this version"**,
