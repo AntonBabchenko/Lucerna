@@ -10,7 +10,7 @@
  * - scrolls a focused descendant clear of the fade: Tab and the arrow keys move focus along the
  *   line, and a chip focused under the fade, or past the edge, would be hidden;
  * - with `keepInView`, keeps the element that selector finds — the chosen chip — in view when it
- *   changes: a filter chosen from elsewhere (↗ in the problems panel picks «Issues») must not sit
+ *   changes: a filter chosen from elsewhere («show in the list» in the problems panel picks «Issues») must not sit
  *   scrolled out of the line.
  * Only this box scrolls: never `scrollIntoView`, which would move the list under a sticky toolbar
  * too.

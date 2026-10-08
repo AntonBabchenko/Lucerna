@@ -151,7 +151,7 @@ import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 // Pointing at a mod marks only what is under the pointer, through its own CSS :hover. Nothing
 // lights up its row, its dependency-tree nodes and its «Required by» entries together — 0.25.0's
-// amber wash did, and then a blue ring. The way from a dependency or a dependent to its row is ↗.
+// amber wash did, and then a blue ring. The way from a dependency or a dependent to its row is its «show in the list».
 // A class drew both, so the guard is on every element's class list, whatever a future highlight
 // would be called.
 const classSnapshot = () =>

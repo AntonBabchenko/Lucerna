@@ -35,6 +35,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   twice.
 - **Notices stay at the top right, above everything**, an open dialog included;
   they used to move to the bottom centre while a dialog was open.
+- **A mod's dependency panel works like the mod list.** Its rows light up under
+  the pointer and open the mod on a click, their switch and add-or-remove buttons
+  stand under the mod's own, and "Show in the list" flashes the row it takes you
+  to. "Requires", "Optional" and "Required by" each have a stripe of their own,
+  an optional dependency's line is dashed, and a mod met again further down says
+  "this mod" or "expanded above" instead of "cycle".
 - **The skin editor's controls look and work like the rest of the launcher.**
   Pose, model, brush, paint layer and background are picked the way Settings
   picks a theme, and loading, downloading and the library are icon buttons with
@@ -43,6 +49,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **"Show in the list" in a dependency panel always gets you there**: when a
+  search or a filter hid the mod's row, it did nothing; now it clears them and
+  scrolls to the row.
 - **Icon buttons that can be disabled show their tooltip to the keyboard too.**
   Tabbing to one, such as a page step in a narrow window, showed nothing: the
   tooltip appeared only under the mouse.

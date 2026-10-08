@@ -130,7 +130,7 @@ describe('scrollRow', () => {
     expect(node.hasAttribute('data-more-start')).toBe(true);
   });
 
-  // The chosen filter must stay in sight: picking one from elsewhere (↗ in the problems panel sets
+  // The chosen filter must stay in sight: picking one from elsewhere («show in the list» in the problems panel sets
   // «Issues») would otherwise leave it scrolled out of the line.
   it('keeps the chosen chip in view when the choice changes', async () => {
     const { node, chips } = line({

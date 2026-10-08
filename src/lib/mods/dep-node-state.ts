@@ -5,6 +5,7 @@ import type {
   DepsUnknown,
   DepTreeNode,
   DepViolation,
+  ModSource,
   PreflightReport,
 } from '$lib/ipc/bindings';
 import { isRangeRemediable } from './violation-view';
@@ -27,6 +28,19 @@ export type DepNodeState =
   | 'platform_only'
   | 'unknown';
 
+/**
+ * A mod a dependency panel acts on: a tree node (which says whether it is installed or switched
+ * off) or a «Required by» entry (which knows its very jar). The host looks the jar up by project
+ * when no `sha1` is given.
+ */
+export type ModTarget = {
+  source: ModSource;
+  project_id: string;
+  name: string;
+  installed?: boolean;
+  sha1?: string;
+};
+
 /** What the Installed tab threads into its trees. */
 export type DepTreeCtx = {
   readonly report: PreflightReport | null;
@@ -35,6 +49,12 @@ export type DepTreeCtx = {
   enabledShaOf: (projectKey: string) => string | null;
   /** Switch a disabled dependency back on (the host looks its jar up by project). */
   onEnable: (node: DepTreeNode) => void;
+  /** Switch an installed mod off — its enabled jar, by the row's own guarded path. */
+  onDisable: (target: ModTarget) => void;
+  /** Remove the jar a target stands for (enabled or switched off), by the row's own guarded path. */
+  onUninstall: (target: ModTarget) => void;
+  /** Whether an Install / Add of this `source:project_id` is in flight. */
+  installing: (projectKey: string) => boolean;
   /**
    * The version conflict an out-of-range node stands for — `dependentSha1`'s (this level's
    * dependent) own, `edgeConflict` over the violations the host can fix — or null when the host
@@ -50,6 +70,9 @@ export const EMPTY_TREE_CTX: DepTreeCtx = {
   projectOf: () => null,
   enabledShaOf: () => null,
   onEnable: () => {},
+  onDisable: () => {},
+  onUninstall: () => {},
+  installing: () => false,
   conflictOf: () => null,
   onPlan: () => {},
 };

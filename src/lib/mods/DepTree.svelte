@@ -3,12 +3,13 @@
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
-  import BusyButton from '$lib/ui/BusyButton.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import Self from './DepTree.svelte';
   import {
     classifyDepNode,
     DEPS_UNKNOWN_KEY,
+    type DepNodeState,
     type DepTreeCtx,
     EMPTY_TREE_CTX,
   } from './dep-node-state';
@@ -34,7 +35,7 @@
     dependentSha1 = null,
     ctx = EMPTY_TREE_CTX,
     tree = null,
-    installingKeys = new Set(),
+    rootKey = null,
     onInstall,
     onAdd,
     onJump = () => {},
@@ -54,9 +55,9 @@
     // report per edge (`classifyDepNode`): under this level's dependent only.
     ctx?: DepTreeCtx;
     tree?: TreeState | null;
-    // Keys (`source:project_id`) whose install is in flight — drives the per-node BusyButton
-    // spinner. Empty in the common read-only render.
-    installingKeys?: Set<string>;
+    // The panel's own mod (`source:project_id`): the graph seeds every path with it, so an edge
+    // back to it is a cycle the tree says as «this mod» (spec 2026-10-07 D5). Null = no panel.
+    rootKey?: string | null;
     // Both name this level's `dependentSha1`: the install records the edge on the mod that
     // declared the node (spec §5.6) — none under an absent parent.
     onInstall: (node: DepTreeNode, dependentSha1: string | null) => void;
@@ -78,13 +79,24 @@
   // level, which mixes what its parent requires with what it only offers. So a node there that
   // its parent declares optional says so itself — or it reads as required and missing.
   const optionalBelowTop = (n: DepTreeNode) => depth > 0 && n.declared === 'optional';
-  // What the tree says about an item: optional (below the top), its state, then any marks after it.
-  const describedBy = (id: string, n: DepTreeNode) =>
+  // A node with a row in the list — installed, or there but switched off: it can be switched,
+  // removed and shown; an absent one can only be installed. A node whose install is in flight
+  // (`ctx.installing`) acts on nothing until the install is done: the graph can already say
+  // «installed» while the list has no row yet, and so no jar for the switch, Remove or «show».
+  const hasRow = (n: DepTreeNode) => n.installed || !!n.disabled;
+  // The panel's own mod met again below. Plainly installed, «this mod» IS its state (the green
+  // «installed» would say nothing about the mod the panel hangs under); in any other state — a
+  // version mismatch on that edge — it is a mark after the state, like any other repeat.
+  const isSelf = (n: DepTreeNode) => n.cycle && rootKey !== null && keyOf(n) === rootKey;
+  const selfAsState = (n: DepTreeNode, state: DepNodeState) => isSelf(n) && state === 'installed';
+  // What the tree says about an item: optional (below the top), its state, then any marks after
+  // it. Only ids in the DOM: «this mod» as the state has no mark of its own.
+  const describedBy = (id: string, n: DepTreeNode, selfState: boolean) =>
     [
       optionalBelowTop(n) ? `${id}-optional` : '',
       `${id}-state`,
       depsUnknownOf(n) ? `${id}-unknown` : '',
-      n.cycle ? `${id}-cycle` : '',
+      n.cycle && !selfState ? `${id}-cycle` : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -93,11 +105,22 @@
   const toggled = new SvelteSet<string>();
   let activePath = $state<string | null>(null);
   const openAt = (path: string, level: number) => (level === 0) !== toggled.has(path);
+  // Below the top level a node's children come required first, then optional, each kept in its
+  // order (spec 2026-10-07 §9): the guide that draws an optional edge dashed reads as one run.
+  const inOrder = (ns: DepTreeNode[], level: number) =>
+    level === 0
+      ? ns
+      : [
+          ...ns.filter((c) => c.declared !== 'optional'),
+          ...ns.filter((c) => c.declared === 'optional'),
+        ];
+  const ordered = $derived(inOrder(nodes, depth));
   function visiblePaths(ns: DepTreeNode[], parent: string, level: number, out: string[]) {
     for (const n of ns) {
       const path = pathOf(parent, n);
       out.push(path);
-      if (hasKids(n) && openAt(path, level)) visiblePaths(n.children, path, level + 1, out);
+      if (hasKids(n) && openAt(path, level))
+        visiblePaths(inOrder(n.children, level + 1), path, level + 1, out);
     }
     return out;
   }
@@ -176,16 +199,24 @@
       next.focus();
     }
   }
+
+  // The row is the pointer's way to the mod's details, as a list row is (spec 2026-10-07 D1); the
+  // name button stays the keyboard's (Enter). The row's own buttons act for themselves — the name
+  // too, whose click bubbles here. (No text can be selected here: the app is `user-select: none`.)
+  function onRowClick(e: MouseEvent, n: DepTreeNode) {
+    if ((e.target as Element).closest('button')) return;
+    onOpenDetail(n.source, n.project_id);
+  }
 </script>
 
 <ul
   bind:this={rootEl}
-  class={depth === 0 ? 'text-xs' : 'ml-4 border-l border-border-subtle pl-3'}
+  class={depth === 0 ? 'text-xs' : 'ml-4'}
   role={depth === 0 ? 'tree' : 'group'}
   aria-labelledby={depth === 0 ? labelledby : undefined}
   onkeydown={depth === 0 ? onKeydown : undefined}
 >
-  {#each nodes as n, index (keyOf(n))}
+  {#each ordered as n, index (keyOf(n))}
     {@const k = keyOf(n)}
     {@const path = pathOf(parentPath, n)}
     {@const id = `${base}-${index}`}
@@ -199,16 +230,36 @@
       report: ctx.report,
       projectOf: ctx.projectOf,
     })}
+    {@const selfState = selfAsState(n, state)}
+    {@const present = hasRow(n)}
+    {@const busy = ctx.installing(k)}
+    {@const acts = present && !busy}
+    {@const toggleLabel = n.installed
+      ? $t('mods.deps.disableAriaLabel', { name: n.name })
+      : $t('mods.deps.enableAriaLabel', { name: n.name })}
+    {@const presenceLabel = acts
+      ? $t('mods.deps.uninstallAriaLabel', { name: n.name })
+      : n.declared === 'required'
+        ? $t('mods.deps.installAriaLabel', { name: n.name })
+        : $t('mods.deps.addAriaLabel', { name: n.name })}
+    {@const jumpLabel = $t('mods.deps.jumpToTitle', { name: n.name })}
     <!-- Named by the mod, described by what the tree says about it: a name from content would
          also read every nested item. aria-selected follows the roving tab stop (single select,
          selection follows focus) — never hover (spec §6.3). -->
+    <!-- Below the top level each item draws its own guide segment: solid for an edge its parent
+         requires, dashed for one it only offers (spec 2026-10-07 §9). -->
     <li
+      class={depth === 0
+        ? undefined
+        : n.declared === 'optional'
+          ? 'border-l border-dashed border-border-emphasis pl-3'
+          : 'border-l border-border-subtle pl-3'}
       role="treeitem"
       aria-level={depth + 1}
       aria-expanded={hasKids(n) ? open : undefined}
       aria-selected={isStop}
       aria-labelledby="{id}-name"
-      aria-describedby={describedBy(id, n)}
+      aria-describedby={describedBy(id, n, selfState)}
       tabindex={tab}
       data-path={path}
       data-node-state={state}
@@ -216,122 +267,203 @@
         if (isOwnFocus(e, path)) st.setActive(path);
       }}
     >
-      <!-- Every row is one height — the chevron's and a button's (`min-h-7`) — so a row with an
-           action sits in the same rhythm as one without (plan §5b V2). -->
-      <div class="tree-row flex min-h-7 items-center gap-2 px-1 rounded">
-        {#if hasKids(n)}
-          <!-- The mouse's way to open a branch; the keyboard's is ←/→ on the item. It never
-               takes focus, so a click leaves the tab stop where it was. -->
-          <button
-            type="button"
-            class="btn-icon btn-icon-sm"
-            data-tree-toggle
-            tabindex="-1"
-            aria-hidden="true"
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => st.toggle(path, open)}
-            ><Icon name={open ? 'chevronDown' : 'caret'} size={12} /></button
-          >
-        {:else}
-          <span class="inline-block w-7 shrink-0" aria-hidden="true"></span>
-        {/if}
-        <!-- The name always opens the mod's info modal. A dependency with a row in the list —
-             installed, or there but switched off — has a separate ↗ that jumps to that row. -->
-        <button
-          type="button"
-          id="{id}-name"
-          class="btn-tertiary text-left"
-          data-tree-name
-          tabindex={tab}
-          onclick={() => onOpenDetail(n.source, n.project_id)}>{n.name}</button
-        >
-        {#if n.installed || n.disabled}
-          <button
-            type="button"
-            class="text-accent inline-flex items-center justify-center"
-            tabindex={tab}
-            use:tooltip={$t('mods.deps.jumpToTitle', { name: n.name })}
-            aria-label={$t('mods.deps.jumpToTitle', { name: n.name })}
-            onclick={() => onJump(n)}><Icon name="arrowUpRight" size={12} /></button
-          >
-        {/if}
-        {#if optionalBelowTop(n)}
-          <span id="{id}-optional" class="text-secondary">{$t('mods.deps.optionalMark')}</span>
-          <span class="text-placeholder" aria-hidden="true">·</span>
-        {/if}
-        {#if state === 'out_of_range'}
-          {@const conflict = ctx.conflictOf(n, dependentSha1)}
-          <span id="{id}-state" class="inline-flex items-center gap-1 text-danger"
-            ><Icon name="circleX" size={12} />{$t('mods.preflight.treeOutOfRange')}</span
-          >
-          {#if conflict}
-            <!-- The planner's «Fix…», as on the panel row and the mod's own line: its
-                 offers show in «What stops the game». -->
+      <!-- A row reads like an Installed row (spec 2026-10-07): the list's hover fill, a click
+           anywhere on it opens the mod; «show in the list» before the name, and on the right its
+           state, then the list's own switch and install-or-remove, in columns that line up at
+           every depth — the nested group indents the left edge only. Every row is one height
+           while it fits on one line (`min-h-7`: the chevron's and a button's); short of room the
+           name is cut first, then the right group takes a line of its own. -->
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions — the
+           pointer's shortcut to the name button, which is the keyboard path (Enter on the item). -->
+      <div
+        class="tree-row group flex min-h-7 cursor-pointer flex-wrap items-center gap-x-2 rounded px-1 transition-colors hover:bg-subtle"
+        onclick={(e) => onRowClick(e, n)}
+      >
+        <span class="flex min-w-0 grow basis-[12ch] items-center gap-1.5">
+          {#if hasKids(n)}
+            <!-- The mouse's way to open a branch; the keyboard's is ←/→ on the item. It never
+                 takes focus, so a click leaves the tab stop where it was. -->
             <button
               type="button"
-              class="btn-secondary btn-xs"
-              tabindex={tab}
-              aria-label={$t('mods.deps.fixConflictAriaLabel', { name: n.name })}
-              onclick={() => ctx.onPlan(conflict)}>{$t('mods.preflight.fixPlan')}</button
+              class="btn-icon btn-icon-sm shrink-0"
+              data-tree-toggle
+              tabindex="-1"
+              aria-hidden="true"
+              onmousedown={(e) => e.preventDefault()}
+              onclick={() => st.toggle(path, open)}
+              ><Icon name={open ? 'chevronDown' : 'caret'} size={12} /></button
             >
+          {:else}
+            <span class="inline-block w-7 shrink-0" aria-hidden="true"></span>
           {/if}
-        {:else if state === 'installed'}
-          <span id="{id}-state" class="inline-flex items-center gap-1 text-success"
-            ><Icon name="success" size={12} />{$t('mods.deps.installedStatus')}</span
+          <!-- «Show in the list», a column of its own before the name at every depth: bright when
+               the mod has a row in the list, faded when it has none. -->
+          <span
+            class="inline-flex w-7 shrink-0 justify-center"
+            data-slot="locate"
+            use:tooltip={present
+              ? null
+              : { text: $t('mods.deps.jumpUnavailable', { name: n.name }), describe: false }}
           >
-        {:else if state === 'disabled'}
-          <!-- Present but switched off: switching the jar back on, never a second copy. -->
-          <span id="{id}-state" class="text-secondary">{$t('mods.deps.disabledStatus')}</span>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm"
+              disabled={!acts}
+              tabindex={tab}
+              aria-label={jumpLabel}
+              use:tooltip={acts ? jumpLabel : null}
+              onclick={() => onJump(n)}><Icon name="locate" size={15} /></button
+            >
+          </span>
+          <!-- The name opens the mod's info modal, as the row does; it reads as the row's text,
+               not as a link. Cut short, it shows itself whole in a tooltip. -->
           <button
             type="button"
-            class="btn-secondary btn-xs"
+            id="{id}-name"
+            class="min-w-0 truncate rounded text-left text-secondary transition-colors group-hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            data-tree-name
             tabindex={tab}
-            aria-label={$t('mods.deps.enableAriaLabel', { name: n.name })}
-            onclick={() => ctx.onEnable(n)}>{$t('mods.deps.enableBtn')}</button
+            use:tooltip={{ text: n.name, whenOverflowing: true, describe: false }}
+            onclick={() => onOpenDetail(n.source, n.project_id)}>{n.name}</button
           >
-        {:else}
-          <!-- Absent. Red only when the loader enforces it (a pre-flight violation of this very
-               dependent names this project); the platform's word alone stays neutral. The action
-               is the same either way. -->
-          {@const label =
-            n.declared === 'required'
-              ? $t('mods.deps.installAriaLabel', { name: n.name })
-              : $t('mods.deps.addAriaLabel', { name: n.name })}
-          {#if state === 'loader_required'}
-            <span id="{id}-state" class="inline-flex items-center gap-1 text-danger"
-              ><Icon name="circleX" size={12} />{$t('mods.deps.stateLoaderRequired')}</span
+          {#if optionalBelowTop(n)}
+            <span id="{id}-optional" class="shrink-0 text-secondary"
+              >{$t('mods.deps.optionalMark')}</span
             >
-          {:else if state === 'platform_only'}
-            <span id="{id}-state" class="text-secondary">{$t('mods.deps.statePlatformOnly')}</span>
-          {:else if state === 'unknown'}
-            <span id="{id}-state" class="text-secondary">{$t('mods.deps.stateUnknown')}</span>
-          {:else}
-            <span id="{id}-state" class="text-secondary">{$t('mods.deps.notInstalledStatus')}</span>
           {/if}
-          <!-- Labelled, like «Enable» beside it (spec §6.3); the name says which mod. -->
-          <BusyButton
-            busy={installingKeys.has(k)}
-            class="btn-secondary btn-xs"
-            aria-label={label}
-            tabindex={tab}
-            onclick={() =>
-              n.declared === 'required' ? onInstall(n, dependentSha1) : onAdd(n, dependentSha1)}
-          >
-            {n.declared === 'required' ? $t('mods.deps.installBtn') : $t('mods.deps.addBtn')}
-          </BusyButton>
-        {/if}
-        {#if unknownWhy}
-          <!-- Set apart from the state before it: «installed · dependencies unknown». -->
-          <span class="text-placeholder" aria-hidden="true">·</span>
+        </span>
+        <span class="ml-auto flex shrink-0 items-center gap-1">
+          <span class="mr-1 inline-flex items-center gap-1 whitespace-nowrap" data-state-group>
+            {#if selfState}
+              <span
+                id="{id}-state"
+                class="inline-flex items-center gap-1 text-placeholder"
+                use:tooltip={{
+                  text: $t('mods.deps.cycleSelfTooltip', { name: n.name }),
+                  describe: false,
+                }}><Icon name="seeAbove" size={12} />{$t('mods.deps.cycleSelf')}</span
+              >
+            {:else if state === 'out_of_range'}
+              <span id="{id}-state" class="inline-flex items-center gap-1 text-danger"
+                ><Icon name="circleX" size={12} />{$t('mods.preflight.treeOutOfRange')}</span
+              >
+            {:else if state === 'installed'}
+              <span id="{id}-state" class="inline-flex items-center gap-1 text-success"
+                ><Icon name="success" size={12} />{$t('mods.deps.installedStatus')}</span
+              >
+            {:else if state === 'disabled'}
+              <span id="{id}-state" class="text-secondary">{$t('mods.deps.disabledStatus')}</span>
+            {:else if state === 'loader_required'}
+              <!-- Red only when the loader enforces it (a pre-flight violation of this very
+                   dependent names this project); the platform's word alone stays neutral. -->
+              <span id="{id}-state" class="inline-flex items-center gap-1 text-danger"
+                ><Icon name="circleX" size={12} />{$t('mods.deps.stateLoaderRequired')}</span
+              >
+            {:else if state === 'platform_only'}
+              <span id="{id}-state" class="text-secondary">{$t('mods.deps.statePlatformOnly')}</span
+              >
+            {:else if state === 'unknown'}
+              <span id="{id}-state" class="text-secondary">{$t('mods.deps.stateUnknown')}</span>
+            {:else}
+              <span id="{id}-state" class="text-secondary"
+                >{$t('mods.deps.notInstalledStatus')}</span
+              >
+            {/if}
+            {#if unknownWhy}
+              <!-- Set apart from the state before it: «installed · dependencies unknown». -->
+              <span class="text-placeholder" aria-hidden="true">·</span>
+              <span
+                id="{id}-unknown"
+                class="text-secondary"
+                use:tooltip={$t(DEPS_UNKNOWN_KEY[unknownWhy])}
+                >{$t('mods.deps.depsUnknownStatus')}</span
+              >
+            {/if}
+            {#if n.cycle && !selfState}
+              <!-- Shown higher in this branch, so not expanded again: the panel's own mod, or
+                   another one above. -->
+              <span class="text-placeholder" aria-hidden="true">·</span>
+              <span
+                id="{id}-cycle"
+                class="inline-flex items-center gap-1 text-placeholder"
+                use:tooltip={{
+                  text: isSelf(n)
+                    ? $t('mods.deps.cycleSelfTooltip', { name: n.name })
+                    : $t('mods.deps.cycleAboveTooltip', { name: n.name }),
+                  describe: false,
+                }}
+                ><Icon name="seeAbove" size={12} />{isSelf(n)
+                  ? $t('mods.deps.cycleSelf')
+                  : $t('mods.deps.cycleAbove')}</span
+              >
+            {/if}
+            {#if state === 'out_of_range'}
+              {@const conflict = ctx.conflictOf(n, dependentSha1)}
+              {#if conflict}
+                <!-- The planner's «Fix…», as on the panel row and the mod's own line: its offers
+                     show in «What stops the game». Beside the state it remedies, a wrench. -->
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm"
+                  tabindex={tab}
+                  aria-label={$t('mods.deps.fixConflictAriaLabel', { name: n.name })}
+                  use:tooltip={$t('mods.deps.fixConflictAriaLabel', { name: n.name })}
+                  onclick={() => ctx.onPlan(conflict)}><Icon name="wrench" size={15} /></button
+                >
+              {/if}
+            {/if}
+          </span>
+          <!-- The Installed row's own actions (ModCard): switch, then install or remove — the
+               panel's right edge and their 4 px step are the card's, so they stand under the
+               mod row's own switch and Remove. Each column (with «show» on the left) holds ONE
+               button whatever the node's state, so the button the user pressed is still there —
+               and still focused — when the graph comes back with the node switched off or absent.
+               Where it cannot act it stays, inactive, with its reason on the wrapper (a disabled
+               button fires no pointer events). -->
           <span
-            id="{id}-unknown"
-            class="text-secondary"
-            use:tooltip={$t(DEPS_UNKNOWN_KEY[unknownWhy])}>{$t('mods.deps.depsUnknownStatus')}</span
+            class="inline-flex w-7 shrink-0 justify-center"
+            data-slot="toggle"
+            use:tooltip={present
+              ? null
+              : { text: $t('mods.deps.toggleUnavailable', { name: n.name }), describe: false }}
           >
-        {/if}
-        {#if n.cycle}<span id="{id}-cycle" class="inline-flex items-center gap-1 text-placeholder"
-            ><Icon name="refresh" size={12} />{$t('mods.deps.cycleStatus')}</span
-          >{/if}
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm {n.installed ? 'btn-icon-success' : '!text-muted'}"
+              disabled={!acts}
+              tabindex={tab}
+              aria-label={toggleLabel}
+              use:tooltip={acts ? toggleLabel : null}
+              onclick={() => (n.installed ? ctx.onDisable(n) : ctx.onEnable(n))}
+              ><Icon name="power" size={15} /></button
+            >
+          </span>
+          <span class="inline-flex w-7 shrink-0 justify-center" data-slot="presence">
+            <!-- Busy is aria-disabled, not disabled: a disabled button drops focus, and the node
+                 turns installed under it when the install lands. -->
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm {acts ? 'btn-icon-danger' : '!text-accent'}"
+              tabindex={tab}
+              aria-label={presenceLabel}
+              aria-busy={busy ? 'true' : undefined}
+              aria-disabled={busy ? 'true' : undefined}
+              use:tooltip={busy ? null : presenceLabel}
+              onclick={() => {
+                if (busy) return;
+                if (present) ctx.onUninstall(n);
+                else if (n.declared === 'required') onInstall(n, dependentSha1);
+                else onAdd(n, dependentSha1);
+              }}
+            >
+              {#if busy}
+                <Spinner size="sm" />
+              {:else}
+                <Icon name={present ? 'trash' : 'download'} size={15} />
+              {/if}
+            </button>
+          </span>
+        </span>
       </div>
       {#if open}
         <Self
@@ -340,9 +472,9 @@
           parentPath={path}
           idPrefix={id}
           tree={st}
+          {rootKey}
           dependentSha1={n.installed ? ctx.enabledShaOf(k) : null}
           {ctx}
-          {installingKeys}
           {onInstall}
           {onAdd}
           {onJump}
