@@ -27,7 +27,7 @@ const h = vi.hoisted(() => {
       mod('addon', '514409', 'Combat Addon', 'curseforge'),
     ],
     learn: vi.fn(),
-    graph: vi.fn(() => Promise.resolve({ status: 'ok', data: { roots: [] } })),
+    graph: vi.fn((_id?: string) => Promise.resolve({ status: 'ok', data: { roots: [] } })),
   };
 });
 
@@ -66,6 +66,7 @@ const props = (instanceId: string) => ({
   loader: 'forge' as const,
 });
 const graphReads = (id: string) => h.graph.mock.calls.filter((c) => c[0] === id).length;
+const passes = (id: string) => h.learn.mock.calls.filter((c) => c[0] === id).length;
 
 describe('learning the installed jars’ ids on the other platform', () => {
   it('a pass that learned an id has the dependency graph read again', async () => {
@@ -74,6 +75,9 @@ describe('learning the installed jars’ ids on the other platform', () => {
 
     await waitFor(() => expect(h.learn).toHaveBeenCalledWith('cross-learned'));
     await waitFor(() => expect(graphReads('cross-learned')).toBeGreaterThanOrEqual(2));
+    // The re-read does not set off another pass: one per list load, even when each learns.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(passes('cross-learned')).toBe(1);
   });
 
   it('a pass that learned nothing leaves the graph alone', async () => {
@@ -84,6 +88,7 @@ describe('learning the installed jars’ ids on the other platform', () => {
     await waitFor(() => expect(graphReads('cross-none')).toBe(1));
     await new Promise((r) => setTimeout(r, 50));
     expect(graphReads('cross-none')).toBe(1);
+    expect(passes('cross-none')).toBe(1);
   });
 
   it('a pass that failed changes nothing and breaks nothing', async () => {
