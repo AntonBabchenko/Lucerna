@@ -24,6 +24,10 @@ export function createInstalledData(getInstanceId: () => string | null) {
   let packSummary = $state<PackOriginSummary | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  // The profile the rows belong to: set when its list lands, cleared on a switch (the rows are
+  // blanked then). A reader that must not act on the empty in-between list waits for it to name
+  // the current profile (the deps tour's attempt).
+  let loadedFor = $state<string | null>(null);
 
   async function refresh(): Promise<void> {
     // Capture the instance this refresh is for. Several awaits happen below; if
@@ -33,6 +37,7 @@ export function createInstalledData(getInstanceId: () => string | null) {
     const reqId = getInstanceId();
     if (!reqId) {
       rows = [];
+      loadedFor = null;
       return;
     }
     loading = true;
@@ -107,6 +112,7 @@ export function createInstalledData(getInstanceId: () => string | null) {
           : null,
       installed: m,
     }));
+    loadedFor = reqId;
     loading = false;
   }
 
@@ -123,6 +129,7 @@ export function createInstalledData(getInstanceId: () => string | null) {
         if (id) {
           rows = [];
           error = null;
+          loadedFor = null;
           void refresh();
         }
       });
@@ -140,6 +147,9 @@ export function createInstalledData(getInstanceId: () => string | null) {
     },
     get loading() {
       return loading;
+    },
+    get loadedFor() {
+      return loadedFor;
     },
     get error() {
       return error;
