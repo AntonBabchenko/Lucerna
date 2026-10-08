@@ -18,17 +18,18 @@
 //! Every payload field is an `Option`, and that is load-bearing rather than
 //! tidy. The two readers want different subsets — the compat scan wants `meta`
 //! + `manifest`, the pre-flight wants `manifest` + `jij_provided` and, on a
-//! legacy instance, `legacy_deps` — so a record is written partially and
-//! completed later. An empty `Vec` cannot say which of "scanned, nothing
-//! there" and "never scanned" it means, and on `legacy_deps` those are "this
-//! 1.12.2 mod requires nothing" versus "we have not looked": the first is a lie
-//! that silences every requirement that era declares.
+//! legacy instance, `legacy` — so a record is written partially and completed
+//! later. An empty value cannot say which of "scanned, nothing there" and
+//! "never scanned" it means, and on `legacy` those are "this 1.12.2 mod
+//! requires nothing" versus "we have not looked": the first is a lie that
+//! silences every requirement that era declares.
 //!
 //! [`SCHEMA_VERSION`] is the second half of the same honesty. The key answers
 //! "did the JAR change"; nothing in it answers "did the READER change". These
-//! records are the parsers' output, and those parsers have been corrected twice
-//! already (#344, #345) — a stale record survives the correction under the same
-//! SHA-1 and reports the old, wrong parse.
+//! records are the parsers' output, and those parsers have been corrected
+//! several times (#344, #345, and the 2026-10-07 annotation reader) — a stale
+//! record survives the correction under the same SHA-1 and reports the old,
+//! wrong parse.
 //!
 //! The load/mutate/save cycle mirrors [`crate::l10n::coverage::ScanCache`],
 //! including the private `save` behind a disk lock: the temp filename is only
@@ -46,7 +47,8 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::mods::local::{DeclaredDep, JarMeta, ManifestDeps, ProvidedMod};
+use crate::mods::local::{JarMeta, ManifestDeps, ProvidedMod};
+use crate::mods::mod_annotation::LegacyAnnotations;
 
 /// Bump whenever ANY jar reader's output changes meaning: a new
 /// `DescriptorSource`, a new `JarMeta` field a verdict reads, a corrected
@@ -57,7 +59,7 @@ use crate::mods::local::{DeclaredDep, JarMeta, ManifestDeps, ProvidedMod};
 /// A mismatch discards the ENTIRE file rather than the entries predating it:
 /// records carry no per-entry stamp, and the whole file is derived data that
 /// rebuilds itself on the next scan.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Serializes the disk read-modify-write; held only over the synchronous
 /// load/save, never across a scan. Mirrors `l10n::coverage::CACHE_DISK_LOCK`.
@@ -75,12 +77,14 @@ pub struct CachedScan {
     /// `local::read_jar_manifest_deps` — providers, declared deps, platform.
     #[serde(default)]
     pub manifest: Option<ManifestDeps>,
-    /// `local::read_jar_legacy_deps` — the `@Mod(dependencies = …)` string,
-    /// read ONLY for a `DescriptorEra::Legacy` instance. `Some(vec![])` is a
+    /// `mod_annotation::read_jar_legacy_annotations` — the `@Mod` requirements
+    /// AND providers, read ONLY for a `DescriptorEra::Legacy` instance. One
+    /// `Option` because both halves come from one pass. `Some(empty)` is a
     /// measured "this jar declares none"; `None` is "no legacy-era reader has
-    /// ever opened this jar".
+    /// ever opened this jar" — and also what a read that could not tell leaves
+    /// behind, because that result is never stored.
     #[serde(default)]
-    pub legacy_deps: Option<Vec<DeclaredDep>>,
+    pub legacy: Option<LegacyAnnotations>,
     /// `local::read_jar_embedded_providers` — the JIJ pass, which recursively
     /// unzips every nested jar. The most expensive of the readers.
     #[serde(default)]
@@ -105,8 +109,8 @@ impl CachedScan {
         if other.manifest.is_some() {
             self.manifest = other.manifest;
         }
-        if other.legacy_deps.is_some() {
-            self.legacy_deps = other.legacy_deps;
+        if other.legacy.is_some() {
+            self.legacy = other.legacy;
         }
         if other.jij_provided.is_some() {
             self.jij_provided = other.jij_provided;
@@ -212,17 +216,21 @@ impl ScanCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mods::local::{DepSide, DependencyKind, DescriptorSource};
+    use crate::mods::local::{DeclaredDep, DepSide, DependencyKind, DescriptorSource};
     use crate::mods::version_range::RangeFamily;
 
-    fn legacy_dep(id: &str) -> DeclaredDep {
-        DeclaredDep {
-            dep_id: id.into(),
-            range: String::new(),
-            kind: DependencyKind::Required,
-            side: DepSide::Both,
-            family: RangeFamily::Maven,
-            source: DescriptorSource::McmodAnnotation,
+    /// What the annotation reader returns for a jar requiring one mod.
+    fn legacy_requiring(id: &str) -> LegacyAnnotations {
+        LegacyAnnotations {
+            deps: vec![DeclaredDep {
+                dep_id: id.into(),
+                range: String::new(),
+                kind: DependencyKind::Required,
+                side: DepSide::Both,
+                family: RangeFamily::Maven,
+                source: DescriptorSource::McmodAnnotation,
+            }],
+            provided: Vec::new(),
         }
     }
 
@@ -253,8 +261,8 @@ mod tests {
             "a JIJ pass that found nothing is a measurement"
         );
         assert!(
-            hit.legacy_deps.is_none(),
-            "the annotation reader never ran; an empty Vec here would be a lie"
+            hit.legacy.is_none(),
+            "the annotation reader never ran; an empty answer here would be a lie"
         );
         assert!(hit.meta.is_none(), "and neither did read_jar_meta");
     }
@@ -279,7 +287,7 @@ mod tests {
             c.merge(
                 "ab",
                 CachedScan {
-                    legacy_deps: Some(vec![legacy_dep("creativecore")]),
+                    legacy: Some(legacy_requiring("creativecore")),
                     jij_provided: Some(Vec::new()),
                     ..CachedScan::default()
                 },
@@ -287,7 +295,7 @@ mod tests {
         });
         let hit = ScanCache::load(&path).get("ab").cloned().expect("stored");
         assert!(hit.meta.is_some(), "the compat scan's half survives");
-        assert_eq!(hit.legacy_deps.unwrap().len(), 1);
+        assert_eq!(hit.legacy.unwrap().deps.len(), 1);
     }
 
     /// A jar's SHA-1 cannot notice that the PARSER changed. Every record is a
@@ -299,7 +307,9 @@ mod tests {
         let path = td.path().join("jar-scans.json");
         // Every field spelled out, so the fixture is shape-neutral: it
         // deserializes under the pre-fix `Vec`/bare shape too, which is what
-        // makes this test genuinely red rather than vacuously green.
+        // makes this test genuinely red rather than vacuously green. The
+        // `legacy_deps` key is the version-1 spelling, kept on purpose: an
+        // older file must be discarded by its version, not fail on a key.
         let older = serde_json::json!({
             "version": SCHEMA_VERSION - 1,
             "entries": {
@@ -409,7 +419,10 @@ mod tests {
             )
         });
         let raw = std::fs::read_to_string(&path).unwrap();
-        assert!(raw.contains("\"version\":1"), "got {raw}");
+        assert!(
+            raw.contains(&format!("\"version\":{SCHEMA_VERSION}")),
+            "got {raw}"
+        );
         assert_eq!(
             ScanCache::load(&path).len(),
             1,
@@ -424,7 +437,7 @@ mod tests {
         let entry = CachedScan {
             meta: Some(JarMeta::default()),
             manifest: Some(ManifestDeps::default()),
-            legacy_deps: Some(vec![legacy_dep("creativecore")]),
+            legacy: Some(legacy_requiring("creativecore")),
             jij_provided: Some(vec![ProvidedMod {
                 mod_id: "forgified_fabric_api".into(),
                 version: Some("0.92.2".into()),

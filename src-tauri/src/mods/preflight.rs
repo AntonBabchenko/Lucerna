@@ -14,6 +14,7 @@ use crate::instances::schema::LoaderKind;
 use crate::mods::local::{
     DeclaredDep, DepSide, DependencyKind, DescriptorEra, ManifestDeps, ProvidedMod,
 };
+use crate::mods::mod_annotation::LegacyAnnotations;
 use crate::mods::platform::{InstalledMod, ModSource};
 use crate::mods::version_range::{satisfies, Satisfaction};
 
@@ -283,10 +284,16 @@ fn descriptor_rank(
     use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
     match loader {
         L::Forge => match era {
-            // Complementary, not competing: `mcmod.info` is the provider list,
-            // the annotation is the requirement list. Equal rank, both read.
+            // FML's own declaration outranks its display metadata. The
+            // annotation is the requirement list AND the version every
+            // requirement on that mod is measured against
+            // (`FMLModContainer.bindMetadata`: annotation → `version.properties`
+            // → `mcmod.info` → "1.0"); `mcmod.info` answers only for a mod-id no
+            // annotation names a version for. `effective_rank` never shadows it,
+            // because `McmodAnnotation` never enters `sources_present`.
             E::Legacy => match source {
-                S::McmodInfo | S::McmodAnnotation => Some(0),
+                S::McmodAnnotation => Some(0),
+                S::McmodInfo => Some(1),
                 S::ModsToml | S::NeoForgeToml | S::FabricJson | S::QuiltJson => None,
             },
             E::Modern => match source {
@@ -333,9 +340,12 @@ fn descriptor_rank(
 /// jar also ships one of a **strictly better** rank, because the loader reads
 /// only the better one and ignores this file for this jar.
 ///
-/// "Strictly better", not "the single best": equal ranks are complementary
-/// rather than alternative (see the Forge-legacy arm above), and a
-/// keep-only-the-top rule would drop half of what a 1.12.2 jar declares.
+/// "Strictly better", not "the single best": a file of equal rank never shadows
+/// another. On the legacy era the annotation (rank 0) would shadow `mcmod.info`
+/// (rank 1) by this rule, but it never can: `McmodAnnotation` is a class
+/// annotation, not a file, and never enters `sources_present`. So `mcmod.info`
+/// stays admitted and keeps answering for the mod-ids no annotation names a
+/// version for — exactly FML's fallback.
 /// `pub(crate)` so `mods::mc_compat` shares this authority rather than
 /// reimplementing it.
 pub(crate) fn effective_rank(
@@ -863,23 +873,37 @@ fn ranged(
 /// turned into a complete answer, or refused.
 struct JarScan {
     manifest: ManifestDeps,
-    /// `@Mod(dependencies = …)` requirements. Empty on a modern-era instance,
+    /// What the `@Mod` annotations declare. Empty on a modern-era instance,
     /// where the reader never runs — and deliberately NOT stored as a fact
     /// there; see [`usable_hit`].
-    legacy_deps: Vec<crate::mods::local::DeclaredDep>,
+    legacy: LegacyAnnotations,
     jij_provided: Vec<crate::mods::local::ProvidedMod>,
+}
+
+impl JarScan {
+    /// The jar's manifest with the annotation's requirements AND providers
+    /// folded in, plus its Jar-in-Jar providers. The ONE merge point: the panel
+    /// (`parse_instance`) and the version-fix planner (`scan_loose_jar`) both go
+    /// through it, so they cannot come to disagree about what a legacy jar
+    /// provides or at which version.
+    fn into_parts(self) -> (ManifestDeps, Vec<ProvidedMod>) {
+        let mut manifest = self.manifest;
+        manifest.deps.extend(self.legacy.deps);
+        manifest.provided.extend(self.legacy.provided);
+        (manifest, self.jij_provided)
+    }
 }
 
 /// A cached record turned into a complete [`JarScan`], or `None` when it does
 /// not answer everything this era asks.
 ///
-/// The `legacy_deps` branch is the point of the whole `Option` shape. A record
-/// written while scanning a MODERN instance carries `legacy_deps: None` —
-/// "never scanned", not "this jar declares none" — and a 1.12.2 instance that
-/// believed it would report zero requirements for every mod in the pack,
-/// because the annotation is the ONLY place that era declares them. A modern
-/// instance, symmetrically, does not care what the annotation says and must not
-/// be sent back to the jar to find out.
+/// The `legacy` branch is the point of the whole `Option` shape. A record
+/// written while scanning a MODERN instance carries `legacy: None` — "never
+/// scanned", not "this jar declares none" — and a 1.12.2 instance that believed
+/// it would report zero requirements for every mod in the pack, because the
+/// annotation is the ONLY place that era declares them. A modern instance,
+/// symmetrically, does not care what the annotation says and must not be sent
+/// back to the jar to find out.
 fn usable_hit(
     hit: Option<&crate::mods::jar_scan_cache::CachedScan>,
     want_legacy: bool,
@@ -887,14 +911,14 @@ fn usable_hit(
     let hit = hit?;
     let manifest = hit.manifest.clone()?;
     let jij_provided = hit.jij_provided.clone()?;
-    let legacy_deps = if want_legacy {
-        hit.legacy_deps.clone()?
+    let legacy = if want_legacy {
+        hit.legacy.clone()?
     } else {
-        Vec::new()
+        LegacyAnnotations::default()
     };
     Some(JarScan {
         manifest,
-        legacy_deps,
+        legacy,
         jij_provided,
     })
 }
@@ -904,8 +928,8 @@ fn usable_hit(
 ///
 /// `zip` is sync, and this is not a small sync call: `read_jar_manifest_deps`
 /// inflates several entries, `read_jar_embedded_providers` recursively unzips
-/// every nested jar, and on the legacy era `read_jar_legacy_deps` decompresses
-/// class entries until it finds the annotation. Run inline on a tokio worker, a
+/// every nested jar, and on the legacy era `read_jar_legacy_annotations`
+/// decompresses every class entry FML would scan. Run inline on a tokio worker, a
 /// 140-mod pack starves every other task on that worker — including the
 /// download and launch pipelines. One blocking task for the WHOLE jar rather
 /// than one per reader, mirroring `datapacks::library::install_local_at`, which
@@ -913,27 +937,28 @@ fn usable_hit(
 /// caller's loop stays sequential, so at most one blocking task exists at a
 /// time and the blocking pool is never flooded.
 ///
-/// `None` is "could not tell" — an unreadable zip, or a blocking task that
-/// panicked or was cancelled — and it is never written to the cache: a failure
-/// to read must not be frozen into "this jar declares nothing".
+/// `None` is "could not tell" — an unreadable zip, a blocking task that
+/// panicked or was cancelled, or on the legacy era a class the annotation
+/// reader could not inflate or parse (see
+/// `mod_annotation::read_jar_legacy_annotations`) — and it is never written to
+/// the cache: a failure to read must not be frozen into "this jar declares
+/// nothing".
 async fn scan_jar(bytes: Vec<u8>, want_legacy: bool) -> Option<JarScan> {
-    use crate::mods::local::{
-        read_jar_embedded_providers, read_jar_legacy_deps, read_jar_manifest_deps,
-    };
+    use crate::mods::local::{read_jar_embedded_providers, read_jar_manifest_deps};
+    use crate::mods::mod_annotation::read_jar_legacy_annotations;
     let joined = tokio::task::spawn_blocking(move || {
         let manifest = read_jar_manifest_deps(&bytes).ok()?;
-        // The legacy guard needs the jar's own mod-ids, which the manifest read
-        // has just collected.
-        let legacy_deps = if want_legacy {
-            let own: Vec<String> = manifest.provided.iter().map(|p| p.mod_id.clone()).collect();
-            read_jar_legacy_deps(&bytes, &own)
+        // `None` from the annotation reader is "could not tell", and it makes
+        // the whole scan "could not tell" — which is never cached.
+        let legacy = if want_legacy {
+            read_jar_legacy_annotations(&bytes)?
         } else {
-            Vec::new()
+            LegacyAnnotations::default()
         };
         let jij_provided = read_jar_embedded_providers(&bytes);
         Some(JarScan {
             manifest,
-            legacy_deps,
+            legacy,
             jij_provided,
         })
     })
@@ -951,7 +976,7 @@ async fn scan_jar(bytes: Vec<u8>, want_legacy: bool) -> Option<JarScan> {
 /// the way [`parse_instance`] reads an installed one.
 #[derive(Debug, Clone)]
 pub struct LooseJar {
-    /// Legacy-era `@Mod` requirements already merged into `deps`.
+    /// Legacy-era `@Mod` requirements and providers already merged in.
     pub manifest: ManifestDeps,
     pub jij_provided: Vec<ProvidedMod>,
 }
@@ -960,11 +985,10 @@ pub struct LooseJar {
 /// jar — never "declares nothing".
 pub(crate) async fn scan_loose_jar(bytes: Vec<u8>, era: DescriptorEra) -> Option<LooseJar> {
     let scan = scan_jar(bytes, era == DescriptorEra::Legacy).await?;
-    let mut manifest = scan.manifest;
-    manifest.deps.extend(scan.legacy_deps);
+    let (manifest, jij_provided) = scan.into_parts();
     Some(LooseJar {
         manifest,
-        jij_provided: scan.jij_provided,
+        jij_provided,
     })
 }
 
@@ -1001,7 +1025,8 @@ pub(crate) fn provided_version(
 #[derive(Debug, Clone)]
 pub struct ParsedRow {
     /// Registry digest and name; the manifest has the legacy-era `@Mod`
-    /// requirements merged into `deps`.
+    /// requirements merged into `deps` and its providers into `provided`
+    /// ([`JarScan::into_parts`]).
     pub parsed: ParsedMod,
     /// Jar-in-Jar providers: an embedded library answers only for an id
     /// nothing top-level claims, and only while its host is switched on.
@@ -1681,8 +1706,16 @@ async fn scan_row(
     }
     // Jar missing from disk: "could not tell", reported by the caller.
     let bytes = crate::mods::local::read_jar_for(mods_dir, &m.filename).await?;
-    // Unreadable zip: the same.
-    let s = scan_jar(bytes, want_legacy).await?;
+    // Unreadable zip, or a legacy class the annotation reader could not read:
+    // the same. Logged by name — the reader below sees only bytes, so its own
+    // line names the entry but not the jar.
+    let Some(s) = scan_jar(bytes, want_legacy).await else {
+        crate::diag!(
+            "[mods] pre-flight could not read {}; it is reported as unjudged",
+            m.filename
+        );
+        return None;
+    };
     // Only a key computed from the real bytes may be written: without one we do
     // not know WHICH jar this record describes.
     if let Some(k) = cache_key {
@@ -1694,10 +1727,10 @@ async fn scan_row(
                 // measures it.
                 meta: None,
                 manifest: Some(s.manifest.clone()),
-                // `Some(vec![])` only when the reader actually ran. A
+                // `Some(empty)` only when the reader actually ran. A
                 // modern-era scan stores `None`, so a later legacy-era scan
                 // re-reads instead of believing an emptiness nobody measured.
-                legacy_deps: want_legacy.then(|| s.legacy_deps.clone()),
+                legacy: want_legacy.then(|| s.legacy.clone()),
                 jij_provided: Some(s.jij_provided.clone()),
             },
         ));
@@ -1743,18 +1776,17 @@ pub async fn parse_instance(
             unreadable.push(m);
             continue;
         };
-        let mut manifest = scan.manifest;
-        // On the legacy era the requirements live nowhere else: `mcmod.info`'s
-        // own `dependencies` array is cosmetic and FML enforces the
-        // `@Mod(dependencies = …)` annotation instead. Empty on every other era.
-        manifest.deps.extend(scan.legacy_deps);
+        // On the legacy era the requirements AND the compared versions live in
+        // the `@Mod` annotation: `mcmod.info` is display metadata FML only falls
+        // back to. Empty on every other era.
+        let (manifest, jij_provided) = scan.into_parts();
         rows.push(ParsedRow {
             parsed: ParsedMod {
                 sha1: m.sha1,
                 name: m.name,
                 manifest,
             },
-            jij_provided: scan.jij_provided,
+            jij_provided,
             enabled: m.enabled,
             source: m.source,
             project_id: m.project_id,
@@ -1895,10 +1927,54 @@ mod tests {
             "on MinecraftForge the mods.toml of a dual-descriptor jar IS read"
         );
 
-        // Equal ranks never shadow each other.
+        // `mcmod.info` is never shadowed on the legacy era: the annotation
+        // outranks it but, not being a file, never appears in `sources_present`.
         let legacy = [S::McmodInfo];
         assert!(effective_rank(S::McmodInfo, &legacy, L::Forge, E::Legacy).is_some());
         assert!(effective_rank(S::McmodAnnotation, &legacy, L::Forge, E::Legacy).is_some());
+    }
+
+    /// FML ≤ 1.12.2 measures a requirement against the `@Mod` annotation's
+    /// `version`, not `mcmod.info`'s (`FMLModContainer.bindMetadata`). Measured on
+    /// OreLib: annotation `3.6.0.1`, `mcmod.info` `1.12.2-3.6.0.1` — believing the
+    /// second flagged a pack that starts.
+    #[test]
+    fn a_legacy_provider_version_comes_from_the_annotation_before_mcmod_info() {
+        use crate::mods::local::{DescriptorEra as E, DescriptorSource as S};
+        let pv = |ver: Option<&str>, source| ProvidedMod {
+            mod_id: "orelib".into(),
+            version: ver.map(str::to_string),
+            source,
+        };
+        // Either order inside the jar: the rank decides, not the position.
+        for provided in [
+            vec![
+                pv(Some("1.12.2-3.6.0.1"), S::McmodInfo),
+                pv(Some("3.6.0.1"), S::McmodAnnotation),
+            ],
+            vec![
+                pv(Some("3.6.0.1"), S::McmodAnnotation),
+                pv(Some("1.12.2-3.6.0.1"), S::McmodInfo),
+            ],
+        ] {
+            let mods = vec![modz_from("aa", provided, vec![], vec![S::McmodInfo])];
+            let idx = ProviderIndex::build(&mods, &[], LoaderKind::Forge, E::Legacy);
+            assert_eq!(idx.get("orelib"), Some(&Some("3.6.0.1".to_string())));
+        }
+        // An annotation naming no version leaves `mcmod.info` to answer — FML's
+        // step 3. `sources_present` holding `McmodInfo` and never
+        // `McmodAnnotation` is what keeps that fallback admitted.
+        let silent = vec![modz_from(
+            "bb",
+            vec![
+                pv(None, S::McmodAnnotation),
+                pv(Some("7.0.1"), S::McmodInfo),
+            ],
+            vec![],
+            vec![S::McmodInfo],
+        )];
+        let idx = ProviderIndex::build(&silent, &[], LoaderKind::Forge, E::Legacy);
+        assert_eq!(idx.get("orelib"), Some(&Some("7.0.1".to_string())));
     }
 
     /// Which descriptor names a provider's VERSION decides what every range is
@@ -2027,12 +2103,11 @@ mod tests {
             descriptor_rank(S::QuiltJson, L::Quilt, E::Modern)
                 < descriptor_rank(S::FabricJson, L::Quilt, E::Modern)
         );
-        // The one tie in the table, and it is deliberate: on the legacy era
-        // these two are complementary, not competing — `mcmod.info` contributes
-        // providers and never dependencies, the annotation the reverse.
-        assert_eq!(
-            descriptor_rank(S::McmodInfo, L::Forge, E::Legacy),
+        // On the legacy era FML compares a requirement against the annotation's
+        // `version` and falls back to `mcmod.info`'s only when there is none.
+        assert!(
             descriptor_rank(S::McmodAnnotation, L::Forge, E::Legacy)
+                < descriptor_rank(S::McmodInfo, L::Forge, E::Legacy)
         );
     }
 
@@ -2821,7 +2896,7 @@ mod tests {
         let modern_written = CachedScan {
             meta: None,
             manifest: Some(ManifestDeps::default()),
-            legacy_deps: None,
+            legacy: None,
             jij_provided: Some(Vec::new()),
         };
         assert!(
@@ -2834,7 +2909,7 @@ mod tests {
         );
 
         let measured_empty = CachedScan {
-            legacy_deps: Some(Vec::new()),
+            legacy: Some(LegacyAnnotations::default()),
             ..modern_written.clone()
         };
         assert!(
@@ -2846,7 +2921,7 @@ mod tests {
         let compat_written = CachedScan {
             meta: Some(crate::mods::local::JarMeta::default()),
             manifest: None,
-            legacy_deps: None,
+            legacy: None,
             jij_provided: None,
         };
         assert!(usable_hit(Some(&compat_written), false).is_none());
