@@ -5,7 +5,6 @@ import {
   ArrowRight,
   ArrowRightLeft,
   ArrowUp,
-  ArrowUpRight,
   Ban,
   Blocks,
   Check,
@@ -17,6 +16,7 @@ import {
   ChevronUp,
   CircleX,
   Copy,
+  CornerLeftUp,
   Crop,
   Database,
   Download,
@@ -38,6 +38,7 @@ import {
   LayoutGrid,
   Link2,
   List,
+  LocateFixed,
   Lock,
   Minus,
   Monitor,
@@ -113,7 +114,8 @@ export const ICONS = {
   puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
   arrowLeft: ArrowLeft, // back / prev navigation (tour)
   arrowRight: ArrowRight, // version-transition marker (v1 → v2) / next / CTA
-  arrowUpRight: ArrowUpRight, // jump-to-row (dep tree internal navigation)
+  locate: LocateFixed, // show a mod's row in the list (dep tree, Required by, pre-flight row)
+  seeAbove: CornerLeftUp, // a dep-tree node already expanded higher up its branch
   link: Link2, // ⛓ own-dependency count (Installed relation pill)
   pin: Pin, // updates held for a mod (Installed row + menu)
   // i18n tier — nav/action + status.
@@ -150,7 +152,7 @@ export const ICONS = {
   lock: Lock, // restricted / distribution-blocked version (download disabled)
   archive: Archive, // create a backup ("Back up now")
   restore: RotateCcw, // restore a backup
-  wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel)
+  wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel); the dep tree's Fix, which asks the version planner
   eye: Eye, // reveal password / show secret
   eyeOff: EyeOff, // hide password / conceal secret
   aiTranslate: Sparkles, // AI pre-fill of missing translations (l10n)

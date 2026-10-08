@@ -291,7 +291,7 @@ describe('problem line', () => {
 
   // Plan §5b V2 (screenshots 01, 06d): the line sat under the card, on the page background —
   // outside the card's surface and its accent strip. It is the card's own second line now, so the
-  // strip and the hover fill cover both lines, and the row ↗ scrolls to (`[data-mod-row]`) holds
+  // strip and the hover fill cover both lines, and the row «show in the list» scrolls to (`[data-mod-row]`) holds
   // both.
   it('sits inside the card, under the row, with the strip and the jump target around both', () => {
     render(InstalledModRow, {

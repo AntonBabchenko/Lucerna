@@ -56,7 +56,7 @@
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
   import { depNameOf, depProjectOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
-  import { type DepTreeCtx, edgeConflict } from '$lib/mods/dep-node-state';
+  import { type DepTreeCtx, edgeConflict, type ModTarget } from '$lib/mods/dep-node-state';
   import { countFixed, fixAll } from '$lib/mods/fix-all';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
@@ -409,9 +409,36 @@
       if (!sha1) return;
       void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? node.name }], true);
     },
+    // The row's own Disable and Remove, for the jar the node stands for (spec 2026-10-07 D3a).
+    // The tree acts only on a node whose install is done (`installing`), so a missing jar here
+    // means the graph has not caught up with a change that is already re-resolving it.
+    // A «Required by» row names its very jar (`sha1`); a tree node is looked up by project.
+    onDisable: (target) => {
+      const sha1 = target.sha1 ?? enabledShaByKey.get(`${target.source}:${target.project_id}`);
+      if (!sha1) return;
+      const refocus = panelRefocus();
+      const index = pagedIndexOf((r) => r.installed.sha1 === sha1);
+      void setEnabled([{ sha1, name: nameBySha.get(sha1) ?? target.name }], false).then(() =>
+        refocus(index),
+      );
+    },
+    onUninstall: (target) => {
+      const sha1 = target.sha1 ?? jarOf(target);
+      const row = sha1 ? rowBySha.get(sha1) : undefined;
+      if (!row) return;
+      void uninstall(row, panelRefocus());
+    },
+    installing: (key) => deps.isInstalling(key),
     conflictOf: (node, dependentSha1) => edgeConflict(blockingViolations, node, dependentSha1),
     onPlan: (v) => fixVersion(v),
   };
+  // The jar a tree node or a «Required by» entry stands for: an installed node's enabled jar, a
+  // switched-off one's disabled jar — the maps the tree's Enable already reads.
+  function jarOf(node: ModTarget): string | null {
+    const key = `${node.source}:${node.project_id}`;
+    if (node.installed === false) return disabledShaByKey.get(key) ?? null;
+    return enabledShaByKey.get(key) ?? disabledShaByKey.get(key) ?? null;
+  }
 
   // Reset per-row remediation state on instance switch. The keys are dep-based
   // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
@@ -660,15 +687,23 @@
     panelRow(key)?.querySelector<HTMLElement>('button')?.focus();
   }
 
-  // ↗ from a panel row. A search or a chip that hides the dependent is cleared
+  // «Show in the list» from a panel row (and, by project, from the trees). A search or a chip that hides the dependent is cleared
   // for the view that holds it: the problem view while it is a problem (it is,
   // while the report is current), else every mod. A report that predates a
   // removal names a mod no view holds — say so, and change no filter for
   // nothing (clearing them would show nothing anyway).
-  async function jumpToDependent(v: DepViolation): Promise<void> {
-    const sha1 = v.dependent_sha1;
-    if (await deps.jumpToSha1(sha1)) return;
-    const gone = () => pushInfo(get(t)('mods.preflight.dependentGone', { name: v.dependent_name }));
+  function jumpToDependent(v: DepViolation): Promise<void> {
+    return jumpToJar(v.dependent_sha1, v.dependent_name);
+  }
+  // The row a «show in the list» landed on, until it has flashed (spec 2026-10-07 §9): the row's
+  // `fieldFlash` fires on the edge and reports delivery, which clears it — one flash per click.
+  let flashSha = $state<string | null>(null);
+  async function jumpToJar(sha1: string, name: string): Promise<void> {
+    if (await deps.jumpToSha1(sha1)) {
+      flashSha = sha1;
+      return;
+    }
+    const gone = () => pushInfo(get(t)('mods.preflight.dependentGone', { name }));
     if (!rowBySha.has(sha1)) {
       gone();
       return;
@@ -677,7 +712,19 @@
     filters.viewFilter = isProblem(statusBySha.get(sha1)) ? 'issues' : 'all';
     await tick();
     // Removed in the meantime (the list re-read while the view changed).
-    if (!(await deps.jumpToSha1(sha1))) gone();
+    if (await deps.jumpToSha1(sha1)) flashSha = sha1;
+    else gone();
+  }
+  // The tree's and «Required by»'s locate: the same way, once the jar is looked up by project —
+  // never a silent nothing when a search hides the row (spec 2026-10-07 D4a).
+  function jumpToProject(target: ModTarget): Promise<void> {
+    // A «Required by» entry knows its very jar; a tree node is looked up by project.
+    const sha1 = target.sha1 ?? jarOf(target);
+    if (!sha1) {
+      pushInfo(get(t)('mods.preflight.dependentGone', { name: target.name }));
+      return Promise.resolve();
+    }
+    return jumpToJar(sha1, nameBySha.get(sha1) ?? target.name);
   }
 
   // «Fix all (N)»: the Play gate's repair (fix-all.ts), then a FRESH pre-flight
@@ -944,7 +991,10 @@
       !row.installed.enabled,
     );
   }
-  async function uninstall(row: Row) {
+  async function uninstall(
+    row: Row,
+    refocus: (index: number) => Promise<void> = refocusAfterRemoval,
+  ) {
     if (!instanceId) return;
     const target = [{ sha1: row.installed.sha1, name: rowDisplayName(row) }];
     const index = pagedIndexOf((r) => r.installed.sha1 === row.installed.sha1);
@@ -955,11 +1005,35 @@
         await data.refresh();
         deps.reloadGraph();
         preflight.invalidate();
-        await refocusAfterRemoval(index);
+        await refocus(index);
       }
     } finally {
       shellBusy = false;
     }
+  }
+  // Where focus goes after a Disable or Remove from a dependency panel (DESIGN.md §13), read from
+  // the control pressed, before the action: nowhere while it is still on the page (a tree button
+  // keeps its element whatever the node becomes) or when nothing had focus (WebKit focuses no
+  // button on a click); to the «Required by» row now in its place — the next, else the one
+  // before — when the row left with the dependent it named; and by the list's rule only when the
+  // panel itself went with its own mod.
+  function panelRefocus(): (index: number) => Promise<void> {
+    const had = document.activeElement;
+    const panel = had?.closest<HTMLElement>('[data-dep-section]') ?? null;
+    const byRows = (el: HTMLElement) => [
+      ...el.querySelectorAll<HTMLElement>('[data-required-by-row]'),
+    ];
+    const byRow = had?.closest<HTMLElement>('[data-required-by-row]') ?? null;
+    const rowAt = panel && byRow ? byRows(panel).indexOf(byRow) : -1;
+    return async (index) => {
+      await tick();
+      if (had === null || had === document.body || had.isConnected) return;
+      if (panel?.isConnected && rowAt >= 0) {
+        await refocusInList({ index: rowAt, listEl: () => panel, rows: byRows });
+        return;
+      }
+      await refocusAfterRemoval(index);
+    };
   }
   // The bulk bar's Remove: the removed rows' place is where the first of them was.
   async function bulkUninstall(): Promise<void> {
@@ -1270,7 +1344,7 @@
           onShowChangelog={() => openChangelog(row)}
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
-          onJump={deps.jumpToMod}
+          onJump={jumpToProject}
           onProblemFix={(fix) => onRowFix(row, fix)}
           onRevealProblems={() => {
             const first = violationsBySha.get(row.installed.sha1)?.[0];
@@ -1279,6 +1353,8 @@
           onRevealFile={() => void revealFile(row.installed)}
           onOpenProjectPage={projectPageOpener(row)}
           hold={holdControl(row)}
+          flash={flashSha === row.installed.sha1}
+          onFlashed={() => (flashSha = null)}
         />
       {/each}
     </div>

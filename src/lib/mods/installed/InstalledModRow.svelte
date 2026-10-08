@@ -9,12 +9,18 @@
   } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { fieldFlash } from '$lib/ui/field-flash';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
-  import { DEPS_UNKNOWN_KEY, type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
+  import {
+    DEPS_UNKNOWN_KEY,
+    type DepTreeCtx,
+    EMPTY_TREE_CTX,
+    type ModTarget,
+  } from '../dep-node-state';
   import { changelogSupported } from '$lib/mods/changelog-supported';
   import type { RowFix, RowProblem } from './row-problem';
   import { depSectionId, hasFigures, relationFigures, relationInput } from './relation-cell';
@@ -50,6 +56,8 @@
     onRevealFile = null,
     onOpenProjectPage = null,
     hold = null,
+    flash = false,
+    onFlashed = () => {},
   }: {
     summary: ModSummary | null;
     installed: InstalledMod;
@@ -88,7 +96,9 @@
     // A dependency's Install / Add in the tree, with the mod that declared it (null under an
     // absent parent).
     onInstallDep: (node: DepTreeNode, dependentSha1: string | null) => void;
-    onJump: (target: { source: ModSource; project_id: string }) => void;
+    // «Show in the list» from the tree or «Required by» (the tree passes its node, which also says
+    // whether it is installed or switched off).
+    onJump: (target: ModTarget) => void;
     onProblemFix?: (fix: RowFix) => void;
     // «and N more»: reveal this mod's rows in the «What stops the game» panel.
     onRevealProblems?: () => void;
@@ -97,6 +107,10 @@
     onRevealFile?: (() => void) | null;
     onOpenProjectPage?: (() => void) | null;
     hold?: { held: boolean; onToggle: () => void } | null;
+    // A «show in the list» just landed here: the row flashes once, as a Settings jump does, and
+    // says so (the host then clears it, so the next jump is a new edge).
+    flash?: boolean;
+    onFlashed?: () => void;
   } = $props();
 
   // One control summarises both directions of the dependency relation (spec D12): ⛓ what this mod
@@ -264,10 +278,13 @@
 {/snippet}
 
 <div role="group" aria-label={installed.name}>
-  <!-- The row a ↗ scrolls into view and a removal moves focus into (`data-mod-row`): the card
+  <!-- The row «show in the list» scrolls into view and a removal moves focus into (`data-mod-row`): the card
        with its problem line, not the expanded DepSection below it. Pointing at it shows the
        card's own hover and nothing else — no other place this mod appears lights up. -->
-  <div data-mod-row={rowKey}>
+  <div
+    data-mod-row={rowKey}
+    use:fieldFlash={{ active: flash, behavior: 'smooth', onDelivered: onFlashed }}
+  >
     <ModCard
       layout="list"
       {summary}

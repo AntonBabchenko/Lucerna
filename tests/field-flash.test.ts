@@ -174,6 +174,25 @@ describe('fieldFlash', () => {
     expect(scroll).toHaveBeenLastCalledWith({ block: 'center' });
   });
 
+  // The Installed list's «show in the list» scrolls as its own jump always did — smoothly — and
+  // Settings keep the browser's default.
+  it('scrolls with the behaviour it is given, and the default when none', () => {
+    const parent = document.createElement('div');
+    parent.setAttribute('style', 'overflow-y: auto');
+    Object.defineProperty(parent, 'clientHeight', { value: 400, configurable: true });
+    const host = document.createElement('div');
+    parent.appendChild(host);
+    document.body.appendChild(parent);
+    const scroll = vi.fn();
+    host.scrollIntoView = scroll;
+    host.getBoundingClientRect = () => ({ height: 50 }) as DOMRect;
+    const a = fieldFlash(host, { active: true, behavior: 'smooth' });
+    expect(scroll).toHaveBeenLastCalledWith({ block: 'center', behavior: 'smooth' });
+    a.update({ active: false });
+    a.update({ active: true });
+    expect(scroll.mock.lastCall?.[0]).toEqual({ block: 'center' });
+  });
+
   it('parks focus on the wrapper while the target is disabled, then hands it over', async () => {
     const host = document.createElement('div');
     host.innerHTML = '<input data-flash-focus disabled />';

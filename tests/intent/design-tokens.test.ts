@@ -231,3 +231,24 @@ describe('--border-strong (an edge a control stands on alone)', () => {
     });
   }
 });
+
+// Spec 2026-10-07 §9: the dependency panel's «Required by» stripe and ↑ glyph — a hue of its own,
+// so it reads as neither a problem (red/amber strips) nor the accent of «Requires».
+describe('--relation-by (what requires a mod, in its dependency panel)', () => {
+  it('is a Tailwind colour that follows the theme token', () => {
+    expect(withoutComments(tailwindConfig)).toMatch(
+      /'relation-by':\s*'rgb\(var\(--relation-by\) \/ <alpha-value>\)'/,
+    );
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    it(`clears 3:1 on the page and on a surface in the ${theme} theme`, () => {
+      const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
+      const stripe = token(block, 'relation-by', theme);
+      for (const surface of ['bg-base', 'bg-surface']) {
+        const ratio = contrastRatio(stripe, token(block, surface, theme));
+        expect(ratio, `--relation-by on --${surface}`).toBeGreaterThanOrEqual(3);
+      }
+    });
+  }
+});

@@ -16,6 +16,8 @@ module.exports = {
         // Borders
         'border-subtle': 'rgb(var(--border-subtle) / <alpha-value>)',
         'border-emphasis': 'rgb(var(--border-emphasis) / <alpha-value>)',
+        // What requires a mod, in its dependency panel: the «Required by» stripe and ↑ glyph.
+        'relation-by': 'rgb(var(--relation-by) / <alpha-value>)',
         // An edge a control stands on alone (the drop box): ≥ 3:1 in both themes (DESIGN.md §1).
         'border-strong': 'rgb(var(--border-strong) / <alpha-value>)',
         // Accent / state

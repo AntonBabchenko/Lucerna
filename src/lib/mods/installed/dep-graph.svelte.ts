@@ -1,4 +1,5 @@
 import { tick } from 'svelte';
+import { SvelteSet } from 'svelte/reactivity';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import {
@@ -60,6 +61,8 @@ export function createDepGraph(
   let expanded = $state<Set<string>>(new Set());
   let busy = $state(false);
   let error = $state<string | null>(null);
+  // `source:project_id` of every tree Install / Add in flight.
+  const installing = new SvelteSet<string>();
 
   const rootBySha = $derived(new Map((graph?.roots ?? []).map((r) => [r.sha1, r])));
 
@@ -208,21 +211,10 @@ export function createDepGraph(
     }
   }
 
-  // Accepts any mod identity (a DepTreeNode or a required-by entry), so the
-  // ↗ jump works from both the dependency tree and the "Required by" list.
-  async function jumpToMod(target: { source: ModSource; project_id: string }) {
-    const key = `${target.source}:${target.project_id}`;
-    const filtered = ctx.getFiltered();
-    const idx = filtered.findIndex(
-      (r) => modKey(r.installed.source, r.installed.project_id, r.installed.sha1) === key,
-    );
-    if (idx < 0) return;
-    await showRow(idx, key);
-  }
-
-  // The pre-flight panel knows a dependent by its jar, not its project (a manual
-  // jar has none). False = the row is not in the filtered list: the caller
-  // decides whether to widen the view and try again.
+  // Every «show in the list» knows its mod by its jar — the pre-flight panel's dependent, and a
+  // tree node or a «Required by» entry once the view has looked its jar up by project (a manual jar
+  // has no project). False = the row is not in the filtered list: the caller decides whether to
+  // widen the view and try again, so a jump never silently does nothing.
   async function jumpToSha1(sha1: string): Promise<boolean> {
     const filtered = ctx.getFiltered();
     const idx = filtered.findIndex((r) => r.installed.sha1 === sha1);
@@ -261,7 +253,21 @@ export function createDepGraph(
   // dependency path (spec §5.6), which records the edge on that mod, so removing it can offer what
   // came in for it, and refuses a project the profile already lists — a stale graph can never add
   // a second jar. Under an absent parent nothing installed declared the node: a plain install.
+  // The node's own spinner: its key is in flight from the click until the graph and the list say
+  // what the install did, so the node never flashes back to Install before it turns installed.
   async function installDepNode(node: DepTreeNode, dependentSha1: string | null) {
+    const key = `${node.source}:${node.project_id}`;
+    // Already on its way: the node shows it (its button is busy), a second click adds nothing.
+    if (installing.has(key)) return;
+    installing.add(key);
+    try {
+      await installDepNodeNow(node, dependentSha1);
+    } finally {
+      installing.delete(key);
+    }
+  }
+
+  async function installDepNodeNow(node: DepTreeNode, dependentSha1: string | null) {
     const id = getInstanceId();
     if (!id) return;
     busy = true;
@@ -362,9 +368,9 @@ export function createDepGraph(
     },
     depCounts,
     toggleExpand,
-    jumpToMod,
     jumpToSha1,
     installDepNode,
+    isInstalling: (key: string) => installing.has(key),
     reloadGraph,
     reloadGraphNow,
     invalidateGraph,

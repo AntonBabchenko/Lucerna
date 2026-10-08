@@ -1,5 +1,5 @@
 /**
- * ↗ on a «What stops the game» row jumps to the mod that has the problem. When a search or a
+ * «Show in the list» on a «What stops the game» row jumps to the mod that has the problem. When a search or a
  * chip hides it, they are cleared and the row is shown. When the report predates a removal the
  * mod is in no view at all: the jump says so and leaves the filters alone — clearing them would
  * change the list for nothing and still show nothing.
@@ -83,7 +83,7 @@ beforeEach(() => {
   h.pushInfo.mockReset();
 });
 
-describe('↗ to the mod a «What stops the game» row is about', () => {
+describe('«show in the list» to the mod a «What stops the game» row is about', () => {
   it('clears the search that hides it and shows its row', async () => {
     h.instanceDependencyPreflight.mockResolvedValue({
       status: 'ok',
