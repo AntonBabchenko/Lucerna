@@ -379,6 +379,13 @@ pub async fn mods_install_with_deps(
             let inst_root = instance_root(&app, &instance_id)?;
             let dd = data_dir(&app)?;
             let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+            // A fresh install of a project the instance has — under its own id or its other
+            // platform's, enabled or not — would be a second jar of one mod id (spec 2026-10-08
+            // aliases-everywhere D1). A version switch is `mods_update_one`, never this command;
+            // only a stale view or a double click asks for it.
+            let rows = crate::mods::installed::list(&inst_root).await?;
+            let aliases = crate::mods::cross_ids::load_alias_map(&inst_root, &rows).await;
+            refuse_if_installed(&rows, &aliases, primary.source, &primary.project_id)?;
             let mut platform_box = platform_for(primary.source);
             let primary_v = find_version(
                 &mut platform_box,
@@ -839,8 +846,8 @@ async fn finish_update(
 /// the refusal names the row the user already has. The project counts as listed
 /// under its other platform's id too (`aliases`, spec 2026-10-08): Parasites from
 /// Modrinth is the CurseForge Parasites an addon asks for. Pure: the dependency
-/// installs read the registry and call this before anything is downloaded or
-/// written.
+/// installs and `mods_install_with_deps`' primary read the registry and call this
+/// before anything is downloaded or written.
 fn refuse_if_installed(
     installed: &[InstalledMod],
     aliases: &crate::mods::cross_ids::AliasMap,
@@ -1098,24 +1105,30 @@ async fn copy_version_into_dir(
 /// instance registry, NO emitted events, and NO optional deps. Required deps are
 /// installed faithfully — never dropped on a "client-only" flag, which would be
 /// the libraryferret footgun (a mis-signalled lib a real server mod needs).
-/// `dest`'s existing enabled jars prune deps already present.
+/// What `dest` already has prunes the closure, in the two views every pruner
+/// uses: `installed` — its enabled jars' projects, which the caller reads from the
+/// server's sidecar (same platform only: a server keeps no other-platform ids) —
+/// and the file names of its enabled jars.
 ///
 /// Best-effort per dependency: a dep that fails to resolve/download is recorded
 /// in `unresolved` and the rest still install. The chosen primary is installed
 /// last; a hard failure there propagates (the user explicitly picked it).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn install_version_into_dir(
     data_dir: &std::path::Path,
     dest: &std::path::Path,
+    installed: &std::collections::HashSet<crate::mods::deps::ProjectKey>,
     source: ModSource,
     project_id: &str,
     version_id: &str,
     mc_version: &str,
     loader: LoaderKind,
-) -> crate::error::Result<crate::mods::dep_resolve::InstallMissingReport> {
+) -> crate::error::Result<IntoDirInstall> {
     // Own the borrowed inputs before the async block so the future does not hold
     // references into the caller's frame (robust if this is ever spawned).
     let data_dir = data_dir.to_path_buf();
     let dest = dest.to_path_buf();
+    let installed = installed.clone();
     let project_id = project_id.to_string();
     let version_id = version_id.to_string();
     let mc_version = mc_version.to_string();
@@ -1141,9 +1154,8 @@ pub(crate) async fn install_version_into_dir(
         // confirmation step, so nothing here could have consented.
         let primary_v = find_version(&mut platform_box, &vr, mc_version, loader, false).await?;
 
-        // 2. Prune deps already present in `dest` (by lowercased filename only —
-        //    servers keep no installed-mods registry, so the ProjectKey set is empty).
-        let installed: std::collections::HashSet<ProjectKey> = std::collections::HashSet::new();
+        // 2. Prune deps already present in `dest`: by project (`installed`, the
+        //    caller's read of the server's sidecar) and by lowercased file name.
         let installed_filenames = enabled_jar_filenames(dest);
 
         // 3. Shared platform + loader cache + fetch factory (mirrors the instance path).
@@ -1237,18 +1249,37 @@ pub(crate) async fn install_version_into_dir(
         }
 
         // 6. Install dependencies first (best-effort), then the chosen primary.
+        let mut written: Vec<crate::servers_runtime::installed::WrittenJar> = Vec::new();
         let deps = dedup_versions(primary_required.into_iter().chain(extra_install));
-        for v in &deps {
-            match copy_version_into_dir(data_dir, dest, v, &nop).await {
-                Ok(filename) => report.installed.push(filename),
+        for v in deps {
+            match copy_version_into_dir(data_dir, dest, &v, &nop).await {
+                Ok(filename) => {
+                    report.installed.push(filename.clone());
+                    written.push(crate::servers_runtime::installed::WrittenJar {
+                        filename,
+                        version: v,
+                    });
+                }
                 Err(_) => report.unresolved.push(v.name.clone()),
             }
         }
         let primary_filename = copy_version_into_dir(data_dir, dest, &primary_v, &nop).await?;
-        report.installed.push(primary_filename);
-        Ok(report)
+        report.installed.push(primary_filename.clone());
+        written.push(crate::servers_runtime::installed::WrittenJar {
+            filename: primary_filename,
+            version: primary_v,
+        });
+        Ok(IntoDirInstall { report, written })
     })
     .await
+}
+
+/// What [`install_version_into_dir`] did: the report the server commands return, and every jar
+/// it wrote with the version it is — dependencies first, the primary last — so the caller
+/// records each one's identity (spec 2026-10-08 aliases-everywhere D2).
+pub(crate) struct IntoDirInstall {
+    pub report: crate::mods::dep_resolve::InstallMissingReport,
+    pub written: Vec<crate::servers_runtime::installed::WrittenJar>,
 }
 
 /// Download a Hangar-hosted plugin file (which carries a sha256, not the sha1
@@ -2190,8 +2221,48 @@ pub async fn mods_pack_origin_summary(
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct CrossIdsOutcome {
     /// How many installed projects got (or changed) their id on the other platform. Above zero,
-    /// the dependency graph is stale and is asked for again.
+    /// the dependency graph is stale: the command says so with `ModsCrossIdsLearned`.
     pub learned: u32,
+}
+
+/// One alias of an installed project: its id on the other platform, with its own identity.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct CrossAlias {
+    pub alias_source: ModSource,
+    pub alias_project_id: String,
+    pub own_source: ModSource,
+    pub own_project_id: String,
+}
+
+/// The instance's alias map (spec 2026-10-08 aliases-everywhere D3): each id on the other
+/// platform an installed project is known by, with that project's own identity — what the
+/// Browse badge and the version pickers consult besides the rows' own keys. Read-only; the
+/// registry read reconciles, as `mods_list_installed`'s does.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_cross_aliases(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Vec<CrossAlias>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let rows = crate::mods::installed::list(&inst_root).await?;
+    let map = crate::mods::cross_ids::load_alias_map(&inst_root, &rows).await;
+    let mut out: Vec<CrossAlias> = map
+        .pairs()
+        .map(
+            |((alias_source, alias_id), (own_source, own_id))| CrossAlias {
+                alias_source: *alias_source,
+                alias_project_id: alias_id.clone(),
+                own_source: *own_source,
+                own_project_id: own_id.clone(),
+            },
+        )
+        .collect();
+    // A stable order for a map that has none.
+    out.sort_by(|a, b| {
+        (&a.alias_project_id, &a.own_project_id).cmp(&(&b.alias_project_id, &b.own_project_id))
+    });
+    Ok(out)
 }
 
 /// Learn the installed jars' identities on the other platform from their bytes (spec
@@ -2219,6 +2290,20 @@ pub async fn mods_learn_cross_ids(
         now,
     )
     .await?;
+    // Every view that holds this profile's graph or alias map re-reads (spec 2026-10-08
+    // aliases-everywhere D4): the page listens and moves the profile's generation.
+    if learned > 0 {
+        if let Err(e) = (ModsCrossIdsLearned {
+            instance_id: instance_id.clone(),
+            learned,
+        })
+        .emit(&app)
+        {
+            crate::diag!(
+                "[cross-ids] learned {learned} in {instance_id}, but the views were not told: {e}"
+            );
+        }
+    }
     Ok(CrossIdsOutcome { learned })
 }
 
@@ -2859,7 +2944,6 @@ pub async fn mods_plan_mc_migration(
     instance_id: String,
     on_progress: Channel<crate::mods::migration::MigrationPlanProgress>,
 ) -> crate::error::Result<crate::mods::migration::McMigrationPlan> {
-    use crate::mods::deps::ProjectKey;
     use crate::mods::mc_compat::PlatformVerdict;
     use crate::mods::migration::{
         build_migration_plan, fold_new_dependencies, CandidateQuery, MigrationPlanPhase,

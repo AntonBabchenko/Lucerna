@@ -403,6 +403,15 @@ pub struct ModToggle {
     pub enabled: bool,
 }
 
+/// A cross-ids pass learned at least one installed project's id on the other platform (spec
+/// 2026-10-08 aliases-everywhere D4). The page drops the profile's cached dependency graph and
+/// moves its alias generation; the views holding its graph or alias map read them again.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ModsCrossIdsLearned {
+    pub instance_id: String,
+    pub learned: u32,
+}
+
 /// The instance's `mods/` directory changed without us: `reconcile` found jars
 /// the registry did not know, or records whose file is gone.
 ///
