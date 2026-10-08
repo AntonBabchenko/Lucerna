@@ -21,7 +21,8 @@ export type ContextualTourId =
   | 'addons'
   | 'serverAddons'
   | 'l10n'
-  | 'overview';
+  | 'overview'
+  | 'deps';
 
 const STORAGE_KEY_PREFIX = 'ftl.tour.';
 const STORAGE_KEY_SUFFIX = '.done';
@@ -41,6 +42,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   serverAddons: 'v1', // added 2026-08-12 — server Add-ons tab: kinds + drag-and-drop install
   l10n: 'v1', // added 2026-08-12 — mod-localization surface: coverage, find-string, actions
   overview: 'v1', // added 2026-08-12 — points at the localization row on the instance Overview
+  deps: 'v1', // added 2026-10-08, Installed list of mods, the dependency cell and its panel
 };
 
 // FNV-1a 32-bit. `Math.imul` is load-bearing: a plain `h * 16777619` silently
@@ -101,6 +103,7 @@ export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
   serverAddons: '5c634610',
   l10n: '49ee796e',
   overview: 'bbc47533',
+  deps: '9b9d347f',
 };
 
 export function storageKey(id: ContextualTourId): string {
@@ -392,6 +395,44 @@ export const OVERVIEW_STEPS: ReadonlyArray<TourStep> = [
   },
 ];
 
+// Installed list of mods (InstalledModsView), spec 2026-10-08-deps-tour. Mounted REACTIVELY, one
+// attempt per entry into the list, on a target the host picks: an enabled mod with required
+// dependencies (steps 1-2, its cell and its Requires block, the panel expanded by the host from
+// step 2 on), its Optional block (step 3) and the row of an installed library it requires on the
+// same page (step 4). The host leaves steps 3 and 4 out when their anchor will not exist
+// (`depsTourSteps`), and the anchors are placed on the target's elements only. Every step reveals:
+// the target can be anywhere on a long page.
+export const DEPS_STEPS: ReadonlyArray<TourStep> = [
+  {
+    titleKey: 'onboarding.contextual.deps.cell.title',
+    bodyKey: 'onboarding.contextual.deps.cell.body',
+    targetSelector: '[data-tour-ctx="deps-cell"]',
+    anchor: 'below',
+    reveal: true,
+  },
+  {
+    titleKey: 'onboarding.contextual.deps.requires.title',
+    bodyKey: 'onboarding.contextual.deps.requires.body',
+    targetSelector: '[data-tour-ctx="deps-requires"]',
+    anchor: 'below',
+    reveal: true,
+  },
+  {
+    titleKey: 'onboarding.contextual.deps.optional.title',
+    bodyKey: 'onboarding.contextual.deps.optional.body',
+    targetSelector: '[data-tour-ctx="deps-optional"]',
+    anchor: 'below',
+    reveal: true,
+  },
+  {
+    titleKey: 'onboarding.contextual.deps.requiredBy.title',
+    bodyKey: 'onboarding.contextual.deps.requiredBy.body',
+    targetSelector: '[data-tour-ctx="deps-required-by"]',
+    anchor: 'below',
+    reveal: true,
+  },
+];
+
 export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   manage: MANAGE_STEPS,
   logs: LOGS_STEPS,
@@ -403,6 +444,7 @@ export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   serverAddons: SERVER_ADDONS_STEPS,
   l10n: L10N_STEPS,
   overview: OVERVIEW_STEPS,
+  deps: DEPS_STEPS,
 };
 
 // Single source for iterating every contextual tour — derived from

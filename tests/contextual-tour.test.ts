@@ -26,6 +26,7 @@ describe('contextual-tours storage helpers', () => {
     expect(storageKey('serverAddons')).toBe('ftl.tour.serverAddons.v1.done');
     expect(storageKey('l10n')).toBe('ftl.tour.l10n.v1.done');
     expect(storageKey('overview')).toBe('ftl.tour.overview.v1.done');
+    expect(storageKey('deps')).toBe('ftl.tour.deps.v1.done');
   });
 
   it('hasSeen returns false on fresh storage', () => {
@@ -54,6 +55,7 @@ describe('contextual-tours storage helpers', () => {
     expect([...ALL_CONTEXTUAL_TOUR_IDS].sort()).toEqual(
       [
         'addons',
+        'deps',
         'l10n',
         'logs',
         'manage',
