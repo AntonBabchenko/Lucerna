@@ -20,6 +20,7 @@
     onJump,
     onOpenDetail,
     treeCtx = EMPTY_TREE_CTX,
+    tourAnchors = false,
   }: {
     /** Its element id: the row's relation cell names it in `aria-controls`. */
     id?: string;
@@ -32,6 +33,9 @@
     onOpenDetail: (source: ModSource, projectId: string) => void;
     // What the trees need to say what the loader does about each dependency.
     treeCtx?: DepTreeCtx;
+    /** This panel is the deps tour's target: its Requires / Optional blocks carry the tour's
+     *  anchors (only one panel may — the tour finds its anchor by the first match). */
+    tourAnchors?: boolean;
   } = $props();
 
   // The headings name the trees (`aria-labelledby`); a row's mod appears once in the list.
@@ -93,7 +97,11 @@
        headed by the relation cell's ⛓; «Optional» dashed; «Required by» its own hue, headed by the
        cell's ↑ — told apart before a word is read. -->
   {#if root.required.length > 0}
-    <section class="mt-1 border-l-2 border-accent pl-1.5" data-dep-block="requires">
+    <section
+      class="mt-1 border-l-2 border-accent pl-1.5"
+      data-dep-block="requires"
+      data-tour-ctx={tourAnchors ? 'deps-requires' : undefined}
+    >
       <div
         id={reqId}
         class="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted"
@@ -117,6 +125,7 @@
     <section
       class="mt-2 border-l-2 border-dashed border-border-emphasis pl-1.5"
       data-dep-block="optional"
+      data-tour-ctx={tourAnchors ? 'deps-optional' : undefined}
     >
       <div id={optId} class="text-[10px] uppercase tracking-wide text-muted">
         {$t('mods.installed.sectionOptional')}
