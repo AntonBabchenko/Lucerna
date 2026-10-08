@@ -2237,7 +2237,8 @@ pub struct CrossAlias {
 /// The instance's alias map (spec 2026-10-08 aliases-everywhere D3): each id on the other
 /// platform an installed project is known by, with that project's own identity — what the
 /// Browse badge and the version pickers consult besides the rows' own keys. Read-only; the
-/// registry read reconciles, as `mods_list_installed`'s does.
+/// registry read reconciles, as `mods_list_installed`'s does. A sidecar that exists and cannot be
+/// read is an error (the caller keeps what it had); an absent or unparsable one is no aliases.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_cross_aliases(
@@ -2246,7 +2247,19 @@ pub async fn mods_cross_aliases(
 ) -> crate::error::Result<Vec<CrossAlias>> {
     let inst_root = instance_root(&app, &instance_id)?;
     let rows = crate::mods::installed::list(&inst_root).await?;
-    let map = crate::mods::cross_ids::load_alias_map(&inst_root, &rows).await;
+    // A sidecar that is there and cannot be read is an error here, not «no aliases»: the browser
+    // then keeps the map it had instead of dropping every alias match until the next read.
+    let disk = crate::mods::cross_ids::read(&inst_root)
+        .await
+        .map_err(|e| {
+            crate::error::Error::io(
+                crate::mods::cross_ids::path(&inst_root)
+                    .display()
+                    .to_string(),
+                e,
+            )
+        })?;
+    let map = crate::mods::cross_ids::alias_map(&disk, &rows);
     let mut out: Vec<CrossAlias> = map
         .pairs()
         .map(

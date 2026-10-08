@@ -179,4 +179,22 @@ describe('Browse and a mod installed from the other platform', () => {
     );
     expect(m.modsInstallWithDeps).not.toHaveBeenCalled();
   });
+
+  // Review M1: a card the name match marks (no alias learned) is not an identity the modal can
+  // act on — a pick there is built from the version, so it would be a fresh install. The modal
+  // marks nothing and offers no switch.
+  it('a card matched only by name marks nothing in its modal', async () => {
+    m.modsCrossAliases.mockResolvedValue(ok([]));
+    m.modsProjects.mockResolvedValue(ok([{ ...cfHit(), source: 'modrinth', project_id: 'p1' }]));
+    m.modsVersions.mockResolvedValue(ok([cfVersion()]));
+    modBrowseOpenProject.value = { source: 'curseforge', projectId: '394468' };
+    render(ModBrowseView, { props });
+    await settle();
+    await waitFor(() => expect(screen.getAllByText(/Installed/).length).toBeGreaterThan(0));
+    const modal = await screen.findByRole('dialog', { name: 'Sodium' });
+    await fireEvent.click(within(modal).getByRole('tab', { name: 'Versions' }));
+    await within(modal).findByText('1.0');
+    expect(within(modal).queryByText(/· installed/)).toBeNull();
+    expect(within(modal).queryByRole('button', { name: 'Switch to this version' })).toBeNull();
+  });
 });

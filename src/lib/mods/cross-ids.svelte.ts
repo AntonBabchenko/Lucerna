@@ -14,6 +14,7 @@ const generations = new SvelteMap<string, number>();
 const aliasMaps = new SvelteMap<string, ReadonlyMap<string, string>>();
 const running = new Map<string, Promise<void>>();
 const again = new Set<string>();
+const aliasReads = new Map<string, number>();
 const NONE: ReadonlyMap<string, string> = new Map();
 
 /** How many times a pass has learned something for this profile this session. */
@@ -56,12 +57,16 @@ export async function learnCrossIds(id: string): Promise<void> {
   if (again.delete(id)) await learnCrossIds(id);
 }
 
-/** Read the profile's alias map. A failure keeps the previous map — empty at first — so every
- *  lookup behaves as it did before aliases existed; a missing command (an older test mock)
- *  throws rather than answering, and is caught the same way. */
+/** Read the profile's alias map. A failure — the backend could not read its sidecar, or a missing
+ *  command (an older test mock) throws — keeps the previous map, empty at first, so every lookup
+ *  behaves as it did before aliases existed. Reads overlap (a list load and a learned id); the
+ *  latest one asked for wins, never an older answer that lands last. */
 export async function loadAliases(id: string): Promise<void> {
+  const ticket = (aliasReads.get(id) ?? 0) + 1;
+  aliasReads.set(id, ticket);
   try {
     const r = await commands.modsCrossAliases(id);
+    if (aliasReads.get(id) !== ticket) return;
     if (r.status === 'error') {
       console.warn('[cross-ids] alias map unreadable:', r.error);
       return;
@@ -104,4 +109,5 @@ export function resetCrossIdsForTests(): void {
   aliasMaps.clear();
   running.clear();
   again.clear();
+  aliasReads.clear();
 }

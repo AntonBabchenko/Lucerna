@@ -50,7 +50,7 @@ describe('+page tells every view that a profile learned a cross-source id', () =
 
   it('tears the listener down with the others', () => {
     expect(src).toMatch(/crossIdsLearnedUnlisten = u/);
-    expect(src).toMatch(/crossIdsLearnedUnlisten?.()/);
+    expect(src).toContain('crossIdsLearnedUnlisten?.();');
   });
 
   // Sodium installed from CurseForge is the catalog's Modrinth Sodium once its id is learned;

@@ -414,8 +414,7 @@ describe('createDepGraph', () => {
       d.dispose();
     });
 
-    it('an answer that lands after the view is gone is neither shown nor kept', async () => {
-      const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+    const inFlight = async (id: string) => {
       let answer!: (v: unknown) => void;
       mocks.modsDependencyGraph.mockReturnValueOnce(
         new Promise((r) => {
@@ -423,16 +422,31 @@ describe('createDepGraph', () => {
         }),
       );
       const d = createDepGraph(
-        () => 'gone',
+        () => id,
         () => [],
         ctx,
       );
       await settle(); // the seed's load is in flight
+      return { d, answer };
+    };
+
+    it('an answer asked for before a pass learned an id is not kept, though the view is gone', async () => {
+      const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+      const { d, answer } = await inFlight('gone-learned');
+      d.dispose();
+      bumpCrossIds('gone-learned');
+      answer({ status: 'ok', data: { roots: [] } });
+      await settle();
+      expect((depGraphCache as Map<string, unknown>).has('gone-learned')).toBe(false);
+    });
+
+    it('a view closed mid-load still keeps a good answer for the next open', async () => {
+      const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+      const { d, answer } = await inFlight('gone-plain');
       d.dispose();
       answer({ status: 'ok', data: { roots: [] } });
       await settle();
-      expect((depGraphCache as Map<string, unknown>).has('gone')).toBe(false);
-      expect(d.graph).toBeNull();
+      expect((depGraphCache as Map<string, unknown>).has('gone-plain')).toBe(true);
     });
   });
 

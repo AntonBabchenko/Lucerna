@@ -569,14 +569,13 @@
     return installedByNameKey.get(cardKey) ?? null;
   }
 
-  // The installed build the detail modal marks: the badge's own lookup when the card that opened
-  // it is on the page — own key, alias, then name: the one `startInstall` switches through, so
-  // what the modal marks is what a pick would replace — else by own key or alias (a deep link
-  // names no card).
+  // The installed build the detail modal marks: by the project's own key or its id on the other
+  // platform — never the name. A pick in the modal goes through `startInstall` with a card built
+  // from the picked VERSION (its title is no project name), so only an identity can make it a
+  // switch; a name match marking a build here would label a fresh install «Switch» (spec
+  // 2026-10-08 aliases-everywhere D3, review M1).
   const drawerInstalled = $derived.by((): InstalledMod | null => {
     if (!isMod || drawerProject === null) return null;
-    const card = hits.find((h) => h.source === source && h.project_id === drawerProject);
-    if (card) return installedForNonDatapack(card);
     const key = `${source}:${drawerProject}`;
     const own = aliases.get(key);
     return installedById.get(key) ?? (own ? installedById.get(own) : undefined) ?? null;

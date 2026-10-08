@@ -155,23 +155,37 @@ fn sidecar_lock() -> &'static tokio::sync::Mutex<()> {
 /// The sidecar, or an empty one: it is a derived cache, so an unreadable file is relearned, never
 /// an error for the caller.
 pub async fn load(instance_root: &Path) -> OnDisk {
+    match read(instance_root).await {
+        Ok(d) => d,
+        Err(e) => {
+            crate::diag!(
+                "[cross-ids] cannot read {}: {e} — relearning",
+                path(instance_root).display()
+            );
+            OnDisk::default()
+        }
+    }
+}
+
+/// The sidecar as [`load`] reads it, but a file that is there and cannot be read is an error, not
+/// an empty map: for a caller that keeps what it had rather than act on «no aliases» it cannot
+/// vouch for (`mods_cross_aliases`). Absent is empty; unparsable is empty too — the next pass
+/// rewrites it whole, as it would a missing one.
+pub async fn read(instance_root: &Path) -> std::io::Result<OnDisk> {
     let p = path(instance_root);
     let bytes = match fs::read(&p).await {
         Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return OnDisk::default(),
-        Err(e) => {
-            crate::diag!("[cross-ids] cannot read {}: {e} — relearning", p.display());
-            return OnDisk::default();
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(OnDisk::default()),
+        Err(e) => return Err(e),
     };
     match serde_json::from_slice::<OnDisk>(&bytes) {
-        Ok(d) => d,
+        Ok(d) => Ok(d),
         Err(e) => {
             crate::diag!(
                 "[cross-ids] {} is unreadable: {e} — relearning",
                 p.display()
             );
-            OnDisk::default()
+            Ok(OnDisk::default())
         }
     }
 }
@@ -1385,6 +1399,25 @@ mod tests {
         let map = alias_map(&disk, &rows);
         assert_eq!(map.own_of(ModSource::Curseforge, "9"), None);
         assert_eq!(map.own_of(ModSource::Modrinth, "X"), None);
+    }
+
+    // Review L1 (spec 2026-10-08 aliases-everywhere): `mods_cross_aliases` keeps the browser's map
+    // when the sidecar is there but cannot be read; only `load`, the guards' derived cache, turns
+    // that into «nothing learned».
+    #[tokio::test]
+    async fn read_tells_an_unreadable_sidecar_from_an_absent_one() {
+        let td = tempfile::tempdir().unwrap();
+        assert!(
+            read(td.path()).await.unwrap().aliases.is_empty(),
+            "absent is empty"
+        );
+        // A directory where the file goes: `fs::read` fails with something other than NotFound.
+        std::fs::create_dir_all(path(td.path())).unwrap();
+        assert!(read(td.path()).await.is_err(), "unreadable is an error");
+        assert!(
+            load(td.path()).await.aliases.is_empty(),
+            "load stays a derived cache"
+        );
     }
 
     // One step only: row A's id on CurseForge is 1; a stale entry for curseforge:1 (its row is

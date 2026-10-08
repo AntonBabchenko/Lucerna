@@ -146,6 +146,9 @@ export function createDepGraph(
     const id = getInstanceId();
     if (!id) return;
     const ticket = ++loadTicket;
+    // The profile's alias generation when the graph was asked for (untracked: this also runs
+    // inside the seed effect, which must not re-run on a bump).
+    const gen = untrack(() => crossIdsGeneration(id));
     graphLoading = true;
     error = null;
     const r = await commands.modsDependencyGraph(id);
@@ -156,7 +159,10 @@ export function createDepGraph(
     if (r.status === 'ok') {
       graph = r.data;
       // Only a settled answer is the session's; one the platform could not be reached for is
-      // asked for again on the next open — and never leaves an older graph behind it.
+      // asked for again on the next open — and never leaves an older graph behind it. An answer
+      // asked for before a pass learned an id predates its aliases: it is not kept either, and the
+      // cache is left as the page left it (a view that closed mid-load still keeps a good one).
+      if (untrack(() => crossIdsGeneration(id)) !== gen) return;
       if (isSettledGraph(r.data)) depGraphCache.set(id, r.data);
       else depGraphCache.delete(id);
     } else {
@@ -389,9 +395,6 @@ export function createDepGraph(
     reloadGraphNow,
     invalidateGraph,
     dispose() {
-      // An answer still in flight belongs to a view that is gone: it neither shows nor caches —
-      // a pass may have learned an id since it was asked for.
-      loadTicket++;
       stopEffects?.();
       if (graphReloadTimer) clearTimeout(graphReloadTimer);
     },

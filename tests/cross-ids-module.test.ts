@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({ commands: {} as Record<string, unknown> }));
 vi.mock('$lib/ipc/bindings', () => ({ commands: h.commands }));
 
 const learn = () => h.commands.modsLearnCrossIds as ReturnType<typeof vi.fn>;
+const ok = <T>(data: T) => ({ status: 'ok' as const, data });
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -137,6 +138,44 @@ describe('loadAliases', () => {
     cmd.mockResolvedValueOnce({ status: 'error', error: { kind: 'io' } });
     await loadAliases('p');
     expect(aliasesFor('p').get('curseforge:1')).toBe('modrinth:A');
+  });
+});
+
+describe('loadAliases — overlapping reads', () => {
+  it('the latest read wins, never an older answer that lands last', async () => {
+    const cmd = h.commands.modsCrossAliases as ReturnType<typeof vi.fn>;
+    let older!: (v: unknown) => void;
+    cmd
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          older = r;
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok([
+          {
+            alias_source: 'curseforge',
+            alias_project_id: '2',
+            own_source: 'modrinth',
+            own_project_id: 'NEW',
+          },
+        ]),
+      );
+    const first = loadAliases('p');
+    await loadAliases('p');
+    older(
+      ok([
+        {
+          alias_source: 'curseforge',
+          alias_project_id: '1',
+          own_source: 'modrinth',
+          own_project_id: 'OLD',
+        },
+      ]),
+    );
+    await first;
+    expect(aliasesFor('p').get('curseforge:2')).toBe('modrinth:NEW');
+    expect(aliasesFor('p').has('curseforge:1')).toBe(false);
   });
 });
 
