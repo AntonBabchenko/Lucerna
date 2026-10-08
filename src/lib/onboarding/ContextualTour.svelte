@@ -34,6 +34,19 @@
   let currentStep = $state(0);
   let rect = $state<DOMRect | null>(null);
   let popoverEl = $state<HTMLElement | null>(null);
+  // The card's rendered height, for the side it goes on (tour-placement.ts): it changes with the
+  // step, the language and the explanation level, so it is observed rather than read once. 0 until
+  // the card has rendered (the placement uses its budget then).
+  let cardHeight = $state(0);
+  $effect(() => {
+    const el = popoverEl;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      cardHeight = el.offsetHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   const PADDING = 6;
 
@@ -286,6 +299,7 @@
       step.anchor,
       typeof window !== 'undefined' ? window.innerWidth : 1280,
       typeof window !== 'undefined' ? window.innerHeight : 800,
+      cardHeight,
     )}
     data-testid="contextual-tour-popover"
     data-ctx-tour-root
