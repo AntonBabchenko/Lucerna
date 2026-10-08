@@ -30,19 +30,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Notices stay at the top right, above everything**, an open dialog included;
   they used to move to the bottom centre while a dialog was open.
 - **A mod's dependency panel works like the mod list.** A related mod's row
-  lights up under the pointer and opens the mod on a click; switching it, adding
-  or removing it and "Show in the list" are the list's own icon buttons, lined
-  up on the right with tooltips. A mod met again further down says "this mod" or
-  "expanded above" instead of "cycle".
+  lights up under the pointer and opens the mod on a click; its switch and
+  add-or-remove buttons stand under the mod's own, "Show in the list" sits by
+  its name, and "Required by" works the same way. A mod met again further down
+  says "this mod" or "expanded above" instead of "cycle".
 
 ### Fixed
 
 - **"Show in the list" in a dependency panel always gets you there**: when a
   search or a filter hid the mod's row, it did nothing; now it clears them and
   scrolls to the row.
-
-### Fixed
-
 - **Minecraft 1.12.2 and older profiles no longer report a mod as too old when
   it is not.** The "What stops the game" panel blocked profiles that start,
   saying an installed dependency was older than required. Requirements it used
