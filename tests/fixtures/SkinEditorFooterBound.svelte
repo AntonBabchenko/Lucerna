@@ -10,7 +10,7 @@
   let colour = $state<Rgba>([224, 224, 224, 255]);
   let brush = $state(1);
   let activeLayer = $state<Layer>('base');
-  let bg = $state<ViewerBg>('dark');
+  let bg = $state<ViewerBg>('neutral');
   const noop = () => {};
   const hex = (c: Rgba) =>
     `#${c

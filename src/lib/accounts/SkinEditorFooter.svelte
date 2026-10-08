@@ -16,8 +16,8 @@
   import { skinPalette } from '$lib/accounts/skin-editor/palette.svelte';
   import { POSE_NAMES, type PoseName } from '$lib/accounts/skin-editor/poses';
   import {
-    BG_CLASS,
     BG_LABEL,
+    SWATCH_CSS,
     VIEWER_BGS,
     type ViewerBg,
   } from '$lib/accounts/skin-editor/viewer-bg';
@@ -176,9 +176,12 @@
   </span>
 {/snippet}
 
+<!-- A landscape swatch in the place's own colours (the panoramas themselves take a second
+     each to draw, too much to show a picker). -->
 {#snippet bgSwatch(o: SegmentOption)}
   <span
-    class="block h-4 w-4 rounded-sm border border-border-emphasis {BG_CLASS[o.value as ViewerBg]}"
+    class="block h-4 w-6 rounded-sm border border-border-emphasis"
+    style="background:{SWATCH_CSS[o.value as ViewerBg]}"
   ></span>
 {/snippet}
 

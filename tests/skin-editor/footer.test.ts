@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import type { ComponentProps } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SkinEditorFooter from '$lib/accounts/SkinEditorFooter.svelte';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
@@ -8,12 +9,14 @@ import SkinEditorFooterBound from '../fixtures/SkinEditorFooterBound.svelte';
 // visible tooltip into the next one.
 afterEach(() => hideTooltip());
 
-function setup(over: Record<string, unknown> = {}) {
-  const props = {
+type Props = ComponentProps<typeof SkinEditorFooter>;
+
+function setup(over: Partial<Props> = {}) {
+  const props: Props = {
     colour: [224, 224, 224, 255],
     brush: 1,
     activeLayer: 'base',
-    bg: 'dark',
+    bg: 'neutral',
     pose: 'default',
     onPose: vi.fn(),
     variant: 'classic',
@@ -50,7 +53,7 @@ describe('SkinEditorFooter — single choices are segmented controls (DESIGN.md 
     ['Paint on', 'Base'],
     ['Pose', 'Default'],
     ['Model', 'Classic'],
-    ['Background', 'Dark'],
+    ['Background', 'Neutral'],
   ])('%s is a named group whose one chosen option (%s) carries the accent mark', (name, chosen) => {
     setup();
     const on = pressed(group(name));
@@ -83,16 +86,16 @@ describe('SkinEditorFooter — single choices are segmented controls (DESIGN.md 
   });
 
   it('shows the choices it is given', () => {
-    setup({ pose: 'walk', variant: 'slim', brush: 5, activeLayer: 'overlay', bg: 'light' });
+    setup({ pose: 'walk', variant: 'slim', brush: 5, activeLayer: 'overlay', bg: 'nether' });
     expect(nameOf(pressed(group('Pose'))[0])).toBe('Walk');
     expect(nameOf(pressed(group('Model'))[0])).toBe('Slim');
     expect(nameOf(pressed(group('Brush'))[0])).toBe('Thick');
     expect(nameOf(pressed(group('Paint on'))[0])).toBe('Overlay');
-    expect(nameOf(pressed(group('Background'))[0])).toBe('Light');
+    expect(nameOf(pressed(group('Background'))[0])).toBe('Nether');
   });
 
   // Brush and background options are pictures; their names are translated
-  // words, not «Brush 3» or the raw `dark` / `mid` / `light` ids.
+  // words, not «Brush 3» or raw ids.
   it('pictured options are named in the interface language', () => {
     setup();
     const names = (g: string) =>
@@ -100,7 +103,7 @@ describe('SkinEditorFooter — single choices are segmented controls (DESIGN.md 
         .getAllByRole('button')
         .map((b) => b.getAttribute('aria-label'));
     expect(names('Brush')).toEqual(['Thin', 'Medium', 'Thick']);
-    expect(names('Background')).toEqual(['Dark', 'Grey', 'Light']);
+    expect(names('Background')).toEqual(['Neutral', 'Plains', 'Nether', 'Stronghold']);
   });
 });
 
@@ -113,17 +116,17 @@ describe('SkinEditorFooter — bound choices reach the editor and back', () => {
     render(SkinEditorFooterBound);
     const swatches = screen.getAllByRole('button', { name: /^#[0-9a-f]{6}$/ });
     await fireEvent.click(swatches[1]);
-    expect(bound()).toBe('#3c3c3c|1|base|dark');
+    expect(bound()).toBe('#3c3c3c|1|base|neutral');
     expect(swatches[1].className).toContain('outline-accent');
     expect(swatches[0].className).not.toContain('outline-accent');
     await fireEvent.input(screen.getByLabelText('Custom colour'), {
       target: { value: '#00ff00' },
     });
-    expect(bound()).toBe('#00ff00|1|base|dark');
+    expect(bound()).toBe('#00ff00|1|base|neutral');
     await fireEvent.click(within(group('Brush')).getByRole('button', { name: 'Thick' }));
     await fireEvent.click(within(group('Paint on')).getByRole('button', { name: 'Overlay' }));
-    await fireEvent.click(within(group('Background')).getByRole('button', { name: 'Light' }));
-    expect(bound()).toBe('#00ff00|5|overlay|light');
+    await fireEvent.click(within(group('Background')).getByRole('button', { name: 'Stronghold' }));
+    expect(bound()).toBe('#00ff00|5|overlay|stronghold');
   });
 
   it('a colour the editor picks (the eyedropper) shows in the footer', async () => {

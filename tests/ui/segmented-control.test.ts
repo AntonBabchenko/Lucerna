@@ -118,7 +118,7 @@ describe('SegmentedControl', () => {
     expect(group.classList.contains('overflow-hidden')).toBe(false);
   });
 
-  // Brush sizes and background colours are pictures, not words: the option
+  // Brush sizes and background swatches are pictures, not words: the option
   // draws `content(option)`, and its label names it and becomes its tooltip,
   // exactly as for an icon option.
   it('a content option renders the snippet and is named and tooltipped by its label', () => {

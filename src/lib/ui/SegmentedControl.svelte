@@ -16,7 +16,7 @@
   // `label` (falling back to the group ariaLabel) as its accessible name +
   // tooltip, so it stays compact but remains labelled. `content` draws options
   // that are a picture rather than a word — the skin editor's brush sizes and
-  // background colours.
+  // background swatches.
   // Settings uses the boxed variant for the theme, tip-level and game-start pickers, naming
   // the group through ariaLabel and linking its hint through describedby.
   import type { Snippet } from 'svelte';

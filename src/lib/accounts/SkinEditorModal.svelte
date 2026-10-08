@@ -59,7 +59,13 @@
     PANEL_MIN_WIDTH,
   } from '$lib/accounts/skin-editor/panel-resize';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
-  import { BG_CLASS, type ViewerBg } from '$lib/accounts/skin-editor/viewer-bg';
+  import {
+    loadViewerBg,
+    saveViewerBg,
+    VIEWPORT_CSS,
+    type ViewerBg,
+  } from '$lib/accounts/skin-editor/viewer-bg';
+  import { applyViewerBackground } from '$lib/accounts/skin-editor/panorama';
   import SkinEditorFooter from '$lib/accounts/SkinEditorFooter.svelte';
 
   let {
@@ -95,7 +101,7 @@
   let pose = $state<PoseName>('default');
   let showGrid = $state(true);
   let fullscreen = $state(false);
-  let bg = $state<ViewerBg>('dark');
+  let bg = $state<ViewerBg>(loadViewerBg());
   let busy = $state(false);
   let saveError = $state<string | null>(null);
   let applied = $state(false);
@@ -204,6 +210,7 @@
       fitViewport();
       syncCenterline();
       applyPose(pose);
+      showBackground();
     } finally {
       viewerBuilding = false;
     }
@@ -664,6 +671,28 @@
     s.leftLeg.rotation.set(rot.leftLeg.x, rot.leftLeg.y, rot.leftLeg.z);
   }
 
+  // --- background ----------------------------------------------------------
+  // A panorama takes about a second to draw the first time; only the latest request may
+  // land, so a quick change of mind never ends on an older background.
+  let bgRequest = 0;
+
+  function showBackground(): void {
+    const v = viewer;
+    if (!v) return;
+    const want = bg;
+    const id = ++bgRequest;
+    applyViewerBackground(v, want, () => id === bgRequest && viewer === v).catch(() => {
+      // The canvas could not be drawn: say so, rather than leave the dark stand-in as if
+      // it were the place the user picked.
+      if (id === bgRequest) saveError = $t('skinEditor.bgFailed');
+    });
+  }
+
+  $effect(() => {
+    saveViewerBg(bg);
+    showBackground();
+  });
+
   function setPose(name: PoseName): void {
     pose = name;
     applyPose(name);
@@ -946,9 +975,8 @@
     <div class="flex flex-col flex-1 min-w-0 p-3 gap-2">
       <div
         use:observeViewport
-        class="rounded-[10px] {BG_CLASS[
-          bg
-        ]} flex items-center justify-center overflow-hidden flex-1"
+        class="rounded-[10px] flex items-center justify-center overflow-hidden flex-1"
+        style="background:{VIEWPORT_CSS[bg]}"
       >
         <canvas
           use:mountViewer
