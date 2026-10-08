@@ -14,7 +14,12 @@
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
-  import { DEPS_UNKNOWN_KEY, type DepTreeCtx, EMPTY_TREE_CTX } from '../dep-node-state';
+  import {
+    DEPS_UNKNOWN_KEY,
+    type DepTreeCtx,
+    EMPTY_TREE_CTX,
+    type ModTarget,
+  } from '../dep-node-state';
   import { changelogSupported } from '$lib/mods/changelog-supported';
   import type { RowFix, RowProblem } from './row-problem';
   import { depSectionId, hasFigures, relationFigures, relationInput } from './relation-cell';
@@ -90,12 +95,7 @@
     onInstallDep: (node: DepTreeNode, dependentSha1: string | null) => void;
     // «Show in the list» from the tree or «Required by» (the tree passes its node, which also says
     // whether it is installed or switched off).
-    onJump: (target: {
-      source: ModSource;
-      project_id: string;
-      name: string;
-      sha1?: string;
-    }) => void;
+    onJump: (target: ModTarget) => void;
     onProblemFix?: (fix: RowFix) => void;
     // «and N more»: reveal this mod's rows in the «What stops the game» panel.
     onRevealProblems?: () => void;

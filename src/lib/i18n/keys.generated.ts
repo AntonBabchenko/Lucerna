@@ -1520,6 +1520,8 @@ export type TranslationKey =
   | 'mods.installed.recheckFailed'
   | 'mods.installed.rechecking'
   | 'mods.installed.requiredByCount'
+  | 'mods.installed.requiredByFewer'
+  | 'mods.installed.requiredByMore'
   | 'mods.installed.resolvingShort'
   | 'mods.installed.sectionOptional'
   | 'mods.installed.sectionRequiredBy'

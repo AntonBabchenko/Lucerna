@@ -223,6 +223,92 @@ describe('the dependency tree’s actions go the row’s way', () => {
     expect(document.activeElement?.closest('[data-mod-row]') ?? null).toBeNull();
   });
 
+  // A «Required by» row leaves with the dependent it named; the panel stays. Focus goes to the row
+  // now in its place (DESIGN.md §13), never out of the panel to the list.
+  it('removing a dependent from «Required by» hands focus to the row now in its place', async () => {
+    reset();
+    const dependsOnBalm = (sha1: string, pid: string, name: string) => ({
+      sha1,
+      source: 'modrinth',
+      project_id: pid,
+      name,
+      required: [
+        {
+          source: 'modrinth',
+          project_id: 'PBALM',
+          name: 'Balm',
+          installed: true,
+          declared: 'required',
+          cycle: false,
+          children: [],
+        },
+      ],
+      optional: [],
+    });
+    h.state.rows = [
+      h.mod('a', 'PA', 'Alpha'),
+      h.mod('balm-sha', 'PBALM', 'Balm'),
+      h.mod('c', 'PC', 'Coda'),
+    ];
+    h.state.graph = {
+      roots: [
+        dependsOnBalm('a', 'PA', 'Alpha'),
+        dependsOnBalm('c', 'PC', 'Coda'),
+        {
+          sha1: 'balm-sha',
+          source: 'modrinth',
+          project_id: 'PBALM',
+          name: 'Balm',
+          required: [],
+          optional: [],
+        },
+      ],
+    } as never;
+    h.modsRemovalImpact.mockResolvedValue({ status: 'ok', data: { dependents: [], order: [] } });
+    h.modsUninstall.mockImplementation(() => {
+      h.state.rows = [h.mod('balm-sha', 'PBALM', 'Balm'), h.mod('c', 'PC', 'Coda')];
+      h.state.graph = {
+        roots: [
+          dependsOnBalm('c', 'PC', 'Coda'),
+          {
+            sha1: 'balm-sha',
+            source: 'modrinth',
+            project_id: 'PBALM',
+            name: 'Balm',
+            required: [],
+            optional: [],
+          },
+        ],
+      } as never;
+      return Promise.resolve({
+        status: 'ok',
+        data: { token: 't', items: [{ sha1: 'a', name: 'Alpha' }] },
+      });
+    });
+    render(InstalledModsView, { props: props('tree-required-by-remove') });
+    const pill = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(
+        '[data-mod-row="modrinth:PBALM"] [data-testid="relation-pill"]',
+      );
+      if (!el) throw new Error('relation pill not rendered yet');
+      return el;
+    });
+    await fireEvent.click(pill);
+    const remove = await screen.findByRole('button', { name: 'Remove Alpha' });
+    remove.focus();
+
+    await fireEvent.click(remove);
+
+    await waitFor(() =>
+      expect(h.modsUninstall).toHaveBeenCalledWith('tree-required-by-remove', 'a'),
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.closest('[data-required-by-row]')?.textContent).toContain(
+        'Coda',
+      ),
+    );
+  });
+
   // The graph can still say «installed» for a jar the list no longer has (a removal it has not
   // caught up with): «show in the list» says the mod is gone rather than doing nothing.
   it('«show in the list» on a mod the list no longer has says so', async () => {

@@ -896,6 +896,8 @@
       "sectionRequires": "Requires",
       "sectionOptional": "Optional",
       "sectionRequiredBy": "Required by",
+      "requiredByMore": "Show {count} more",
+      "requiredByFewer": "Show fewer",
       "fromModpack": "from modpack",
       "detailsUnavailable": "details unavailable",
       "manualMod": "manual mod",

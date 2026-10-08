@@ -650,7 +650,10 @@ describe('DepTree — every row carries the list’s actions', () => {
     );
   });
 
-  it('every row has the three columns, in the list’s order', () => {
+  // Spec 2026-10-07 §8: «show in the list» is a column left of the name; the switch and install or
+  // remove end the row, as the mod row's own switch and Remove end it — so the panel's columns
+  // run on under the row's.
+  it('every row has the three columns: «show» before the name, the list’s two at its end', () => {
     const nodes = [
       leaf('x', { name: 'Xaero' }),
       leaf('arch', { name: 'Arch', installed: false }),
@@ -658,12 +661,22 @@ describe('DepTree — every row carries the list’s actions', () => {
     ];
     render(DepTree, { props: treeProps({ nodes }) });
     for (const name of ['Xaero', 'Arch', 'Off']) {
-      const slots = [...(item(name).firstElementChild?.querySelectorAll('[data-slot]') ?? [])];
+      const row = item(name).firstElementChild as HTMLElement;
+      const slots = [...row.querySelectorAll('[data-slot]')];
       expect(slots.map((el) => el.getAttribute('data-slot'))).toEqual([
+        'locate',
         'toggle',
         'presence',
-        'locate',
       ]);
+      const nameBtn = screen.getByRole('button', { name, exact: true });
+      const order = [...row.querySelectorAll('*')];
+      const at = (el: Element | undefined) => order.indexOf(el as Element);
+      expect(at(slots[0])).toBeLessThan(at(nameBtn));
+      expect(at(nameBtn)).toBeLessThan(at(slots[1]));
+      // The switch and install-or-remove close the row, a 4 px step apart like ModCard's.
+      const actions = slots[1]?.parentElement as HTMLElement;
+      expect(actions.lastElementChild).toBe(slots[2]);
+      expect(actions.classList).toContain('gap-1');
     }
   });
 

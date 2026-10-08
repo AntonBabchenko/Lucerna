@@ -250,18 +250,18 @@
       }}
     >
       <!-- A row reads like an Installed row (spec 2026-10-07): the list's hover fill, a click
-           anywhere on it opens the mod, and on the right its state, then the list's own icon
-           actions in three columns that line up at every depth — the nested group indents the
-           left edge only. Every row is one height while it fits on one line (`min-h-7`: the
-           chevron's and a button's); short of room the name is cut first, then the right group
-           takes a line of its own. -->
+           anywhere on it opens the mod; «show in the list» before the name, and on the right its
+           state, then the list's own switch and install-or-remove, in columns that line up at
+           every depth — the nested group indents the left edge only. Every row is one height
+           while it fits on one line (`min-h-7`: the chevron's and a button's); short of room the
+           name is cut first, then the right group takes a line of its own. -->
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions — the
            pointer's shortcut to the name button, which is the keyboard path (Enter on the item). -->
       <div
         class="tree-row group flex min-h-7 cursor-pointer flex-wrap items-center gap-x-2 rounded px-1 transition-colors hover:bg-subtle"
         onclick={(e) => onRowClick(e, n)}
       >
-        <span class="flex min-w-0 grow basis-[12ch] items-center gap-2">
+        <span class="flex min-w-0 grow basis-[12ch] items-center gap-1.5">
           {#if hasKids(n)}
             <!-- The mouse's way to open a branch; the keyboard's is ←/→ on the item. It never
                  takes focus, so a click leaves the tab stop where it was. -->
@@ -278,6 +278,25 @@
           {:else}
             <span class="inline-block w-7 shrink-0" aria-hidden="true"></span>
           {/if}
+          <!-- «Show in the list», a column of its own before the name at every depth: bright when
+               the mod has a row in the list, faded when it has none. -->
+          <span
+            class="inline-flex w-7 shrink-0 justify-center"
+            data-slot="locate"
+            use:tooltip={present
+              ? null
+              : { text: $t('mods.deps.jumpUnavailable', { name: n.name }), describe: false }}
+          >
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm"
+              disabled={!acts}
+              tabindex={tab}
+              aria-label={jumpLabel}
+              use:tooltip={acts ? jumpLabel : null}
+              onclick={() => onJump(n)}><Icon name="locate" size={15} /></button
+            >
+          </span>
           <!-- The name opens the mod's info modal, as the row does; it reads as the row's text,
                not as a link. Cut short, it shows itself whole in a tooltip. -->
           <button
@@ -295,7 +314,7 @@
             >
           {/if}
         </span>
-        <span class="ml-auto flex shrink-0 items-center">
+        <span class="ml-auto flex shrink-0 items-center gap-1">
           <span class="mr-1 inline-flex items-center gap-1 whitespace-nowrap" data-state-group>
             {#if selfState}
               <span
@@ -376,11 +395,13 @@
               {/if}
             {/if}
           </span>
-          <!-- The Installed row's own actions (ModCard): switch, install or remove, show in the
-               list. Each column holds ONE button whatever the node's state, so the button the
-               user pressed is still there — and still focused — when the graph comes back with
-               the node switched off or absent. Where it cannot act it stays, inactive, with its
-               reason on the wrapper (a disabled button fires no pointer events). -->
+          <!-- The Installed row's own actions (ModCard): switch, then install or remove — the
+               panel's right edge and their 4 px step are the card's, so they stand under the
+               mod row's own switch and Remove. Each column (with «show» on the left) holds ONE
+               button whatever the node's state, so the button the user pressed is still there —
+               and still focused — when the graph comes back with the node switched off or absent.
+               Where it cannot act it stays, inactive, with its reason on the wrapper (a disabled
+               button fires no pointer events). -->
           <span
             class="inline-flex w-7 shrink-0 justify-center"
             data-slot="toggle"
@@ -423,23 +444,6 @@
                 <Icon name={present ? 'trash' : 'download'} size={15} />
               {/if}
             </button>
-          </span>
-          <span
-            class="inline-flex w-7 shrink-0 justify-center"
-            data-slot="locate"
-            use:tooltip={present
-              ? null
-              : { text: $t('mods.deps.jumpUnavailable', { name: n.name }), describe: false }}
-          >
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm"
-              disabled={!acts}
-              tabindex={tab}
-              aria-label={jumpLabel}
-              use:tooltip={acts ? jumpLabel : null}
-              onclick={() => onJump(n)}><Icon name="locate" size={15} /></button
-            >
           </span>
         </span>
       </div>
