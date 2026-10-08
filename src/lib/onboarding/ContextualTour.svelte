@@ -4,7 +4,7 @@
   // the layer stack). Auto-fires on first visit, then localStorage-persists
   // dismissed so it never returns. Mirrors TourOverlay's spotlight + popover
   // chrome; intentionally separate to keep main-tour state isolated.
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import type { TourStep } from './steps';
   import { hasSeen, markSeen, type ContextualTourId } from './contextual-tours';
@@ -17,7 +17,18 @@
   import { Icon } from '$lib/ui/icons';
   import { insertTour, isTopmost, layerHost, newLayerId } from '$lib/ui/layer-stack.svelte';
 
-  let { id, steps }: { id: ContextualTourId; steps: ReadonlyArray<TourStep> } = $props();
+  let {
+    id,
+    steps,
+    onStep = undefined,
+  }: {
+    id: ContextualTourId;
+    steps: ReadonlyArray<TourStep>;
+    /** Called each time a step shows (start, Next, Back, a return after stepping aside), before
+     *  it is measured: what the step needs from the page is the host's to provide (the deps tour
+     *  expands a mod's panel). Untracked — the host's state it reads is not this tour's. */
+    onStep?: (index: number) => void;
+  } = $props();
 
   let active = $state(false);
   let currentStep = $state(0);
@@ -142,14 +153,31 @@
     void currentStep;
     if (!shown) return;
     everShown = true;
+    const index = currentStep;
+    untrack(() => onStep?.(index));
     updateRect();
     void tick().then(() => {
       if (!shown || !popoverEl) return;
+      // After the tick: an anchor the host has just rendered for this step (from onStep) exists
+      // only now.
+      revealAnchor();
       updateRect();
       if (popoverEl.contains(document.activeElement)) return;
       popoverEl.querySelector<HTMLElement>('[data-tour-primary]')?.focus();
     });
   });
+
+  // A `reveal` step's anchor may be anywhere in a long list. The browser's own "nearest" test
+  // honours the scrollport's `scroll-padding` (the sticky toolbar and pager reserve themselves
+  // there, `use:stickyEdge`), so an anchor under a sticky bar is revealed too — and one fully in
+  // view does not move. `?.`: happy-dom has no scrollIntoView.
+  function revealAnchor() {
+    const step = steps[currentStep];
+    if (!step?.reveal || !step.targetSelector) return;
+    document
+      .querySelector<HTMLElement>(step.targetSelector)
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
 
   function updateRect() {
     const sel = steps[currentStep]?.targetSelector;
