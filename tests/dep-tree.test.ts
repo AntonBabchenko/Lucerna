@@ -979,11 +979,28 @@ describe('DepTree — reasons and marks reach the keyboard', () => {
     ];
     for (const [name, reason] of cases) {
       const b = screen.getByRole('button', { name });
+      const before = tooltipState.shown;
       keyboardFocus(b);
       expect(tooltipState.text).toMatch(reason);
       expect(b.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
+      // One showing: the button's own — no wrapper around it answered the bubbling focus too.
+      expect(tooltipState.shown).toBe(before + 1);
       hideTooltip();
     }
+  });
+
+  // D1b through Svelte: the switch holds focus with its reason up when the mod arrives — the
+  // tooltip follows the button to its action and stops describing it with the old reason.
+  it('a focused switch whose mod arrives says its action, no longer the reason', async () => {
+    const { rerender } = render(DepTree, { props: absent() });
+    const sw = screen.getByRole('button', { name: 'Enable Arch' });
+    keyboardFocus(sw);
+    expect(tooltipState.text).toMatch(/isn't installed/);
+    await rerender(treeProps({ nodes: [leaf('arch', { name: 'Arch', installed: true })] }));
+    expect(sw.getAttribute('aria-label')).toBe('Disable Arch');
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Disable Arch');
+    expect(sw.hasAttribute('aria-describedby')).toBe(false);
   });
 
   it('pressing them does nothing', async () => {
@@ -1044,11 +1061,13 @@ describe('DepTree — reasons and marks reach the keyboard', () => {
     expect(onOpenDetail).not.toHaveBeenCalled();
   });
 
-  it('«this mod», as the self node’s state, is a definition', () => {
+  it('«this mod», as the self node’s state, is a definition', async () => {
+    const onOpenDetail = vi.fn();
     render(DepTree, {
       props: treeProps({
         rootKey: 'modrinth:a',
         nodes: [leaf('b', { children: [leaf('a', { name: 'Alpha', cycle: true })] })],
+        onOpenDetail,
       }),
     });
     const self = screen.getByRole('button', { name: 'this mod' });
@@ -1057,13 +1076,17 @@ describe('DepTree — reasons and marks reach the keyboard', () => {
     keyboardFocus(self);
     expect(tooltipState.text).toBe('This is Alpha itself — its dependencies are listed above.');
     expect(self.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
+    await fireEvent.click(self);
+    expect(onOpenDetail).not.toHaveBeenCalled();
   });
 
-  it('«expanded above» is a definition', () => {
+  it('«expanded above» is a definition', async () => {
+    const onOpenDetail = vi.fn();
     render(DepTree, {
       props: treeProps({
         rootKey: 'modrinth:root',
         nodes: [leaf('b', { children: [leaf('x', { name: 'Xaero', cycle: true })] })],
+        onOpenDetail,
       }),
     });
     const mark = screen.getByRole('button', { name: 'expanded above' });
@@ -1072,5 +1095,7 @@ describe('DepTree — reasons and marks reach the keyboard', () => {
     keyboardFocus(mark);
     expect(tooltipState.text).toMatch(/^Xaero is already expanded higher in this branch/);
     expect(mark.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
+    await fireEvent.click(mark);
+    expect(onOpenDetail).not.toHaveBeenCalled();
   });
 });

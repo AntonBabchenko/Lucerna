@@ -753,18 +753,21 @@ button:focus-visible .icon-rainbow-hover {
 .btn-icon > :where(svg) {
   transition: transform 120ms ease-out;
 }
-.fx-icon-zoom .btn-icon:not([aria-disabled='true']):hover > :where(svg),
-.fx-icon-zoom .btn-icon:not([aria-disabled='true']):focus-visible > :where(svg) {
+.fx-icon-zoom .btn-icon:not(:where([aria-disabled='true'])):hover > :where(svg),
+.fx-icon-zoom .btn-icon:not(:where([aria-disabled='true'])):focus-visible > :where(svg) {
   transform: scale(1.2);
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx-icon-zoom .btn-icon:not([aria-disabled='true']):hover > :where(svg),
-  .fx-icon-zoom .btn-icon:not([aria-disabled='true']):focus-visible > :where(svg) {
+  .fx-icon-zoom .btn-icon:not(:where([aria-disabled='true'])):hover > :where(svg),
+  .fx-icon-zoom .btn-icon:not(:where([aria-disabled='true'])):focus-visible > :where(svg) {
     transform: none;
   }
 }
 
-/* An unavailable icon button that stays focusable — aria-disabled, inside a
+/* (The zoom rules above leave an aria-disabled button out through
+   `:not(:where(…))`, which adds no specificity: the spin + zoom rule for a
+   refresh icon must keep winning over plain zoom.)
+   An unavailable icon button that stays focusable — aria-disabled, inside a
    composite widget such as the dependency tree (DESIGN.md §5), so a keyboard
    user reaches it and its tooltip says why. Its icon dims as a disabled
    button's does; the button itself does not, or its focus ring would dim too.

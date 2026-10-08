@@ -174,7 +174,7 @@ The canonical reference row is [`ModCard.svelte`](../src/lib/mods/ModCard.svelte
 
 **Animation rule.** Motion is a small, mostly-semantic vocabulary; nothing else may be hand-rolled on a button.
 
-- **zoom** (`.fx-icon-zoom`, scale 1.2) — decorative and **uniform**: every `.btn-icon` / `.btn-icon-sm` gets it automatically (root-gated by the `iconZoomFx` pref). Labelled buttons never zoom.
+- **zoom** (`.fx-icon-zoom`, scale 1.2) — decorative and **uniform**: every `.btn-icon` / `.btn-icon-sm` gets it automatically (root-gated by the `iconZoomFx` pref), except an unavailable one that stays focusable (`aria-disabled`, §5), which does not answer the pointer. Labelled buttons never zoom.
 - **spin** (`.icon-spin-hover`, 180° on hover) — means "point at this and it **re-runs**": refresh / recheck only, always with `name="refresh"`; **withheld** from the same-glyph apply-update action (which is not a re-run).
 - **caret rotate** (`.disclosure-caret`, 90°) — every `<details>` disclosure. A menu / select trigger rotates a `chevronDown` 180° to mean *open* — use the shared rotation, never an inline one-off.
 - **rainbow** (`.icon-rainbow-hover`) — playful delight on the two opt-in sidebar icons only (Browse-modpacks, Shaders); never on a destructive / primary / task action.

@@ -210,6 +210,18 @@ describe('a tooltip that is showing follows its trigger', () => {
     expect(tooltipState.shown).toBe(shown);
   });
 
+  it('a clipped name that is no longer clipped closes the tooltip it shows', () => {
+    const { node, handle } = mount({ text: 'Long name', whenOverflowing: true });
+    let scroll = 200;
+    Object.defineProperty(node, 'scrollWidth', { get: () => scroll });
+    Object.defineProperty(node, 'clientWidth', { get: () => 100 });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.visible).toBe(true);
+    scroll = 100; // the row grew: the whole name fits
+    handle.update?.({ text: 'Long name, renamed', whenOverflowing: true });
+    expect(tooltipState.visible).toBe(false);
+  });
+
   it('a trigger that does not own the tooltip leaves it alone', () => {
     const a = mount('A');
     const b = mount('B');

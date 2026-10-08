@@ -43,7 +43,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   stand under the mod's own, and "Show in the list" flashes the row it takes you
   to. "Requires", "Optional" and "Required by" each have a stripe of their own,
   an optional dependency's line is dashed, and a mod met again further down says
-  "this mod" or "expanded above" instead of "cycle".
+  "this mod" or "expanded above" instead of "cycle"; whatever the panel explains
+  under the mouse, it explains to the keyboard too.
 - **The skin editor's controls look and work like the rest of the launcher.**
   Pose, model, brush, paint layer and background are picked the way Settings
   picks a theme, and loading, downloading and the library are icon buttons with
@@ -65,10 +66,6 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Installing a mod on your server no longer adds a second copy of a library it
   already has** from the same site under another file name: every dependency the
   launcher puts on a server is now remembered, not only the mod you picked.
-- **A dependency panel explains itself to the keyboard too.** Tab now reaches a
-  switch or "Show in the list" that cannot act and says why, and the marks
-  "dependencies unknown", "expanded above" and "this mod" say what they mean;
-  before, only the mouse got these explanations.
 - **"Show in the list" in a dependency panel always gets you there**: when a
   search or a filter hid the mod's row, it did nothing; now it clears them and
   scrolls to the row.
