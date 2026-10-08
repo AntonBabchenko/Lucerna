@@ -46,9 +46,6 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Icon buttons that can be disabled show their tooltip to the keyboard too.**
   Tabbing to one, such as a page step in a narrow window, showed nothing: the
   tooltip appeared only under the mouse.
-
-### Fixed
-
 - **Minecraft 1.12.2 and older profiles no longer report a mod as too old when
   it is not.** The "What stops the game" panel blocked profiles that start,
   saying an installed dependency was older than required. Requirements it used
