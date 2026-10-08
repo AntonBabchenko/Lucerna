@@ -999,7 +999,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  The instance's alias map (spec 2026-10-08 aliases-everywhere D3): each id on the other
 	 *  platform an installed project is known by, with that project's own identity — what the
 	 *  Browse badge and the version pickers consult besides the rows' own keys. Read-only; the
-	 *  registry read reconciles, as `mods_list_installed`'s does.
+	 *  registry read reconciles, as `mods_list_installed`'s does. A sidecar that exists and cannot be
+	 *  read is an error (the caller keeps what it had); an absent or unparsable one is no aliases.
 	 */
 	modsCrossAliases: (instanceId: string) => typedError<CrossAlias[], Error>(__TAURI_INVOKE("mods_cross_aliases", { instanceId })),
 	/**
