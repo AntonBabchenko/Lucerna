@@ -10,6 +10,7 @@
   import { hasSeen, markSeen, type ContextualTourId } from './contextual-tours';
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
+  import { popoverStyle } from './tour-placement';
   import { tourState } from './state.svelte';
   import { screenOwnedElsewhere } from './tour-presence';
   import { t } from '$lib/i18n';
@@ -23,8 +24,6 @@
   let rect = $state<DOMRect | null>(null);
   let popoverEl = $state<HTMLElement | null>(null);
 
-  const POPOVER_WIDTH = 320;
-  const MARGIN = 16;
   const PADDING = 6;
 
   // This tour's entry in the app's layer stack (layer-stack.svelte.ts). It sits
@@ -208,41 +207,6 @@
     }
   }
 
-  function popoverStyle(r: DOMRect | null, anchor: string): string {
-    if (!r) {
-      return 'top:50%; left:50%; transform:translate(-50%,-50%);';
-    }
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-    if (anchor === 'right') {
-      const leftPart =
-        r.right + MARGIN + POPOVER_WIDTH + MARGIN <= vw
-          ? `left:${r.right + MARGIN}px;`
-          : `left:${Math.max(MARGIN, r.left - POPOVER_WIDTH - MARGIN)}px;`;
-      const midY = r.top + r.height / 2;
-      const vertical =
-        midY > vh / 2 ? `bottom:${Math.max(MARGIN, vh - r.bottom)}px;` : `top:${r.top}px;`;
-      return `${vertical} ${leftPart}`;
-    }
-    if (anchor === 'below') {
-      let leftCoord = r.left;
-      if (leftCoord + POPOVER_WIDTH + MARGIN > vw) {
-        leftCoord = Math.max(MARGIN, vw - POPOVER_WIDTH - MARGIN);
-      }
-      // Flip above the anchor when there isn't room below it. A `below`-anchored
-      // step near the viewport bottom (e.g. the manage-instances actions row)
-      // would otherwise position the popover off the bottom edge — invisible,
-      // leaving only a dimmed screen with no reachable controls.
-      const POPOVER_HEIGHT_BUDGET = 220;
-      const fitsBelow = r.bottom + 12 + POPOVER_HEIGHT_BUDGET <= vh;
-      if (fitsBelow) {
-        return `top:${r.bottom + 12}px; left:${leftCoord}px;`;
-      }
-      return `bottom:${Math.max(MARGIN, vh - r.top + 12)}px; left:${leftCoord}px;`;
-    }
-    return 'top:50%; left:50%; transform:translate(-50%,-50%);';
-  }
-
   let step = $derived(steps[currentStep]);
   let isLast = $derived(currentStep === steps.length - 1);
   let isFirst = $derived(currentStep === 0);
@@ -289,7 +253,12 @@
     aria-modal="true"
     aria-labelledby="ctx-tour-title-{id}"
     class="fixed z-[var(--z-tour-popover)] bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
-    style={popoverStyle(rect, step.anchor)}
+    style={popoverStyle(
+      rect,
+      step.anchor,
+      typeof window !== 'undefined' ? window.innerWidth : 1280,
+      typeof window !== 'undefined' ? window.innerHeight : 800,
+    )}
     data-testid="contextual-tour-popover"
     data-ctx-tour-root
   >
