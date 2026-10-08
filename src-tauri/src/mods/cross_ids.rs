@@ -100,7 +100,7 @@ pub struct OnDisk {
 }
 
 /// One project identity: its platform and its id there.
-type Ident = (ModSource, String);
+pub type Ident = (ModSource, String);
 
 fn platform_name(source: ModSource) -> Option<&'static str> {
     match source {
@@ -244,6 +244,11 @@ impl AliasMap {
     /// The installed project `(source, project_id)` is the same as, when it is an alias.
     pub fn own_of(&self, source: ModSource, project_id: &str) -> Option<&Ident> {
         self.by_alias.get(&(source, project_id.to_string()))
+    }
+
+    /// Every alias, with the row's own identity it stands for.
+    pub fn pairs(&self) -> impl Iterator<Item = (&Ident, &Ident)> {
+        self.by_alias.iter()
     }
 
     /// Every alias as an install-pruning key. A CurseForge id that is not a number cannot be a
@@ -548,7 +553,9 @@ async fn fingerprint(asks: Vec<Ask>) -> Result<Vec<Ask>, Error> {
 
 /// One learning pass over an instance (spec §4). Returns how many aliases are new or changed.
 /// Nothing to ask → no request and no file read. Best-effort: platform failures leave their jars
-/// unknown; only reading the registry is an error.
+/// unknown; only reading the registry is an error. This has no AppHandle: a command that runs a
+/// pass emits `ModsCrossIdsLearned` when it learned something, so the views re-read (spec
+/// 2026-10-08 aliases-everywhere D4).
 pub async fn learn(
     instance_root: &Path,
     modrinth_base: &str,
@@ -1378,6 +1385,20 @@ mod tests {
         let map = alias_map(&disk, &rows);
         assert_eq!(map.own_of(ModSource::Curseforge, "9"), None);
         assert_eq!(map.own_of(ModSource::Modrinth, "X"), None);
+    }
+
+    // One step only: row A's id on CurseForge is 1; a stale entry for curseforge:1 (its row is
+    // gone) still names modrinth:C. C is not A — an alias never chains (pin: `alias_map` reads
+    // only the current rows' entries).
+    #[test]
+    fn an_alias_of_an_alias_is_no_alias() {
+        let disk = disk_with(&[
+            ("modrinth:A", "curseforge", "1"),
+            ("curseforge:1", "modrinth", "C"),
+        ]);
+        let map = alias_map(&disk, &[row(ModSource::Modrinth, "A", true)]);
+        assert!(map.own_of(ModSource::Curseforge, "1").is_some());
+        assert_eq!(map.own_of(ModSource::Modrinth, "C"), None);
     }
 
     #[test]

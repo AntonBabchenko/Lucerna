@@ -309,16 +309,26 @@ pub async fn optimise_resolve(
     let inst_root = instance_root(&app, &instance_id)?;
     let installed = crate::mods::installed::list(&inst_root).await?;
     let optifine = crate::mods::optimise::has_optifine_public(&installed);
+    // Sodium installed from CurseForge is the catalog's Modrinth Sodium once its id there is
+    // learned (spec 2026-10-08 aliases-everywhere).
+    let aliases = crate::mods::cross_ids::load_alias_map(&inst_root, &installed).await;
 
     let mc = mc_version.clone();
-    let plan = crate::mods::optimise::resolve(loader, &mc_version, &installed, optifine, |mid| {
-        let mc = mc.clone();
-        async move {
-            platform_for(crate::mods::platform::ModSource::Modrinth)
-                .versions(mid, Some(&mc), Some(loader))
-                .await
-        }
-    })
+    let plan = crate::mods::optimise::resolve(
+        loader,
+        &mc_version,
+        &installed,
+        &aliases,
+        optifine,
+        |mid| {
+            let mc = mc.clone();
+            async move {
+                platform_for(crate::mods::platform::ModSource::Modrinth)
+                    .versions(mid, Some(&mc), Some(loader))
+                    .await
+            }
+        },
+    )
     .await;
     Ok(plan)
 }
@@ -405,6 +415,9 @@ struct ClosureInstall {
     /// The registry BEFORE the run touched anything — `orphans::requires_edges`'
     /// snapshot.
     registry_before: Vec<InstalledMod>,
+    /// What that registry had, by the view the run pruned by (own keys and their ids on the
+    /// other platform) — `requires_edges`' «installed before».
+    installed_before: std::collections::HashSet<crate::mods::deps::ProjectKey>,
     /// Every version the run installed, in install order, primary included.
     installed: Vec<ModVersion>,
 }
@@ -456,7 +469,7 @@ async fn install_with_closure(
     let crate::mods::deps::InstalledView {
         keys: installed,
         enabled_filenames: installed_filenames,
-    } = crate::mods::deps::InstalledView::of(&installed_mods).with_aliases(aliases.project_keys());
+    } = crate::mods::deps::installed_view(&installed_mods, &aliases);
 
     // Shared Arc platform + loader-slug cache for the make_fetch factory.
     let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
@@ -610,6 +623,7 @@ async fn install_with_closure(
     // for offline orphan detection.
     let primary_required_ids = crate::mods::orphans::requires_edges(
         &installed_mods,
+        &installed,
         None,
         primary_required.iter().chain(extra_install.iter()),
     );
@@ -747,6 +761,7 @@ async fn install_with_closure(
             details,
         },
         registry_before: installed_mods,
+        installed_before: installed,
         installed: install_seq,
     })
 }
@@ -763,6 +778,7 @@ async fn record_dependent_edges(
 ) -> crate::error::Result<()> {
     match crate::mods::orphans::dependent_edges_after(
         &run.registry_before,
+        &run.installed_before,
         dependent_sha1,
         run.installed.iter(),
     ) {
@@ -1581,7 +1597,7 @@ pub async fn mods_resolve_install_plan(
     let crate::mods::deps::InstalledView {
         keys: installed,
         enabled_filenames: installed_filenames,
-    } = crate::mods::deps::InstalledView::of(&installed_mods).with_aliases(aliases.project_keys());
+    } = crate::mods::deps::installed_view(&installed_mods, &aliases);
 
     // Shared platform + loader-slug cache, cloned into each closure via Arc.
     let platform: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(primary.source).into();
@@ -2383,8 +2399,13 @@ pub async fn mods_update_one(
             // pruning existed. `requires_edges` carries every edge the outgoing row
             // had (so one to a library this update now skips survives) and claims
             // no library that was installed before this update.
+            // «Installed before» is the pruner's view: a library the user had under its other
+            // platform's id is not claimed either (spec 2026-10-08 aliases-everywhere).
+            let installed_before =
+                crate::mods::deps::installed_view(&registry_before, &aliases).keys;
             let requires = crate::mods::orphans::requires_edges(
                 &registry_before,
+                &installed_before,
                 Some(old_sha1.as_str()),
                 resolved_required.iter(),
             );
@@ -3018,19 +3039,12 @@ pub async fn mods_plan_mc_migration(
 
         // 5. What the instance already has a jar for, regardless of fit — the
         //    "post-migration mod set already contains this" test. The row → key
-        //    rule of `deps::InstalledView::keys`, which `mods_install_with_deps`
+        //    rule of `deps::installed_view`, which `mods_install_with_deps`
         //    / `mods_resolve_install_plan` use for the same purpose — applied to
-        //    this plan's `installed`, which holds enabled rows only (see above).
-        let mut already_installed: std::collections::HashSet<ProjectKey> = installed
-            .iter()
-            .filter_map(ProjectKey::of_installed)
-            .collect();
-        // …and their ids on the other platform (spec 2026-10-08).
-        already_installed.extend(
-            crate::mods::cross_ids::load_alias_map(&inst_root, &installed)
-                .await
-                .project_keys(),
-        );
+        //    this plan's `installed`, which holds enabled rows only (see above),
+        //    with their ids on the other platform (spec 2026-10-08).
+        let aliases = crate::mods::cross_ids::load_alias_map(&inst_root, &installed).await;
+        let already_installed = crate::mods::deps::installed_view(&installed, &aliases).keys;
         plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
 
         Ok(plan)
@@ -3908,19 +3922,7 @@ async fn graph_canon(
     summaries: &std::collections::HashMap<(ModSource, String), ModSummary>,
 ) -> crate::mods::depgraph::Canon {
     let aliases = crate::mods::cross_ids::load_alias_map(root, rows).await;
-    let names = rows
-        .iter()
-        .filter_map(|m| {
-            let source = m.source?;
-            let pid = m.project_id.clone()?;
-            let name = summaries
-                .get(&(source, pid.clone()))
-                .map(|s| s.name.clone())
-                .unwrap_or_else(|| m.name.clone());
-            Some((crate::mods::depgraph::key(source, &pid), name))
-        })
-        .collect();
-    crate::mods::depgraph::Canon { aliases, names }
+    crate::mods::depgraph::Canon::of(aliases, rows, summaries)
 }
 
 /// The graph's roots: the ENABLED platform-identified mods (an anonymous local
@@ -5553,6 +5555,7 @@ mod tests {
                 details: vec![],
             },
             registry_before: vec![named_dependent("d1")],
+            installed_before: std::collections::HashSet::new(),
             installed: vec![mv("lib")],
         };
 

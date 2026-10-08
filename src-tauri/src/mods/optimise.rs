@@ -185,10 +185,14 @@ fn entry(
 /// must return the platform's newest-first versions already filtered to the
 /// instance loader+MC (empty = no build for this version). Pure over `fetch`,
 /// so unit-testable without the network.
+///
+/// `aliases`: the instance's other-platform ids (spec 2026-10-08 aliases-everywhere) — Sodium
+/// installed from CurseForge is the catalog's Modrinth Sodium.
 pub async fn resolve<F, Fut>(
     loader: LoaderKind,
     mc_version: &str,
     installed: &[InstalledMod],
+    aliases: &crate::mods::cross_ids::AliasMap,
     optifine_present: bool,
     mut fetch: F,
 ) -> OptimisePlan
@@ -219,7 +223,7 @@ where
 
         let already = installed.iter().any(|m| {
             m.source == Some(ModSource::Modrinth) && m.project_id.as_deref() == Some(c.modrinth_id)
-        });
+        }) || aliases.own_of(ModSource::Modrinth, c.modrinth_id).is_some();
 
         // A renderer is incompatible with OptiFine — claim the group so no other
         // renderer is offered, and surface exactly one conflict row.
@@ -341,12 +345,29 @@ mod tests {
         optifine: bool,
         available: &[&'static str],
     ) -> OptimisePlan {
+        resolve_aliased(
+            loader,
+            installed,
+            &crate::mods::cross_ids::AliasMap::default(),
+            optifine,
+            available,
+        )
+        .await
+    }
+
+    async fn resolve_aliased(
+        loader: LoaderKind,
+        installed: &[InstalledMod],
+        aliases: &crate::mods::cross_ids::AliasMap,
+        optifine: bool,
+        available: &[&'static str],
+    ) -> OptimisePlan {
         let map: HashMap<&'static str, Vec<ModVersion>> =
             available.iter().map(|id| (*id, vec![mv(id)])).collect();
         let fetch = move |id: &'static str| {
             std::future::ready(Ok(map.get(id).cloned().unwrap_or_default()))
         };
-        resolve(loader, "1.21.1", installed, optifine, fetch).await
+        resolve(loader, "1.21.1", installed, aliases, optifine, fetch).await
     }
 
     fn status_of<'a>(plan: &'a OptimisePlan, key: &str) -> Option<&'a OptimiseEntryStatus> {
@@ -434,6 +455,37 @@ mod tests {
         );
     }
 
+    // Spec 2026-10-08 aliases-everywhere: Sodium installed from CurseForge (394468) learned its
+    // Modrinth id — the catalog's AANobbMI. It is installed, and it claims the renderer group.
+    #[tokio::test]
+    async fn a_renderer_installed_from_curseforge_under_its_alias_is_already_installed() {
+        let mods = vec![installed_mod(
+            "sodium-cf.jar",
+            Some(ModSource::Curseforge),
+            Some("394468"),
+        )];
+        let aliases = crate::mods::cross_ids::AliasMap::from_pairs(&[(
+            (ModSource::Modrinth, "AANobbMI".into()),
+            (ModSource::Curseforge, "394468".into()),
+        )]);
+        let plan = resolve_aliased(
+            LoaderKind::Fabric,
+            &mods,
+            &aliases,
+            false,
+            &["AANobbMI", "sk9rgfiA"],
+        )
+        .await;
+        assert_eq!(
+            status_of(&plan, "sodium"),
+            Some(&OptimiseEntryStatus::AlreadyInstalled)
+        );
+        assert!(
+            status_of(&plan, "embeddium").is_none(),
+            "the installed renderer claims the group"
+        );
+    }
+
     #[tokio::test]
     async fn already_installed_sodium_is_skipped_and_claims_group() {
         let mods = vec![installed_mod(
@@ -475,7 +527,15 @@ mod tests {
                 std::future::ready(Ok(map.get(id).cloned().unwrap_or_default()))
             }
         };
-        let plan = resolve(LoaderKind::Fabric, "1.21.1", &[], false, fetch).await;
+        let plan = resolve(
+            LoaderKind::Fabric,
+            "1.21.1",
+            &[],
+            &crate::mods::cross_ids::AliasMap::default(),
+            false,
+            fetch,
+        )
+        .await;
         assert_eq!(
             status_of(&plan, "ferritecore"),
             Some(&OptimiseEntryStatus::Unknown)

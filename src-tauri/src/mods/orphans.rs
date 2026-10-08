@@ -12,6 +12,7 @@
 //! install and by update alike, and for a dependent when a dependency is
 //! installed on its behalf (`dependent_edges_after`).
 
+use crate::mods::deps::ProjectKey;
 use crate::mods::platform::{InstalledMod, ModVersion, OrphanRef};
 use std::collections::HashSet;
 
@@ -60,18 +61,23 @@ pub(crate) fn find_orphans(mods: &[InstalledMod], removing: &[String]) -> Vec<Or
 /// a library was there and never offered it for removal again.
 ///
 /// - `registry` is the snapshot taken BEFORE the operation touched anything.
+/// - `installed_before` is what that snapshot had, by the view the caller
+///   prunes by (`deps::installed_view`'s keys: each row's own project and its
+///   id on the other platform).
 /// - `outgoing_sha1` is the row being replaced; `None` for a fresh install.
 ///   An update must not forget why a library is there, so its edges carry
 ///   over — including transitive ones the update itself never resolves.
 /// - `pulled_in` are the dependencies the operation resolved: the install
 ///   path's pruned closure, or — for an update — the resolver's full one-level
 ///   answer, of which the update installs only what is missing
-///   (`deps::prune_update_deps`). One that was already in the registry (same
-///   source + project) is NOT claimed: the user had it first, and claiming it
-///   would later offer it as this mod's orphan. For the install path's closure
-///   the filter changes nothing.
+///   (`deps::prune_update_deps`). One `installed_before` already holds is NOT
+///   claimed — under either platform's id (spec 2026-10-08 aliases-everywhere):
+///   the user had it first, and claiming it would later offer it as this mod's
+///   orphan. The install path's closure was pruned by that very view, so for
+///   it the filter changes nothing.
 pub(crate) fn requires_edges<'a>(
     registry: &[InstalledMod],
+    installed_before: &HashSet<ProjectKey>,
     outgoing_sha1: Option<&str>,
     pulled_in: impl IntoIterator<Item = &'a ModVersion>,
 ) -> Vec<String> {
@@ -79,11 +85,7 @@ pub(crate) fn requires_edges<'a>(
         .and_then(|sha| registry.iter().find(|m| m.sha1.eq_ignore_ascii_case(sha)))
         .map(|m| m.requires.clone())
         .unwrap_or_default();
-    let already_installed = |v: &ModVersion| {
-        registry.iter().any(|m| {
-            m.source == Some(v.source) && m.project_id.as_deref() == Some(v.project_id.as_str())
-        })
-    };
+    let already_installed = |v: &ModVersion| installed_before.contains(&ProjectKey::of_version(v));
     let mut ids: Vec<String> = carried
         .into_iter()
         .chain(
@@ -106,13 +108,14 @@ pub(crate) fn requires_edges<'a>(
 /// is not in `registry` — there is no row to extend.
 pub(crate) fn dependent_edges_after<'a>(
     registry: &[InstalledMod],
+    installed_before: &HashSet<ProjectKey>,
     dependent_sha1: &str,
     pulled_in: impl IntoIterator<Item = &'a ModVersion>,
 ) -> Option<Vec<String>> {
     registry
         .iter()
         .any(|m| m.sha1.eq_ignore_ascii_case(dependent_sha1))
-        .then(|| requires_edges(registry, Some(dependent_sha1), pulled_in))
+        .then(|| requires_edges(registry, installed_before, Some(dependent_sha1), pulled_in))
 }
 
 #[cfg(test)]
@@ -168,7 +171,21 @@ mod tests {
 
     // ── requires_edges (2026-09-20 spec, D5) ─────────────────────────────────
     use super::requires_edges;
+    use crate::mods::deps::ProjectKey;
     use crate::mods::platform::{LoaderKind, ModFile, ModVersion};
+    use std::collections::HashSet;
+
+    /// What the registry has, by the pruners' rule — the view a caller passes.
+    fn before(registry: &[InstalledMod]) -> HashSet<ProjectKey> {
+        crate::mods::deps::InstalledView::of(registry).keys
+    }
+
+    fn pulled_cf(project_id: &str) -> ModVersion {
+        ModVersion {
+            source: ModSource::Curseforge,
+            ..pulled(project_id)
+        }
+    }
 
     fn pulled(project_id: &str) -> ModVersion {
         ModVersion {
@@ -198,7 +215,7 @@ mod tests {
         // the byte-identical list out of the shared helper.
         let pulled_in = [pulled("zeta"), pulled("alpha"), pulled("zeta")];
         assert_eq!(
-            requires_edges(&[], None, pulled_in.iter()),
+            requires_edges(&[], &HashSet::new(), None, pulled_in.iter()),
             vec!["alpha".to_string(), "zeta".to_string()]
         );
     }
@@ -214,7 +231,12 @@ mod tests {
             m("b", "lib-b", &[]),
         ];
         assert_eq!(
-            requires_edges(&registry, Some("OLD"), std::iter::empty::<&ModVersion>()),
+            requires_edges(
+                &registry,
+                &before(&registry),
+                Some("OLD"),
+                std::iter::empty::<&ModVersion>()
+            ),
             vec!["lib-a".to_string(), "lib-b".to_string()]
         );
     }
@@ -227,7 +249,22 @@ mod tests {
         let registry = vec![m("old", "P", &[]), m("l", "lib-present", &[])];
         let pulled_in = [pulled("lib-present"), pulled("lib-new")];
         assert_eq!(
-            requires_edges(&registry, Some("old"), pulled_in.iter()),
+            requires_edges(&registry, &before(&registry), Some("old"), pulled_in.iter()),
+            vec!["lib-new".to_string()]
+        );
+    }
+
+    // Spec 2026-10-08 aliases-everywhere: an update's resolver names Parasites by its CurseForge
+    // id (258587); the user has it from Modrinth (MJX). «Installed before» is the pruner's view —
+    // aliases included — so it is not claimed as the updated mod's dependency.
+    #[test]
+    fn a_library_the_user_had_under_its_other_id_is_not_claimed_on_update() {
+        let registry = vec![m("old", "P", &[]), m("srp", "MJX", &[])];
+        let mut installed_before = before(&registry);
+        installed_before.insert(ProjectKey::Curseforge(258587));
+        let pulled_in = [pulled_cf("258587"), pulled("lib-new")];
+        assert_eq!(
+            requires_edges(&registry, &installed_before, Some("old"), pulled_in.iter()),
             vec!["lib-new".to_string()]
         );
     }
@@ -238,6 +275,7 @@ mod tests {
         let registry = vec![m("other", "Q", &["lib-q"])];
         assert!(requires_edges(
             &registry,
+            &before(&registry),
             Some("missing"),
             std::iter::empty::<&ModVersion>()
         )
@@ -252,7 +290,7 @@ mod tests {
         let registry = vec![m("dep", "D", &["lib-old"]), m("o", "lib-old", &[])];
         let pulled_in = [pulled("lib-new"), pulled("lib-sub")];
         assert_eq!(
-            dependent_edges_after(&registry, "DEP", pulled_in.iter()),
+            dependent_edges_after(&registry, &before(&registry), "DEP", pulled_in.iter()),
             Some(vec![
                 "lib-new".to_string(),
                 "lib-old".to_string(),
@@ -266,7 +304,7 @@ mod tests {
         let registry = vec![m("dep", "D", &[]), m("l", "lib-present", &[])];
         let pulled_in = [pulled("lib-present"), pulled("lib-new")];
         assert_eq!(
-            dependent_edges_after(&registry, "dep", pulled_in.iter()),
+            dependent_edges_after(&registry, &before(&registry), "dep", pulled_in.iter()),
             Some(vec!["lib-new".to_string()])
         );
     }
@@ -275,7 +313,7 @@ mod tests {
     fn a_dependent_that_is_gone_gets_no_edges_written() {
         let registry = vec![m("other", "Q", &[])];
         assert_eq!(
-            dependent_edges_after(&registry, "dep", [pulled("lib")].iter()),
+            dependent_edges_after(&registry, &before(&registry), "dep", [pulled("lib")].iter()),
             None
         );
     }
