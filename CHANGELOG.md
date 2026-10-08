@@ -49,6 +49,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **A mod installed from Modrinth counts as installed when a CurseForge mod asks
+  for it, and the other way round.** The dependency panel called it missing and
+  offered to add a second copy, and its row lost its "Required by" count; the
+  launcher now recognises the same file on both platforms. Recognising a
+  Modrinth file on CurseForge needs a CurseForge key.
 - **"Show in the list" in a dependency panel always gets you there**: when a
   search or a filter hid the mod's row, it did nothing; now it clears them and
   scrolls to the row.

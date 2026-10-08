@@ -11,6 +11,7 @@ pub mod changelog;
 pub mod cited_resolve;
 pub mod compat;
 pub mod compat_probe;
+pub mod cross_ids;
 pub mod curseforge;
 pub mod dep_project;
 pub mod dep_resolve;

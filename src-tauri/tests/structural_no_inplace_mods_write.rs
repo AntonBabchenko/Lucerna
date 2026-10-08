@@ -117,6 +117,10 @@ const ALLOWLIST: &[&str] = &[
     // Same class, same `lucerna/` directory, same temp-then-rename shape as
     // `mods/hash_cache.rs`; never a path inside `.minecraft/`.
     "mods/holds.rs",
+    // `{instance}/lucerna/cross-ids.json` — the installed jars' ids on the other platform.
+    // Same class, same `lucerna/` directory, same temp-then-rename shape as `mods/holds.rs`;
+    // never a path inside `.minecraft/`.
+    "mods/cross_ids.rs",
     // `{instance}/lucerna/update-check.json` — the last mod-update check.
     // Same class and temp-then-rename shape as `mods/hash_cache.rs`.
     "mods/update_check_store.rs",

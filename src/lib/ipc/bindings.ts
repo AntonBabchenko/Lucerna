@@ -989,6 +989,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	modsEnrichPackMods: (instanceId: string) => typedError<number, Error>(__TAURI_INVOKE("mods_enrich_pack_mods", { instanceId })),
 	/**
+	 *  Learn the installed jars' identities on the other platform from their bytes (spec
+	 *  2026-10-08): Modrinth jars on CurseForge (Murmur2 confirmed by SHA-1, needs a key), CurseForge
+	 *  jars on Modrinth (SHA-1). Best-effort and cheap when there is nothing to ask: no request and
+	 *  no file read. Persists only its own sidecar, `lucerna/cross-ids.json`.
+	 */
+	modsLearnCrossIds: (instanceId: string) => typedError<CrossIdsOutcome, Error>(__TAURI_INVOKE("mods_learn_cross_ids", { instanceId })),
+	/**
 	 *  Apply one mod update: resolve `target`'s required dependencies,
 	 *  pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
 	 *  the dependencies the instance does not already have, and preserve the old
@@ -3188,6 +3195,15 @@ export type CropFrac = {
 	y: number | null,
 	w: number | null,
 	h: number | null,
+};
+
+/**  What one learning pass of [`mods_learn_cross_ids`] found. */
+export type CrossIdsOutcome = {
+	/**
+	 *  How many installed projects got (or changed) their id on the other platform. Above zero,
+	 *  the dependency graph is stale and is asked for again.
+	 */
+	learned: number,
 };
 
 /**  A classified data-location change for a user-picked directory. */

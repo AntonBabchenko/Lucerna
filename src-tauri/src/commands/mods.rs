@@ -451,10 +451,12 @@ async fn install_with_closure(
     // is pruned too. `deps::InstalledView` holds the rule and its reasons;
     // an update prunes by the very same one.
     let installed_mods = crate::mods::installed::list(&inst_root).await?;
+    // …and under the other platform's ids of what is installed (spec 2026-10-08).
+    let aliases = crate::mods::cross_ids::load_alias_map(&inst_root, &installed_mods).await;
     let crate::mods::deps::InstalledView {
         keys: installed,
         enabled_filenames: installed_filenames,
-    } = crate::mods::deps::InstalledView::of(&installed_mods);
+    } = crate::mods::deps::InstalledView::of(&installed_mods).with_aliases(aliases.project_keys());
 
     // Shared Arc platform + loader-slug cache for the make_fetch factory.
     let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
@@ -818,16 +820,24 @@ async fn finish_update(
 /// Refuse to install `(source, project_id)` when the registry already has a row
 /// for that project, enabled or switched off: a second jar of one mod stops the
 /// game on the duplicate mod id. A stale view or a double click asks for it, and
-/// the refusal names the row the user already has. Pure: the dependency installs
-/// read the registry and call this before anything is downloaded or written.
+/// the refusal names the row the user already has. The project counts as listed
+/// under its other platform's id too (`aliases`, spec 2026-10-08): Parasites from
+/// Modrinth is the CurseForge Parasites an addon asks for. Pure: the dependency
+/// installs read the registry and call this before anything is downloaded or
+/// written.
 fn refuse_if_installed(
     installed: &[InstalledMod],
+    aliases: &crate::mods::cross_ids::AliasMap,
     source: ModSource,
     project_id: &str,
 ) -> crate::error::Result<()> {
+    let (own_source, own_id) = aliases
+        .own_of(source, project_id)
+        .cloned()
+        .unwrap_or_else(|| (source, project_id.to_string()));
     match installed
         .iter()
-        .find(|m| m.source == Some(source) && m.project_id.as_deref() == Some(project_id))
+        .find(|m| m.source == Some(own_source) && m.project_id.as_deref() == Some(own_id.as_str()))
     {
         Some(row) => Err(crate::error::Error::ModsAlreadyInstalled {
             name: row.name.clone(),
@@ -864,11 +874,9 @@ pub async fn mods_install_dependency(
             let inst_root = instance_root(&app, &instance_id)?;
             let dd = data_dir(&app)?;
             let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
-            refuse_if_installed(
-                &crate::mods::installed::list(&inst_root).await?,
-                source,
-                &project_id,
-            )?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            let aliases = crate::mods::cross_ids::load_alias_map(&inst_root, &installed).await;
+            refuse_if_installed(&installed, &aliases, source, &project_id)?;
             let newest = platform_for(source)
                 .versions(&project_id, Some(&mc_version), Some(loader))
                 .await?
@@ -1569,10 +1577,11 @@ pub async fn mods_resolve_install_plan(
     // so a dependency already satisfied — from this source or another — is not
     // offered for (re)install.
     let installed_mods = crate::mods::installed::list(&root).await?;
+    let aliases = crate::mods::cross_ids::load_alias_map(&root, &installed_mods).await;
     let crate::mods::deps::InstalledView {
         keys: installed,
         enabled_filenames: installed_filenames,
-    } = crate::mods::deps::InstalledView::of(&installed_mods);
+    } = crate::mods::deps::InstalledView::of(&installed_mods).with_aliases(aliases.project_keys());
 
     // Shared platform + loader-slug cache, cloned into each closure via Arc.
     let platform: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(primary.source).into();
@@ -2161,6 +2170,42 @@ pub async fn mods_pack_origin_summary(
         .map(crate::mods::updates::pack_origin_summary))
 }
 
+/// What one learning pass of [`mods_learn_cross_ids`] found.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct CrossIdsOutcome {
+    /// How many installed projects got (or changed) their id on the other platform. Above zero,
+    /// the dependency graph is stale and is asked for again.
+    pub learned: u32,
+}
+
+/// Learn the installed jars' identities on the other platform from their bytes (spec
+/// 2026-10-08): Modrinth jars on CurseForge (Murmur2 confirmed by SHA-1, needs a key), CurseForge
+/// jars on Modrinth (SHA-1). Best-effort and cheap when there is nothing to ask: no request and
+/// no file read. Persists only its own sidecar, `lucerna/cross-ids.json`.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_learn_cross_ids(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<CrossIdsOutcome> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let cf_key = crate::mods::curseforge::keyring::resolve();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        // A clock before 1970 only makes every absent answer look fresh: asked again a week on.
+        .unwrap_or(0);
+    let learned = crate::mods::cross_ids::learn(
+        &inst_root,
+        "https://api.modrinth.com",
+        "https://api.curseforge.com",
+        cf_key.as_deref(),
+        now,
+    )
+    .await?;
+    Ok(CrossIdsOutcome { learned })
+}
+
 /// Identify the instance's modpack override-bundled mods by file hash
 /// and backfill their platform identity into the registry. Returns the
 /// number of mods newly resolved. Best-effort and idempotent: a no-op
@@ -2262,12 +2307,15 @@ pub async fn mods_update_one(
             // the journal, and its `requires` edges. An unreadable registry stops
             // the update HERE — `update_one` would fail on the very same read later.
             let registry_before = crate::mods::installed::list(&inst_root).await?;
+            let aliases =
+                crate::mods::cross_ids::load_alias_map(&inst_root, &registry_before).await;
             // Only the dependencies the instance will not already have once the old
             // jar is swapped out, by the install path's rule: a library that is
             // installed — at another version, from another source under the same
             // file name, or switched off — is left exactly as it is.
             let required_deps = crate::mods::deps::prune_update_deps(
                 &registry_before,
+                &aliases,
                 &old_sha1,
                 &target,
                 &resolved_required,
@@ -2973,10 +3021,16 @@ pub async fn mods_plan_mc_migration(
         //    rule of `deps::InstalledView::keys`, which `mods_install_with_deps`
         //    / `mods_resolve_install_plan` use for the same purpose — applied to
         //    this plan's `installed`, which holds enabled rows only (see above).
-        let already_installed: std::collections::HashSet<ProjectKey> = installed
+        let mut already_installed: std::collections::HashSet<ProjectKey> = installed
             .iter()
             .filter_map(ProjectKey::of_installed)
             .collect();
+        // …and their ids on the other platform (spec 2026-10-08).
+        already_installed.extend(
+            crate::mods::cross_ids::load_alias_map(&inst_root, &installed)
+                .await
+                .project_keys(),
+        );
         plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
 
         Ok(plan)
@@ -3737,8 +3791,11 @@ pub async fn mods_install_missing_required(
     );
     // The project is known only now; the registry is read again because the
     // resolution above took network time. Refused before the download.
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let aliases = crate::mods::cross_ids::load_alias_map(&inst_root, &installed).await;
     refuse_if_installed(
-        &crate::mods::installed::list(&inst_root).await?,
+        &installed,
+        &aliases,
         candidate.source,
         &candidate.project_id,
     )?;
@@ -3836,7 +3893,34 @@ pub async fn mods_dependency_graph(
     )
     .await;
     let summaries = graph_summaries(&app, &roots, &meta).await?;
-    graph_from_meta(&rows, &roots, &meta, &summaries, loader).await
+    // A dependency declared by the other platform's id of an installed mod is that mod
+    // (spec 2026-10-08): shown under its own key, with the name the tree gives it.
+    let canon = graph_canon(&root, &rows, &summaries).await;
+    graph_from_meta(&rows, &roots, &meta, &summaries, &canon, loader).await
+}
+
+/// The graph's [`Canon`](crate::mods::depgraph::Canon): the instance's alias map over its rows,
+/// and each row's display name by own key — the summary's, as the tree shows every node, else the
+/// registry's.
+async fn graph_canon(
+    root: &std::path::Path,
+    rows: &[InstalledMod],
+    summaries: &std::collections::HashMap<(ModSource, String), ModSummary>,
+) -> crate::mods::depgraph::Canon {
+    let aliases = crate::mods::cross_ids::load_alias_map(root, rows).await;
+    let names = rows
+        .iter()
+        .filter_map(|m| {
+            let source = m.source?;
+            let pid = m.project_id.clone()?;
+            let name = summaries
+                .get(&(source, pid.clone()))
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| m.name.clone());
+            Some((crate::mods::depgraph::key(source, &pid), name))
+        })
+        .collect();
+    crate::mods::depgraph::Canon { aliases, names }
 }
 
 /// The graph's roots: the ENABLED platform-identified mods (an anonymous local
@@ -4055,6 +4139,7 @@ async fn graph_from_meta(
     roots: &[crate::mods::depgraph::InstalledNode],
     meta: &VersionMeta,
     summaries: &std::collections::HashMap<(ModSource, String), ModSummary>,
+    canon: &crate::mods::depgraph::Canon,
     loader: LoaderKind,
 ) -> crate::error::Result<crate::mods::depgraph::DependencyGraph> {
     use crate::mods::depgraph::{build_graph, NodeAnswer, NodeDeps};
@@ -4090,7 +4175,14 @@ async fn graph_from_meta(
         };
         std::future::ready(Ok::<NodeAnswer, crate::error::Error>(answer))
     };
-    build_graph(roots, &disabled_projects, &installed_filenames, fetch).await
+    build_graph(
+        roots,
+        &disabled_projects,
+        &installed_filenames,
+        canon,
+        fetch,
+    )
+    .await
 }
 
 /// Map a dependency reference to the `(source, project_id)` key used by the
@@ -5391,15 +5483,60 @@ mod tests {
         ];
         for (project_id, name) in [("P-d1", "D1"), ("P-d2", "D2")] {
             assert_eq!(
-                refuse_if_installed(&installed, ModSource::Modrinth, project_id),
+                refuse_if_installed(
+                    &installed,
+                    &crate::mods::cross_ids::AliasMap::default(),
+                    ModSource::Modrinth,
+                    project_id
+                ),
                 Err(crate::error::Error::ModsAlreadyInstalled { name: name.into() }),
                 "{project_id}"
             );
         }
         assert_eq!(
-            refuse_if_installed(&installed, ModSource::Modrinth, "P-other"),
+            refuse_if_installed(
+                &installed,
+                &crate::mods::cross_ids::AliasMap::default(),
+                ModSource::Modrinth,
+                "P-other"
+            ),
             Ok(()),
             "a project the registry does not list installs"
+        );
+    }
+
+    /// Spec 2026-10-08: an addon asks for CurseForge's Parasites; Parasites is installed from
+    /// Modrinth, enabled or switched off. Installing it would put a second jar of one mod id
+    /// beside it: refused, by the name of the row the user has.
+    #[test]
+    fn a_dependency_installed_under_its_other_platforms_id_is_refused() {
+        let installed = vec![
+            named_dependent("d1"),
+            crate::mods::platform::InstalledMod {
+                enabled: false,
+                ..named_dependent("d2")
+            },
+        ];
+        let aliases = crate::mods::cross_ids::AliasMap::from_pairs(&[
+            (
+                (ModSource::Curseforge, "11".into()),
+                (ModSource::Modrinth, "P-d1".into()),
+            ),
+            (
+                (ModSource::Curseforge, "22".into()),
+                (ModSource::Modrinth, "P-d2".into()),
+            ),
+        ]);
+        for (cf_id, name) in [("11", "D1"), ("22", "D2")] {
+            assert_eq!(
+                refuse_if_installed(&installed, &aliases, ModSource::Curseforge, cf_id),
+                Err(crate::error::Error::ModsAlreadyInstalled { name: name.into() }),
+                "{cf_id}"
+            );
+        }
+        assert_eq!(
+            refuse_if_installed(&installed, &aliases, ModSource::Curseforge, "33"),
+            Ok(())
         );
     }
 
@@ -5670,6 +5807,7 @@ mod tests {
             &graph_roots(rows),
             &meta,
             &HashMap::new(),
+            &crate::mods::depgraph::Canon::default(),
             LoaderKind::NeoForge,
         )
         .await

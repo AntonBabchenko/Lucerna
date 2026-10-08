@@ -28,7 +28,7 @@ const MAX_DEPTH: usize = 10;
 const MAX_NODES: usize = 2000;
 
 /// Stable identity used for the installed set, dedup, and cycle detection.
-fn key(source: ModSource, project_id: &str) -> String {
+pub(crate) fn key(source: ModSource, project_id: &str) -> String {
     let s = match source {
         ModSource::Modrinth => "modrinth",
         ModSource::Curseforge => "curseforge",
@@ -70,6 +70,48 @@ pub struct DepChild {
 pub struct NodeDeps {
     pub required: Vec<DepChild>,
     pub optional: Vec<DepChild>,
+}
+
+/// How a declared dependency maps onto what is installed (spec 2026-10-08 §5): a project installed
+/// from the other platform is the same project, under the identity it was installed by. Applied to
+/// every level's children before anything else — the cycle path, the fetch memo, installed and
+/// disabled — so nothing downstream keys on the declared id.
+#[derive(Debug, Clone, Default)]
+pub struct Canon {
+    pub aliases: crate::mods::cross_ids::AliasMap,
+    /// Own key → the display name the tree shows for that project.
+    pub names: HashMap<String, String>,
+}
+
+impl Canon {
+    /// `deps` with every child under its installed identity, each project once: within a list
+    /// the first stays, and an optional child that is also required is the required one (the tree
+    /// keys its items by project, and one project is one item).
+    fn apply(&self, deps: &NodeDeps) -> NodeDeps {
+        let to_own = |c: &DepChild| match self.aliases.own_of(c.source, &c.project_id) {
+            Some((source, pid)) => DepChild {
+                source: *source,
+                project_id: pid.clone(),
+                name: self
+                    .names
+                    .get(&key(*source, pid))
+                    .cloned()
+                    .unwrap_or_else(|| c.name.clone()),
+                filename: c.filename.clone(),
+            },
+            None => c.clone(),
+        };
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut once = |list: &[DepChild]| -> Vec<DepChild> {
+            list.iter()
+                .map(&to_own)
+                .filter(|c| seen.insert(key(c.source, &c.project_id)))
+                .collect()
+        };
+        let required = once(&deps.required);
+        let optional = once(&deps.optional);
+        NodeDeps { required, optional }
+    }
 }
 
 /// Why an installed project's dependencies are unknown. The graph says so
@@ -191,6 +233,7 @@ pub async fn build_graph<F, Fut>(
     installed: &[InstalledNode],
     disabled: &[(ModSource, String)],
     installed_filenames: &HashSet<String>,
+    canon: &Canon,
     mut fetch: F,
 ) -> Result<DependencyGraph, crate::error::Error>
 where
@@ -212,12 +255,14 @@ where
         // A root is installed by definition, so an unknown answer is its flag.
         let (deps, deps_unknown) =
             split_answer(fetch_memo(&mut cache, &mut fetch, node.source, &node.project_id).await?);
+        let deps = canon.apply(&deps);
         let required = build_children(
             &deps.required,
             true,
             &installed_keys,
             &disabled_keys,
             installed_filenames,
+            canon,
             &mut cache,
             &mut fetch,
             &mut path,
@@ -231,6 +276,7 @@ where
             &installed_keys,
             &disabled_keys,
             installed_filenames,
+            canon,
             &mut cache,
             &mut fetch,
             &mut path,
@@ -259,6 +305,7 @@ fn build_children<'a, F, Fut>(
     installed_keys: &'a HashSet<String>,
     disabled_keys: &'a HashSet<String>,
     installed_filenames: &'a HashSet<String>,
+    canon: &'a Canon,
     cache: &'a mut HashMap<String, NodeAnswer>,
     fetch: &'a mut F,
     path: &'a mut HashSet<String>,
@@ -327,6 +374,7 @@ where
             path.insert(k.clone());
             let (deps, unknown) =
                 split_answer(fetch_memo(&mut *cache, &mut *fetch, c.source, &c.project_id).await?);
+            let deps = canon.apply(&deps);
             // Not installed, the node is a leaf whatever the answer — never "unknown".
             let deps_unknown = if installed { unknown } else { None };
             let req = build_children(
@@ -335,6 +383,7 @@ where
                 installed_keys,
                 disabled_keys,
                 installed_filenames,
+                canon,
                 &mut *cache,
                 &mut *fetch,
                 &mut *path,
@@ -348,6 +397,7 @@ where
                 installed_keys,
                 disabled_keys,
                 installed_filenames,
+                canon,
                 &mut *cache,
                 &mut *fetch,
                 &mut *path,
@@ -445,9 +495,15 @@ mod tests {
             },
         )]);
         let installed = vec![node("r", "rei"), node("n", "night")];
-        let g = build_graph(&installed, &[], &HashSet::new(), fetcher(map))
-            .await
-            .unwrap();
+        let g = build_graph(
+            &installed,
+            &[],
+            &HashSet::new(),
+            &Canon::default(),
+            fetcher(map),
+        )
+        .await
+        .unwrap();
         let rei = g.roots.iter().find(|r| r.project_id == "rei").unwrap();
         let arch = rei
             .required
@@ -498,7 +554,7 @@ mod tests {
         let installed = vec![node("w", "waystones")];
         let mut filenames = HashSet::new();
         filenames.insert("balm.jar".to_string());
-        let g = build_graph(&installed, &[], &filenames, fetcher(map))
+        let g = build_graph(&installed, &[], &filenames, &Canon::default(), fetcher(map))
             .await
             .unwrap();
         let ws = g
@@ -536,9 +592,15 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("r", "rei")], &[], &HashSet::new(), fetcher(map))
-            .await
-            .unwrap();
+        let g = build_graph(
+            &[node("r", "rei")],
+            &[],
+            &HashSet::new(),
+            &Canon::default(),
+            fetcher(map),
+        )
+        .await
+        .unwrap();
         let rei = &g.roots[0];
         let cloth = rei
             .optional
@@ -571,9 +633,15 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], &[], &HashSet::new(), fetcher(map))
-            .await
-            .unwrap();
+        let g = build_graph(
+            &[node("ax", "a")],
+            &[],
+            &HashSet::new(),
+            &Canon::default(),
+            fetcher(map),
+        )
+        .await
+        .unwrap();
         let a = &g.roots[0];
         let b = &a.required[0];
         assert_eq!(b.project_id, "b");
@@ -621,9 +689,15 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], &[], &HashSet::new(), fetcher(map))
-            .await
-            .unwrap();
+        let g = build_graph(
+            &[node("ax", "a")],
+            &[],
+            &HashSet::new(),
+            &Canon::default(),
+            fetcher(map),
+        )
+        .await
+        .unwrap();
         let a = &g.roots[0];
         let b = a.required.iter().find(|n| n.project_id == "b").unwrap();
         let c = a.required.iter().find(|n| n.project_id == "c").unwrap();
@@ -658,9 +732,15 @@ mod tests {
                 .unwrap_or_default();
             std::future::ready(Ok(NodeAnswer::Deps(deps)))
         };
-        let g = build_graph(&[node("r", "a0")], &[], &HashSet::new(), fetch)
-            .await
-            .unwrap();
+        let g = build_graph(
+            &[node("r", "a0")],
+            &[],
+            &HashSet::new(),
+            &Canon::default(),
+            fetch,
+        )
+        .await
+        .unwrap();
 
         fn depth(nodes: &[DepTreeNode]) -> usize {
             nodes
@@ -703,9 +783,15 @@ mod tests {
             ),
         ]);
         let disabled = [(ModSource::Modrinth, "x".to_string())];
-        let g = build_graph(&[node("rs", "r")], &disabled, &HashSet::new(), fetcher(map))
-            .await
-            .unwrap();
+        let g = build_graph(
+            &[node("rs", "r")],
+            &disabled,
+            &HashSet::new(),
+            &Canon::default(),
+            fetcher(map),
+        )
+        .await
+        .unwrap();
         let x = &g.roots[0].required[0];
         assert!(x.disabled && !x.installed, "switched off is not installed");
         let y = &x.children[0];
@@ -734,9 +820,15 @@ mod tests {
         let disabled: Vec<(ModSource, String)> = (1..=13)
             .map(|n| (ModSource::Modrinth, format!("a{n}")))
             .collect();
-        let g = build_graph(&[node("r", "a0")], &disabled, &HashSet::new(), fetch)
-            .await
-            .unwrap();
+        let g = build_graph(
+            &[node("r", "a0")],
+            &disabled,
+            &HashSet::new(),
+            &Canon::default(),
+            fetch,
+        )
+        .await
+        .unwrap();
         let mut n = &g.roots[0].required[0];
         while let Some(next) = n.children.first() {
             n = next;
@@ -756,9 +848,15 @@ mod tests {
         )]);
         let disabled = [(ModSource::Modrinth, "night".to_string())];
         let installed = vec![node("r", "rei"), node("n", "night")];
-        let g = build_graph(&installed, &disabled, &HashSet::new(), fetcher(map))
-            .await
-            .unwrap();
+        let g = build_graph(
+            &installed,
+            &disabled,
+            &HashSet::new(),
+            &Canon::default(),
+            fetcher(map),
+        )
+        .await
+        .unwrap();
         let rei = g.roots.iter().find(|r| r.project_id == "rei").unwrap();
         assert!(rei.required[0].installed && !rei.required[0].disabled);
     }
@@ -782,7 +880,7 @@ mod tests {
             std::future::ready(Ok(answer))
         };
         let installed = vec![node("rs", "r"), node("xs", "x"), node("qs", "q")];
-        let g = build_graph(&installed, &[], &HashSet::new(), fetch)
+        let g = build_graph(&installed, &[], &HashSet::new(), &Canon::default(), fetch)
             .await
             .unwrap();
         let root = |pid: &str| g.roots.iter().find(|r| r.project_id == pid).unwrap();
@@ -826,7 +924,7 @@ mod tests {
             std::future::ready(Ok(answer))
         };
         let installed = vec![node("r", "a0"), node("t", "a10")];
-        let g = build_graph(&installed, &[], &HashSet::new(), fetch)
+        let g = build_graph(&installed, &[], &HashSet::new(), &Canon::default(), fetch)
             .await
             .unwrap();
         let mut n = &g.roots[0].required[0];
@@ -846,5 +944,149 @@ mod tests {
         }))
         .unwrap();
         assert!(!n.disabled);
+    }
+
+    // Spec 2026-10-08: an addon from CurseForge names the main mod by its CurseForge id; the main
+    // mod is installed from Modrinth. Through the alias it is that installed project.
+    fn cf_child(id: &str, name: &str) -> DepChild {
+        DepChild {
+            source: ModSource::Curseforge,
+            project_id: id.into(),
+            name: name.into(),
+            filename: None,
+        }
+    }
+    fn alias_canon(pairs: &[(&str, &str)], names: &[(&str, &str)]) -> Canon {
+        let pairs: Vec<_> = pairs
+            .iter()
+            .map(|(cf, mr)| {
+                (
+                    (ModSource::Curseforge, cf.to_string()),
+                    (ModSource::Modrinth, mr.to_string()),
+                )
+            })
+            .collect();
+        Canon {
+            aliases: crate::mods::cross_ids::AliasMap::from_pairs(&pairs),
+            names: names
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dependency_declared_by_the_other_platforms_id_is_the_installed_project() {
+        let map = std::collections::HashMap::from([
+            (
+                "addon",
+                NodeDeps {
+                    required: vec![],
+                    optional: vec![cf_child("258587", "Parasites on CurseForge")],
+                },
+            ),
+            (
+                "srp",
+                NodeDeps {
+                    required: vec![child("lib", "Lib")],
+                    optional: vec![],
+                },
+            ),
+        ]);
+        let installed = vec![node("a", "addon"), node("s", "srp")];
+        let canon = alias_canon(
+            &[("258587", "srp")],
+            &[("modrinth:srp", "Scape and Run: Parasites")],
+        );
+        let g = build_graph(&installed, &[], &HashSet::new(), &canon, fetcher(map))
+            .await
+            .unwrap();
+        let n = &g.roots[0].optional[0];
+        assert_eq!(
+            (n.source, n.project_id.as_str()),
+            (ModSource::Modrinth, "srp")
+        );
+        assert_eq!(n.name, "Scape and Run: Parasites");
+        assert!(n.installed && !n.disabled);
+        assert_eq!(
+            n.children.len(),
+            1,
+            "its own dependencies are read, never a leaf"
+        );
+        assert_eq!(n.children[0].project_id, "lib");
+    }
+
+    #[tokio::test]
+    async fn a_way_back_to_the_root_through_an_alias_is_a_cycle() {
+        let map = std::collections::HashMap::from([
+            (
+                "srp",
+                NodeDeps {
+                    required: vec![],
+                    optional: vec![child("addon", "Addon")],
+                },
+            ),
+            (
+                "addon",
+                NodeDeps {
+                    required: vec![],
+                    optional: vec![cf_child("258587", "P")],
+                },
+            ),
+        ]);
+        let installed = vec![node("s", "srp"), node("a", "addon")];
+        let canon = alias_canon(&[("258587", "srp")], &[]);
+        let g = build_graph(&installed, &[], &HashSet::new(), &canon, fetcher(map))
+            .await
+            .unwrap();
+        let back = &g.roots[0].optional[0].children[0];
+        assert_eq!(back.project_id, "srp");
+        assert!(
+            back.cycle,
+            "the root met again under its other id is a cycle"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_alias_of_a_switched_off_jar_marks_the_node_disabled_never_installed() {
+        let map = std::collections::HashMap::from([(
+            "addon",
+            NodeDeps {
+                required: vec![cf_child("258587", "P")],
+                optional: vec![],
+            },
+        )]);
+        let disabled = [(ModSource::Modrinth, "srp".to_string())];
+        let canon = alias_canon(&[("258587", "srp")], &[]);
+        let g = build_graph(
+            &[node("a", "addon")],
+            &disabled,
+            &HashSet::new(),
+            &canon,
+            fetcher(map),
+        )
+        .await
+        .unwrap();
+        let n = &g.roots[0].required[0];
+        assert_eq!(n.project_id, "srp");
+        assert!(n.disabled && !n.installed);
+    }
+
+    #[tokio::test]
+    async fn one_project_declared_twice_is_one_node_and_required_wins() {
+        let map = std::collections::HashMap::from([(
+            "addon",
+            NodeDeps {
+                required: vec![cf_child("258587", "P")],
+                optional: vec![child("srp", "SRP"), child("srp", "SRP")],
+            },
+        )]);
+        let installed = vec![node("a", "addon"), node("s", "srp")];
+        let canon = alias_canon(&[("258587", "srp")], &[]);
+        let g = build_graph(&installed, &[], &HashSet::new(), &canon, fetcher(map))
+            .await
+            .unwrap();
+        assert_eq!(g.roots[0].required.len(), 1);
+        assert!(g.roots[0].optional.is_empty());
     }
 }

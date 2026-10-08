@@ -214,6 +214,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_apply_mc_migration,
             commands::mods_pack_origin_summary,
             commands::mods_enrich_pack_mods,
+            commands::mods_learn_cross_ids,
             commands::mods_update_one,
             commands::mods_find_orphans,
             commands::mods_dependency_graph,

@@ -544,6 +544,12 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
     ),
     (
         "commands/mods.rs",
+        "mods_learn_cross_ids",
+        "learns the installed jars' ids on the other platform; persists only its sidecar \
+         lucerna/cross-ids.json, launcher metadata no claimer reads",
+    ),
+    (
+        "commands/mods.rs",
         "mods_enrich_pack_mods",
         "backfills platform identity into registry rows — launcher metadata, auto-run when \
          the Installed tab opens; gating it would refuse the next pack update for no visible \

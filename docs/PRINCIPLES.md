@@ -30,8 +30,8 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    | `piston-meta.mojang.com`, `piston-data.mojang.com` | Version manifest, libraries | on |
    | `api.github.com` | Launcher self-update check (release lookup for this repo; the allowlist matches on host, not path) | on |
    | `github.com` | Self-update installer / `SHA256SUMS` / `.cosign.bundle` download (release-asset `browser_download_url`; redirects to a GitHub CDN, which reqwest follows internally — integrity rests on the cosign + SHA-256 verification of the bytes, not on the transport host) | on (only when the user clicks Update) |
-   | `api.modrinth.com` | Modrinth mod browser | requested on first open of mod browser |
-   | `api.curseforge.com` | CurseForge mod browser | requested on first open of mod browser |
+   | `api.modrinth.com` | Modrinth mod browser; the Installed tab (project info, update checks, and the SHA-1 of installed jars, to recognise a CurseForge file Modrinth also has) | requested on first open of mod browser or of the Installed tab |
+   | `api.curseforge.com` | CurseForge mod browser; the Installed tab (project info, update checks, and the fingerprint of installed jars, to recognise a Modrinth file CurseForge also has) | requested on first open of mod browser or of the Installed tab, only with the user's CurseForge key |
    | `cdn.modrinth.com` | Modrinth mod jar downloads | enabled when user installs from Modrinth |
    | `edge.forgecdn.net` | CurseForge mod jar downloads (primary CDN) | enabled when user installs from CurseForge |
    | `mediafilez.forgecdn.net` | CurseForge mod jar downloads (alternate CDN) | enabled when user installs from CurseForge |

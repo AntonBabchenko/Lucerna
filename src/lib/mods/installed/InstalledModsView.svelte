@@ -35,6 +35,7 @@
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph, type RequiredByEntry } from './dep-graph.svelte';
+  import { depGraphCache } from '../dep-graph-cache';
   import {
     createPreflight,
     hasBlocking,
@@ -262,6 +263,43 @@
       getPageSize: () => filters.pageSize,
     },
   );
+
+  // Each installed jar's id on the other platform (spec 2026-10-08): Parasites installed from
+  // Modrinth is the CurseForge project its addons from there name. Learned after every list load
+  // — the backend asks nothing when nothing is new — one pass per profile at a time, run once more
+  // when the list changed meanwhile. What it learns makes the dependency graph stale, here and in
+  // the session cache the next open would start from.
+  let mounted = true;
+  const crossIdsRunning = new Set<string>();
+  const crossIdsAgain = new Set<string>();
+  async function learnCrossIds(id: string): Promise<void> {
+    if (crossIdsRunning.has(id)) {
+      crossIdsAgain.add(id);
+      return;
+    }
+    crossIdsRunning.add(id);
+    try {
+      const r = await commands.modsLearnCrossIds(id);
+      if (r.status === 'error') console.warn('[cross-ids] learning failed:', r.error);
+      else if (r.data.learned > 0) {
+        depGraphCache.delete(id);
+        if (mounted && instanceId === id) deps.invalidateGraph();
+      }
+    } catch (e) {
+      // Best-effort, as the enrich pass: nothing the user sees depends on it.
+      console.warn('[cross-ids] learning failed:', e);
+    } finally {
+      crossIdsRunning.delete(id);
+    }
+    if (crossIdsAgain.delete(id) && mounted) await learnCrossIds(id);
+  }
+  $effect(() => {
+    const id = instanceId;
+    // Every list load: the first, and each refresh after a mod change.
+    void data.rows;
+    if (id === null || data.loading) return;
+    void learnCrossIds(id);
+  });
   // The relation column's slot widths, in figures (DESIGN.md §9): the longest figure of each slot
   // over every row of the profile — not the page, not the filter, so neither moves a name — from
   // the inputs each row gets (the `{#each}` below).
@@ -1159,6 +1197,7 @@
     events.modsReconciled.listen(debouncedExternalChange.call),
   ]);
   onDestroy(() => {
+    mounted = false;
     debouncedModsChanged.cancel();
     debouncedExternalChange.cancel();
     data.dispose();
