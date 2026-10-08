@@ -9,10 +9,10 @@ import {
   Blocks,
   Check,
   ChevronDown,
-  ChevronFirst,
-  ChevronLast,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   ChevronUp,
   CircleX,
   Copy,
@@ -109,8 +109,8 @@ export const ICONS = {
   moreVertical: EllipsisVertical, // overflow-menu affordance (lucide renamed MoreVertical → EllipsisVertical)
   chevronLeft: ChevronLeft, // gallery prev / pagination prev
   chevronRight: ChevronRight, // gallery next / pagination next
-  chevronFirst: ChevronFirst, // pagination first
-  chevronLast: ChevronLast, // pagination last
+  chevronsLeft: ChevronsLeft, // pagination first (« — never |<, which reads as a Cyrillic К)
+  chevronsRight: ChevronsRight, // pagination last (»)
   puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
   arrowLeft: ArrowLeft, // back / prev navigation (tour)
   arrowRight: ArrowRight, // version-transition marker (v1 → v2) / next / CTA
