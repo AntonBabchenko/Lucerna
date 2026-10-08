@@ -205,6 +205,30 @@ describe('the dependency tree’s actions go the row’s way', () => {
       expect(document.querySelector('[data-mod-row="modrinth:PBALM"]')).not.toBeNull(),
     );
     expect((search as HTMLInputElement).value).toBe('');
+    // It arrives flashing, as a Settings jump does (spec 2026-10-07 §9).
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-mod-row="modrinth:PBALM"]')
+          ?.classList.contains('field-flash'),
+      ).toBe(true),
+    );
+  });
+
+  // Each click flashes its row: the jump is consumed once delivered, so the next one is a new edge.
+  it('«show in the list» flashes the row on every click, not only the first', async () => {
+    reset();
+    render(InstalledModsView, { props: props('tree-locate-twice') });
+    await openAlphaTree();
+    const locate = await screen.findByRole('button', { name: 'Show Balm in the list' });
+    const row = () => document.querySelector('[data-mod-row="modrinth:PBALM"]') as HTMLElement;
+
+    await fireEvent.click(locate);
+    await waitFor(() => expect(row().classList.contains('field-flash')).toBe(true));
+    row().classList.remove('field-flash');
+    await fireEvent.click(locate);
+
+    await waitFor(() => expect(row().classList.contains('field-flash')).toBe(true));
   });
 
   // WebKit (the macOS build) focuses no button on a click. Nothing had focus, so nothing lost it:

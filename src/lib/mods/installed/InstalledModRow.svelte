@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { fieldFlash } from '$lib/ui/field-flash';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
   import ModCard from '../ModCard.svelte';
@@ -55,6 +56,8 @@
     onRevealFile = null,
     onOpenProjectPage = null,
     hold = null,
+    flash = false,
+    onFlashed = () => {},
   }: {
     summary: ModSummary | null;
     installed: InstalledMod;
@@ -104,6 +107,10 @@
     onRevealFile?: (() => void) | null;
     onOpenProjectPage?: (() => void) | null;
     hold?: { held: boolean; onToggle: () => void } | null;
+    // A «show in the list» just landed here: the row flashes once, as a Settings jump does, and
+    // says so (the host then clears it, so the next jump is a new edge).
+    flash?: boolean;
+    onFlashed?: () => void;
   } = $props();
 
   // One control summarises both directions of the dependency relation (spec D12): ⛓ what this mod
@@ -274,7 +281,10 @@
   <!-- The row «show in the list» scrolls into view and a removal moves focus into (`data-mod-row`): the card
        with its problem line, not the expanded DepSection below it. Pointing at it shows the
        card's own hover and nothing else — no other place this mod appears lights up. -->
-  <div data-mod-row={rowKey}>
+  <div
+    data-mod-row={rowKey}
+    use:fieldFlash={{ active: flash, behavior: 'smooth', onDelivered: onFlashed }}
+  >
     <ModCard
       layout="list"
       {summary}

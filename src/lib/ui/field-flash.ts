@@ -26,6 +26,8 @@ export type FieldFlashParams = {
    * mounts already active still records the edge it just took.
    */
   onDelivered?: () => void;
+  /** How the field is scrolled into view; the browser's default when unset. */
+  behavior?: ScrollBehavior;
 };
 
 function isDisabled(el: HTMLElement): boolean {
@@ -134,7 +136,10 @@ export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
     // while a highlight still runs restarts its animation instead of continuing it.
     const taller = node.getBoundingClientRect().height > scrollParentOf(node).clientHeight;
     // happy-dom has no layout, so scrollIntoView is absent there.
-    node.scrollIntoView?.({ block: taller ? 'start' : 'center' });
+    node.scrollIntoView?.({
+      block: taller ? 'start' : 'center',
+      ...(p.behavior ? { behavior: p.behavior } : {}),
+    });
     node.style.setProperty('--field-flash-duration', `${FLASH_MS}ms`);
     node.classList.add('field-flash');
     timer = setTimeout(() => {

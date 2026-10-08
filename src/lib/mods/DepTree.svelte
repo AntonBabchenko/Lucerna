@@ -105,11 +105,22 @@
   const toggled = new SvelteSet<string>();
   let activePath = $state<string | null>(null);
   const openAt = (path: string, level: number) => (level === 0) !== toggled.has(path);
+  // Below the top level a node's children come required first, then optional, each kept in its
+  // order (spec 2026-10-07 §9): the guide that draws an optional edge dashed reads as one run.
+  const inOrder = (ns: DepTreeNode[], level: number) =>
+    level === 0
+      ? ns
+      : [
+          ...ns.filter((c) => c.declared !== 'optional'),
+          ...ns.filter((c) => c.declared === 'optional'),
+        ];
+  const ordered = $derived(inOrder(nodes, depth));
   function visiblePaths(ns: DepTreeNode[], parent: string, level: number, out: string[]) {
     for (const n of ns) {
       const path = pathOf(parent, n);
       out.push(path);
-      if (hasKids(n) && openAt(path, level)) visiblePaths(n.children, path, level + 1, out);
+      if (hasKids(n) && openAt(path, level))
+        visiblePaths(inOrder(n.children, level + 1), path, level + 1, out);
     }
     return out;
   }
@@ -200,12 +211,12 @@
 
 <ul
   bind:this={rootEl}
-  class={depth === 0 ? 'text-xs' : 'ml-4 border-l border-border-subtle pl-3'}
+  class={depth === 0 ? 'text-xs' : 'ml-4'}
   role={depth === 0 ? 'tree' : 'group'}
   aria-labelledby={depth === 0 ? labelledby : undefined}
   onkeydown={depth === 0 ? onKeydown : undefined}
 >
-  {#each nodes as n, index (keyOf(n))}
+  {#each ordered as n, index (keyOf(n))}
     {@const k = keyOf(n)}
     {@const path = pathOf(parentPath, n)}
     {@const id = `${base}-${index}`}
@@ -235,7 +246,14 @@
     <!-- Named by the mod, described by what the tree says about it: a name from content would
          also read every nested item. aria-selected follows the roving tab stop (single select,
          selection follows focus) — never hover (spec §6.3). -->
+    <!-- Below the top level each item draws its own guide segment: solid for an edge its parent
+         requires, dashed for one it only offers (spec 2026-10-07 §9). -->
     <li
+      class={depth === 0
+        ? undefined
+        : n.declared === 'optional'
+          ? 'border-l border-dashed border-border-emphasis pl-3'
+          : 'border-l border-border-subtle pl-3'}
       role="treeitem"
       aria-level={depth + 1}
       aria-expanded={hasKids(n) ? open : undefined}

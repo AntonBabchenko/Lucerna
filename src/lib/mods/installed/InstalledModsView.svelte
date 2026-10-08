@@ -657,8 +657,14 @@
   function jumpToDependent(v: DepViolation): Promise<void> {
     return jumpToJar(v.dependent_sha1, v.dependent_name);
   }
+  // The row a «show in the list» landed on, until it has flashed (spec 2026-10-07 §9): the row's
+  // `fieldFlash` fires on the edge and reports delivery, which clears it — one flash per click.
+  let flashSha = $state<string | null>(null);
   async function jumpToJar(sha1: string, name: string): Promise<void> {
-    if (await deps.jumpToSha1(sha1)) return;
+    if (await deps.jumpToSha1(sha1)) {
+      flashSha = sha1;
+      return;
+    }
     const gone = () => pushInfo(get(t)('mods.preflight.dependentGone', { name }));
     if (!rowBySha.has(sha1)) {
       gone();
@@ -668,7 +674,8 @@
     filters.viewFilter = isProblem(statusBySha.get(sha1)) ? 'issues' : 'all';
     await tick();
     // Removed in the meantime (the list re-read while the view changed).
-    if (!(await deps.jumpToSha1(sha1))) gone();
+    if (await deps.jumpToSha1(sha1)) flashSha = sha1;
+    else gone();
   }
   // The tree's and «Required by»'s locate: the same way, once the jar is looked up by project —
   // never a silent nothing when a search hides the row (spec 2026-10-07 D4a).
@@ -1307,6 +1314,8 @@
           onRevealFile={() => void revealFile(row.installed)}
           onOpenProjectPage={projectPageOpener(row)}
           hold={holdControl(row)}
+          flash={flashSha === row.installed.sha1}
+          onFlashed={() => (flashSha = null)}
         />
       {/each}
     </div>

@@ -862,3 +862,82 @@ describe('DepTree — the cycle mark says what it is', () => {
     expect(screen.queryByText('cycle')).toBeNull();
   });
 });
+
+// Spec 2026-10-07 §9: optional is drawn, not only said. Below the top level a node's children come
+// required first, then optional, and each draws its own guide segment — solid or dashed.
+describe('DepTree — an optional edge is drawn dashed', () => {
+  const branch = () =>
+    treeProps({
+      nodes: [
+        leaf('p', {
+          name: 'Parent',
+          children: [
+            leaf('o1', { name: 'Opt One', installed: false, declared: 'optional' }),
+            leaf('r1', { name: 'Req One' }),
+            leaf('o2', { name: 'Opt Two', installed: false, declared: 'optional' }),
+            leaf('r2', { name: 'Req Two' }),
+          ],
+        }),
+      ],
+    });
+
+  it('lists a branch’s required children before its optional ones, each kept in its order', () => {
+    render(DepTree, { props: branch() });
+    const names = [...item('Parent').querySelectorAll('[role="group"] [data-tree-name]')].map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(names).toEqual(['Req One', 'Req Two', 'Opt One', 'Opt Two']);
+  });
+
+  it('draws an optional child’s guide dashed and a required one’s solid', () => {
+    render(DepTree, { props: branch() });
+    expect(item('Opt One').classList).toContain('border-dashed');
+    expect(item('Opt One').classList).toContain('border-l');
+    expect(item('Req One').classList).toContain('border-l');
+    expect(item('Req One').classList).not.toContain('border-dashed');
+    // The top level has no guide: its section's stripe heads it.
+    expect(item('Parent').classList).not.toContain('border-l');
+  });
+});
+
+// Spec 2026-10-07 §9: each section is a block with its own stripe and glyph — the relation cell's
+// ⛓ for what the mod requires, its ↑ for what requires the mod, a dashed stripe for optional.
+describe('DepSection — sections told apart at a glance', () => {
+  const sections = () =>
+    render(DepSection, {
+      props: {
+        root: {
+          sha1: 'a',
+          source: 'modrinth' as const,
+          project_id: 'PA',
+          name: 'Alpha',
+          required: [leaf('PB', { name: 'Bravo' })],
+          optional: [leaf('PO', { name: 'Oscar', installed: false, declared: 'optional' })],
+        },
+        requiredBy: [{ name: 'Gamma', source: 'modrinth' as const, projectId: 'PG', sha1: 'g' }],
+        onInstall: () => {},
+        onJump: () => {},
+        onOpenDetail: () => {},
+      },
+    });
+  const block = (kind: string) =>
+    document.querySelector(`[data-dep-block="${kind}"]`) as HTMLElement;
+
+  it('gives each section its own stripe', () => {
+    sections();
+    expect(block('requires').classList).toContain('border-accent');
+    expect(block('optional').classList).toContain('border-dashed');
+    expect(block('required-by').classList).toContain('border-relation-by');
+  });
+
+  it('heads «Requires» with the cell’s ⛓ and «Required by» with its ↑', () => {
+    sections();
+    expect(block('requires').querySelector('.lucide-link-2')).toBeTruthy();
+    expect(block('required-by').querySelector('.lucide-arrow-up')).toBeTruthy();
+    expect(block('optional').querySelector('svg.lucide-link-2, svg.lucide-arrow-up')).toBeNull();
+    // The trees stay named by their headings.
+    expect(block('requires').querySelector('[role="tree"]')?.getAttribute('aria-labelledby')).toBe(
+      'dep-req-a',
+    );
+  });
+});

@@ -29,11 +29,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   twice.
 - **Notices stay at the top right, above everything**, an open dialog included;
   they used to move to the bottom centre while a dialog was open.
-- **A mod's dependency panel works like the mod list.** A related mod's row
-  lights up under the pointer and opens the mod on a click; its switch and
-  add-or-remove buttons stand under the mod's own, "Show in the list" sits by
-  its name, and "Required by" works the same way. A mod met again further down
-  says "this mod" or "expanded above" instead of "cycle".
+- **A mod's dependency panel works like the mod list.** Its rows light up under
+  the pointer and open the mod on a click, their switch and add-or-remove buttons
+  stand under the mod's own, and "Show in the list" flashes the row it takes you
+  to. "Requires", "Optional" and "Required by" each have a stripe of their own,
+  an optional dependency's line is dashed, and a mod met again further down says
+  "this mod" or "expanded above" instead of "cycle".
 
 ### Fixed
 

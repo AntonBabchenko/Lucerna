@@ -24,6 +24,9 @@
   /* Borders */
   --border-subtle: 229 229 229; /* neutral-200 */
   --border-emphasis: 212 212 212; /* neutral-300 */
+  /* What requires a mod (its dependency panel's «Required by»): a hue of its own, neither a
+     problem strip nor the accent of «Requires». */
+  --relation-by: 124 58 237; /* violet-600 */
   /* An edge a control stands on alone — the drop box's dashed outline has no fill at rest — so it
      must clear the 3:1 non-text minimum (WCAG 1.4.11): --border-emphasis is only 1.42:1 on the
      light page, and retuning it would repaint every input and secondary button. neutral-500 is
@@ -140,6 +143,7 @@
   /* Borders — bumped a tier to stay visible against lighter surfaces */
   --border-subtle: 64 64 64; /* neutral-700 — was 38 38 38 */
   --border-emphasis: 115 115 115; /* neutral-500 — was 64 64 64 */
+  --relation-by: 167 139 250; /* violet-400 */
   /* The dark --border-emphasis already clears 3:1: 3.78:1 on --bg-base, 3.19:1 on --bg-surface. */
   --border-strong: 115 115 115; /* neutral-500 */
   /* Accent / state */
@@ -791,6 +795,11 @@ button:focus-visible .icon-rainbow-hover {
   100% {
     background-color: rgb(var(--accent-soft) / 0);
   }
+}
+/* An Installed row flashes as a whole when «show in the list» lands on it: its card paints its
+   own surface over the wrapper, so while the flash runs the card lets it show through. */
+[data-mod-row].field-flash [data-card-shell] {
+  background-color: transparent;
 }
 /* The global reduced-motion block shortens this to 0.01ms, and `both` would
    then hold the transparent last frame for the whole window — the marker would
