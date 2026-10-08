@@ -14,10 +14,10 @@
   // The four steps are icon-only at every width, each named by a full phrase
   // ("Next page") that it also says in a tooltip (DESIGN.md §5). Labelled steps
   // did not fit the launcher's default 820 px window (654 px in a 556 px box, the
-  // page-size picker off the window), and beside a Cyrillic label the |< and >|
-  // glyphs read as the letter «К» — hence « and » for first and last. "N of M"
-  // and the end slot never break inside themselves; where a box is narrower
-  // still, the row wraps rather than overflows.
+  // page-size picker off the window), and beside a Cyrillic label the |< glyph
+  // read as the letter «К» — hence « and » for first and last. "N of M" and the
+  // end slot never break inside themselves; where a box is narrower still, the
+  // row wraps rather than overflows.
   let {
     page,
     pageCount,
@@ -39,14 +39,14 @@
 </script>
 
 <!-- A step: its tooltip sits on a wrapper, since a disabled button fires no pointer events
-     (DESIGN.md §5); the button keeps the same words as its aria-label. `p-2` makes it the
-     square of a labelled `btn-sm` button's height. No `btn-sm` on it: `.btn-sm` is declared
-     after the utilities in app.css, so its padding would win over `p-2`. -->
+     (DESIGN.md §5); the button keeps the same words as its aria-label. `!p-2` makes it the
+     square of a labelled `btn-sm` button's height. It needs the `!`: `.btn-sm` is declared after
+     the utilities in app.css, so its padding would win over a plain `p-2`. -->
 {#snippet step(testid: string, label: string, icon: IconName, off: boolean, target: number)}
   <span class="inline-flex" use:tooltip={{ text: label, describe: false }}>
     <button
       type="button"
-      class="btn-secondary inline-flex items-center justify-center p-2"
+      class="btn-secondary btn-sm inline-flex items-center justify-center !p-2"
       data-testid={testid}
       aria-label={label}
       disabled={off}

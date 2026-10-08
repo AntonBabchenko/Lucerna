@@ -49,7 +49,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Page buttons under a list are arrows with tooltips** at any window
   width: the double arrows go to the first and the last page, the single ones
   a page back or forward. A wide window used to show labels beside them, and
-  next to a label the first and last page icons looked like a letter.
+  in Russian the first page icon next to its label read as the letter «К».
 
 ### Fixed
 

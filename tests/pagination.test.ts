@@ -83,7 +83,7 @@ describe('Pagination', () => {
 
 // The four steps are icon-only at every width, each named by a full phrase it also says in a
 // tooltip (DESIGN.md §5). Labelled steps did not fit the default 820 px window, and beside a
-// Cyrillic label the |< and >| glyphs read as the letter «К» — so first and last draw « and ».
+// Cyrillic label the |< glyph read as the letter «К» — so first and last draw « and ».
 // happy-dom applies no Tailwind CSS, so what is pinned is the markup: the name, no visible text,
 // no width-dependent class, the icon drawn, a tooltip that does not depend on the window's width,
 // "N of M" and the page-size picker that never break inside, and a row that wraps rather than
