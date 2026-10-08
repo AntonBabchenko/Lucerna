@@ -138,6 +138,14 @@ impl InstalledView {
                 .collect(),
         }
     }
+
+    /// The same view, with the rows' identities on the other platform (spec 2026-10-08 §5): a
+    /// project installed from Modrinth is present under its CurseForge id too, enabled OR
+    /// disabled like its own key — a disabled copy is still a second jar of one mod id.
+    pub fn with_aliases(mut self, aliases: HashSet<ProjectKey>) -> InstalledView {
+        self.keys.extend(aliases);
+        self
+    }
 }
 
 /// Whether the instance already has `v`: its project is in `installed`, or an
@@ -173,16 +181,26 @@ pub fn is_installed(
 /// own `requires` edges. A disabled one got an enabled copy beside it.
 pub fn prune_update_deps(
     registry: &[InstalledMod],
+    aliases: &crate::mods::cross_ids::AliasMap,
     outgoing_sha1: &str,
     target: &ModVersion,
     resolved: &[ModVersion],
 ) -> Vec<ModVersion> {
-    let after_swap = InstalledView::of(
-        registry
-            .iter()
-            .filter(|m| !m.sha1.eq_ignore_ascii_case(outgoing_sha1)),
-    );
+    let staying: Vec<&InstalledMod> = registry
+        .iter()
+        .filter(|m| !m.sha1.eq_ignore_ascii_case(outgoing_sha1))
+        .collect();
+    // The other platform's ids of what stays, and of the target's own project: an update of the
+    // Modrinth jar keeps the project its CurseForge id names.
+    let target_own = (target.source, target.project_id.clone());
+    let owns: Vec<(ModSource, String)> = staying
+        .iter()
+        .filter_map(|m| Some((m.source?, m.project_id.clone()?)))
+        .collect();
+    let after_swap = InstalledView::of(staying.iter().copied())
+        .with_aliases(aliases.project_keys_of(owns.iter()));
     let mut seen: HashSet<ProjectKey> = HashSet::from([ProjectKey::of_version(target)]);
+    seen.extend(aliases.project_keys_of(std::iter::once(&target_own)));
     resolved
         .iter()
         .filter(|v| !is_installed(v, &after_swap.keys, &after_swap.enabled_filenames))
@@ -740,7 +758,13 @@ mod tests {
         ];
         let resolved = [build(ModSource::Curseforge, "531761", "balm-1.0.jar")];
         assert_eq!(
-            files(&prune_update_deps(&registry, "old", &target(), &resolved)),
+            files(&prune_update_deps(
+                &registry,
+                &crate::mods::cross_ids::AliasMap::default(),
+                "old",
+                &target(),
+                &resolved
+            )),
             ["balm-1.0.jar"]
         );
     }
@@ -762,8 +786,57 @@ mod tests {
         )];
         let resolved = [build(ModSource::Modrinth, "lib", "mod.jar")];
         assert_eq!(
-            files(&prune_update_deps(&registry, "OLD", &target(), &resolved)),
+            files(&prune_update_deps(
+                &registry,
+                &crate::mods::cross_ids::AliasMap::default(),
+                "OLD",
+                &target(),
+                &resolved
+            )),
             ["mod.jar"]
+        );
+    }
+
+    // Spec 2026-10-08: the update needs CurseForge's Parasites (258587); Parasites is installed
+    // from Modrinth (`srp`) and switched off — installing it would still be a second jar of one
+    // mod id. And a dependency named by the target's own project on the other platform is the
+    // target itself.
+    #[test]
+    fn a_dependency_named_by_an_installed_jars_other_id_is_not_installed_again_on_update() {
+        let registry = vec![
+            outgoing(),
+            row(
+                "p",
+                Some(ModSource::Modrinth),
+                Some("srp"),
+                "srp-1.jar",
+                false,
+            ),
+        ];
+        let aliases = crate::mods::cross_ids::AliasMap::from_pairs(&[
+            (
+                (ModSource::Curseforge, "258587".into()),
+                (ModSource::Modrinth, "srp".into()),
+            ),
+            (
+                (ModSource::Curseforge, "777".into()),
+                (ModSource::Modrinth, "x".into()),
+            ),
+        ]);
+        let resolved = [
+            build(ModSource::Curseforge, "258587", "srp-cf.jar"),
+            build(ModSource::Curseforge, "777", "x-cf.jar"),
+            build(ModSource::Modrinth, "lib", "lib.jar"),
+        ];
+        assert_eq!(
+            files(&prune_update_deps(
+                &registry,
+                &aliases,
+                "old",
+                &target(),
+                &resolved
+            )),
+            ["lib.jar"]
         );
     }
 
@@ -780,7 +853,13 @@ mod tests {
             build(ModSource::Modrinth, "lib", "lib-1.0.jar"),
         ];
         assert_eq!(
-            files(&prune_update_deps(&registry, "old", &target(), &resolved)),
+            files(&prune_update_deps(
+                &registry,
+                &crate::mods::cross_ids::AliasMap::default(),
+                "old",
+                &target(),
+                &resolved
+            )),
             ["lib-2.0.jar"]
         );
     }
@@ -804,7 +883,13 @@ mod tests {
             "cloth-config-15.jar",
         )];
         assert_eq!(
-            files(&prune_update_deps(&registry, "old", &target(), &resolved)),
+            files(&prune_update_deps(
+                &registry,
+                &crate::mods::cross_ids::AliasMap::default(),
+                "old",
+                &target(),
+                &resolved
+            )),
             ["cloth-config-15.jar"]
         );
     }
@@ -865,7 +950,13 @@ mod tests {
         resolved: Vec<ModVersion>,
     ) -> Result<UpdateOutcome, crate::error::Error> {
         let registry_before = installed::list(root).await?;
-        let deps = prune_update_deps(&registry_before, old_sha1, &target, &resolved);
+        let deps = prune_update_deps(
+            &registry_before,
+            &crate::mods::cross_ids::AliasMap::default(),
+            old_sha1,
+            &target,
+            &resolved,
+        );
         let requires =
             crate::mods::orphans::requires_edges(&registry_before, Some(old_sha1), resolved.iter());
         let outcome = update_one(
