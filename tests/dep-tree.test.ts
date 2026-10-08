@@ -668,7 +668,7 @@ describe('DepTree — every row carries the list’s actions', () => {
         'toggle',
         'presence',
       ]);
-      const nameBtn = screen.getByRole('button', { name, exact: true });
+      const nameBtn = screen.getByRole('button', { name });
       const order = [...row.querySelectorAll('*')];
       const at = (el: Element | undefined) => order.indexOf(el as Element);
       expect(at(slots[0])).toBeLessThan(at(nameBtn));
