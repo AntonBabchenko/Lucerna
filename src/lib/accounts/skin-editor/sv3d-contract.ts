@@ -4,7 +4,7 @@
 // editor's paint pipeline before shipping. skinview3d is pinned in package.json.
 
 import type { SkinViewer } from 'skinview3d';
-import type { Object3D, PerspectiveCamera, Scene, Texture, WebGLRenderer } from 'three';
+import type { Color, Object3D, PerspectiveCamera, Scene, Texture, WebGLRenderer } from 'three';
 
 export function assertSkinViewerContract(v: SkinViewer): void {
   const canvas: HTMLCanvasElement = v.skinCanvas;
@@ -18,6 +18,10 @@ export function assertSkinViewerContract(v: SkinViewer): void {
   const inner: Object3D = v.playerObject.skin.head.innerLayer;
   const outer: Object3D = v.playerObject.skin.head.outerLayer;
   const modelType: 'default' | 'slim' = v.playerObject.skin.modelType;
+  // Backgrounds (panorama.ts): an equirectangular canvas, read back to set its filters.
+  const background: null | Color | Texture = v.background;
+  const loadPanorama: (source: HTMLCanvasElement) => void = (source) => v.loadPanorama(source);
+  const disposed: boolean = v.disposed;
   void canvas;
   void camera;
   void renderer;
@@ -29,4 +33,7 @@ export function assertSkinViewerContract(v: SkinViewer): void {
   void inner;
   void outer;
   void modelType;
+  void background;
+  void loadPanorama;
+  void disposed;
 }

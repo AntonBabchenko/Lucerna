@@ -5,7 +5,7 @@
   // from); both views write it and flip skin.map.needsUpdate. All logic lives
   // in the pure skin-editor/* modules — this file only wires DOM and WebGL.
   // See the skin-editor spec (docs/superpowers/specs, local-only).
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy } from 'svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
@@ -30,6 +30,7 @@
     faceRectAt,
     mirrorBlockAnchor,
     mirrorTexel,
+    type Layer,
   } from '$lib/accounts/skin-editor/atlas';
   import {
     clearOutsideAtlas,
@@ -48,7 +49,7 @@
     updateBrushCursor,
   } from '$lib/accounts/skin-editor/brush-cursor';
   import { createCenterlineGuide, disposeGuide } from '$lib/accounts/skin-editor/centerline';
-  import { POSE_NAMES, resolvePose, type PoseName } from '$lib/accounts/skin-editor/poses';
+  import { resolvePose, type PoseName } from '$lib/accounts/skin-editor/poses';
   import { assertSkinViewerContract } from '$lib/accounts/skin-editor/sv3d-contract';
   import { applyViewerControls } from '$lib/accounts/sv3d-controls';
   import {
@@ -58,8 +59,14 @@
     PANEL_MIN_WIDTH,
   } from '$lib/accounts/skin-editor/panel-resize';
   import SplitterHandle from '$lib/ui/SplitterHandle.svelte';
-  import { skinPalette } from '$lib/accounts/skin-editor/palette.svelte';
-  import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
+  import {
+    loadViewerBg,
+    saveViewerBg,
+    VIEWPORT_CSS,
+    type ViewerBg,
+  } from '$lib/accounts/skin-editor/viewer-bg';
+  import { applyViewerBackground } from '$lib/accounts/skin-editor/panorama';
+  import SkinEditorFooter from '$lib/accounts/SkinEditorFooter.svelte';
 
   let {
     account,
@@ -82,7 +89,7 @@
 
   type Tool = 'pencil' | 'eraser' | 'eyedropper' | 'fill' | 'dodge' | 'burn' | 'noise' | 'pan';
   let tool = $state<Tool>('pencil');
-  let activeLayer = $state<'base' | 'overlay'>('base');
+  let activeLayer = $state<Layer>('base');
   let baseVisible = $state(true);
   let overlayVisible = $state(true);
   // svelte-ignore state_referenced_locally — the prop seeds the editable state
@@ -94,7 +101,7 @@
   let pose = $state<PoseName>('default');
   let showGrid = $state(true);
   let fullscreen = $state(false);
-  let bg = $state<'dark' | 'light' | 'mid'>('dark');
+  let bg = $state<ViewerBg>(loadViewerBg());
   let busy = $state(false);
   let saveError = $state<string | null>(null);
   let applied = $state(false);
@@ -129,76 +136,6 @@
   let brushCursor: Mesh | null = null; // per-texel footprint highlight on the model surface
   let painting = false;
   let companionPainting = false;
-
-  const rgbaToHex = (c: Rgba): string =>
-    `#${c[0].toString(16).padStart(2, '0')}${c[1].toString(16).padStart(2, '0')}${c[2].toString(16).padStart(2, '0')}`;
-  const hexToRgba = (hex: string): Rgba => [
-    Number.parseInt(hex.slice(1, 3), 16),
-    Number.parseInt(hex.slice(3, 5), 16),
-    Number.parseInt(hex.slice(5, 7), 16),
-    255,
-  ];
-
-  // --- custom palette --------------------------------------------------------
-  let editIndex = $state<number | null>(null);
-  let editColorInput: HTMLInputElement | null = null;
-  let dragIndex: number | null = null;
-
-  function addCurrentColour(): void {
-    skinPalette.add(colour);
-  }
-
-  async function beginEditSwatch(i: number): Promise<void> {
-    editIndex = i;
-    await tick(); // let the hidden picker's value bind before we open it
-    editColorInput?.click();
-  }
-
-  function onEditColour(hex: string): void {
-    if (editIndex !== null) skinPalette.replace(editIndex, hexToRgba(hex));
-    editIndex = null;
-  }
-
-  function resetPalette(): void {
-    if (window.confirm($t('skinEditor.paletteResetConfirm'))) skinPalette.reset();
-  }
-
-  function swatchMenu(i: number): ContextMenuItem[] {
-    return [
-      { label: $t('skinEditor.paletteEdit'), icon: 'edit', onSelect: () => beginEditSwatch(i) },
-      {
-        label: $t('skinEditor.paletteMoveLeft'),
-        icon: 'chevronLeft',
-        disabled: i === 0,
-        onSelect: () => skinPalette.move(i, i - 1),
-      },
-      {
-        label: $t('skinEditor.paletteMoveRight'),
-        icon: 'chevronRight',
-        disabled: i === skinPalette.swatches.length - 1,
-        onSelect: () => skinPalette.move(i, i + 1),
-      },
-      {
-        label: $t('skinEditor.paletteRemove'),
-        icon: 'trash',
-        danger: true,
-        separatorBefore: true,
-        onSelect: () => skinPalette.remove(i),
-      },
-    ];
-  }
-
-  function onSwatchDrop(target: number): void {
-    if (dragIndex !== null && dragIndex !== target) skinPalette.move(dragIndex, target);
-    dragIndex = null;
-  }
-
-  const POSE_LABEL: Record<PoseName, TranslationKey> = {
-    default: 'skinEditor.poseDefault',
-    tpose: 'skinEditor.poseTpose',
-    walk: 'skinEditor.poseWalk',
-    sit: 'skinEditor.poseSit',
-  };
 
   const skinCtx = (): CanvasRenderingContext2D | null =>
     viewer?.skinCanvas.getContext('2d', { willReadFrequently: true }) ?? null;
@@ -273,6 +210,7 @@
       fitViewport();
       syncCenterline();
       applyPose(pose);
+      showBackground();
     } finally {
       viewerBuilding = false;
     }
@@ -733,6 +671,28 @@
     s.leftLeg.rotation.set(rot.leftLeg.x, rot.leftLeg.y, rot.leftLeg.z);
   }
 
+  // --- background ----------------------------------------------------------
+  // A panorama takes about a second to draw the first time; only the latest request may
+  // land, so a quick change of mind never ends on an older background.
+  let bgRequest = 0;
+
+  function showBackground(): void {
+    const v = viewer;
+    if (!v) return;
+    const want = bg;
+    const id = ++bgRequest;
+    applyViewerBackground(v, want, () => id === bgRequest && viewer === v).catch(() => {
+      // The canvas could not be drawn: say so, rather than leave the dark stand-in as if
+      // it were the place the user picked.
+      if (id === bgRequest) saveError = $t('skinEditor.bgFailed');
+    });
+  }
+
+  $effect(() => {
+    saveViewerBg(bg);
+    showBackground();
+  });
+
   function setPose(name: PoseName): void {
     pose = name;
     applyPose(name);
@@ -927,12 +887,6 @@
     { id: 'noise', icon: 'noise', labelKey: 'skinEditor.toolNoise' },
     { id: 'pan', icon: 'hand', labelKey: 'skinEditor.toolPan' },
   ] as const satisfies ReadonlyArray<{ id: Tool; icon: IconName; labelKey: TranslationKey }>;
-
-  const BG_CLASS = {
-    dark: 'bg-[#1c1c1f]',
-    mid: 'bg-[#4a4a50]',
-    light: 'bg-[#c9c9cf]',
-  } as const;
 </script>
 
 <Modal
@@ -967,13 +921,14 @@
   </div>
 
   <div use:observeResizeRow class="flex min-h-0 flex-1">
-    <!-- Tool rail -->
+    <!-- Tool rail. !text-accent, not class:text-accent: .btn-icon sets its colour after the
+         utilities, so a plain text-* utility does nothing (DESIGN.md §5;
+         tests/no-noop-text-on-btn-icon.test.ts). -->
     <div class="flex flex-col gap-1 p-2 border-r border-border-subtle text-secondary shrink-0">
       {#each TOOLS as tdef (tdef.id)}
         <button
           type="button"
-          class="btn-icon btn-icon-sm"
-          class:text-accent={tool === tdef.id}
+          class="btn-icon btn-icon-sm {tool === tdef.id ? '!text-accent' : ''}"
           aria-pressed={tool === tdef.id}
           aria-label={$t(tdef.labelKey)}
           use:tooltip={$t(tdef.labelKey)}
@@ -985,8 +940,7 @@
       <div class="h-px bg-border-subtle my-1"></div>
       <button
         type="button"
-        class="btn-icon btn-icon-sm"
-        class:text-accent={mirror}
+        class="btn-icon btn-icon-sm {mirror ? '!text-accent' : ''}"
         aria-pressed={mirror}
         aria-label={$t('skinEditor.toolMirror')}
         use:tooltip={$t('skinEditor.toolMirror')}
@@ -1021,9 +975,8 @@
     <div class="flex flex-col flex-1 min-w-0 p-3 gap-2">
       <div
         use:observeViewport
-        class="rounded-[10px] {BG_CLASS[
-          bg
-        ]} flex items-center justify-center overflow-hidden flex-1"
+        class="rounded-[10px] flex items-center justify-center overflow-hidden flex-1"
+        style="background:{VIEWPORT_CSS[bg]}"
       >
         <canvas
           use:mountViewer
@@ -1056,8 +1009,7 @@
           <span class="text-xs font-medium text-primary">{$t('skinEditor.companionHeading')}</span>
           <button
             type="button"
-            class="btn-icon btn-icon-sm ml-auto"
-            class:text-accent={showGrid}
+            class="btn-icon btn-icon-sm ml-auto {showGrid ? '!text-accent' : ''}"
             aria-pressed={showGrid}
             aria-label={$t('skinEditor.grid')}
             use:tooltip={$t('skinEditor.grid')}
@@ -1094,247 +1046,29 @@
     </div>
   </div>
 
-  <div class="flex flex-col gap-3 px-5 py-3 border-t border-border-subtle shrink-0">
-    <!-- Colour + brush -->
-    <div class="flex items-center gap-2 flex-wrap">
-      <span class="text-xs text-muted">{$t('skinEditor.colour')}</span>
-      <span
-        class="w-6 h-6 rounded border border-border-emphasis inline-block"
-        style="background:{rgbaToHex(colour)}"
-      ></span>
-      <div class="flex items-center gap-1 flex-wrap">
-        {#each skinPalette.swatches as swatch, i (i)}
-          <ContextMenu items={swatchMenu(i)} ariaLabel={$t('skinEditor.paletteSwatchMenu')}>
-            <button
-              type="button"
-              class="w-[18px] h-[18px] rounded border border-border-subtle {rgbaToHex(swatch) ===
-              rgbaToHex(colour)
-                ? 'outline outline-2 outline-accent -outline-offset-2'
-                : ''}"
-              style="background:{rgbaToHex(swatch)}"
-              draggable="true"
-              aria-label={rgbaToHex(swatch)}
-              onclick={() => (colour = swatch)}
-              ondragstart={() => (dragIndex = i)}
-              ondragover={(e) => e.preventDefault()}
-              ondrop={() => onSwatchDrop(i)}
-            ></button>
-          </ContextMenu>
-        {/each}
-        <button
-          type="button"
-          class="w-[18px] h-[18px] rounded border border-dashed border-border-emphasis inline-flex items-center justify-center text-muted disabled:opacity-40"
-          disabled={skinPalette.isFull}
-          aria-label={$t('skinEditor.paletteAdd')}
-          use:tooltip={skinPalette.isFull
-            ? $t('skinEditor.paletteFull')
-            : $t('skinEditor.paletteAdd')}
-          onclick={addCurrentColour}
-        >
-          <Icon name="plus" size={12} />
-        </button>
-        <button
-          type="button"
-          class="btn-icon btn-icon-sm"
-          aria-label={$t('skinEditor.paletteReset')}
-          use:tooltip={$t('skinEditor.paletteReset')}
-          onclick={resetPalette}
-        >
-          <Icon name="refresh" size={14} />
-        </button>
-      </div>
-      <label class="inline-flex items-center gap-1 text-xs text-secondary">
-        <input
-          type="color"
-          value={rgbaToHex(colour)}
-          oninput={(e) => (colour = hexToRgba(e.currentTarget.value))}
-          aria-label={$t('skinEditor.customColour')}
-          class="w-6 h-6 cursor-pointer border-0 bg-transparent p-0"
-        />
-      </label>
-      <input
-        type="color"
-        class="sr-only"
-        tabindex={-1}
-        aria-hidden="true"
-        bind:this={editColorInput}
-        value={editIndex !== null ? rgbaToHex(skinPalette.swatches[editIndex]) : '#000000'}
-        oninput={(e) => onEditColour(e.currentTarget.value)}
-      />
-      <span class="text-xs text-muted ml-2">{$t('skinEditor.brushSize')}</span>
-      {#each [1, 3, 5] as b (b)}
-        <button
-          type="button"
-          class="w-7 h-7 rounded border inline-flex items-center justify-center {brush === b
-            ? 'bg-accent-soft text-accent border-transparent'
-            : 'text-secondary border-border-subtle'}"
-          aria-pressed={brush === b}
-          aria-label={`${$t('skinEditor.brushSize')} ${b}`}
-          onclick={() => (brush = b)}
-        >
-          <span class="rounded-full bg-current" style="width:{b * 2}px;height:{b * 2}px"></span>
-        </button>
-      {/each}
-    </div>
-
-    <!-- Pose · paint layer · visibility · model · background -->
-    <div class="flex items-center gap-x-4 gap-y-2 flex-wrap">
-      <div class="inline-flex items-center gap-1.5">
-        <span class="text-xs text-muted">{$t('skinEditor.poseHeading')}</span>
-        {#each POSE_NAMES as p (p)}
-          <button
-            type="button"
-            class="px-2 py-0.5 text-xs rounded border {pose === p
-              ? 'bg-accent-soft text-accent border-transparent'
-              : 'text-secondary border-border-subtle'}"
-            aria-pressed={pose === p}
-            onclick={() => setPose(p)}
-          >
-            {$t(POSE_LABEL[p])}
-          </button>
-        {/each}
-      </div>
-
-      <div class="inline-flex items-center gap-1.5">
-        <span class="text-xs text-muted">{$t('skinEditor.paintOn')}</span>
-        <div class="inline-flex border border-border-subtle rounded overflow-hidden">
-          <button
-            type="button"
-            class="px-3 py-1 text-xs {activeLayer === 'base'
-              ? 'bg-accent-soft text-accent'
-              : 'text-secondary'}"
-            aria-pressed={activeLayer === 'base'}
-            onclick={() => (activeLayer = 'base')}
-          >
-            {$t('skinEditor.layerBase')}
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1 text-xs {activeLayer === 'overlay'
-              ? 'bg-accent-soft text-accent'
-              : 'text-secondary'}"
-            aria-pressed={activeLayer === 'overlay'}
-            onclick={() => (activeLayer = 'overlay')}
-          >
-            {$t('skinEditor.layerOverlay')}
-          </button>
-        </div>
-      </div>
-
-      <div class="inline-flex items-center gap-1.5">
-        <span class="text-xs text-muted">{$t('skinEditor.layerVisibility')}</span>
-        <button
-          type="button"
-          class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {baseVisible
-            ? 'bg-accent-soft text-accent border-transparent'
-            : 'text-secondary border-border-subtle'}"
-          aria-pressed={baseVisible}
-          onclick={toggleBase}
-        >
-          <Icon name={baseVisible ? 'eye' : 'eyeOff'} size={13} />
-          {$t('skinEditor.layerBase')}
-        </button>
-        <button
-          type="button"
-          class="px-2.5 py-1 text-xs rounded border inline-flex items-center gap-1.5 {overlayVisible
-            ? 'bg-accent-soft text-accent border-transparent'
-            : 'text-secondary border-border-subtle'}"
-          aria-pressed={overlayVisible}
-          onclick={toggleOverlay}
-        >
-          <Icon name={overlayVisible ? 'eye' : 'eyeOff'} size={13} />
-          {$t('skinEditor.layerOverlay')}
-        </button>
-      </div>
-
-      <div class="inline-flex items-center gap-1.5">
-        <span class="text-xs text-muted">{$t('skinEditor.model')}</span>
-        <div class="inline-flex border border-border-subtle rounded overflow-hidden">
-          <button
-            type="button"
-            class="px-3 py-1 text-xs {variant === 'classic'
-              ? 'bg-accent-soft text-accent'
-              : 'text-secondary'}"
-            onclick={() => setVariant('classic')}
-          >
-            {$t('cosmetics.modelClassic')}
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1 text-xs {variant === 'slim'
-              ? 'bg-accent-soft text-accent'
-              : 'text-secondary'}"
-            onclick={() => setVariant('slim')}
-          >
-            {$t('cosmetics.modelSlim')}
-          </button>
-        </div>
-      </div>
-
-      <div class="inline-flex items-center gap-1 text-xs text-secondary">
-        {$t('skinEditor.background')}
-        <div class="inline-flex border border-border-subtle rounded overflow-hidden ml-1">
-          {#each ['dark', 'mid', 'light'] as const as b (b)}
-            <button
-              type="button"
-              class="w-6 h-5 {BG_CLASS[b]} {bg === b
-                ? 'outline outline-2 outline-accent -outline-offset-2'
-                : ''}"
-              aria-pressed={bg === b}
-              aria-label={b}
-              onclick={() => (bg = b)}
-            ></button>
-          {/each}
-        </div>
-      </div>
-    </div>
-
-    <!-- Actions -->
-    <div class="flex items-center gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={loadPng} disabled={busy}>
-        <Icon name="upload" size={14} />
-        {$t('skinEditor.loadPng')}
-      </button>
-      <button type="button" class="btn-secondary btn-sm" onclick={exportPng} disabled={busy}>
-        <Icon name="download" size={14} />
-        {$t('skinEditor.savePng')}
-      </button>
-      <button
-        type="button"
-        class="btn-secondary btn-sm"
-        onclick={openSaveToLibrary}
-        disabled={busy}
-      >
-        <Icon name="plus" size={14} />
-        {$t('skinLibrary.editorSave')}
-      </button>
-      <button type="button" class="btn-secondary btn-sm" onclick={openPicker} disabled={busy}>
-        <Icon name="gallery" size={14} />
-        {$t('skinLibrary.editorLoad')}
-      </button>
-      {#if saveError}
-        <span class="text-xs text-danger">{saveError}</span>
-      {/if}
-      {#if applied}
-        <span class="text-xs text-success">{$t('skinEditor.applied')}</span>
-      {/if}
-      <span
-        class="ml-auto"
-        use:tooltip={isMicrosoft
-          ? undefined
-          : { text: $t('skinEditor.offlineHint'), describe: false }}
-      >
-        <button
-          type="button"
-          class="btn-primary btn-sm"
-          onclick={apply}
-          disabled={busy || !isMicrosoft}
-        >
-          {$t('skinEditor.apply')}
-        </button>
-      </span>
-    </div>
-  </div>
+  <SkinEditorFooter
+    bind:colour
+    bind:brush
+    bind:activeLayer
+    bind:bg
+    {pose}
+    onPose={setPose}
+    {variant}
+    onVariant={setVariant}
+    {baseVisible}
+    {overlayVisible}
+    onToggleBase={toggleBase}
+    onToggleOverlay={toggleOverlay}
+    {busy}
+    {isMicrosoft}
+    {saveError}
+    {applied}
+    onLoadPng={loadPng}
+    onExportPng={exportPng}
+    onSaveToLibrary={openSaveToLibrary}
+    onOpenLibrary={openPicker}
+    onApply={apply}
+  />
 </Modal>
 
 {#if libDialogOpen}

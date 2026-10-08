@@ -21,6 +21,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **Backgrounds for the skin editor.** Besides a neutral grey, the model can stand in
+  the plains, the Nether or a stronghold: a pixel-art panorama that turns with the
+  camera, like the game's title screen. The editor remembers the last one.
+
 ### Changed
 
 - **The update notice says "Don't remind me" instead of "Skip this version"**,
@@ -29,9 +35,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
   twice.
 - **Notices stay at the top right, above everything**, an open dialog included;
   they used to move to the bottom centre while a dialog was open.
+- **The skin editor's controls look and work like the rest of the launcher.**
+  Pose, model, brush, paint layer and background are picked the way Settings
+  picks a theme, and loading, downloading and the library are icon buttons with
+  tooltips. The chosen tool is now highlighted, as is the line thickness in the
+  screenshot annotator.
 
 ### Fixed
 
+- **Icon buttons that can be disabled show their tooltip to the keyboard too.**
+  Tabbing to one, such as a page step in a narrow window, showed nothing: the
+  tooltip appeared only under the mouse.
 - **Minecraft 1.12.2 and older profiles no longer report a mod as too old when
   it is not.** The "What stops the game" panel blocked profiles that start,
   saying an installed dependency was older than required. Requirements it used

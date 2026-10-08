@@ -41,6 +41,32 @@ describe('use:tooltip action', () => {
     expect(node.hasAttribute('aria-describedby')).toBe(false);
   });
 
+  // A disabled-capable icon button carries its tooltip on a wrapping span (DESIGN.md §5), and
+  // keyboard focus lands on the button inside it, never on the wrapper. The wrapper has to
+  // accept a focus-visible DESCENDANT, or a keyboard user never learns what the icon does.
+  it('a wrapper shows its tooltip while a control inside it has keyboard focus', () => {
+    const wrapper = document.createElement('span');
+    const inner = document.createElement('button');
+    wrapper.appendChild(inner);
+    document.body.appendChild(wrapper);
+    vi.spyOn(wrapper, 'matches').mockImplementation((sel) => sel === ':has(:focus-visible)');
+    tooltip(wrapper, { text: 'Load PNG', describe: false });
+    inner.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Load PNG');
+  });
+
+  it('a wrapper stays hidden when the control inside got programmatic focus', () => {
+    const wrapper = document.createElement('span');
+    const inner = document.createElement('button');
+    wrapper.appendChild(inner);
+    document.body.appendChild(wrapper);
+    vi.spyOn(wrapper, 'matches').mockReturnValue(false);
+    tooltip(wrapper, { text: 'Load PNG', describe: false });
+    inner.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(tooltipState.visible).toBe(false);
+  });
+
   it('skips aria-describedby when the node already has an aria-label', () => {
     const { node } = mount('Grid view');
     node.setAttribute('aria-label', 'Grid view');

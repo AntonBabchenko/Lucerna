@@ -82,9 +82,14 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
   // (it never consults this). Falls back to showing if the engine lacks
   // :focus-visible support, preserving the prior behaviour rather than
   // regressing the hint.
+  // A wrapper trigger — the span around a disabled-capable button (DESIGN.md §5)
+  // — never has focus itself: the keyboard lands on the control inside it, and
+  // only that control is :focus-visible. So the wrapper also counts a
+  // focus-visible descendant; without it no wrapped button ever showed its
+  // tooltip to a keyboard user.
   const isFocusVisible = () => {
     try {
-      return node.matches(':focus-visible');
+      return node.matches(':focus-visible') || node.matches(':has(:focus-visible)');
     } catch {
       return true;
     }
