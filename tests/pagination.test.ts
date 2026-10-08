@@ -20,7 +20,7 @@ const base = {
 };
 
 describe('Pagination', () => {
-  it('renders First, Prev, Next, Last and a page label', () => {
+  it('renders first, previous, next and last steps and a page label', () => {
     render(Pagination, { props: { ...base } });
     expect(screen.getByTestId('pg-first')).toBeTruthy();
     expect(screen.getByTestId('pg-prev')).toBeTruthy();
@@ -81,19 +81,19 @@ describe('Pagination', () => {
   });
 });
 
-// Plan §5e: at the launcher's default 820 px the labelled row was 654 px in a 556 px box, and the
-// page-size picker sat off the window. Below 1100 px the four steps show their icons only. happy-dom
-// applies no Tailwind CSS, so what is pinned is the markup that carries the rule: a label hidden
-// only under `max-[1099px]:` (Tailwind's `max-[Npx]` includes N, so 1100 px and wider are
-// unchanged) and still the step's name, a tooltip that says it while it is hidden, "N of M" and the
-// page-size picker that never break inside, and a row that wraps rather than overflows where a box
-// is narrower still.
-describe('Pagination — in a narrow window', () => {
+// The four steps are icon-only at every width, each named by a full phrase it also says in a
+// tooltip (DESIGN.md §5). Labelled steps did not fit the default 820 px window, and beside a
+// Cyrillic label the |< glyph read as the letter «К» — so first and last draw « and ».
+// happy-dom applies no Tailwind CSS, so what is pinned is the markup: the name, no visible text,
+// no width-dependent class, the icon drawn, a tooltip that does not depend on the window's width,
+// "N of M" and the page-size picker that never break inside, and a row that wraps rather than
+// overflows where a box is narrower still.
+describe('Pagination — icon-only steps', () => {
   const STEPS = [
-    ['pg-first', 'First'],
-    ['pg-prev', 'Prev'],
-    ['pg-next', 'Next'],
-    ['pg-last', 'Last'],
+    ['pg-first', 'First page', 'lucide-chevrons-left'],
+    ['pg-prev', 'Previous page', 'lucide-chevron-left'],
+    ['pg-next', 'Next page', 'lucide-chevron-right'],
+    ['pg-last', 'Last page', 'lucide-chevrons-right'],
   ] as const;
 
   // A window `px` wide, as far as a `(min-width: …px)` or `(max-width: …px)` query can tell.
@@ -118,34 +118,33 @@ describe('Pagination — in a narrow window', () => {
     vi.useRealTimers();
   });
 
-  it('hides a step’s label only below 1100 px, and it stays the step’s name', () => {
+  it('names each step by its full phrase and shows only its icon', () => {
     render(Pagination, { props: { ...base, page: 2 } });
-    for (const [id, label] of STEPS) {
+    for (const [id, name, glyph] of STEPS) {
       const button = screen.getByTestId(id);
-      expect(screen.getByRole('button', { name: label })).toBe(button);
-      const text = [...button.querySelectorAll('span')].find(
-        (s) => s.textContent?.trim() === label,
-      );
-      expect(text?.className.split(/\s+/), `${id}'s label`).toEqual(['max-[1099px]:sr-only']);
+      expect(screen.getByRole('button', { name })).toBe(button);
+      expect(button.textContent?.trim(), `${id} shows no text`).toBe('');
+      const icons = [...button.querySelectorAll('svg')];
+      expect(icons, `${id} draws one icon`).toHaveLength(1);
+      expect(icons[0].classList.contains(glyph), `${id} draws ${glyph}`).toBe(true);
+      // One look at every width: nothing in the step's markup depends on the window.
+      expect(button.parentElement?.outerHTML, `${id}'s markup`).not.toMatch(/max-\[|sr-only/);
     }
   });
 
-  it('says a step’s label in a tooltip while it is hidden, never beside a shown one', async () => {
+  it('says a step’s name in a tooltip in a wide window as in a narrow one', async () => {
     render(Pagination, { props: { ...base, page: 2 } });
     const next = screen.getByTestId('pg-next').parentElement as HTMLElement;
 
-    windowWidth(820);
-    revealTooltip(next);
-    expect(tooltipState.visible).toBe(true);
-    expect(tooltipState.text).toBe('Next');
-    // The name is the label already: the tooltip mirrors it and describes nothing.
-    expect(next.hasAttribute('aria-describedby')).toBe(false);
-    await dismissTooltip(next);
-
-    // 1100 px is a wide window: the label shows, and so no tooltip repeats it.
-    windowWidth(1100);
-    revealTooltip(next);
-    expect(tooltipState.visible).toBe(false);
+    for (const px of [820, 1400]) {
+      windowWidth(px);
+      revealTooltip(next);
+      expect(tooltipState.visible, `${px} px`).toBe(true);
+      expect(tooltipState.text, `${px} px`).toBe('Next page');
+      // The name is the aria-label already: the tooltip mirrors it and describes nothing.
+      expect(next.hasAttribute('aria-describedby')).toBe(false);
+      await dismissTooltip(next);
+    }
   });
 
   // A disabled button fires no pointer events: the tooltip sits on its wrapper (DESIGN.md §5).
@@ -154,11 +153,11 @@ describe('Pagination — in a narrow window', () => {
     render(Pagination, { props: { ...base, page: 0 } });
     const first = screen.getByTestId('pg-first');
     expect((first as HTMLButtonElement).disabled).toBe(true);
-    windowWidth(820);
+    windowWidth(1400);
     await fireEvent.mouseEnter(first.parentElement as HTMLElement);
     vi.advanceTimersByTime(OPEN_DELAY_MS);
     expect(tooltipState.visible).toBe(true);
-    expect(tooltipState.text).toBe('First');
+    expect(tooltipState.text).toBe('First page');
   });
 
   it('keeps "N of M" and the page-size picker whole, and wraps the row instead of overflowing', () => {

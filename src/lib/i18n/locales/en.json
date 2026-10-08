@@ -56,10 +56,10 @@
     }
   },
   "pagination": {
-    "first": "First",
-    "prev": "Prev",
-    "next": "Next",
-    "last": "Last",
+    "first": "First page",
+    "prev": "Previous page",
+    "next": "Next page",
+    "last": "Last page",
     "pageOf": "Page {page} of {total}"
   },
   "accounts": {

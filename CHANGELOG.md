@@ -46,6 +46,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   picks a theme, and loading, downloading and the library are icon buttons with
   tooltips. The chosen tool is now highlighted, as is the line thickness in the
   screenshot annotator.
+- **Page buttons under a list are arrows with tooltips** at any window
+  width: the double arrows go to the first and the last page, the single ones
+  a page back or forward. A wide window used to show labels beside them, and
+  in Russian the first page icon next to its label read as the letter «К».
 
 ### Fixed
 
@@ -58,8 +62,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   search or a filter hid the mod's row, it did nothing; now it clears them and
   scrolls to the row.
 - **Icon buttons that can be disabled show their tooltip to the keyboard too.**
-  Tabbing to one, such as a page step in a narrow window, showed nothing: the
-  tooltip appeared only under the mouse.
+  Tabbing to one, such as a page arrow, showed nothing: the tooltip appeared
+  only under the mouse.
 - **Minecraft 1.12.2 and older profiles no longer report a mod as too old when
   it is not.** The "What stops the game" panel blocked profiles that start,
   saying an installed dependency was older than required. Requirements it used

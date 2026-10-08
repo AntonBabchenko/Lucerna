@@ -403,12 +403,12 @@ describe('ModBrowseView', () => {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     expect(await screen.findByText('Alpha 0')).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(await screen.findByText('Beta 0')).toBeTruthy();
     expect(screen.queryByText('Alpha 0')).toBeNull();
     // Next is now disabled — the platform is exhausted (40 of 40).
-    expect(screen.getByRole('button', { name: /Next/ }).hasAttribute('disabled')).toBe(true);
-    await fireEvent.click(screen.getByRole('button', { name: /Prev/ }));
+    expect(screen.getByRole('button', { name: 'Next page' }).hasAttribute('disabled')).toBe(true);
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
     expect(await screen.findByText('Alpha 0')).toBeTruthy();
   });
 
