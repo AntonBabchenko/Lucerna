@@ -69,6 +69,12 @@
   } = $props();
 
   const uid = $props.id();
+  // A mark («dependencies unknown», «expanded above», «this mod») is a definition (spec
+  // 2026-10-08 D2): a dotted word — the sign that it has an explanation — on the item's tab stop,
+  // explained on hover and keyboard focus. A press does nothing of its own (the row's click skips
+  // buttons), hence the help cursor rather than the row's pointer.
+  const MARK =
+    'inline-flex cursor-help items-center gap-1 rounded underline decoration-dotted underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent';
   const keyOf = (n: DepTreeNode) => `${n.source}:${n.project_id}`;
   const pathOf = (parent: string, n: DepTreeNode) => (parent ? `${parent}/${keyOf(n)}` : keyOf(n));
   const hasKids = (n: DepTreeNode) => n.children.length > 0 && !n.cycle;
@@ -243,6 +249,8 @@
         ? $t('mods.deps.installAriaLabel', { name: n.name })
         : $t('mods.deps.addAriaLabel', { name: n.name })}
     {@const jumpLabel = $t('mods.deps.jumpToTitle', { name: n.name })}
+    {@const jumpReason = present ? null : $t('mods.deps.jumpUnavailable', { name: n.name })}
+    {@const toggleReason = present ? null : $t('mods.deps.toggleUnavailable', { name: n.name })}
     <!-- Named by the mod, described by what the tree says about it: a name from content would
          also read every nested item. aria-selected follows the roving tab stop (single select,
          selection follows focus) — never hover (spec §6.3). -->
@@ -297,22 +305,22 @@
             <span class="inline-block w-7 shrink-0" aria-hidden="true"></span>
           {/if}
           <!-- «Show in the list», a column of its own before the name at every depth: bright when
-               the mod has a row in the list, faded when it has none. -->
-          <span
-            class="inline-flex w-7 shrink-0 justify-center"
-            data-slot="locate"
-            use:tooltip={present
-              ? null
-              : { text: $t('mods.deps.jumpUnavailable', { name: n.name }), describe: false }}
-          >
+               the mod has a row in the list, faded when it has none. Where it cannot act it stays
+               reachable — aria-disabled, on the item's tab stop — and says why on its own tooltip,
+               to the keyboard as to the pointer (spec 2026-10-08 D1, DESIGN.md §5). -->
+          <span class="inline-flex w-7 shrink-0 justify-center" data-slot="locate">
             <button
               type="button"
               class="btn-icon btn-icon-sm"
-              disabled={!acts}
+              aria-disabled={acts ? undefined : 'true'}
               tabindex={tab}
               aria-label={jumpLabel}
-              use:tooltip={acts ? jumpLabel : null}
-              onclick={() => onJump(n)}><Icon name="locate" size={15} /></button
+              use:tooltip={jumpReason !== null
+                ? { text: jumpReason, describe: true }
+                : { text: jumpLabel, describe: false }}
+              onclick={() => {
+                if (acts) onJump(n);
+              }}><Icon name="locate" size={15} /></button
             >
           </span>
           <!-- The name opens the mod's info modal, as the row does; it reads as the row's text,
@@ -335,13 +343,17 @@
         <span class="ml-auto flex shrink-0 items-center gap-1">
           <span class="mr-1 inline-flex items-center gap-1 whitespace-nowrap" data-state-group>
             {#if selfState}
-              <span
+              <!-- A mark is a definition (spec 2026-10-08 D2): a dotted word on the item's tab stop
+                   whose explanation shows on keyboard focus as under the pointer. -->
+              <button
+                type="button"
                 id="{id}-state"
-                class="inline-flex items-center gap-1 text-placeholder"
+                class="{MARK} text-placeholder"
+                tabindex={tab}
                 use:tooltip={{
                   text: $t('mods.deps.cycleSelfTooltip', { name: n.name }),
-                  describe: false,
-                }}><Icon name="seeAbove" size={12} />{$t('mods.deps.cycleSelf')}</span
+                  describe: true,
+                }}><Icon name="seeAbove" size={12} />{$t('mods.deps.cycleSelf')}</button
               >
             {:else if state === 'out_of_range'}
               <span id="{id}-state" class="inline-flex items-center gap-1 text-danger"
@@ -372,29 +384,33 @@
             {#if unknownWhy}
               <!-- Set apart from the state before it: «installed · dependencies unknown». -->
               <span class="text-placeholder" aria-hidden="true">·</span>
-              <span
+              <button
+                type="button"
                 id="{id}-unknown"
-                class="text-secondary"
-                use:tooltip={$t(DEPS_UNKNOWN_KEY[unknownWhy])}
-                >{$t('mods.deps.depsUnknownStatus')}</span
+                class="{MARK} text-secondary"
+                tabindex={tab}
+                use:tooltip={{ text: $t(DEPS_UNKNOWN_KEY[unknownWhy]), describe: true }}
+                >{$t('mods.deps.depsUnknownStatus')}</button
               >
             {/if}
             {#if n.cycle && !selfState}
               <!-- Shown higher in this branch, so not expanded again: the panel's own mod, or
                    another one above. -->
               <span class="text-placeholder" aria-hidden="true">·</span>
-              <span
+              <button
+                type="button"
                 id="{id}-cycle"
-                class="inline-flex items-center gap-1 text-placeholder"
+                class="{MARK} text-placeholder"
+                tabindex={tab}
                 use:tooltip={{
                   text: isSelf(n)
                     ? $t('mods.deps.cycleSelfTooltip', { name: n.name })
                     : $t('mods.deps.cycleAboveTooltip', { name: n.name }),
-                  describe: false,
+                  describe: true,
                 }}
                 ><Icon name="seeAbove" size={12} />{isSelf(n)
                   ? $t('mods.deps.cycleSelf')
-                  : $t('mods.deps.cycleAbove')}</span
+                  : $t('mods.deps.cycleAbove')}</button
               >
             {/if}
             {#if state === 'out_of_range'}
@@ -418,24 +434,23 @@
                mod row's own switch and Remove. Each column (with «show» on the left) holds ONE
                button whatever the node's state, so the button the user pressed is still there —
                and still focused — when the graph comes back with the node switched off or absent.
-               Where it cannot act it stays, inactive, with its reason on the wrapper (a disabled
-               button fires no pointer events). -->
-          <span
-            class="inline-flex w-7 shrink-0 justify-center"
-            data-slot="toggle"
-            use:tooltip={present
-              ? null
-              : { text: $t('mods.deps.toggleUnavailable', { name: n.name }), describe: false }}
-          >
+               Where it cannot act it stays, inactive but reachable — aria-disabled, on the item's
+               tab stop — with its reason on its own tooltip (spec 2026-10-08 D1). -->
+          <span class="inline-flex w-7 shrink-0 justify-center" data-slot="toggle">
             <button
               type="button"
               class="btn-icon btn-icon-sm {n.installed ? 'btn-icon-success' : '!text-muted'}"
-              disabled={!acts}
+              aria-disabled={acts ? undefined : 'true'}
               tabindex={tab}
               aria-label={toggleLabel}
-              use:tooltip={acts ? toggleLabel : null}
-              onclick={() => (n.installed ? ctx.onDisable(n) : ctx.onEnable(n))}
-              ><Icon name="power" size={15} /></button
+              use:tooltip={toggleReason !== null
+                ? { text: toggleReason, describe: true }
+                : { text: toggleLabel, describe: false }}
+              onclick={() => {
+                if (!acts) return;
+                if (n.installed) ctx.onDisable(n);
+                else ctx.onEnable(n);
+              }}><Icon name="power" size={15} /></button
             >
           </span>
           <span class="inline-flex w-7 shrink-0 justify-center" data-slot="presence">

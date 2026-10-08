@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DepsUnknown, DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import DepTree from '$lib/mods/DepTree.svelte';
 import { type DepTreeCtx, EMPTY_TREE_CTX } from '$lib/mods/dep-node-state';
 import DepSection from '$lib/mods/installed/DepSection.svelte';
+import { hideTooltip, TOOLTIP_ID, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
 import { describedText } from './test-utils/aria';
 import { rawRangeDesc } from './test-utils/range-desc';
 
@@ -609,6 +610,7 @@ describe('DepTree — every row carries the list’s actions', () => {
     const locate = screen.getByRole('button', { name: 'Show Xaero in the list' });
     expect(locate.querySelector('.lucide-locate-fixed')).toBeTruthy();
     expect(locate.hasAttribute('disabled')).toBe(false);
+    expect(locate.hasAttribute('aria-disabled')).toBe(false);
     await fireEvent.click(off);
     await fireEvent.click(remove);
     await fireEvent.click(locate);
@@ -630,6 +632,7 @@ describe('DepTree — every row carries the list’s actions', () => {
     expect(onUninstall).toHaveBeenCalledWith(x);
     const locate = screen.getByRole('button', { name: 'Show Xaero in the list' });
     expect(locate.hasAttribute('disabled')).toBe(false);
+    expect(locate.hasAttribute('aria-disabled')).toBe(false);
   });
 
   it('an absent dependency keeps the columns: its switch and «show» are there, inactive', () => {
@@ -639,8 +642,10 @@ describe('DepTree — every row carries the list’s actions', () => {
     const toggle = screen.getByRole('button', { name: 'Enable Arch' });
     const locate = screen.getByRole('button', { name: 'Show Arch in the list' });
     for (const b of [toggle, locate]) {
-      expect(b.hasAttribute('disabled')).toBe(true);
-      // A disabled button fires no pointer events: the reason's tooltip is its wrapper's (§5).
+      // Unavailable but reachable (spec 2026-10-08 D1): aria-disabled, its reason its own tooltip;
+      // the wrapping span is only the column.
+      expect(b.hasAttribute('disabled')).toBe(false);
+      expect(b.getAttribute('aria-disabled')).toBe('true');
       expect(b.parentElement?.tagName).toBe('SPAN');
       expect(b.parentElement?.getAttribute('data-slot')).not.toBeNull();
     }
@@ -741,8 +746,8 @@ describe('DepTree — every row carries the list’s actions', () => {
     await fireEvent.click(presence);
     const toggle = screen.getByRole('button', { name: 'Disable Arch' });
     const locate = screen.getByRole('button', { name: 'Show Arch in the list' });
-    expect(toggle.hasAttribute('disabled')).toBe(true);
-    expect(locate.hasAttribute('disabled')).toBe(true);
+    expect(toggle.getAttribute('aria-disabled')).toBe('true');
+    expect(locate.getAttribute('aria-disabled')).toBe('true');
     expect(onUninstall).not.toHaveBeenCalled();
     expect(onDisable).not.toHaveBeenCalled();
     expect(onJump).not.toHaveBeenCalled();
@@ -811,9 +816,9 @@ describe('DepTree — the cycle mark says what it is', () => {
     expect(self.querySelector('.lucide-corner-left-up')).toBeTruthy();
     // Its actions are an installed node's — the same as the row the panel hangs under.
     expect(screen.getByRole('button', { name: 'Remove Alpha' })).toBeTruthy();
-    expect(
-      screen.getByRole('button', { name: 'Show Alpha in the list' }).hasAttribute('disabled'),
-    ).toBe(false);
+    const showAlpha = screen.getByRole('button', { name: 'Show Alpha in the list' });
+    expect(showAlpha.hasAttribute('disabled')).toBe(false);
+    expect(showAlpha.hasAttribute('aria-disabled')).toBe(false);
   });
 
   it('a version mismatch on that edge keeps its state and Fix; the mark follows it', () => {
@@ -939,5 +944,133 @@ describe('DepSection — sections told apart at a glance', () => {
     expect(block('requires').querySelector('[role="tree"]')?.getAttribute('aria-labelledby')).toBe(
       'dep-req-a',
     );
+  });
+});
+
+// Spec 2026-10-08 dep-tree-keyboard-reasons: what the tree tells a pointer user reaches the keyboard.
+// An action that cannot act stays in the item's Tab order (aria-disabled) and says why (D1); a mark
+// is a definition — a button whose explanation shows on keyboard focus (D2).
+describe('DepTree — reasons and marks reach the keyboard', () => {
+  const ctxOf = (over: Partial<DepTreeCtx> = {}): DepTreeCtx => ({ ...EMPTY_TREE_CTX, ...over });
+  // happy-dom models no focus modality: this is a Tab, as use:tooltip sees one. Bubbling, so a
+  // tooltip left on a wrapper around the button would answer too.
+  const keyboardFocus = (el: HTMLElement) => {
+    el.matches = () => true;
+    el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+  };
+  const absent = () => treeProps({ nodes: [leaf('arch', { name: 'Arch', installed: false })] });
+  afterEach(() => hideTooltip());
+
+  it('an absent mod’s switch and «show» stay reachable: aria-disabled, on the item’s tab stop', () => {
+    render(DepTree, { props: absent() });
+    for (const name of ['Enable Arch', 'Show Arch in the list']) {
+      const b = screen.getByRole('button', { name });
+      expect(b.hasAttribute('disabled')).toBe(false);
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.getAttribute('tabindex')).toBe(item('Arch').getAttribute('tabindex'));
+    }
+  });
+
+  it('keyboard focus on each says why it cannot act, and describes it with that', () => {
+    render(DepTree, { props: absent() });
+    const cases: [string, RegExp][] = [
+      ['Show Arch in the list', /^Arch isn't installed, so it has no row in the list$/],
+      ['Enable Arch', /^Arch isn't installed, so there is nothing to switch on$/],
+    ];
+    for (const [name, reason] of cases) {
+      const b = screen.getByRole('button', { name });
+      keyboardFocus(b);
+      expect(tooltipState.text).toMatch(reason);
+      expect(b.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
+      hideTooltip();
+    }
+  });
+
+  it('pressing them does nothing', async () => {
+    const onJump = vi.fn();
+    const onEnable = vi.fn();
+    const onDisable = vi.fn();
+    render(DepTree, {
+      props: treeProps({
+        nodes: [leaf('arch', { name: 'Arch', installed: false })],
+        onJump,
+        ctx: ctxOf({ onEnable, onDisable }),
+      }),
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Enable Arch' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Show Arch in the list' }));
+    expect(onJump).not.toHaveBeenCalled();
+    expect(onEnable).not.toHaveBeenCalled();
+    expect(onDisable).not.toHaveBeenCalled();
+  });
+
+  it('while its install runs, a mod with a row keeps them inert and named by their action', async () => {
+    const onJump = vi.fn();
+    const onDisable = vi.fn();
+    render(DepTree, {
+      props: treeProps({
+        nodes: [leaf('arch', { name: 'Arch' })],
+        onJump,
+        ctx: ctxOf({ installing: () => true, onDisable }),
+      }),
+    });
+    for (const name of ['Disable Arch', 'Show Arch in the list']) {
+      const b = screen.getByRole('button', { name });
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      keyboardFocus(b);
+      expect(tooltipState.text).toBe(name);
+      hideTooltip();
+      await fireEvent.click(b);
+    }
+    expect(onDisable).not.toHaveBeenCalled();
+    expect(onJump).not.toHaveBeenCalled();
+  });
+
+  it('«dependencies unknown» is a definition: on the tab stop, explained on focus, pressing it opens nothing', async () => {
+    const onOpenDetail = vi.fn();
+    render(DepTree, {
+      props: treeProps({
+        nodes: [leaf('x', { name: 'Xaero', deps_unknown: 'unreachable' })],
+        onOpenDetail,
+      }),
+    });
+    const mark = screen.getByRole('button', { name: 'dependencies unknown' });
+    expect(mark.id).toMatch(/-unknown$/);
+    expect(mark.getAttribute('tabindex')).toBe(item('Xaero').getAttribute('tabindex'));
+    keyboardFocus(mark);
+    expect(tooltipState.text).toMatch(/the platform is unavailable/i);
+    expect(mark.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
+    await fireEvent.click(mark);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it('«this mod», as the self node’s state, is a definition', () => {
+    render(DepTree, {
+      props: treeProps({
+        rootKey: 'modrinth:a',
+        nodes: [leaf('b', { children: [leaf('a', { name: 'Alpha', cycle: true })] })],
+      }),
+    });
+    const self = screen.getByRole('button', { name: 'this mod' });
+    expect(self.id).toMatch(/-state$/);
+    expect(self.getAttribute('tabindex')).toBe(item('Alpha').getAttribute('tabindex'));
+    keyboardFocus(self);
+    expect(tooltipState.text).toBe('This is Alpha itself — its dependencies are listed above.');
+    expect(self.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
+  });
+
+  it('«expanded above» is a definition', () => {
+    render(DepTree, {
+      props: treeProps({
+        rootKey: 'modrinth:root',
+        nodes: [leaf('b', { children: [leaf('x', { name: 'Xaero', cycle: true })] })],
+      }),
+    });
+    const mark = screen.getByRole('button', { name: 'expanded above' });
+    expect(mark.id).toMatch(/-cycle$/);
+    expect(mark.getAttribute('tabindex')).toBe(item('Xaero').getAttribute('tabindex'));
+    keyboardFocus(mark);
+    expect(tooltipState.text).toMatch(/^Xaero is already expanded higher in this branch/);
+    expect(mark.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
   });
 });

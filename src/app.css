@@ -508,8 +508,9 @@ body[data-tour-active] .tour-overlay {
   height: 2rem;
 }
 /* Neutral icon buttons darken to primary on hover; the tonal variants below
-   own their own hover colour, so exclude them from this rule. */
-.btn-icon:not(.btn-icon-danger):not(.btn-icon-warning):not(.btn-icon-success):hover {
+   own their own hover colour, so exclude them from this rule — and an unavailable
+   one that stays focusable (aria-disabled, below) does not answer the pointer. */
+.btn-icon:not(.btn-icon-danger):not(.btn-icon-warning):not(.btn-icon-success):not([aria-disabled='true']):hover {
   color: rgb(var(--text-primary));
 }
 /* Text-only accent link. Reads as a hyperlink (underline on hover), distinct
@@ -752,15 +753,29 @@ button:focus-visible .icon-rainbow-hover {
 .btn-icon > :where(svg) {
   transition: transform 120ms ease-out;
 }
-.fx-icon-zoom .btn-icon:hover > :where(svg),
-.fx-icon-zoom .btn-icon:focus-visible > :where(svg) {
+.fx-icon-zoom .btn-icon:not([aria-disabled='true']):hover > :where(svg),
+.fx-icon-zoom .btn-icon:not([aria-disabled='true']):focus-visible > :where(svg) {
   transform: scale(1.2);
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx-icon-zoom .btn-icon:hover > :where(svg),
-  .fx-icon-zoom .btn-icon:focus-visible > :where(svg) {
+  .fx-icon-zoom .btn-icon:not([aria-disabled='true']):hover > :where(svg),
+  .fx-icon-zoom .btn-icon:not([aria-disabled='true']):focus-visible > :where(svg) {
     transform: none;
   }
+}
+
+/* An unavailable icon button that stays focusable — aria-disabled, inside a
+   composite widget such as the dependency tree (DESIGN.md §5), so a keyboard
+   user reaches it and its tooltip says why. Its icon dims as a disabled
+   button's does; the button itself does not, or its focus ring would dim too.
+   It does not answer the pointer (excluded from the hover colour and the zoom
+   above). A busy one (aria-busy: a spinner while an install runs) keeps its
+   spinner as it is. */
+.btn-icon[aria-disabled='true']:not([aria-busy='true']) > :where(svg) {
+  opacity: 0.5;
+}
+.btn-icon[aria-disabled='true'] {
+  cursor: not-allowed;
 }
 
 /* Transient "this is the field you asked for" marker, applied for FLASH_MS by

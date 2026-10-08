@@ -112,6 +112,11 @@ export function showTooltip(rect: TriggerRect, text: string, opts: ShowOptions):
   else openTimer = setTimeout(reveal, OPEN_DELAY_MS);
 }
 
+/** Whether `node` owns the tooltip now — shown, or waiting out its open delay. */
+export function ownsTooltip(node: unknown): boolean {
+  return owner === node && (tooltipState.visible || openTimer !== null);
+}
+
 export function hideTooltip(requester?: unknown): void {
   // A hide from a specific trigger only applies to the tooltip it owns. The
   // global dismiss path (scroll/resize/Escape) calls hideTooltip() with no

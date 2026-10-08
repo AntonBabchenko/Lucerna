@@ -14,7 +14,13 @@
 //
 // Only valid on DOM elements — wrap Svelte components (e.g. BusyButton) in a span.
 import type { Placement } from './position';
-import { hideTooltip, showTooltip, TOOLTIP_ID } from './tooltip-controller.svelte';
+import {
+  hideTooltip,
+  ownsTooltip,
+  showTooltip,
+  TOOLTIP_ID,
+  tooltipState,
+} from './tooltip-controller.svelte';
 
 export type TooltipParam =
   | string
@@ -67,6 +73,14 @@ function normalize(param: TooltipParam): Normalized | null {
       }
     : null;
 }
+
+// What a showing says, and to whom: a param that changes none of these leaves it as it is.
+const sameShowing = (a: Normalized | null, b: Normalized) =>
+  a !== null &&
+  a.text === b.text &&
+  a.clippedText === b.clippedText &&
+  a.describe === b.describe &&
+  a.placement === b.placement;
 
 export function tooltip(node: HTMLElement, param: TooltipParam) {
   let opts = normalize(param);
@@ -149,8 +163,25 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 
   return {
     update(next: TooltipParam) {
+      const before = opts;
       opts = normalize(next);
-      if (!opts) close();
+      if (!opts) {
+        close();
+        return;
+      }
+      // A tooltip this trigger shows — or is about to — follows its text: a focusable unavailable
+      // button whose reason gave way to its action while it held focus (DepTree's switch when an
+      // install lands) must neither keep saying the reason nor stay described by it. The same
+      // values in a new object change nothing; a trigger that shows nothing now is not measured
+      // (a list re-rendering its rows would lay out every one of them).
+      if (!ownsTooltip(node) || sameShowing(before, opts)) return;
+      if (!shouldShow()) {
+        close();
+        return;
+      }
+      const wasVisible = tooltipState.visible;
+      node.removeAttribute('aria-describedby');
+      open(wasVisible);
     },
     destroy() {
       node.removeEventListener('mouseenter', onEnter);
