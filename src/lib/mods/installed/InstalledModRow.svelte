@@ -58,6 +58,7 @@
     hold = null,
     flash = false,
     onFlashed = () => {},
+    tourAnchor = null,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod;
@@ -111,6 +112,9 @@
     // says so (the host then clears it, so the next jump is a new edge).
     flash?: boolean;
     onFlashed?: () => void;
+    /** The deps tour's anchor on this row's relation cell: the tour's mod (`deps-cell`, its panel
+     *  carries the block anchors too) or the library it requires (`deps-required-by`). */
+    tourAnchor?: 'deps-cell' | 'deps-required-by' | null;
   } = $props();
 
   // One control summarises both directions of the dependency relation (spec D12): ⛓ what this mod
@@ -204,6 +208,7 @@
     <button
       type="button"
       data-testid="relation-pill"
+      data-tour-ctx={tourAnchor ?? undefined}
       aria-expanded={expanded}
       aria-controls={expanded && root ? sectionId : undefined}
       aria-label={expandLabel}
@@ -321,6 +326,7 @@
       {onJump}
       onOpenDetail={onOpenDetailMod}
       {treeCtx}
+      tourAnchors={tourAnchor === 'deps-cell'}
     />
   {/if}
 </div>

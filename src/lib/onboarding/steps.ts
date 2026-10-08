@@ -29,6 +29,11 @@ export interface TourStep {
    *  picker instead of normal title/body + Back/Skip/Next, and its title/body
    *  keys are used verbatim (NOT run through explainKey). */
   kind?: 'chooser';
+  /** Bring the anchor into view each time the step shows (`scrollIntoView`, nearest edge). Opt-in:
+   *  an anchor taller than its scrollport (the worlds list at the minimum window) would scroll the
+   *  NEXT step's anchor away. Absent on every step that does not need it, so their fingerprints
+   *  (JSON of the step) are unchanged. */
+  reveal?: true;
 }
 
 export const STEPS: ReadonlyArray<TourStep> = [

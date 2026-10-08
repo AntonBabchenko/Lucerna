@@ -1,5 +1,5 @@
 import { fireEvent, render, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
 const m = vi.hoisted(() => ({
@@ -52,6 +52,7 @@ vi.mock('$lib/instances/instance-icon-cache', () => ({
 }));
 
 import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // The modal measures its list/detail row to derive the splitter ceiling.
 // happy-dom reports 0 for clientWidth, so drive the observer by hand and stub
@@ -131,6 +132,11 @@ const listWidth = () =>
   );
 
 describe('ManageInstancesModal — layout', () => {
+  // The modal hosts the `manage` tour, whose card observes its own height: a tour on screen would
+  // construct the LAST ResizeObserver and take `resizeCallback` from the modal's row. Seen, it
+  // never renders — whatever order or subset of these tests runs.
+  beforeEach(() => markSeen('manage'));
+
   it('does not repeat the instance name as a heading above the name field', async () => {
     const { findByDisplayValue } = renderModal();
     // The detail pane is up (the name field holds the value)...
