@@ -43,6 +43,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **A mod installed from Modrinth counts as installed when a CurseForge mod asks
+  for it, and the other way round.** The dependency panel called it missing and
+  offered to add a second copy, and its row lost its "Required by" count; the
+  launcher now recognises the same file on both platforms. Recognising a
+  Modrinth file on CurseForge needs a CurseForge key.
 - **Icon buttons that can be disabled show their tooltip to the keyboard too.**
   Tabbing to one, such as a page step in a narrow window, showed nothing: the
   tooltip appeared only under the mouse.
