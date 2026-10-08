@@ -27,6 +27,7 @@ const h = vi.hoisted(() => {
     rows: [mod('ind', 'PIND', 'Indium'), mod('sod', 'PSOD', 'Sodium')],
     instanceDependencyPreflight: vi.fn(),
     modsPlanVersionFix: vi.fn(),
+    modsCrossAliases: vi.fn(),
     updateMod: vi.fn(),
     installModWithDeps: vi.fn(),
     pushSuccess: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsPlanVersionFix: h.modsPlanVersionFix,
+    modsCrossAliases: h.modsCrossAliases,
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -134,11 +136,15 @@ const props = (instanceId: string) => ({
 const panel = () => screen.findByTestId('preflight-panel');
 
 beforeEach(() => {
+  h.modsCrossAliases.mockReset();
+  h.modsCrossAliases.mockResolvedValue(ok([]));
   h.instanceDependencyPreflight.mockReset();
   h.instanceDependencyPreflight.mockImplementation(async () => ok({ violations: [conflict()] }));
   h.modsPlanVersionFix.mockReset();
   h.updateMod.mockReset();
   h.updateMod.mockResolvedValue(ok({}));
+  h.installModWithDeps.mockReset();
+  h.installModWithDeps.mockResolvedValue(ok({}));
   h.pushSuccess.mockReset();
   h.pushWarning.mockReset();
 });
@@ -179,6 +185,54 @@ describe('«Fix…» on a version conflict', () => {
       }),
     );
     expect(h.updateMod).toHaveBeenCalledTimes(1);
+  });
+
+  // Spec 2026-10-08 aliases-everywhere: the pre-flight has no jar for the provider, and the
+  // planner offers its build from CurseForge — but Sodium is installed from Modrinth, and that is
+  // CurseForge's Sodium (its alias). The pick replaces that jar; it never installs a second copy.
+  it('a provider build from the other platform replaces the jar it is an alias of', async () => {
+    h.instanceDependencyPreflight.mockImplementation(async () =>
+      ok({
+        violations: [
+          {
+            ...conflict(),
+            provider_project: { source: 'curseforge', project_id: '394468', version_id: null },
+            provider_sha1: null,
+          },
+        ],
+      }),
+    );
+    h.modsCrossAliases.mockResolvedValue(
+      ok([
+        {
+          alias_source: 'curseforge',
+          alias_project_id: '394468',
+          own_source: 'modrinth',
+          own_project_id: 'PSOD',
+        },
+      ]),
+    );
+    const sodiumCf = { ...build('394468', '0.5.11'), source: 'curseforge' };
+    h.modsPlanVersionFix.mockResolvedValue(
+      ok({
+        update_dependent: null,
+        change_provider: { version: sodiumCf, direction: 'downgrade', breaks: [] },
+      }),
+    );
+    render(InstalledModsView, { props: props('plan-provider-alias') });
+    const p = await panel();
+    await fireEvent.click(within(p).getByRole('button', { name: 'Fix…' }));
+    await fireEvent.click(await within(p).findByTestId('preflight-plan-provider'));
+    await waitFor(() =>
+      expect(h.updateMod).toHaveBeenCalledWith(
+        'plan-provider-alias',
+        'Build 0.5.11',
+        'sod',
+        sodiumCf,
+        { allowOffPlatform: false },
+      ),
+    );
+    expect(h.installModWithDeps).not.toHaveBeenCalled();
   });
 
   it('the row’s «Fix…» asks the same planner and hands focus to its offers', async () => {

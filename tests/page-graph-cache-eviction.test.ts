@@ -27,9 +27,39 @@ function listener(name: string): string {
 }
 
 describe('+page drops a profile’s dependency graph on every mod event', () => {
-  for (const name of ['modInstalled', 'modUninstalled', 'modToggle', 'modsReconciled']) {
+  for (const name of [
+    'modInstalled',
+    'modUninstalled',
+    'modToggle',
+    'modsReconciled',
+    'modsCrossIdsLearned',
+  ]) {
     it(`on ${name}`, () => {
       expect(listener(name)).toContain('depGraphCache.delete(payload.instance_id)');
     });
   }
+});
+
+// Spec 2026-10-08 aliases-everywhere D4: the backend says a cross-ids pass learned an id; the page
+// is its one subscriber, and the views read the profile's generation it moves — none of them
+// listens to IPC itself.
+describe('+page tells every view that a profile learned a cross-source id', () => {
+  it('moves the profile’s generation', () => {
+    expect(listener('modsCrossIdsLearned')).toContain('bumpCrossIds(payload.instance_id)');
+  });
+
+  it('tears the listener down with the others', () => {
+    expect(src).toMatch(/crossIdsLearnedUnlisten = u/);
+    expect(src).toMatch(/crossIdsLearnedUnlisten?.()/);
+  });
+
+  // Sodium installed from CurseForge is the catalog's Modrinth Sodium once its id is learned;
+  // Optimise asks for the pass before it classifies (nothing to ask is no request).
+  it('Optimise runs the pass before it resolves the catalog', () => {
+    const body = src.slice(src.indexOf('async function onOptimise'));
+    const learn = body.indexOf('learnCrossIds(');
+    const resolve = body.indexOf('optimiseResolve(');
+    expect(learn).toBeGreaterThan(-1);
+    expect(learn).toBeLessThan(resolve);
+  });
 });

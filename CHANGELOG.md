@@ -55,9 +55,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 - **A mod installed from Modrinth counts as installed when a CurseForge mod asks
   for it, and the other way round.** The dependency panel called it missing and
-  offered to add a second copy, and its row lost its "Required by" count; the
-  launcher now recognises the same file on both platforms. Recognising a
-  Modrinth file on CurseForge needs a CurseForge key.
+  offered to add a second copy, the mod browser offered to install it again, and
+  Optimise offered it once more; the launcher now recognises the same file on
+  both platforms, also when you undo a removal. Recognising a Modrinth file on
+  CurseForge needs a CurseForge key.
+- **Installing a mod on your server no longer adds a second copy of a library it
+  already has** from the same site under another file name: every dependency the
+  launcher puts on a server is now remembered, not only the mod you picked.
 - **"Show in the list" in a dependency panel always gets you there**: when a
   search or a filter hid the mod's row, it did nothing; now it clears them and
   scrolls to the row.

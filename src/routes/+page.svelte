@@ -68,6 +68,7 @@
   import OptimiseDialog from '$lib/mods/OptimiseDialog.svelte';
   import { preflightCache } from '$lib/mods/preflight-cache';
   import { depGraphCache } from '$lib/mods/dep-graph-cache';
+  import { bumpCrossIds, learnCrossIds } from '$lib/mods/cross-ids.svelte';
   import { createPreflight, decideLaunch, hasBlocking } from '$lib/mods/preflight.svelte';
   import { problemCounts } from '$lib/mods/installed/mod-status';
   import { repairForLaunch } from '$lib/mods/fix-all';
@@ -330,13 +331,17 @@
 
   async function onOptimise() {
     if (!activeInstance || optimiseResolving) return;
+    // The profile the click was for: the pass below awaits, and the active one may change.
+    const inst = activeInstance;
     optimiseResolving = true;
     try {
-      const res = await commands.optimiseResolve(
-        activeInstance.id,
-        activeInstance.mc_version,
-        activeInstance.loader,
-      );
+      // A renderer installed from CurseForge is the catalog's Modrinth one once its id there is
+      // learned (spec 2026-10-08 aliases-everywhere); nothing to ask is no request.
+      await learnCrossIds(inst.id);
+      const res = await commands.optimiseResolve(inst.id, inst.mc_version, inst.loader);
+      // A plan for a profile that is no longer the active one is not offered: confirming it
+      // would install into the profile on screen.
+      if (activeInstance?.id !== inst.id) return;
       if (res.status === 'ok') {
         optimisePlan = res.data;
         optimiseOpen = true;
@@ -394,6 +399,7 @@
   let modUninstalledUnlisten: (() => void) | null = null;
   let modToggleUnlisten: (() => void) | null = null;
   let modsReconciledUnlisten: (() => void) | null = null;
+  let crossIdsLearnedUnlisten: (() => void) | null = null;
   let intentUnlisten: (() => void) | null = null;
   let trayQuitRefusedUnlisten: (() => void) | null = null;
   // initTheme() registers a prefers-color-scheme listener and returns its
@@ -1050,6 +1056,18 @@
       .then((u) => {
         modsReconciledUnlisten = u;
       });
+    // A cross-ids pass learned an installed mod's id on the other platform (spec 2026-10-08
+    // aliases-everywhere D4): the profile's graph is stale wherever it is cached, and every view
+    // that reads the profile's generation (the dependency graph, the browser's alias map) reads
+    // again. This page is the one listener; the views read state, not IPC.
+    events.modsCrossIdsLearned
+      .listen(({ payload }) => {
+        depGraphCache.delete(payload.instance_id);
+        bumpCrossIds(payload.instance_id);
+      })
+      .then((u) => {
+        crossIdsLearnedUnlisten = u;
+      });
 
     events.processExited
       .listen(async (event) => {
@@ -1130,6 +1148,7 @@
     modUninstalledUnlisten?.();
     modToggleUnlisten?.();
     modsReconciledUnlisten?.();
+    crossIdsLearnedUnlisten?.();
     intentUnlisten?.();
     trayQuitRefusedUnlisten?.();
   });

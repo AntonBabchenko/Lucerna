@@ -1,4 +1,4 @@
-import { tick } from 'svelte';
+import { tick, untrack } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
@@ -11,6 +11,7 @@ import {
   type ModSource,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import { crossIdsGeneration } from '$lib/mods/cross-ids.svelte';
 import { modWriteReason } from '$lib/mods/mod-ops.svelte';
 import { installDependency, installModWithDeps } from '$lib/tasks/adapters/mod-install';
 import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -338,6 +339,19 @@ export function createDepGraph(
           void reloadGraphNow();
         }
       });
+      // A pass that learned an id for this profile makes its graph stale (spec 2026-10-08
+      // aliases-everywhere D4; the page moves the generation on the backend's word). Its own
+      // effect, so a bump neither resets `expanded` nor goes through the cache seed above; and
+      // the remembered pair makes a profile switch no bump — nor another profile's bump, which
+      // re-runs this effect too (a SvelteMap key that is missing tracks the whole map).
+      let seen: { id: string | null; gen: number } = { id: null, gen: 0 };
+      $effect(() => {
+        const id = getInstanceId();
+        const gen = id === null ? 0 : crossIdsGeneration(id);
+        const prev = seen;
+        seen = { id, gen };
+        if (id !== null && prev.id === id && prev.gen !== gen) untrack(() => invalidateGraph());
+      });
     });
   } catch {
     /* no reactive runtime to root the effect in — it stays inert. Under vitest the runtime IS
@@ -375,6 +389,9 @@ export function createDepGraph(
     reloadGraphNow,
     invalidateGraph,
     dispose() {
+      // An answer still in flight belongs to a view that is gone: it neither shows nor caches —
+      // a pass may have learned an id since it was asked for.
+      loadTicket++;
       stopEffects?.();
       if (graphReloadTimer) clearTimeout(graphReloadTimer);
     },

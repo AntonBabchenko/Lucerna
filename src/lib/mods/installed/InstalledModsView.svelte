@@ -13,7 +13,7 @@
   import { type InstallOpts, installModWithDeps, updateMod } from '$lib/tasks/adapters/mod-install';
   import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
-  import { onDestroy, type Snippet, tick } from 'svelte';
+  import { onDestroy, type Snippet, tick, untrack } from 'svelte';
   import { listenUntilDestroyed } from '$lib/ipc/listen';
   import { debounceTrailing } from '$lib/ui/debounce';
   import CurseForgeKeyBanner from '../CurseForgeKeyBanner.svelte';
@@ -35,7 +35,6 @@
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph, type RequiredByEntry } from './dep-graph.svelte';
-  import { depGraphCache } from '../dep-graph-cache';
   import {
     createPreflight,
     hasBlocking,
@@ -55,6 +54,13 @@
     type OffPlatformRow,
   } from '$lib/mods/off-platform';
   import { switchTarget } from '$lib/mods/version-switch';
+  import {
+    aliasesFor,
+    crossIdsGeneration,
+    findInstalled,
+    learnCrossIds,
+    loadAliases,
+  } from '$lib/mods/cross-ids.svelte';
   import { depNameOf, depProjectOf, resolveDepNames } from '$lib/mods/dep-names.svelte';
   import { type DepTreeCtx, edgeConflict, type ModTarget } from '$lib/mods/dep-node-state';
   import { countFixed, fixAll } from '$lib/mods/fix-all';
@@ -266,40 +272,29 @@
 
   // Each installed jar's id on the other platform (spec 2026-10-08): Parasites installed from
   // Modrinth is the CurseForge project its addons from there name. Learned after every list load
-  // — the backend asks nothing when nothing is new — one pass per profile at a time, run once more
-  // when the list changed meanwhile. What it learns makes the dependency graph stale, here and in
-  // the session cache the next open would start from.
-  let mounted = true;
-  const crossIdsRunning = new Set<string>();
-  const crossIdsAgain = new Set<string>();
-  async function learnCrossIds(id: string): Promise<void> {
-    if (crossIdsRunning.has(id)) {
-      crossIdsAgain.add(id);
-      return;
-    }
-    crossIdsRunning.add(id);
-    try {
-      const r = await commands.modsLearnCrossIds(id);
-      if (r.status === 'error') console.warn('[cross-ids] learning failed:', r.error);
-      else if (r.data.learned > 0) {
-        depGraphCache.delete(id);
-        if (mounted && instanceId === id) deps.invalidateGraph();
-      }
-    } catch (e) {
-      // Best-effort, as the enrich pass: nothing the user sees depends on it.
-      console.warn('[cross-ids] learning failed:', e);
-    } finally {
-      crossIdsRunning.delete(id);
-    }
-    if (crossIdsAgain.delete(id) && mounted) await learnCrossIds(id);
-  }
+  // — the backend asks nothing when nothing is new — through the one pass per profile every view
+  // shares (`$lib/mods/cross-ids.svelte`). What it learns reaches this view as the profile's
+  // generation (the page moves it on the backend's word): the graph reads it in `dep-graph`, the
+  // alias map below. The aliases also follow the rows: an alias belongs to a current row.
   $effect(() => {
     const id = instanceId;
     // Every list load: the first, and each refresh after a mod change.
     void data.rows;
     if (id === null || data.loading) return;
-    void learnCrossIds(id);
+    untrack(() => {
+      void learnCrossIds(id);
+      void loadAliases(id);
+    });
   });
+  $effect(() => {
+    const id = instanceId;
+    if (id === null) return;
+    void crossIdsGeneration(id);
+    untrack(() => void loadAliases(id));
+  });
+  const aliases = $derived(
+    instanceId === null ? new Map<string, string>() : aliasesFor(instanceId),
+  );
   // The relation column's slot widths, in figures (DESIGN.md §9): the longest figure of each slot
   // over every row of the profile — not the page, not the filter, so neither moves a name — from
   // the inputs each row gets (the `{#each}` below).
@@ -568,12 +563,11 @@
     opts: InstallOpts,
   ): Promise<void> {
     // Another build of the same project can be installed although the
-    // preflight has no `provider_sha1` for it: the pick is then a version
-    // switch, and a switch never installs beside the old jar.
+    // preflight has no `provider_sha1` for it — also under the project's id on
+    // the other platform (spec 2026-10-08 aliases-everywhere): the pick is then
+    // a version switch, and a switch never installs beside the old jar.
     const existing =
-      data.rows.find(
-        (x) => x.installed.source === chosen.source && x.installed.project_id === chosen.project_id,
-      )?.installed ?? null;
+      findInstalled(data.rows, aliases, chosen.source, chosen.project_id)?.installed ?? null;
     const r = await remediatePickedVersion(id, v, chosen, {
       ...opts,
       installedSha1: switchTarget(existing, chosen),
@@ -898,19 +892,15 @@
   // The installed build of the project the detail modal shows: its version id
   // AND its bytes. `enrich` leaves `version_id` null for exactly the mods whose
   // platform tags disagree with the instance, and those are recognised by sha1.
+  // Its own id or its id on the other platform (spec 2026-10-08 aliases-everywhere).
   const detailInstalled = $derived.by(() => {
     if (!detail) return null;
-    const r = data.rows.find(
-      (x) => x.installed.source === detail!.source && x.installed.project_id === detail!.projectId,
-    );
-    return r?.installed ?? null;
+    return findInstalled(data.rows, aliases, detail.source, detail.projectId)?.installed ?? null;
   });
 
   async function installDetailVersion(v: ModVersion, opts: InstallOpts = {}) {
     if (!instanceId || !detail) return;
-    const existing = data.rows.find(
-      (x) => x.installed.source === detail!.source && x.installed.project_id === detail!.projectId,
-    );
+    const existing = findInstalled(data.rows, aliases, detail.source, detail.projectId);
     const name = existing?.summary?.name ?? existing?.installed.name ?? v.name;
     detail = null;
     await runVersionInstall(
@@ -1197,7 +1187,6 @@
     events.modsReconciled.listen(debouncedExternalChange.call),
   ]);
   onDestroy(() => {
-    mounted = false;
     debouncedModsChanged.cancel();
     debouncedExternalChange.cancel();
     data.dispose();

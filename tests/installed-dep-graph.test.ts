@@ -26,6 +26,7 @@ vi.mock('$lib/mods/dep-graph-cache', () => ({ depGraphCache: new Map() }));
 // tests that don't configure it; each test overrides it as needed.
 mocks.modsDependencyGraph.mockResolvedValue({ status: 'ok', data: { roots: [] } });
 
+import { bumpCrossIds, resetCrossIdsForTests } from '$lib/mods/cross-ids.svelte';
 import { createDepGraph } from '$lib/mods/installed/dep-graph.svelte';
 import type { Row } from '$lib/mods/installed/installed-data.svelte';
 
@@ -59,6 +60,7 @@ describe('createDepGraph', () => {
     const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
     (depGraphCache as Map<string, unknown>).clear();
     mocks.modsDependencyGraph.mockClear();
+    resetCrossIdsForTests();
   });
 
   it('depCounts walks the required subtree and counts relationships only', () => {
@@ -371,6 +373,66 @@ describe('createDepGraph', () => {
       await load('unidentified', { roots: [root('unidentified')] });
       expect((depGraphCache as Map<string, unknown>).has('unidentified')).toBe(true);
       expect(await mountAgain('unidentified')).toBe(0);
+    });
+  });
+
+  // Spec 2026-10-08 aliases-everywhere D4: a pass that learned an id for this profile (the page
+  // moves its generation) makes the graph stale — this view reads it again; another profile's
+  // pass does not touch it, and a generation already above 0 when the view mounts is no change.
+  describe('a learned cross-source id', () => {
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+    const reads = (id: string) =>
+      mocks.modsDependencyGraph.mock.calls.filter((c) => c[0] === id).length;
+
+    it('reads this profile’s graph again, and only this profile’s', async () => {
+      const d = createDepGraph(
+        () => 'learn-p',
+        () => [],
+        ctx,
+      );
+      await settle();
+      expect(reads('learn-p')).toBe(1);
+      bumpCrossIds('learn-p');
+      await settle();
+      expect(reads('learn-p')).toBe(2);
+      bumpCrossIds('learn-other');
+      await settle();
+      expect(reads('learn-p')).toBe(2);
+      d.dispose();
+    });
+
+    it('a generation the profile already had when the view mounted is no change', async () => {
+      bumpCrossIds('learn-old');
+      bumpCrossIds('learn-old');
+      const d = createDepGraph(
+        () => 'learn-old',
+        () => [],
+        ctx,
+      );
+      await settle();
+      expect(reads('learn-old')).toBe(1); // the seed's load only
+      d.dispose();
+    });
+
+    it('an answer that lands after the view is gone is neither shown nor kept', async () => {
+      const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+      let answer!: (v: unknown) => void;
+      mocks.modsDependencyGraph.mockReturnValueOnce(
+        new Promise((r) => {
+          answer = r;
+        }),
+      );
+      const d = createDepGraph(
+        () => 'gone',
+        () => [],
+        ctx,
+      );
+      await settle(); // the seed's load is in flight
+      d.dispose();
+      answer({ status: 'ok', data: { roots: [] } });
+      await settle();
+      expect((depGraphCache as Map<string, unknown>).has('gone')).toBe(false);
+      expect(d.graph).toBeNull();
     });
   });
 
