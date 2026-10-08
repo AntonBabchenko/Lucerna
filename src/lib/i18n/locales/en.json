@@ -2482,6 +2482,32 @@
           "titleBasic": "Mod translations",
           "bodyBasic": "This row shows how much of your mods' text is in your language. Click it to see and change the translations."
         }
+      },
+      "deps": {
+        "cell": {
+          "title": "A mod's dependencies",
+          "body": "The number by the chain icon counts the mods this one requires, along with what those require. The number by the up arrow counts the installed mods that require this one. Click the cell to open its dependency panel.",
+          "titleBasic": "What a mod needs",
+          "bodyBasic": "Some mods only work together with other mods. The chain number shows how many mods this one asks for; the arrow number shows how many of your mods ask for it. Click the numbers to see the list."
+        },
+        "requires": {
+          "title": "Requires",
+          "body": "What this mod requires, and the state of each. Red means the game won't start: a mod it needs is missing or has the wrong version. Install a missing one with the button at the end of its line. If a line adds \"the mod starts without it\", only the mod's page lists that requirement.",
+          "titleBasic": "What it needs",
+          "bodyBasic": "These are the mods this one asks for, and each line shows whether it's installed. Red text means the game won't start until that's fixed; a missing mod installs with the button at the end of its line. When you install from Browse, Lucerna offers to install what a mod needs along with it."
+        },
+        "optional": {
+          "title": "Optional",
+          "body": "The mod runs without these. They add features or improve compatibility with other mods; add one with the button at the end of its line if you want it. Red here means one is installed in a version that stops the game.",
+          "titleBasic": "Nice to have",
+          "bodyBasic": "The mod works without these; they only add extras. If you want one, add it with the button at the end of its line."
+        },
+        "requiredBy": {
+          "title": "Required by",
+          "body": "The up arrow on this row counts the installed mods that require this mod, and its panel lists them under Required by. If a mod can't load without it, Lucerna names that mod when you disable or remove this one, and offers to disable it too.",
+          "titleBasic": "Mods that need it",
+          "bodyBasic": "The arrow number shows how many of your mods ask for this one. If you turn it off or remove it and another mod can't load without it, Lucerna tells you which one."
+        }
       }
     },
     "instanceConcept": {

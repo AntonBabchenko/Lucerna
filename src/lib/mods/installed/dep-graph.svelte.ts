@@ -208,6 +208,13 @@ export function createDepGraph(
     expanded = next;
   }
 
+  // Open a mod's panel, leaving it open if it is already (the deps tour's steps 2+; `toggleExpand`
+  // would close a panel the user opened).
+  function expand(sha1: string) {
+    if (expanded.has(sha1)) return;
+    expanded = new Set([...expanded, sha1]);
+  }
+
   // Turn to the page holding filtered row `idx` (keyed `key`) and scroll it into view.
   async function showRow(idx: number, key: string): Promise<void> {
     ctx.setPage(Math.floor(idx / ctx.getPageSize()));
@@ -388,6 +395,7 @@ export function createDepGraph(
     },
     depCounts,
     toggleExpand,
+    expand,
     jumpToSha1,
     installDepNode,
     isInstalling: (key: string) => installing.has(key),

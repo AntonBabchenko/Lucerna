@@ -26,6 +26,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Backgrounds for the skin editor.** Besides a neutral grey, the model can stand in
   the plains, the Nether or a stronghold: a pixel-art panorama that turns with the
   camera, like the game's title screen. The editor remembers the last one.
+- **A tour for mod dependencies.** The first time Installed shows a mod that
+  requires other mods, a short tour explains the numbers in its dependency cell,
+  the panel they open, and what red in it warns about.
 
 ### Changed
 

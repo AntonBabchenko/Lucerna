@@ -155,6 +155,16 @@ export function hostsTour(id: LayerId): boolean {
   return layers.some((l) => l.kind === 'tour' && l.host === id);
 }
 
+/**
+ * Some contextual tour is in the stack — on top, or stepped aside under something opened over it.
+ * A page-level tour mounted now would be refused by `insertTour` (it refuses whenever any tour
+ * exists) and stay inert until re-mounted, so a host that mounts its tour reactively waits on this
+ * instead (the deps tour). Reactive.
+ */
+export function anyTourRunning(): boolean {
+  return layers.some((l) => l.kind === 'tour');
+}
+
 /** How many modals are open; 0 when none. Reactive. */
 export function modalDepth(): number {
   return layers.filter((l) => l.kind === 'modal').length;

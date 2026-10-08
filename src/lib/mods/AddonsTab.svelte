@@ -781,6 +781,7 @@
               onBrowseFor={browseForDependency}
               emptyDropzone={view === 'installed' ? installedDropzone : undefined}
               onEmptyChange={(e) => (installedEmpty = e)}
+              visible={view === 'installed'}
             />
           {:else if kind === 'datapack'}
             <!-- An explicit branch, not the assets fallback: a datapack's

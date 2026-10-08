@@ -81,6 +81,18 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import { stickyEdge } from '$lib/ui/sticky-edge';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { screenOwnedElsewhere } from '$lib/onboarding/tour-presence';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
+  import { anyTourRunning } from '$lib/ui/layer-stack.svelte';
+  import {
+    DEPS_TOUR_IDLE,
+    type DepsTourRow,
+    type DepsTourState,
+    depsTourSteps,
+    nextDepsTourState,
+    pickDepsTourTarget,
+  } from './deps-tour';
 
   let {
     instanceId,
@@ -92,6 +104,7 @@
     onBrowseFor = (_q: string) => {},
     emptyDropzone,
     onEmptyChange = () => {},
+    visible = false,
   }: {
     instanceId: string | null;
     // Named in a restore toast once the user has switched profiles (spec §6.1).
@@ -108,6 +121,9 @@
     emptyDropzone?: Snippet;
     /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
     onEmptyChange?: (empty: boolean) => void;
+    /** This list is the one on screen (Add-ons shows Installed). The dependencies tour starts only
+     *  then: the view stays mounted, hidden, under Browse. False by default — restrictive. */
+    visible?: boolean;
   } = $props();
 
   // --- composables (creation order matters; thunks keep cross-refs lazy) ---
@@ -1056,6 +1072,69 @@
   // surface of its own, so its failure is said here — the spinner going away must not read as
   // "all clear".
   const rechecking = $derived(compat.checking || deps.graphLoading || preflight.loading);
+
+  // The dependencies tour (spec 2026-10-08-deps-tour): one attempt per entry into this list, at
+  // the first moment the list, its graph and its pre-flight have answered for this profile and no
+  // other surface or tour owns the screen. The reducer keeps a picked target through the tour's
+  // own layer, reloads and paging; leaving the list or switching the profile drops it.
+  const depsTourSettled = $derived(
+    instanceId !== null &&
+      data.loadedFor === instanceId &&
+      !data.loading &&
+      graphCoversEnabled() &&
+      !rechecking &&
+      (preflight.report !== null || preflight.error !== null),
+  );
+  const depsTourRow = (row: Row): DepsTourRow => {
+    const root = deps.rootBySha.get(row.installed.sha1);
+    return {
+      sha1: row.installed.sha1,
+      enabled: row.installed.enabled,
+      source: row.installed.source,
+      projectId: row.installed.project_id,
+      root,
+      depTotal: deps.depCounts(root).total,
+    };
+  };
+  let depsTour = $state.raw<DepsTourState>(DEPS_TOUR_IDLE);
+  $effect(() => {
+    const next = nextDepsTourState(depsTour, {
+      onInstalled: visible && serversUi.mode === 'client',
+      instanceId,
+      screenFree: !screenOwnedElsewhere() && !anyTourRunning(),
+      settled: depsTourSettled,
+      // Read when the attempt is made, not tracked: focus is no reactive state.
+      typing: typingInTextField(),
+      pick: () => pickDepsTourTarget(filters.paged.map(depsTourRow)),
+    });
+    // Same object when nothing changed: the write, and so the re-run, happens only on a change.
+    if (next !== depsTour) depsTour = next;
+  });
+  function typingInTextField(): boolean {
+    if (typeof document === 'undefined') return false;
+    const el = document.activeElement as HTMLElement | null;
+    return (
+      !!el &&
+      (el.isContentEditable ||
+        el.tagName === 'TEXTAREA' ||
+        (el.tagName === 'INPUT' &&
+          !['button', 'checkbox', 'radio', 'range', 'submit', 'reset'].includes(
+            (el as HTMLInputElement).type,
+          )))
+    );
+  }
+  const depsTourTarget = $derived(depsTour.kind === 'held' ? depsTour.target : null);
+  const depsTourStepList = $derived(depsTourTarget ? depsTourSteps(depsTourTarget) : []);
+  // From step 2 on the mod's panel is open (D2); ContextualTour calls this untracked.
+  function onDepsTourStep(index: number) {
+    if (index >= 1 && depsTourTarget) deps.expand(depsTourTarget.modSha1);
+  }
+  const tourAnchorOf = (sha1: string): 'deps-cell' | 'deps-required-by' | null =>
+    depsTourTarget?.modSha1 === sha1
+      ? 'deps-cell'
+      : depsTourTarget?.librarySha1 === sha1
+        ? 'deps-required-by'
+        : null;
   async function recheckAll() {
     const id = instanceId;
     deps.invalidateGraph();
@@ -1334,6 +1413,7 @@
           onSelectChange={(c) => selection.toggleSelect(row.installed.sha1, c)}
           onInstallDep={deps.installDepNode}
           onJump={jumpToProject}
+          tourAnchor={tourAnchorOf(row.installed.sha1)}
           onProblemFix={(fix) => onRowFix(row, fix)}
           onRevealProblems={() => {
             const first = violationsBySha.get(row.installed.sha1)?.[0];
@@ -1462,5 +1542,13 @@
         void compat.runOfflineScan({ force: true });
       }}
     />
+  {/if}
+
+  <!-- REACTIVE host, like the overview tour's: one attempt per entry into the list (D6), mounted
+       while the picked target is held and no other surface owns the screen. A screen owner (the
+       main tour's replay, the close question) unmounts it unburned — ContextualTour's destroy
+       guard reads the same predicate — and it starts again when the screen is free. -->
+  {#if depsTourTarget && !screenOwnedElsewhere()}
+    <ContextualTour id="deps" steps={depsTourStepList} onStep={onDepsTourStep} />
   {/if}
 </div>
