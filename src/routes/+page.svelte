@@ -370,11 +370,7 @@
     optimiseOpen = false;
     optimisePlan = null;
     void stats.refreshInstalledStats(instanceId);
-    // An entry without a version was never sent: skipped too.
-    const tally = tallyOptimise(results);
-    const installed = tally.installed;
-    const failed = tally.failed;
-    const skipped = toInstall.length - installed - failed;
+    const { installed, failed, skipped } = tallyOptimise(results);
     if (failed > 0) pushWarning($t('optimise.toastSomeFailed', { installed, failed }));
     else pushSuccess($t('optimise.toastDone', { installed, skipped }));
   }

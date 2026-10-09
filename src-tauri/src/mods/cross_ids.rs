@@ -773,14 +773,16 @@ pub async fn remember(instance_root: &Path, own: &Ident, other: &Ident) -> Resul
     }
     let _guard = sidecar_lock().lock().await;
     let rows = installed::list(instance_root).await?;
-    if !rows.iter().filter_map(own_of).any(|o| &o == own) {
+    let owns: HashSet<String> = rows.iter().filter_map(own_of).map(|o| key(&o)).collect();
+    // A project installed in its own right is no alias (`alias_map` drops it).
+    if !owns.contains(&key(own)) || owns.contains(&key(other)) {
         return Ok(false);
     }
     let mut disk = load(instance_root).await;
-    let claimed = disk
-        .aliases
-        .iter()
-        .any(|(by, slots)| by != &key(own) && slots.get(name) == Some(&other.1));
+    // Another current row's alias already — a stale entry of a row gone is `merge`'s to prune.
+    let claimed = disk.aliases.iter().any(|(by, slots)| {
+        by != &key(own) && owns.contains(by) && slots.get(name) == Some(&other.1)
+    });
     if claimed {
         crate::diag!(
             "[cross-ids] {} is another row's alias already — not {}'s",
@@ -1131,6 +1133,36 @@ mod tests {
 
         assert!(!wrote);
         assert_eq!(alias_of(td.path(), &cf("531761")).await, Some(mr("MBA")));
+    }
+
+    #[tokio::test]
+    async fn remember_leaves_a_project_installed_in_its_own_right() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "balm.jar",
+            b"mr balm",
+            ModSource::Modrinth,
+            "MBA",
+            true,
+        )
+        .await;
+        add_jar(
+            td.path(),
+            "cf.jar",
+            b"cf balm",
+            ModSource::Curseforge,
+            "531761",
+            true,
+        )
+        .await;
+
+        let wrote = remember(td.path(), &mr("MBA"), &cf("531761"))
+            .await
+            .unwrap();
+
+        assert!(!wrote);
+        assert!(!path(td.path()).exists());
     }
 
     #[tokio::test]

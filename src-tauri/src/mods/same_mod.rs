@@ -115,6 +115,26 @@ pub(crate) fn plan_conflicts(
         .collect()
 }
 
+/// The order a plan of `len` items is checked in: the primary (at `primary_at` in the plan's own
+/// install order) first — it is the one the user asked for, so it is never the one left out — then
+/// the rest in install order.
+pub(crate) fn check_order(primary_at: usize, len: usize) -> Vec<usize> {
+    std::iter::once(primary_at)
+        .chain((0..len).filter(|&i| i != primary_at))
+        .collect()
+}
+
+/// The install-order positions of the items dropped at `dropped` positions of `order`.
+pub(crate) fn left_out(
+    order: &[usize],
+    dropped: &std::collections::HashSet<usize>,
+) -> std::collections::HashSet<usize> {
+    dropped
+        .iter()
+        .filter_map(|&k| order.get(k).copied())
+        .collect()
+}
+
 /// The alias an identity teaches: the installed row's own identity and the planned project, when
 /// the two are the same mod and one is on Modrinth, the other on CurseForge. `None` otherwise — an
 /// alias maps one platform to the other, and a conflict is no identity.
@@ -340,7 +360,56 @@ mod tests {
         assert_eq!(plan_conflicts(&[None], &installed), vec![None]);
     }
 
+    #[test]
+    fn an_installed_row_wins_over_an_earlier_planned_item() {
+        // Item 1 meets both the installed balm and the kept item 0 (on `x`): the row is named.
+        let planned = vec![Some(ids(&["a", "x"])), Some(ids(&["x", "balm"]))];
+        let installed = vec![ids(&["balm"])];
+        assert_eq!(
+            plan_conflicts(&planned, &installed),
+            vec![
+                None,
+                Some(Meeting::Installed {
+                    row: 0,
+                    id: "balm".into()
+                })
+            ]
+        );
+    }
+
+    // ── check_order / left_out ──
+
+    #[test]
+    fn the_primary_is_checked_first_wherever_it_sits() {
+        // deps d0 d1, extra e0, the primary, optional o0.
+        assert_eq!(check_order(3, 5), vec![3, 0, 1, 2, 4]);
+        assert_eq!(check_order(0, 1), vec![0]);
+    }
+
+    #[test]
+    fn dropped_check_positions_map_back_to_install_positions() {
+        let order = check_order(3, 5);
+        // The second item checked (d0) and the last (o0).
+        let dropped = [1, 4].into_iter().collect();
+        assert_eq!(left_out(&order, &dropped), [0, 4].into_iter().collect());
+    }
+
     // ── alias_to_teach ──
+
+    #[test]
+    fn an_identity_from_curseforge_to_modrinth_teaches_it_too() {
+        let balm = ids(&["balm"]);
+        assert_eq!(
+            alias_to_teach(
+                (Some(ModSource::Curseforge), Some("531761"), &balm),
+                (ModSource::Modrinth, "MBA", &balm),
+            ),
+            Some((
+                (ModSource::Curseforge, "531761".to_string()),
+                (ModSource::Modrinth, "MBA".to_string())
+            ))
+        );
+    }
 
     #[test]
     fn an_identity_across_modrinth_and_curseforge_teaches_the_alias() {

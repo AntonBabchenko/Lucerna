@@ -440,6 +440,12 @@ struct ClosureInstall {
 /// one, the row and `primary_name` take the cached project title (the version
 /// title only when none is known); the journal subject stays the version title.
 ///
+/// The same mod is never written twice (spec 2026-10-09 same-mod-by-id): a primary
+/// whose jar carries a mod-id an installed jar carries is refused with
+/// `ModsAlreadyInstalled` before anything is resolved, and a planned dependency
+/// that does — or that an item kept before it does — is left out alone and
+/// reported `Skipped`. Equal ids across Modrinth and CurseForge teach the alias.
+///
 /// The caller holds the instance's shared maintenance claim across the call.
 #[allow(clippy::too_many_arguments)]
 async fn install_with_closure(
@@ -656,7 +662,7 @@ async fn install_with_closure(
     // Project IDs of the primary's transitive required closure plus any
     // manifest-discovered extras — persisted onto the primary's registry entry
     // for offline orphan detection.
-    let primary_required_ids = crate::mods::orphans::requires_edges(
+    let mut primary_required_ids = crate::mods::orphans::requires_edges(
         &installed_mods,
         &installed,
         None,
@@ -710,23 +716,54 @@ async fn install_with_closure(
     // the instance already has — or that an item kept before it carries — is left out, alone
     // (spec D3). Its own dependencies stay: they are the same mod's, which the copy already
     // installed needs too, so the plan is not resolved again. A skip is a row in the report.
-    let check_order: Vec<usize> = std::iter::once(primary_at)
-        .chain((0..install_seq.len()).filter(|&i| i != primary_at))
-        .collect();
+    // Every guard first, as the batch runs them: a build it would refuse is refused before any
+    // download. The reads are the downloads, so they drive the «k of N» counter (the batch then
+    // finds every file in the cache).
+    // A failure here is the batch's own and is announced as the batch announces it.
+    let failed = |v: &ModVersion, error: crate::error::Error| {
+        let _ = ModInstallFailed {
+            instance_id: instance_id.to_string(),
+            project_id: v.project_id.clone(),
+            error: error.clone(),
+        }
+        .emit(app);
+        error
+    };
+    for v in &install_seq {
+        crate::mods::install::guard_version(v).map_err(|e| failed(v, e))?;
+    }
+    let check_order = crate::mods::same_mod::check_order(primary_at, install_seq.len());
     let mut plan_ids = Vec::with_capacity(check_order.len());
-    for &i in &check_order {
+    count.total.store(
+        install_seq.len() as u32,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    for (k, &i) in check_order.iter().enumerate() {
+        count
+            .current
+            .store(k as u32 + 1, std::sync::atomic::Ordering::Relaxed);
+        let v = &install_seq[i];
         plan_ids.push(if i == primary_at {
             primary_ids.clone()
         } else {
-            planned_loader_ids(dd, &install_seq[i], loader, era, &prog).await?
+            planned_loader_ids(dd, v, loader, era, &prog)
+                .await
+                .map_err(|e| failed(v, e))?
         });
     }
     let plan: Vec<&ModVersion> = check_order.iter().map(|&i| &install_seq[i]).collect();
     let dropped = drop_conflicting(inst_root, &plan, &plan_ids, &have).await;
     announce_cross_ids(app, instance_id, dropped.learned);
-    let left_out: std::collections::HashSet<usize> =
-        dropped.at.iter().map(|&k| check_order[k]).collect();
+    let left_out = crate::mods::same_mod::left_out(&check_order, &dropped.at);
     let skipped_details = dropped.details;
+    // A skipped dependency is no edge of the primary's: what answers for it was installed
+    // before, and `requires_edges` never claims that (L1 of the review).
+    let skipped_ids: std::collections::HashSet<&str> = left_out
+        .iter()
+        .map(|&i| install_seq[i].project_id.as_str())
+        .collect();
+    primary_required_ids.retain(|id| !skipped_ids.contains(id.as_str()));
+    drop(skipped_ids);
     let install_seq: Vec<ModVersion> = install_seq
         .into_iter()
         .enumerate()
@@ -2579,6 +2616,10 @@ pub async fn mods_enrich_pack_mods(
 /// dependency's project is installed at any version, enabled or not, or an
 /// enabled jar of the same file name is. Such a library is left as it is — no
 /// second copy, no re-install over its record, a disabled one stays disabled.
+/// So is one whose jar carries a mod-id an installed jar (the outgoing one
+/// aside) already carries — the same mod from the other platform with other
+/// bytes, or a fork — left out and reported `Skipped` (spec 2026-10-09
+/// same-mod-by-id D4).
 ///
 /// `target` is re-resolved through `find_version` — the same gate, the same
 /// typed `ModVersionNotForInstance` and the same `allow_off_platform` consent
@@ -2663,10 +2704,10 @@ pub async fn mods_update_one(
             // route the bar to the right card (same pattern as install).
             //
             // Unlike `mods_install_with_deps`, there is no manifest-extras
-            // discovery step here — `update_one` sets `count.total` to
-            // `1 + required_deps.len()` before its cache-warm loop starts, so
-            // `count` never observes a `0` total the way the install path's does
-            // during dependency resolution.
+            // discovery step here. The new dependencies' reads below count «k of
+            // N» over the dependencies; then `update_one` sets `count.total` to
+            // `1 + required_deps.len()` before its cache-warm loop, so `count`
+            // never observes a `0` total while anything downloads.
             let app_for_progress = app.clone();
             let instance_id_for_progress = instance_id.clone();
             let project_id_for_progress = target.project_id.clone();
@@ -2707,28 +2748,46 @@ pub async fn mods_update_one(
             // A dependency whose mod the instance already has under another project — the
             // same mod-id the loader reads — or that an earlier one carries is left out (spec
             // 2026-10-09 same-mod-by-id D4). The outgoing row does not count: it leaves. Read
-            // from the download cache `update_one` fetches into anyway.
-            let era = crate::mods::local::descriptor_era(&mc_version);
-            let have: Vec<InstalledIds> =
-                installed_loader_ids(&app, &inst_root, loader, &mc_version)
-                    .await?
+            // from the download cache `update_one` fetches into anyway, guards first; the reads
+            // are the dependencies' downloads, so they drive the «k of N» counter. Nothing to
+            // check — the common update — reads nothing.
+            let mut skipped_details = Vec::new();
+            let mut skipped_ids = std::collections::HashSet::new();
+            let required_deps = if required_deps.is_empty() {
+                required_deps
+            } else {
+                for d in &required_deps {
+                    crate::mods::install::guard_version(d)?;
+                }
+                let era = crate::mods::local::descriptor_era(&mc_version);
+                let have: Vec<InstalledIds> =
+                    installed_loader_ids(&app, &inst_root, loader, &mc_version)
+                        .await?
+                        .into_iter()
+                        .filter(|r| !r.sha1.eq_ignore_ascii_case(&old_sha1))
+                        .collect();
+                count.total.store(
+                    required_deps.len() as u32,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                let mut dep_ids = Vec::with_capacity(required_deps.len());
+                for (k, d) in required_deps.iter().enumerate() {
+                    count
+                        .current
+                        .store(k as u32 + 1, std::sync::atomic::Ordering::Relaxed);
+                    dep_ids.push(planned_loader_ids(&dd, d, loader, era, &prog).await?);
+                }
+                let plan: Vec<&ModVersion> = required_deps.iter().collect();
+                let dropped = drop_conflicting(&inst_root, &plan, &dep_ids, &have).await;
+                announce_cross_ids(&app, &instance_id, dropped.learned);
+                skipped_details = dropped.details;
+                let (kept, skipped): (Vec<_>, Vec<_>) = required_deps
                     .into_iter()
-                    .filter(|r| !r.sha1.eq_ignore_ascii_case(&old_sha1))
-                    .collect();
-            let mut dep_ids = Vec::with_capacity(required_deps.len());
-            for d in &required_deps {
-                dep_ids.push(planned_loader_ids(&dd, d, loader, era, &prog).await?);
-            }
-            let plan: Vec<&ModVersion> = required_deps.iter().collect();
-            let dropped = drop_conflicting(&inst_root, &plan, &dep_ids, &have).await;
-            announce_cross_ids(&app, &instance_id, dropped.learned);
-            let skipped_details = dropped.details;
-            let required_deps: Vec<ModVersion> = required_deps
-                .into_iter()
-                .enumerate()
-                .filter(|(i, _)| !dropped.at.contains(i))
-                .map(|(_, v)| v)
-                .collect();
+                    .enumerate()
+                    .partition(|(i, _)| !dropped.at.contains(i));
+                skipped_ids = skipped.into_iter().map(|(_, v)| v.project_id).collect();
+                kept.into_iter().map(|(_, v)| v).collect()
+            };
 
             // The summary's names, in `update_one`'s install order — the target, then
             // the PRUNED list it is handed below, so `update_summary` zips each name
@@ -2752,11 +2811,15 @@ pub async fn mods_update_one(
             // platform's id is not claimed either (spec 2026-10-08 aliases-everywhere).
             let installed_before =
                 crate::mods::deps::installed_view(&registry_before, &aliases).keys;
+            // A dependency left out as the same mod as an installed jar is no edge: what
+            // answers for it was there before, which `requires_edges` never claims.
             let requires = crate::mods::orphans::requires_edges(
                 &registry_before,
                 &installed_before,
                 Some(old_sha1.as_str()),
-                resolved_required.iter(),
+                resolved_required
+                    .iter()
+                    .filter(|v| !skipped_ids.contains(&v.project_id)),
             );
             let target_name = target.name.clone();
             let target_version = target.version_number.clone();
@@ -5831,6 +5894,72 @@ mod tests {
             enrich_attempted: false,
             requires: vec![],
         }
+    }
+
+    /// Spec 2026-10-09 same-mod-by-id D3/D5: a planned jar carrying an installed
+    /// row's mod-id is left out alone — a `Skipped` report row naming that row —
+    /// and, the ids being equal across Modrinth and CurseForge, teaches the alias.
+    #[tokio::test]
+    async fn a_planned_jar_with_an_installed_mod_id_is_skipped_and_teaches_the_alias() {
+        use sha1::{Digest, Sha1};
+        let td = tempfile::tempdir().unwrap();
+        let dir = crate::mods::installed::mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let bytes = b"modrinth balm";
+        tokio::fs::write(dir.join("balm.jar"), bytes).await.unwrap();
+        let sha = hex::encode(Sha1::digest(bytes));
+        crate::mods::installed::add(
+            td.path(),
+            crate::mods::platform::InstalledMod {
+                filename: "balm.jar".into(),
+                sha1: sha.clone(),
+                project_id: Some("MBA".into()),
+                name: "Balm".into(),
+                ..named_dependent("x")
+            },
+        )
+        .await
+        .unwrap();
+        let have = vec![InstalledIds {
+            name: "Balm".into(),
+            sha1: sha,
+            source: Some(ModSource::Modrinth),
+            project_id: Some("MBA".into()),
+            ids: ["balm".to_string()].into(),
+        }];
+        let waystones = ModVersion {
+            source: ModSource::Curseforge,
+            ..mv("245755")
+        };
+        let balm = ModVersion {
+            source: ModSource::Curseforge,
+            ..mv("531761")
+        };
+        let ids = vec![
+            Some(["waystones".to_string()].into()),
+            Some(["balm".to_string()].into()),
+        ];
+
+        let dropped = drop_conflicting(td.path(), &[&waystones, &balm], &ids, &have).await;
+
+        assert_eq!(dropped.at, [1].into_iter().collect());
+        assert_eq!(dropped.learned, 1);
+        assert_eq!(dropped.details.len(), 1);
+        match &dropped.details[0].outcome {
+            crate::tasks::DetailOutcome::Skipped { reason } => {
+                assert!(
+                    reason.contains("Balm") && reason.contains("balm"),
+                    "{reason}"
+                );
+            }
+            other => panic!("expected a skip, got {other:?}"),
+        }
+        let rows = crate::mods::installed::list(td.path()).await.unwrap();
+        let map = crate::mods::cross_ids::load_alias_map(td.path(), &rows).await;
+        assert_eq!(
+            map.own_of(ModSource::Curseforge, "531761"),
+            Some(&(ModSource::Modrinth, "MBA".to_string()))
+        );
     }
 
     /// A dependency install never puts a second jar of an installed project
