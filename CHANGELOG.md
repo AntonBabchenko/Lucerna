@@ -43,7 +43,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   stand under the mod's own, and "Show in the list" flashes the row it takes you
   to. "Requires", "Optional" and "Required by" each have a stripe of their own,
   an optional dependency's line is dashed, and a mod met again further down says
-  "this mod" or "expanded above" instead of "cycle".
+  "this mod" or "expanded above" instead of "cycle"; whatever the panel explains
+  under the mouse, it explains to the keyboard too.
 - **The skin editor's controls look and work like the rest of the launcher.**
   Pose, model, brush, paint layer and background are picked the way Settings
   picks a theme, and loading, downloading and the library are icon buttons with

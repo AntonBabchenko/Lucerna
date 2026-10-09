@@ -1,7 +1,12 @@
 // tests/tooltip/tooltip-action.test.ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tooltip } from '$lib/ui/tooltip/tooltip';
-import { hideTooltip, TOOLTIP_ID, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import {
+  hideTooltip,
+  OPEN_DELAY_MS,
+  TOOLTIP_ID,
+  tooltipState,
+} from '$lib/ui/tooltip/tooltip-controller.svelte';
 
 // The tooltip only shows on focus when the focus is keyboard-driven
 // (`:focus-visible`). The action calls `node.matches(':focus-visible')` to
@@ -169,5 +174,59 @@ describe('use:tooltip action', () => {
     handle?.destroy?.();
     node.dispatchEvent(new FocusEvent('focusin'));
     expect(tooltipState.visible).toBe(false);
+  });
+});
+
+// Spec 2026-10-08 dep-tree-keyboard-reasons D1b: a tooltip its trigger shows follows the trigger's
+// text. A focusable unavailable button (DepTree's switch) can hold focus while its reason gives way
+// to its action — the old text must not stay up, nor keep describing it.
+describe('a tooltip that is showing follows its trigger', () => {
+  it('re-shows with the new text and description when the param changes while up', () => {
+    const { node, handle } = mount({ text: 'Arch isn’t installed', describe: true });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.text).toBe('Arch isn’t installed');
+    expect(node.getAttribute('aria-describedby')).toBe(TOOLTIP_ID);
+    handle.update?.({ text: 'Disable Arch', describe: false });
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('Disable Arch');
+    expect(node.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('a pending showing reveals the new text', () => {
+    vi.useFakeTimers();
+    const { node, handle } = mount('Old');
+    node.dispatchEvent(new MouseEvent('mouseenter'));
+    handle.update?.('New');
+    vi.advanceTimersByTime(OPEN_DELAY_MS);
+    expect(tooltipState.visible).toBe(true);
+    expect(tooltipState.text).toBe('New');
+  });
+
+  it('the same values in a new object do not show it again', () => {
+    const { node, handle } = mount({ text: 'Same', describe: false });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    const shown = tooltipState.shown;
+    handle.update?.({ text: 'Same', describe: false });
+    expect(tooltipState.shown).toBe(shown);
+  });
+
+  it('a clipped name that is no longer clipped closes the tooltip it shows', () => {
+    const { node, handle } = mount({ text: 'Long name', whenOverflowing: true });
+    let scroll = 200;
+    Object.defineProperty(node, 'scrollWidth', { get: () => scroll });
+    Object.defineProperty(node, 'clientWidth', { get: () => 100 });
+    node.dispatchEvent(new FocusEvent('focusin'));
+    expect(tooltipState.visible).toBe(true);
+    scroll = 100; // the row grew: the whole name fits
+    handle.update?.({ text: 'Long name, renamed', whenOverflowing: true });
+    expect(tooltipState.visible).toBe(false);
+  });
+
+  it('a trigger that does not own the tooltip leaves it alone', () => {
+    const a = mount('A');
+    const b = mount('B');
+    a.node.dispatchEvent(new FocusEvent('focusin'));
+    b.handle.update?.('B2');
+    expect(tooltipState.text).toBe('A');
   });
 });
