@@ -43,8 +43,8 @@
     preflight_unknown: 'info',
   };
 
-  // Red is red everywhere (spec D6) — on the icon only: red TEXT on this amber
-  // panel is ~3.3:1 in the dark theme, under AA.
+  // Red is red everywhere (spec D6) — on the icon only: the row's text keeps the
+  // amber panel's own colour.
   const ICON_TONE: Partial<Record<AttentionKind, string>> = { mods_blocking: 'text-danger' };
 </script>
 

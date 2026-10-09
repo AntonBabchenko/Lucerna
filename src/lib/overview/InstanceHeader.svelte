@@ -67,7 +67,7 @@
   );
 
   // Blocking is red, as everywhere a mod stops the game (DESIGN.md §9) — on the surface with a
-  // danger border, never on the soft danger box, whose red text misses AA (DESIGN.md Known gaps).
+  // danger border, never on the soft danger box, like the "What stops the game" panel.
   const PILL_TONE: Record<StatusTone, string> = {
     ok: 'bg-success-bg border-success text-success',
     warn: 'bg-warning-bg border-warning-text text-warning-text',

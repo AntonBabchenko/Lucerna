@@ -160,7 +160,8 @@ describe('.btn-icon-danger under the pointer', () => {
       withoutComments(appCss),
     );
     if (rule === null) throw new Error('no .btn-icon-danger hover/focus rule');
-    expect(rule[1]).toMatch(/color:\s*rgb\(var\(--danger-text\)\)/);
+    // Anchored to a declaration's start, so `background-color` cannot satisfy it.
+    expect(rule[1]).toMatch(/(?:^|;)\s*color:\s*rgb\(var\(--danger-text\)\)/);
   });
 });
 

@@ -110,8 +110,8 @@
 
 {#if blocking || (showHeader && showMigrate)}
   <!-- The surface with a danger border and a red icon, never the bg-danger-bg
-       box: danger text on that box misses AA in both themes (DESIGN.md Known
-       gaps). With only incompatibilities left nothing stops the game, so the
+       box — blocking reads the same here as on the Overview's pill (DESIGN.md
+       §9). With only incompatibilities left nothing stops the game, so the
        panel says what is true instead — amber, «Some mods may not work». -->
   <div
     class="rounded-xl border bg-surface overflow-hidden mb-3 {blocking
