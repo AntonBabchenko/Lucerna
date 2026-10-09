@@ -81,6 +81,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   text inside an error box and, in the dark theme, a row's delete icon. Grey text
   is a shade stronger now, and red is darker in the light theme and lighter in
   the dark one.
+- **A mod is not installed twice from the two sites.** When Modrinth and
+  CurseForge hold different files of the same mod, installing it from the other
+  site — or a mod that needs it — added a second copy that stopped the game from
+  starting. The launcher now recognises the mod by its own id, refuses or skips
+  the copy (the install report lists the skip), and once it knows the match the
+  dependency panel shows the mod as installed.
 
 ## [0.26.0] — 2026-10-07
 
