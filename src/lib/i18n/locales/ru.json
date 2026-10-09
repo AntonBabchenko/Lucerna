@@ -768,6 +768,7 @@
       "toastInstallFailedWithMod": "Не удалось установить {name}",
       "toastRetry": "Повторить",
       "toastInstalledMod": "Установлен {name}",
+      "toastDepAlreadyInstalled": "{name} уже был установлен",
       "mismatchLoader": "похоже на мод для {detected}, профиль использует {instance}",
       "mismatchMc": "требует Minecraft {detected}, профиль использует {instance}",
       "mismatchPlatformLoader": "требует версию загрузчика {detected}, профиль использует {instance}",

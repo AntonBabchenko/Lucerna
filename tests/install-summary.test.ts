@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ModVersion } from '$lib/ipc/bindings';
+import type { ModVersion, TaskDetail } from '$lib/ipc/bindings';
 import type { DepItem, OptionalItem } from '$lib/mods/dep-prompt';
-import { buildInstalledDepLines } from '$lib/mods/install-summary';
+import { buildInstalledDepLines, skippedFiles } from '$lib/mods/install-summary';
 
 // ---------------------------------------------------------------------------
 // Minimal stubs — only the fields touched by buildInstalledDepLines.
@@ -96,5 +96,44 @@ describe('buildInstalledDepLines', () => {
     const lines = buildInstalledDepLines({ required: [req], optional: [opt] }, [opt.version]);
     // 'Proj' appears first via required, sub-req is deduped.
     expect(lines).toEqual(['Proj', 'Optional']);
+  });
+});
+
+// Spec 2026-10-09 same-mod-by-id D3: the install may leave a planned dependency out because the
+// profile already has its mod (another project, the same mod-id). The toast must not name it as
+// installed — it says it was already there.
+describe('a dependency the install left out', () => {
+  const withFile = (v: ModVersion, filename: string): ModVersion => ({
+    ...v,
+    primary_file: { ...v.primary_file, filename },
+  });
+
+  it('reads as already installed, not installed', () => {
+    const balm = dep('Balm', withFile(mv('curseforge', '531761', 'b'), 'balm-21.0.66.jar'));
+    const lib = dep('Lib', withFile(mv('curseforge', 'lib', 'l'), 'lib.jar'));
+    const lines = buildInstalledDepLines(
+      { required: [balm, lib], optional: [] },
+      [],
+      new Set(['balm-21.0.66.jar']),
+      (name) => `${name} was already there`,
+    );
+    expect(lines).toEqual(['Balm was already there', 'Lib']);
+  });
+
+  it('is read off the report: its skipped rows, by file name', () => {
+    const row = (install_path: string, outcome: TaskDetail['outcome']): TaskDetail => ({
+      name: install_path,
+      install_path,
+      origin: 'curseforge',
+      host: null,
+      bytes: null,
+      sha1: null,
+      outcome,
+    });
+    const files = skippedFiles([
+      row('mods/waystones.jar', { kind: 'unchanged' }),
+      row('mods/balm-21.0.66.jar', { kind: 'skipped', reason: 'Balm is already installed' }),
+    ]);
+    expect([...files]).toEqual(['balm-21.0.66.jar']);
   });
 });
