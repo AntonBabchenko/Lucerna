@@ -76,6 +76,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   it is not.** The "What stops the game" panel blocked profiles that start,
   saying an installed dependency was older than required. Requirements it used
   to miss are now checked as well.
+- **Grey hints and red text stay readable on a row under the pointer.** There,
+  and red text inside an error box too, they fell short of the WCAG AA contrast
+  minimum in both themes, as did a row's delete icon in the dark theme; they are
+  a shade more contrasting now.
 
 ## [0.26.0] — 2026-10-07
 
