@@ -37,7 +37,7 @@ describe('AttentionPanel', () => {
     });
     const row = getByTestId('overview-attention-mods_blocking');
     expect(row.textContent).toContain('2 mods will stop the game from starting');
-    // Red on the icon only: red TEXT on the amber panel misses AA in the dark theme.
+    // Red on the icon only: the row's text keeps the amber panel's own colour.
     expect(row.querySelector('.text-danger')).not.toBeNull();
   });
 
