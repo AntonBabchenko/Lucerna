@@ -162,9 +162,10 @@
   --success-text: 74 222 128; /* green-400 — ~5.2:1 on --success-bg, ~8.7:1 on --bg-surface */
   --success-muted: 64 161 100; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 239 68 68;
-  /* red-300 — 5.46:1 on a hovered row (--bg-subtle), 5.28 in a danger box,
-     7.97 on --bg-surface; red-400 was 3.75 and 3.62 on the first two. */
-  --danger-text: 252 165 165;
+  /* #ff9191 — 4.79:1 on a hovered row (--bg-subtle), 4.63 in a danger box,
+     7.00 on --bg-surface; red-400 was 3.75 and 3.62 on the first two. Chosen
+     over red-300 (5.46 / 5.28), which read salmon-pink beside neutral text. */
+  --danger-text: 255 145 145;
   --danger-bg: 127 29 29; /* red-900 */
   --warning-bg: 120 53 15; /* amber-900 — was 69 26 3 (amber-950) */
   --warning-text: 252 211 77;
@@ -539,7 +540,7 @@ body[data-tour-active] .tour-overlay {
    only when you point at it, so it shows on whatever the row under the
    pointer paints, --bg-subtle. The icon is a foreground there, so it takes the
    text tier: the dark fill red was 2.76:1 on a hovered row, under even the
-   3:1 WCAG allows non-text content; --danger-text is 5.46 (5.93 light). */
+   3:1 WCAG allows non-text content; --danger-text is 4.79 (5.93 light). */
 .btn-icon-danger:hover,
 .btn-icon-danger:focus-visible {
   color: rgb(var(--danger-text));
