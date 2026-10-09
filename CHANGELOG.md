@@ -21,14 +21,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-10-09
+
 ### Added
 
-- **Backgrounds for the skin editor.** Besides a neutral grey, the model can stand in
-  the plains, the Nether or a stronghold: a pixel-art panorama that turns with the
-  camera, like the game's title screen. The editor remembers the last one.
-- **A tour for mod dependencies.** The first time Installed shows a mod that
-  requires other mods, a short tour explains the numbers in its dependency cell,
-  the panel they open, and what red in it warns about.
+- **Minecraft places behind the skin editor's model.** Instead of three flat
+  colours, Background offers a neutral grey and pixel-art panoramas of the
+  plains, the Nether and a stronghold that turn with the camera, like the game's
+  title screen. The editor remembers the last one.
+- **A tour for mod dependencies.** The first time a profile's Installed list
+  shows a mod that requires other mods, a short tour explains the numbers in its
+  dependency cell, the panel they open, and what red in it warns about.
 
 ### Changed
 
@@ -39,12 +42,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Notices stay at the top right, above everything**, an open dialog included;
   they used to move to the bottom centre while a dialog was open.
 - **A mod's dependency panel works like the mod list.** Its rows light up under
-  the pointer and open the mod on a click, their switch and add-or-remove buttons
-  stand under the mod's own, and "Show in the list" flashes the row it takes you
-  to. "Requires", "Optional" and "Required by" each have a stripe of their own,
-  an optional dependency's line is dashed, and a mod met again further down says
-  "this mod" or "expanded above" instead of "cycle"; whatever the panel explains
-  under the mouse, it explains to the keyboard too.
+  the pointer, open the mod on a click and keep their switch and add-or-remove
+  buttons under the mod's own, and "Show in the list" flashes the row it lands
+  on. "Requires", "Optional" and "Required by" each have a stripe of their own,
+  a mod met again says "this mod" or "expanded above" instead of "cycle", and
+  every hint the panel shows under the mouse reaches the keyboard too.
 - **The skin editor's controls look and work like the rest of the launcher.**
   Pose, model, brush, paint layer and background are picked the way Settings
   picks a theme, and loading, downloading and the library are icon buttons with
@@ -59,34 +61,38 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 - **A mod installed from Modrinth counts as installed when a CurseForge mod asks
   for it, and the other way round.** The dependency panel called it missing and
-  offered to add a second copy, the mod browser offered to install it again, and
-  Optimise offered it once more; the launcher now recognises the same file on
+  offered to add a second copy, the mod browser could offer to install it again,
+  and Optimise offered it once more; the launcher now recognises the same file on
   both platforms, also when you undo a removal. Recognising a Modrinth file on
   CurseForge needs a CurseForge key.
+- **A mod is not installed twice from the two sites.** When Modrinth and
+  CurseForge hold different files of the same mod, installing it from the other
+  site — or a mod that needs it — added a second copy that stopped the game from
+  starting. The launcher now recognises the mod by the mod id inside its file,
+  refuses or skips the copy (the install report lists the skip), and after such
+  an attempt the dependency panel shows the mod as installed.
 - **Installing a mod on your server no longer adds a second copy of a library it
-  already has** from the same site under another file name: every dependency the
-  launcher puts on a server is now remembered, not only the mod you picked.
+  already has** from the same site under another file name: the launcher now
+  checks the server's mods by project, not only by file name, and remembers every
+  dependency it puts there, not only the mod you picked.
 - **"Show in the list" in a dependency panel always gets you there**: when a
   search or a filter hid the mod's row, it did nothing; now it clears them and
   scrolls to the row.
 - **Icon buttons that can be disabled show their tooltip to the keyboard too.**
   Tabbing to one, such as a page arrow, showed nothing: the tooltip appeared
   only under the mouse.
-- **Minecraft 1.12.2 and older profiles no longer report a mod as too old when
-  it is not.** The "What stops the game" panel blocked profiles that start,
-  saying an installed dependency was older than required. Requirements it used
-  to miss are now checked as well.
+- **Forge profiles on Minecraft 1.12.2 and older no longer call a mod too old
+  when it is not.** "What stops the game" said an installed dependency was older
+  than required, and the game stopped to ask before starting a profile that runs
+  fine. Requirements it used to miss are now checked as well.
 - **Grey hints and red text stay readable on a row under the pointer.** On such
   a row they fell short of the WCAG AA contrast minimum in both themes, as did red
   text inside an error box and, in the dark theme, a row's delete icon. Grey text
   is a shade stronger now, and red is darker in the light theme and lighter in
   the dark one.
-- **A mod is not installed twice from the two sites.** When Modrinth and
-  CurseForge hold different files of the same mod, installing it from the other
-  site — or a mod that needs it — added a second copy that stopped the game from
-  starting. The launcher now recognises the mod by its own id, refuses or skips
-  the copy (the install report lists the skip), and once it knows the match the
-  dependency panel shows the mod as installed.
+- **Tour cards stay inside the window.** A tall card no longer hides its buttons
+  below the window's edge, and scrolling the list during a tour no longer carries
+  the card off the top.
 
 ## [0.26.0] — 2026-10-07
 
@@ -2121,7 +2127,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.23.0...v0.24.0
