@@ -66,6 +66,8 @@ import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import { modBrowseOpenProject } from '$lib/settings/state.svelte';
 
 const ok = <T>(data: T) => ({ status: 'ok', data }) as const;
+// What a finished install answers: the toast reads its report rows (a skipped dependency says so).
+const SUMMARY = { primary_name: 'Mod', installed_dependencies: [], details: [] };
 
 function hit(): ModSummary {
   return {
@@ -177,7 +179,7 @@ beforeEach(() => {
     }),
   );
   modsResolveInstallPlan.mockResolvedValue(ok(emptyPlan));
-  modsInstallWithDeps.mockResolvedValue(ok(null));
+  modsInstallWithDeps.mockResolvedValue(ok(SUMMARY));
   modsUpdateOne.mockResolvedValue(ok(null));
   modsUninstall.mockResolvedValue(ok(null));
 });
@@ -272,7 +274,7 @@ describe('ModBrowseView — a build the platform does not list for this instance
     modsVersions.mockResolvedValue(ok([version()]));
     modsInstallWithDeps
       .mockResolvedValueOnce({ status: 'error', error: REFUSAL })
-      .mockResolvedValue(ok(null));
+      .mockResolvedValue(ok(SUMMARY));
     render(ModBrowseView, { props: { ...full } });
 
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
