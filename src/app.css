@@ -15,12 +15,16 @@
   /* Text */
   --text-primary: 23 23 23; /* neutral-900 */
   --text-secondary: 64 64 64; /* neutral-700 */
-  --text-muted: 115 115 115; /* neutral-500 */
+  /* A row under the pointer paints --bg-subtle, so muted text must clear AA
+     there too, not only on the card: neutral-500 (115) was 4.35:1 on 245.
+     107 is 4.89:1 on a hovered row, 5.11 on the page, 5.33 on white
+     (tests/intent/design-tokens.test.ts holds every text token on all three). */
+  --text-muted: 107 107 107;
   /* Was neutral-400 (163) — that is ~2.5:1 on white and fails WCAG AA for the
-     informative hints / axis labels that also reach for this token. Bumped to
-     neutral-500 (115 = ~4.6:1) so those meet AA. Real input placeholders are
+     informative hints / axis labels that also reach for this token. It moves
+     with --text-muted (same value, same reason). Real input placeholders are
      styled from the same token; a *stronger* contrast placeholder is fine. */
-  --text-placeholder: 115 115 115; /* neutral-500 */
+  --text-placeholder: 107 107 107;
   /* Borders */
   --border-subtle: 229 229 229; /* neutral-200 */
   --border-emphasis: 212 212 212; /* neutral-300 */
@@ -51,14 +55,15 @@
   --success-muted: 48 132 79; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 220 38 38; /* red-600 */
   /* Text-facing danger, split from --danger because dark-mode --danger is only
-     ~4.0:1 on --bg-surface, below AA for normal text. Light mode is unchanged
-     (red-600 is ~4.8:1 on white).
-     The split is text-utilities-only, and NOT because the fill tier reads
-     better — white on the dark fill is 3.76:1 and misses AA itself (recorded
-     under DESIGN.md Known gaps). It is because --danger is a FILL: retargeting
-     it would repaint every .btn-danger, bg-danger and border-danger in the
-     app, which is a palette decision, not a contrast fix. */
-  --danger-text: 220 38 38; /* red-600 */
+     ~4.0:1 on --bg-surface, below AA for normal text. The text tier must also
+     clear AA on a row under the pointer (--bg-subtle) and inside a danger box
+     (--danger-bg): red-600 was 4.43:1 and 4.41:1 there, red-700 is 5.93 and
+     5.91 (6.47 on white). The danger icon's hover colour reads it too.
+     NOT because the fill tier reads better — white on the dark fill is 3.76:1
+     and misses AA itself (recorded under DESIGN.md Known gaps). It is because
+     --danger is a FILL: retargeting it would repaint every .btn-danger,
+     bg-danger and border-danger in the app. */
+  --danger-text: 185 28 28; /* red-700 */
   /* red-50 — every other *-bg light token is the -50 tier; kept the family
      consistent (was red-100, the lone outlier). */
   --danger-bg: 254 242 242; /* red-50 */
@@ -135,11 +140,13 @@
   /* Text — slightly desaturated whites read gentler on dark grey */
   --text-primary: 245 245 245;
   --text-secondary: 212 212 212;
-  --text-muted: 163 163 163;
+  /* neutral-400 (163) was 4.11:1 on a row under the pointer (--bg-subtle 64);
+     175 is 4.73 there, 6.90 on the surface, 8.17 on the page. */
+  --text-muted: 175 175 175;
   /* Was neutral-700 (115) — too dark against the neutral-800/900 surfaces for
-     the informative hints that share this token (fails AA). Bumped to
-     neutral-400 (163 = comfortably >4.5:1 on our dark surfaces). */
-  --text-placeholder: 163 163 163; /* neutral-400 */
+     the informative hints that share this token (fails AA). Moves with
+     --text-muted (same value, same reason). */
+  --text-placeholder: 175 175 175;
   /* Borders — bumped a tier to stay visible against lighter surfaces */
   --border-subtle: 64 64 64; /* neutral-700 — was 38 38 38 */
   --border-emphasis: 115 115 115; /* neutral-500 — was 64 64 64 */
@@ -155,7 +162,9 @@
   --success-text: 74 222 128; /* green-400 — ~5.2:1 on --success-bg, ~8.7:1 on --bg-surface */
   --success-muted: 64 161 100; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 239 68 68;
-  --danger-text: 248 113 113; /* red-400 — ~5.5:1 on --bg-surface */
+  /* red-300 — 5.46:1 on a hovered row (--bg-subtle), 5.28 in a danger box,
+     7.97 on --bg-surface; red-400 was 3.75 and 3.62 on the first two. */
+  --danger-text: 252 165 165;
   --danger-bg: 127 29 29; /* red-900 */
   --warning-bg: 120 53 15; /* amber-900 — was 69 26 3 (amber-950) */
   --warning-text: 252 211 77;
@@ -527,15 +536,13 @@ body[data-tour-active] .tour-overlay {
 }
 /* Destructive icon button — neutral at rest, danger colour on hover/focus (no
    background plate). Always rendered (no opacity reveal); the colour appears
-   only when you point at it. Deliberately --danger and not --danger-text: the
-   split is text-utilities-only, and this rule sets `color` as raw CSS rather
-   than through the text-danger utility. Note the clearance is NOT general —
-   the icon is 2.76:1 on --bg-subtle, which is what a hovered row paints
-   behind it (WorldsTab, BackupsPanel), so this pairing misses even the 3:1
-   WCAG allows non-text content. Recorded under DESIGN.md Known gaps. */
+   only when you point at it, so it shows on whatever the row under the
+   pointer paints, --bg-subtle. The icon is a foreground there, so it takes the
+   text tier: the dark fill red was 2.76:1 on a hovered row, under even the
+   3:1 WCAG allows non-text content; --danger-text is 5.46 (5.93 light). */
 .btn-icon-danger:hover,
 .btn-icon-danger:focus-visible {
-  color: rgb(var(--danger));
+  color: rgb(var(--danger-text));
 }
 /* Static-colour icon buttons — no hover model; the colour itself is the state
    (update available = warning, enabled = success). */

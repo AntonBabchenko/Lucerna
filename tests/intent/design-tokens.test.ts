@@ -93,29 +93,20 @@ function contrastRatio(a: Rgb, b: Rgb): number {
 }
 
 describe('--danger-text token', () => {
-  // Scope: --bg-surface is the pairing this token is guaranteed on — cards,
-  // inputs, popovers, and the modal body. It is deliberately NOT asserted
-  // against --danger-bg: text-danger inside a bg-danger-bg error box is ~4.4:1
-  // light and ~3.6:1 dark and misses AA today. That gap is recorded in
-  // DESIGN.md §1 rather than pinned here, because a test can only lock in a
-  // contract the palette actually meets.
-  it('clears AA for normal text on --bg-surface in the light theme', () => {
-    const light = lightThemeBlock();
-    const ratio = contrastRatio(
-      token(light, 'danger-text', 'light'),
-      token(light, 'bg-surface', 'light'),
-    );
-    expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-  });
-
-  it('clears AA for normal text on --bg-surface in the dark theme', () => {
-    const dark = darkThemeBlock();
-    const ratio = contrastRatio(
-      token(dark, 'danger-text', 'dark'),
-      token(dark, 'bg-surface', 'dark'),
-    );
-    expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-  });
+  // On the fills a row wears it is held by the matrix below. Here: the soft
+  // error box, text-danger on bg-danger-bg, which the tier tuned for
+  // --bg-surface alone missed (4.41:1 light, 3.62:1 dark before spec
+  // 2026-10-09).
+  for (const theme of ['light', 'dark'] as const) {
+    it(`clears AA inside a --danger-bg box in the ${theme} theme`, () => {
+      const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
+      const ratio = contrastRatio(
+        token(block, 'danger-text', theme),
+        token(block, 'danger-bg', theme),
+      );
+      expect(ratio).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    });
+  }
 
   it('keeps --danger itself at the saturated fill tier in both themes', () => {
     // The solid .btn-danger fill needs the saturated red to keep its white
@@ -127,6 +118,49 @@ describe('--danger-text token', () => {
   it('is what the text-danger utility resolves to', () => {
     const textColorMap = declarations(tailwindConfig, /textColor:\s*\{([^}]*)\}/, 'textColor');
     expect(textColorMap).toMatch(/danger:\s*'rgb\(var\(--danger-text\)/);
+  });
+});
+
+// Spec 2026-10-09: a row under the pointer paints --bg-subtle (CardShell rows,
+// the dependency tree, a menu's active item), so a text token must clear AA on
+// every neutral fill a row can wear, not only on --bg-surface, which is what
+// each was first tuned against.
+const ROW_FILLS = ['bg-base', 'bg-surface', 'bg-subtle'] as const;
+const TEXT_TOKENS = [
+  'text-primary',
+  'text-secondary',
+  'text-muted',
+  'text-placeholder',
+  'accent-text',
+  'success-text',
+  'warning-text',
+  'danger-text',
+] as const;
+
+describe('text tokens on every fill a row can wear', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    for (const fg of TEXT_TOKENS) {
+      it(`--${fg} clears AA on the page, a surface and a hovered row in the ${theme} theme`, () => {
+        const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
+        for (const fill of ROW_FILLS) {
+          const ratio = contrastRatio(token(block, fg, theme), token(block, fill, theme));
+          expect(ratio, `--${fg} on --${fill}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+        }
+      });
+    }
+  }
+});
+
+// The danger icon turns red only under the pointer, so on a hovered row's
+// --bg-subtle, where the dark FILL red is 2.76:1, under even the 3:1 non-text
+// floor. The icon is a foreground, so it takes the text tier the matrix holds.
+describe('.btn-icon-danger under the pointer', () => {
+  it('takes the text tier of red, not the fill', () => {
+    const rule = /\.btn-icon-danger:hover,\s*\.btn-icon-danger:focus-visible\s*\{([^}]*)\}/.exec(
+      withoutComments(appCss),
+    );
+    if (rule === null) throw new Error('no .btn-icon-danger hover/focus rule');
+    expect(rule[1]).toMatch(/color:\s*rgb\(var\(--danger-text\)\)/);
   });
 });
 
@@ -242,10 +276,11 @@ describe('--relation-by (what requires a mod, in its dependency panel)', () => {
   });
 
   for (const theme of ['light', 'dark'] as const) {
-    it(`clears 3:1 on the page and on a surface in the ${theme} theme`, () => {
+    // «Required by» rows fill --bg-subtle under the pointer, like every row.
+    it(`clears 3:1 on the page, a surface and a hovered row in the ${theme} theme`, () => {
       const block = theme === 'light' ? lightThemeBlock() : darkThemeBlock();
       const stripe = token(block, 'relation-by', theme);
-      for (const surface of ['bg-base', 'bg-surface']) {
+      for (const surface of ROW_FILLS) {
         const ratio = contrastRatio(stripe, token(block, surface, theme));
         expect(ratio, `--relation-by on --${surface}`).toBeGreaterThanOrEqual(3);
       }
