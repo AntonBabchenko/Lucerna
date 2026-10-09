@@ -1287,15 +1287,19 @@ mod tests {
             .mount(&s)
             .await;
         let _seam = allow_local();
+        // A key of its own: the refusal is remembered process-wide per API base and key
+        // (`cf_refused`), and a later test whose mock server gets this port back would find
+        // the shared "k" still refused and never ask (coverage on main, 2026-10-09).
+        let key = Some("refused-for-the-hour");
 
         assert_eq!(
-            learn(td.path(), &s.uri(), &s.uri(), Some("k"), NOW)
+            learn(td.path(), &s.uri(), &s.uri(), key, NOW)
                 .await
                 .unwrap(),
             0
         );
         assert_eq!(
-            learn(td.path(), &s.uri(), &s.uri(), Some("k"), NOW)
+            learn(td.path(), &s.uri(), &s.uri(), key, NOW)
                 .await
                 .unwrap(),
             0
