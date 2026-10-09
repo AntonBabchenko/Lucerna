@@ -50,6 +50,7 @@
   import OperationsBar from '$lib/tasks/OperationsBar.svelte';
   import { installGame } from '$lib/tasks/adapters/game-install';
   import { installModWithDeps } from '$lib/tasks/adapters/mod-install';
+  import { type OptimiseInstallResult, tallyOptimise } from '$lib/mods/optimise-tally';
   import {
     enqueueImport,
     opCompletionTick,
@@ -360,18 +361,19 @@
       (e) => e.status.status === 'will_install' && e.version,
     );
     optimiseInstalling = true;
-    let installed = 0;
-    let failed = 0;
+    const results: OptimiseInstallResult[] = [];
     for (const e of toInstall) {
       if (!e.version) continue;
-      const res = await installModWithDeps(instanceId, e.title, e.version, []);
-      if (res.status === 'ok') installed += 1;
-      else failed += 1;
+      results.push(await installModWithDeps(instanceId, e.title, e.version, []));
     }
     optimiseInstalling = false;
     optimiseOpen = false;
     optimisePlan = null;
     void stats.refreshInstalledStats(instanceId);
+    // An entry without a version was never sent: skipped too.
+    const tally = tallyOptimise(results);
+    const installed = tally.installed;
+    const failed = tally.failed;
     const skipped = toInstall.length - installed - failed;
     if (failed > 0) pushWarning($t('optimise.toastSomeFailed', { installed, failed }));
     else pushSuccess($t('optimise.toastDone', { installed, skipped }));
