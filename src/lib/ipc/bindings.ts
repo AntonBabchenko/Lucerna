@@ -1016,6 +1016,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  dependency's project is installed at any version, enabled or not, or an
 	 *  enabled jar of the same file name is. Such a library is left as it is — no
 	 *  second copy, no re-install over its record, a disabled one stays disabled.
+	 *  So is one whose jar carries a mod-id an installed jar (the outgoing one
+	 *  aside) already carries — the same mod from the other platform with other
+	 *  bytes, or a fork — left out and reported `Skipped` (spec 2026-10-09
+	 *  same-mod-by-id D4).
 	 * 
 	 *  `target` is re-resolved through `find_version` — the same gate, the same
 	 *  typed `ModVersionNotForInstance` and the same `allow_off_platform` consent

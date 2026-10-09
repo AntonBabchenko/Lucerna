@@ -25,7 +25,7 @@
   } from '$lib/mods/latest-supported-version';
   import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
   import { decideModInstall, type DepItem, type OptionalItem } from '$lib/mods/dep-prompt';
-  import { buildInstalledDepLines } from '$lib/mods/install-summary';
+  import { buildInstalledDepLines, skippedFiles } from '$lib/mods/install-summary';
   import type { IconName } from '$lib/ui/icons';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { nameKey } from '$lib/mods/name-match';
@@ -1196,8 +1196,14 @@
         // InstallSummary names projects too, but falls back to a version
         // title when no project title is cached). Lines = every newly-installed
         // dependency: the primary's requireds + each chosen optional and its
-        // transitive requireds, deduped by project.
-        const depLines = buildInstalledDepLines(prompt, chosenOptional);
+        // transitive requireds, deduped by project. One the install left out because
+        // the profile already had its mod says so instead (its report's skipped rows).
+        const depLines = buildInstalledDepLines(
+          prompt,
+          chosenOptional,
+          skippedFiles(installed.data.details),
+          (name) => get(t)('mods.browse.toastDepAlreadyInstalled', { name }),
+        );
         pushSuccess(
           get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
           depLines,

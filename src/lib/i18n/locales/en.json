@@ -768,6 +768,7 @@
       "toastInstallFailedWithMod": "Couldn't install {name}",
       "toastRetry": "Retry",
       "toastInstalledMod": "Installed {name}",
+      "toastDepAlreadyInstalled": "{name} was already installed",
       "mismatchLoader": "looks like a {detected} mod, instance is {instance}",
       "mismatchMc": "needs Minecraft {detected}, this profile runs {instance}",
       "mismatchPlatformLoader": "needs loader version {detected}, this profile runs {instance}",

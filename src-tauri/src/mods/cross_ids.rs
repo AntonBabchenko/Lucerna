@@ -752,6 +752,64 @@ async fn merge(
     Ok(learned as u32)
 }
 
+/// Record that `other` is `own`'s project on the other platform, learned from the two jars' own
+/// descriptor ids rather than their bytes (spec 2026-10-09 same-mod-by-id D5): an install met a
+/// jar carrying exactly the ids the installed row carries. Written only
+/// - from one platform to the other (an alias maps Modrinth and CurseForge onto each other);
+/// - for a row still installed — re-listed under the lock, like `merge`, so an alias of a row
+///   removed meanwhile is never written (`merge` would prune it anyway);
+/// - into an empty slot — an alias learned from bytes, or an earlier one, is never replaced: the
+///   bytes say more than a descriptor (a later pass that FINDS the bytes still replaces this one);
+/// - when no other row claims `other` already — `alias_map` would break that tie silently.
+///
+/// `Ok(true)` when the file now has the alias and did not before. Not written (an instance gone,
+/// a failed write) is `Ok(false)`, said in the log by `write_if_present`.
+pub async fn remember(instance_root: &Path, own: &Ident, other: &Ident) -> Result<bool, Error> {
+    let Some(name) = platform_name(other.0) else {
+        return Ok(false);
+    };
+    if other_platform(own.0) != Some(other.0) {
+        return Ok(false);
+    }
+    let _guard = sidecar_lock().lock().await;
+    let rows = installed::list(instance_root).await?;
+    let owns: HashSet<String> = rows.iter().filter_map(own_of).map(|o| key(&o)).collect();
+    // A project installed in its own right is no alias (`alias_map` drops it).
+    if !owns.contains(&key(own)) || owns.contains(&key(other)) {
+        return Ok(false);
+    }
+    let mut disk = load(instance_root).await;
+    // Another current row's alias already — a stale entry of a row gone is `merge`'s to prune.
+    let claimed = disk.aliases.iter().any(|(by, slots)| {
+        by != &key(own) && owns.contains(by) && slots.get(name) == Some(&other.1)
+    });
+    if claimed {
+        crate::diag!(
+            "[cross-ids] {} is another row's alias already — not {}'s",
+            key(other),
+            key(own)
+        );
+        return Ok(false);
+    }
+    let slot = disk.aliases.entry(key(own)).or_default();
+    match slot.get(name) {
+        Some(id) if id == &other.1 => return Ok(false),
+        Some(id) => {
+            crate::diag!(
+                "[cross-ids] {} on {name} stays {id}; its ids also match {}",
+                key(own),
+                other.1
+            );
+            return Ok(false);
+        }
+        None => {
+            slot.insert(name.to_string(), other.1.clone());
+        }
+    }
+    disk.version = FILE_VERSION;
+    Ok(write_if_present(instance_root, &disk).await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -942,6 +1000,203 @@ mod tests {
             0
         );
         assert!(!path(td.path()).exists(), "an unknown is never written");
+    }
+
+    // ── remember: an alias the jars' descriptor ids taught (spec 2026-10-09 D5) ──
+
+    fn mr(id: &str) -> Ident {
+        (ModSource::Modrinth, id.to_string())
+    }
+
+    fn cf(id: &str) -> Ident {
+        (ModSource::Curseforge, id.to_string())
+    }
+
+    async fn alias_of(root: &Path, other: &Ident) -> Option<Ident> {
+        let rows = installed::list(root).await.unwrap();
+        load_alias_map(root, &rows)
+            .await
+            .own_of(other.0, &other.1)
+            .cloned()
+    }
+
+    #[tokio::test]
+    async fn remember_fills_an_empty_slot() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "balm.jar",
+            b"mr balm",
+            ModSource::Modrinth,
+            "MBA",
+            true,
+        )
+        .await;
+
+        let wrote = remember(td.path(), &mr("MBA"), &cf("531761"))
+            .await
+            .unwrap();
+
+        assert!(wrote);
+        assert_eq!(alias_of(td.path(), &cf("531761")).await, Some(mr("MBA")));
+    }
+
+    #[tokio::test]
+    async fn remember_never_replaces_an_alias_already_there() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "balm.jar",
+            b"mr balm",
+            ModSource::Modrinth,
+            "MBA",
+            true,
+        )
+        .await;
+        assert!(remember(td.path(), &mr("MBA"), &cf("1")).await.unwrap());
+
+        let wrote = remember(td.path(), &mr("MBA"), &cf("2")).await.unwrap();
+
+        assert!(!wrote);
+        assert_eq!(alias_of(td.path(), &cf("1")).await, Some(mr("MBA")));
+        assert_eq!(alias_of(td.path(), &cf("2")).await, None);
+    }
+
+    #[tokio::test]
+    async fn remember_writes_nothing_for_a_row_that_is_not_installed() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "other.jar",
+            b"other",
+            ModSource::Modrinth,
+            "OTH",
+            true,
+        )
+        .await;
+
+        let wrote = remember(td.path(), &mr("MBA"), &cf("531761"))
+            .await
+            .unwrap();
+
+        assert!(!wrote);
+        assert!(!path(td.path()).exists());
+    }
+
+    #[tokio::test]
+    async fn remember_maps_one_platform_to_the_other_only() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "balm.jar",
+            b"mr balm",
+            ModSource::Modrinth,
+            "MBA",
+            true,
+        )
+        .await;
+
+        let wrote = remember(td.path(), &mr("MBA"), &mr("FORK")).await.unwrap();
+
+        assert!(!wrote);
+        assert!(!path(td.path()).exists());
+    }
+
+    #[tokio::test]
+    async fn remember_leaves_a_project_another_row_already_claims() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "balm.jar",
+            b"mr balm",
+            ModSource::Modrinth,
+            "MBA",
+            true,
+        )
+        .await;
+        add_jar(
+            td.path(),
+            "balm2.jar",
+            b"mr balm 2",
+            ModSource::Modrinth,
+            "MB2",
+            false,
+        )
+        .await;
+        assert!(remember(td.path(), &mr("MBA"), &cf("531761"))
+            .await
+            .unwrap());
+
+        let wrote = remember(td.path(), &mr("MB2"), &cf("531761"))
+            .await
+            .unwrap();
+
+        assert!(!wrote);
+        assert_eq!(alias_of(td.path(), &cf("531761")).await, Some(mr("MBA")));
+    }
+
+    #[tokio::test]
+    async fn remember_leaves_a_project_installed_in_its_own_right() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "balm.jar",
+            b"mr balm",
+            ModSource::Modrinth,
+            "MBA",
+            true,
+        )
+        .await;
+        add_jar(
+            td.path(),
+            "cf.jar",
+            b"cf balm",
+            ModSource::Curseforge,
+            "531761",
+            true,
+        )
+        .await;
+
+        let wrote = remember(td.path(), &mr("MBA"), &cf("531761"))
+            .await
+            .unwrap();
+
+        assert!(!wrote);
+        assert!(!path(td.path()).exists());
+    }
+
+    #[tokio::test]
+    async fn an_alias_remembered_survives_a_pass_that_finds_the_bytes_absent() {
+        let td = TempDir::new().unwrap();
+        add_jar(
+            td.path(),
+            "balm.jar",
+            b"mr balm",
+            ModSource::Modrinth,
+            "MBA",
+            true,
+        )
+        .await;
+        assert!(remember(td.path(), &mr("MBA"), &cf("531761"))
+            .await
+            .unwrap());
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(wpath("/v1/fingerprints"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": { "exactMatches": [] } })),
+            )
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam = allow_local();
+
+        learn(td.path(), &s.uri(), &s.uri(), Some("k"), NOW)
+            .await
+            .unwrap();
+
+        assert_eq!(alias_of(td.path(), &cf("531761")).await, Some(mr("MBA")));
     }
 
     #[tokio::test]

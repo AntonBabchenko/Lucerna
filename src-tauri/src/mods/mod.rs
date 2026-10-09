@@ -44,6 +44,7 @@ pub mod project_cache;
 pub mod range_describe;
 pub(crate) mod registry_lock;
 pub mod render;
+pub mod same_mod;
 pub mod store;
 pub mod summary_cache;
 pub mod trash;

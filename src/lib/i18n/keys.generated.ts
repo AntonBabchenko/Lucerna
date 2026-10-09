@@ -1369,6 +1369,7 @@ export type TranslationKey =
   | 'mods.browse.tabBrowse'
   | 'mods.browse.tabInstalled'
   | 'mods.browse.toastCouldNotRead'
+  | 'mods.browse.toastDepAlreadyInstalled'
   | 'mods.browse.toastFailedToInstall'
   | 'mods.browse.toastInstallFailed'
   | 'mods.browse.toastInstallFailedWithMod'
