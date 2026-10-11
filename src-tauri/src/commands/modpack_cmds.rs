@@ -935,28 +935,16 @@ pub async fn export_preview(
         })
         .collect();
 
-    let mc2 = mc.clone();
-    let (has_config, has_resourcepacks, has_shaderpacks, has_saves, saves_size) =
-        tokio::task::spawn_blocking(move || {
-            let has = |n: &str| mc2.join(n).is_dir();
-            (
-                has("config"),
-                has("resourcepacks"),
-                has("shaderpacks"),
-                has("saves"),
-                dir_size_bytes(&mc2.join("saves")),
-            )
-        })
-        .await
-        .map_err(|e| crate::error::Error::io("<export_preview scan>", e))?;
+    // The scanner the import and clone dialogs use: a linked category is
+    // marked, and a broken or unreadable one is shown rather than missing.
+    let content =
+        tokio::task::spawn_blocking(move || crate::instances::import::model::scan_content(&mc))
+            .await
+            .map_err(|e| crate::error::Error::io("<export_preview scan>", e))?;
 
     Ok(ExportPreview {
         mods: mod_infos,
-        has_config,
-        has_resourcepacks,
-        has_shaderpacks,
-        has_saves,
-        saves_size_bytes: saves_size as f64,
+        content,
     })
 }
 

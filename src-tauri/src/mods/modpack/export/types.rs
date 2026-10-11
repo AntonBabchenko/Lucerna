@@ -56,13 +56,11 @@ pub struct ExportModInfo {
 pub struct ExportPreview {
     /// Enabled mods only — disabled mods are never exported.
     pub mods: Vec<ExportModInfo>,
-    pub has_config: bool,
-    pub has_resourcepacks: bool,
-    pub has_shaderpacks: bool,
-    pub has_saves: bool,
-    /// Total bytes under `saves/`, for the privacy/size warning. f64 per
-    /// the specta no-BigInt rule.
-    pub saves_size_bytes: f64,
+    /// The instance's content categories, from the same scanner the import
+    /// and clone dialogs use: counts, sizes (the saves total feeds the
+    /// privacy/size warning), and whether each is a linked, broken or
+    /// unreadable folder.
+    pub content: Vec<crate::instances::import::model::ContentEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

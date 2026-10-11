@@ -158,14 +158,18 @@ pub fn write_archive(dest: &Path, entries: &[ZipEntry]) -> Result<(), Error> {
 }
 
 /// Recursively collect files under `dir` into `ZipEntry`s rooted at
-/// `archive_prefix` (e.g. `overrides/config`). Returns empty when `dir`
-/// does not exist. Files are added; directories are recursed.
-/// **Symlinks are never followed** — any symlink entry is silently skipped
-/// to prevent infinite cycles and to avoid leaking external files into the
-/// shared archive.
+/// `archive_prefix` (e.g. `overrides/config`). Empty when `dir` does not
+/// exist. A link at `dir` itself is the instance's content and its target is
+/// walked (the export dialog marks such a folder); a `dir` that cannot be
+/// read, or links to a missing folder, is an error. Files are added;
+/// directories are recursed. **Symlinks inside the tree are never followed**
+/// — they are silently skipped, to prevent infinite cycles and to keep
+/// external files out of the shared archive.
 pub fn collect_dir_entries(dir: &Path, archive_prefix: &str) -> Result<Vec<ZipEntry>, Error> {
     let mut out = Vec::new();
-    if !dir.exists() {
+    if !crate::content_root::has_content(dir, crate::content_root::Expect::Dir)
+        .map_err(|e| Error::io(dir.display().to_string(), e))?
+    {
         return Ok(out);
     }
     collect_recursive(dir, archive_prefix, &mut out)?;
@@ -305,6 +309,44 @@ mod archive_tests {
         // Only the real file should appear.
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].archive_path, "overrides/content/real.txt");
+    }
+
+    // ---- a linked, broken or unreadable category root ---------------------
+
+    use crate::content_root::test_links::{link_dir, unstattable};
+
+    #[test]
+    fn collect_dir_entries_walks_a_linked_root() {
+        let td = tempdir().unwrap();
+        let pool = td.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        std::fs::write(pool.join("p.zip"), b"P").unwrap();
+        let link = td.path().join("resourcepacks");
+        link_dir(&pool, &link);
+
+        let entries = collect_dir_entries(&link, "overrides/resourcepacks").unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].archive_path, "overrides/resourcepacks/p.zip");
+    }
+
+    #[test]
+    fn collect_dir_entries_refuses_a_broken_link_root() {
+        let td = tempdir().unwrap();
+        let pool = td.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        let link = td.path().join("config");
+        link_dir(&pool, &link);
+        std::fs::remove_dir(&pool).unwrap();
+        let res = collect_dir_entries(&link, "overrides/config");
+        assert!(res.is_err(), "a broken link is could-not-tell, not empty");
+    }
+
+    #[test]
+    fn collect_dir_entries_refuses_an_unreadable_root() {
+        let td = tempdir().unwrap();
+        let res = collect_dir_entries(&unstattable(td.path()), "overrides/config");
+        assert!(res.is_err(), "could-not-tell must not read as empty");
     }
 }
 

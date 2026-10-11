@@ -3226,6 +3226,7 @@ export type ContentEntry = {
 	category: ContentCategory,
 	file_count: number,
 	total_bytes: number | null,
+	location: ContentLocation,
 };
 
 /**
@@ -3252,6 +3253,26 @@ export type ContentKind = "mod" | "resource_pack" | "shader" |
  *  through `crate::datapacks::*` instead of the asset commands.
  */
 "datapack";
+
+/**  Where a category's content is, as the preview shows it. */
+export type ContentLocation = 
+/**  A real folder (or file, for `options.txt`) inside the instance. */
+{ kind: "local" } | 
+/**
+ *  The root is a symbolic link or junction. The counts are the target's
+ *  content, which is what gets copied, as real files.
+ */
+{ kind: "linked"; target: string } | 
+/**
+ *  The root is a link whose target is missing. Counts are 0; the row
+ *  cannot be selected and a copy refuses.
+ */
+{ kind: "broken_link"; target: string } | 
+/**
+ *  The root could not be inspected or listed. Counts are 0; `reason` is
+ *  the OS error.
+ */
+{ kind: "unreadable"; reason: string };
 
 /**  Cosmetics snapshot the modal loads on open. */
 export type Cosmetics = {
@@ -4356,15 +4377,13 @@ export type ExportOptions = {
 export type ExportPreview = {
 	/**  Enabled mods only — disabled mods are never exported. */
 	mods: ExportModInfo[],
-	has_config: boolean,
-	has_resourcepacks: boolean,
-	has_shaderpacks: boolean,
-	has_saves: boolean,
 	/**
-	 *  Total bytes under `saves/`, for the privacy/size warning. f64 per
-	 *  the specta no-BigInt rule.
+	 *  The instance's content categories, from the same scanner the import
+	 *  and clone dialogs use: counts, sizes (the saves total feeds the
+	 *  privacy/size warning), and whether each is a linked, broken or
+	 *  unreadable folder.
 	 */
-	saves_size_bytes: number | null,
+	content: ContentEntry[],
 };
 
 /**

@@ -15,10 +15,13 @@ use crate::instances::schema::{ForeignLauncher, LoaderKind};
 /// `root` file inside XMCL's config dir (`%APPDATA%\xmcl` on Windows).
 ///
 /// XMCL hard-links mod jars from a shared store — hard links read as regular
-/// files, so scanning and copying work unchanged. `resourcepacks/` or
-/// `shaderpacks/` may instead be a directory junction/symlink to the shared
-/// pool; the content scan and the copy pipeline both skip symlinks, so those
-/// dirs are (correctly) ignored rather than importing the whole pool.
+/// files, so scanning and copying work unchanged. With sharing on,
+/// `resourcepacks/` / `shaderpacks/` is a junction or symlink to XMCL's
+/// shared pool, and XMCL has MOVED the instance's own packs into that pool
+/// (`linkShared`), so the pool is exactly what the instance sees in game. The
+/// scan marks such a folder as linked and the copy takes the pool's content
+/// as real files ([`crate::content_root`]); skipping it would drop every pack
+/// the instance had.
 pub struct XmclReader;
 
 /// Tolerant view of XMCL's `instance.json`. Unknown fields (legacy-era

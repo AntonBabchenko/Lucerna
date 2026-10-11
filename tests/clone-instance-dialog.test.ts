@@ -54,13 +54,14 @@ function instance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
 }
 
 // Unique category per entry — the option list is keyed by option key.
+const local = { kind: 'local' as const };
 const fullScan = [
-  { category: 'mods' as const, file_count: 42, total_bytes: 104857600 },
-  { category: 'saves' as const, file_count: 3, total_bytes: 2048 },
-  { category: 'config' as const, file_count: 5, total_bytes: 1024 },
-  { category: 'resource_packs' as const, file_count: 1, total_bytes: 512 },
-  { category: 'shaderpacks' as const, file_count: 1, total_bytes: 256 },
-  { category: 'options_txt' as const, file_count: 1, total_bytes: 128 },
+  { category: 'mods' as const, file_count: 42, total_bytes: 104857600, location: local },
+  { category: 'saves' as const, file_count: 3, total_bytes: 2048, location: local },
+  { category: 'config' as const, file_count: 5, total_bytes: 1024, location: local },
+  { category: 'resource_packs' as const, file_count: 1, total_bytes: 512, location: local },
+  { category: 'shaderpacks' as const, file_count: 1, total_bytes: 256, location: local },
+  { category: 'options_txt' as const, file_count: 1, total_bytes: 128, location: local },
 ];
 
 const playtime = (sessions: number) => ({
@@ -173,5 +174,105 @@ describe('CloneInstanceDialog', () => {
     await fireEvent.input(getByTestId('clone-name-input'), { target: { value: '   ' } });
     expect((getByTestId('clone-submit') as HTMLButtonElement).disabled).toBe(true);
     expect(enqueueClone).not.toHaveBeenCalled();
+  });
+
+  // ---- a linked, broken or unreadable folder -----------------------------
+
+  it('shows where a linked folder points and still offers it', async () => {
+    (commands.cloneInstanceScan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: fullScan.map((e) =>
+        e.category === 'saves'
+          ? { ...e, location: { kind: 'linked' as const, target: '/shared/saves' } }
+          : e,
+      ),
+    });
+    const { getByTestId } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() =>
+      expect(getByTestId('location-note-saves').textContent).toContain('/shared/saves'),
+    );
+    const box = getByTestId('clone-opt-saves') as HTMLInputElement;
+    expect(box.disabled).toBe(false);
+    expect(box.checked).toBe(true);
+  });
+
+  it('disables an option whose only folder cannot be read', async () => {
+    (commands.cloneInstanceScan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: fullScan.map((e) =>
+        e.category === 'config'
+          ? {
+              ...e,
+              file_count: 0,
+              total_bytes: 0,
+              location: { kind: 'unreadable' as const, reason: 'Access is denied.' },
+            }
+          : e,
+      ),
+    });
+    const { getByTestId } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() => {
+      const box = getByTestId('clone-opt-config') as HTMLInputElement;
+      expect(box.disabled).toBe(true);
+      expect(box.checked).toBe(false);
+    });
+    expect(getByTestId('location-note-config')).toBeTruthy();
+  });
+
+  it('disables packs when one of its two folders is a broken link (a clone is all-or-nothing)', async () => {
+    (commands.cloneInstanceScan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: fullScan.map((e) =>
+        e.category === 'shaderpacks'
+          ? {
+              ...e,
+              file_count: 0,
+              total_bytes: 0,
+              location: { kind: 'broken_link' as const, target: 'E:\\shaders' },
+            }
+          : e,
+      ),
+    });
+    const { getByTestId } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() => {
+      const box = getByTestId('clone-opt-packs') as HTMLInputElement;
+      expect(box.disabled).toBe(true);
+      expect(box.checked).toBe(false);
+    });
+    expect(getByTestId('location-note-shaderpacks')).toBeTruthy();
+  });
+
+  it('blocks Clone, and says why, when the mods folder cannot be read', async () => {
+    (commands.cloneInstanceScan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: fullScan.map((e) =>
+        e.category === 'mods'
+          ? {
+              ...e,
+              file_count: 0,
+              total_bytes: 0,
+              location: { kind: 'broken_link' as const, target: 'E:\\mods' },
+            }
+          : e,
+      ),
+    });
+    const { getByTestId } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() =>
+      expect(getByTestId('clone-blocked-reason').textContent).toBe(
+        'instance.clone.modsUnavailable',
+      ),
+    );
+    const btn = getByTestId('clone-submit') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('aria-describedby')).toBe('clone-blocked-reason');
+    expect(getByTestId('location-note-mods')).toBeTruthy();
   });
 });
