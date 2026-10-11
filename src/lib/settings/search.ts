@@ -90,7 +90,7 @@ export function searchSettings(
     const classes: [WordClass, string[]][] = [
       ['label', labelWords],
       ['visible', entry.visibleKeys.flatMap((k) => words(t(k)))],
-      ['keyword', words(t(entry.keywordsKey))],
+      ['keyword', [...words(t(entry.keywordsKey)), ...(entry.extraKeywords ?? []).flatMap(words)]],
       ['section', words(t(`settings.sections.${entry.tab}` as TranslationKey))],
     ];
     let score = 0;

@@ -4,6 +4,8 @@
 // (mirrors the make-omission-a-compile-error pattern). The SETTINGS_SEARCH
 // literal and SETTINGS_ENTRIES are added in a later step once the i18n keys
 // exist.
+import { stringAt } from '$lib/i18n/catalog';
+import { BUNDLED_LOCALES } from '$lib/i18n/dictionaries';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import type { SettingsTab } from './state.svelte';
 
@@ -48,7 +50,22 @@ export interface SettingsSearchEntry {
    * checked against them (every word of the label is a word the page shows).
    */
   visibleKeys: readonly TranslationKey[];
+  /**
+   * Words that are no key of the current locale but must still find the row,
+   * matched as keywords. The language row's are every bundled language's name
+   * for itself and its own word for "Language", so someone stuck in a UI they
+   * cannot read finds it in their own language.
+   */
+  extraKeywords?: readonly string[];
 }
+
+const LANGUAGE_HEADING_KEY = 'settings.general.appearance.language' satisfies TranslationKey;
+
+/** Every bundled language's endonym and its own word for the "Language" heading. */
+export const LANGUAGE_SEARCH_WORDS: readonly string[] = BUNDLED_LOCALES.flatMap((l) => {
+  const heading = stringAt(l.dict, LANGUAGE_HEADING_KEY.split('.'));
+  return heading ? [l.endonym, heading] : [l.endonym];
+});
 
 /**
  * Anchors where moving keyboard focus on jump is safe: text fields the user
@@ -86,6 +103,7 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     labelKey: 'settings.search.labels.appearance.language',
     keywordsKey: 'settings.search.keywords.appearance.language',
     visibleKeys: ['settings.general.appearance.language'],
+    extraKeywords: LANGUAGE_SEARCH_WORDS,
   },
   'appearance.rainbowIcons': {
     anchor: 'appearance.rainbowIcons',

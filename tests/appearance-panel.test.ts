@@ -163,6 +163,29 @@ describe('AppearancePanel', () => {
     }
   });
 
+  it('says only "System" when the OS language is no language tag at all', () => {
+    const real = navigator.language;
+    Object.defineProperty(navigator, 'language', { value: 'not a tag!', configurable: true });
+    try {
+      langPref.value = 'system';
+      render(AppearancePanel);
+      expect(screen.getByTestId('language-select').textContent).not.toMatch(/currently/i);
+    } finally {
+      Object.defineProperty(navigator, 'language', { value: real, configurable: true });
+    }
+  });
+
+  it('shows System, not an empty box, when the saved language is no longer shipped', () => {
+    // 'zz' is no language at all, so it stays unshipped whatever translations arrive.
+    langPref.value = 'zz';
+    try {
+      render(AppearancePanel);
+      expect(screen.getByTestId('language-select').textContent).toMatch(/System/);
+    } finally {
+      langPref.value = 'system';
+    }
+  });
+
   it('says only "System" for the language when the OS language could not be read', () => {
     const real = navigator.language;
     Object.defineProperty(navigator, 'language', { value: '', configurable: true });

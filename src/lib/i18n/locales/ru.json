@@ -2966,6 +2966,7 @@
       "appearance": {
         "language": "Язык",
         "languageSystem": "Системный",
+        "languagePartial": "{name} · переведено {percent}%",
         "themeSystem": "Системная",
         "themeLight": "Светлая",
         "themeDark": "Тёмная",

@@ -4,6 +4,7 @@
 //   langPref.value      — 'system' | 'en' | 'ru' | … the saved choice.
 //   resolved locale     — what svelte-i18n is actually displaying.
 import { patchGeneral } from '$lib/settings/app-settings.svelte';
+import { SYSTEM_LOCALES } from './dictionaries';
 import { AVAILABLE_LOCALES, locale } from './index';
 import { getOsLang, LOCALE_STORAGE_KEY, resolveLocale } from './resolve';
 
@@ -24,7 +25,7 @@ function mirror(pref: string) {
 export function initLocale(initial: string): void {
   langPref.value = initial;
   mirror(initial);
-  locale.set(resolveLocale(initial, AVAILABLE_LOCALES, getOsLang()));
+  locale.set(resolveLocale(initial, AVAILABLE_LOCALES, getOsLang(), SYSTEM_LOCALES));
 }
 
 /** Apply a preference to the three places the live UI reads it from. Shared by
@@ -32,7 +33,7 @@ export function initLocale(initial: string): void {
 function applyPref(pref: string): void {
   langPref.value = pref;
   mirror(pref);
-  locale.set(resolveLocale(pref, AVAILABLE_LOCALES, getOsLang()));
+  locale.set(resolveLocale(pref, AVAILABLE_LOCALES, getOsLang(), SYSTEM_LOCALES));
 }
 
 /**

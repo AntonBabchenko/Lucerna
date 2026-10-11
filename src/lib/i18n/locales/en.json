@@ -2966,6 +2966,7 @@
       "appearance": {
         "language": "Language",
         "languageSystem": "System",
+        "languagePartial": "{name} · {percent}% translated",
         "themeSystem": "System",
         "themeLight": "Light",
         "themeDark": "Dark",
