@@ -25,16 +25,13 @@ before a substantial change. In short:
 
 ## Development setup
 
-Prerequisites:
+Install the prerequisites for your platform (Windows, Linux or macOS) from
+[`docs/BUILDING.md`](docs/BUILDING.md), then:
 
-- Rust toolchain (stable) — `rustup install stable`.
-- Node 24 (CI builds and tests on Node 24) and pnpm 11+ — `corepack enable && corepack prepare pnpm@11 --activate`.
-- Windows + the Microsoft C++ Build Tools (`Desktop development with C++`).
-- A WebView2 runtime (preinstalled on Windows 11).
-
-```powershell
+```sh
 git clone https://github.com/AntonBabchenko/Lucerna.git
 cd Lucerna
+corepack enable     # runs the pnpm version package.json pins
 pnpm install
 pnpm tauri dev      # run the launcher in development
 ```
