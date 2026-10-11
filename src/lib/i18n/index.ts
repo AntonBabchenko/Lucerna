@@ -1,7 +1,7 @@
 // Single import surface for i18n. At module load it (1) registers every
 // bundled dictionary (dictionaries.ts) synchronously (no async loader → no
-// flash-of-keys), and (2) calls svelte-i18n init() so the `$t` / `$_` stores
-// are usable on first paint. The boot sequence later reconciles the actual
+// flash-of-keys), and (2) calls svelte-i18n init() so `$t` (typed.ts) is
+// usable on first paint. The boot sequence later reconciles the actual
 // persisted preference via initLocale().
 import { addMessages, init, locale } from 'svelte-i18n';
 import { AVAILABLE_LOCALES, BUNDLED_LOCALES, SYSTEM_LOCALES } from './dictionaries';

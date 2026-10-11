@@ -19,8 +19,9 @@ same platform Prism Launcher uses). Everything happens in your browser:
    **Settings → Appearance → Language** automatically.
 
 Partial translations are fine for a **new** language — any untranslated string
-falls back to English. The language picker names every language in that
-language, and one that is not complete says how much of it is done
+falls back to English. The language picker shows each language under its own
+name (or its code, if the system has no name for it), and one that is not
+complete says how much of it is done
 ("Deutsch · 42% translated"), so nobody picks it expecting a whole interface.
 On **System**, Lucerna switches to the system's language by itself once at
 least 90% of its strings are translated; below that, anyone can still choose

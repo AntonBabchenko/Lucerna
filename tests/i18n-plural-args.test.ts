@@ -152,3 +152,44 @@ describe('no locale-sensitive message is identical in both locales', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// $t formats with IntlMessageFormat's own named styles only: typed.ts passes no
+// custom formats, where svelte-i18n added `scientific`, `engineering`,
+// `compactLong` and `compactShort`. IntlMessageFormat silently ignores a style
+// name it does not know, so a message using one would quietly render a plain
+// number. A message that needs more takes an ICU skeleton (`::…`).
+const KNOWN_STYLES: Record<string, readonly string[]> = {
+  number: ['integer', 'currency', 'percent'],
+  date: ['short', 'medium', 'long', 'full'],
+  time: ['short', 'medium', 'long', 'full'],
+};
+
+/** `key :: value` for every message naming a number/date/time style $t does not know. */
+function unknownStyles(dict: Record<string, string>): string[] {
+  return Object.entries(dict)
+    .filter(([, value]) =>
+      [...value.matchAll(/\{\s*\w+\s*,\s*(number|date|time)\s*,\s*([A-Za-z]\w*)\s*\}/g)].some(
+        ([, type, style]) => !KNOWN_STYLES[type].includes(style),
+      ),
+    )
+    .map(([key, value]) => `${key} :: ${value}`)
+    .sort();
+}
+
+describe('every named ICU style is one $t knows', () => {
+  it('flags a style svelte-i18n knew and IntlMessageFormat does not', () => {
+    expect(
+      unknownStyles({
+        a: '{n, number, compactShort}',
+        b: '{n, number, percent}',
+        c: '{n, number, ::.0 group-off}',
+        d: '{d, date, medium}',
+      }),
+    ).toEqual(['a :: {n, number, compactShort}']);
+  });
+
+  it('finds no unknown style in en or ru', () => {
+    expect(unknownStyles(flatten(en as Json))).toEqual([]);
+    expect(unknownStyles(flatten(ru as Json))).toEqual([]);
+  });
+});
