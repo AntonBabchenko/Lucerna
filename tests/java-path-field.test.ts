@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import JavaPathField from '$lib/instances/JavaPathField.svelte';
-import JavaPathFieldInList from './fixtures/JavaPathFieldInList.svelte';
 import { locale } from '$lib/i18n';
+import JavaPathField from '$lib/instances/JavaPathField.svelte';
 import { commands } from '$lib/ipc/bindings';
+import JavaPathFieldInList from './fixtures/JavaPathFieldInList.svelte';
 
 // The Java an instance runs on (spec 2026-10-11 custom-java §6.1): what a user
 // can name — pick by Browse, pick from what was found, be refused with a
