@@ -163,6 +163,16 @@ describe('AppearancePanel', () => {
     }
   });
 
+  it('shows System, not an empty box, when the saved language is no longer shipped', () => {
+    langPref.value = 'de';
+    try {
+      render(AppearancePanel);
+      expect(screen.getByTestId('language-select').textContent).toMatch(/System/);
+    } finally {
+      langPref.value = 'system';
+    }
+  });
+
   it('says only "System" for the language when the OS language could not be read', () => {
     const real = navigator.language;
     Object.defineProperty(navigator, 'language', { value: '', configurable: true });

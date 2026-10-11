@@ -8,8 +8,8 @@
   import { onMount } from 'svelte';
   import { commands, type ThemePreference } from '$lib/ipc/bindings';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
-  import { SYSTEM_LOCALES } from '$lib/i18n/dictionaries';
-  import { getOsLang, resolveLocale } from '$lib/i18n/resolve';
+  import { BUNDLED_LOCALES, SYSTEM_LOCALES } from '$lib/i18n/dictionaries';
+  import { getOsLang, pickerValue, resolveLocale } from '$lib/i18n/resolve';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
   import Select from '$lib/ui/Select.svelte';
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
@@ -21,14 +21,14 @@
   import { saveFailure } from '$lib/settings/app-settings.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import SettingsField from './SettingsField.svelte';
+  import { languageOptions } from './language-options';
 
-  const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
-
-  // "System" names what it resolves to. The language rule is deliberate, not a
-  // guess — Russian if the OS language is Russian, English otherwise — so the
-  // result is always true to name, EXCEPT when the OS language could not be
-  // read at all (''), where saying "currently English" would imply Lucerna
-  // found out the OS is English.
+  // "System" names what it resolves to: the OS language when a bundled
+  // translation of it is at least SYSTEM_LOCALE_MIN_PERCENT complete, English
+  // otherwise. The rule is deterministic, not a guess, so the result is always
+  // true to name, EXCEPT when the OS language could not be read at all (''),
+  // where saying "currently English" would imply Lucerna found out the OS is
+  // English.
   const systemLanguageLabel = $derived.by(() => {
     const base = $t('settings.general.appearance.languageSystem');
     const os = getOsLang();
@@ -36,7 +36,7 @@
     const code = resolveLocale('system', AVAILABLE_LOCALES, os, SYSTEM_LOCALES);
     return $t('settings.general.appearance.systemResolved', {
       system: base,
-      value: LOCALE_LABELS[code] ?? code,
+      value: BUNDLED_LOCALES.find((l) => l.code === code)?.endonym ?? code,
     });
   });
 
@@ -69,10 +69,10 @@
     }
   });
 
-  const languageOptions = $derived([
-    { value: 'system', label: systemLanguageLabel },
-    ...AVAILABLE_LOCALES.map((code) => ({ value: code, label: LOCALE_LABELS[code] ?? code })),
-  ]);
+  // Every bundled language by its own name; a partial one says how much is
+  // translated. A saved language that is no longer shipped shows as System,
+  // which is what it resolves to (pickerValue), never as an empty box.
+  const languageOptionList = $derived(languageOptions(BUNDLED_LOCALES, systemLanguageLabel, $t));
 
   // testId per option keeps the `theme-<pref>` ids the tests and the save-failure
   // suite query.
@@ -119,8 +119,8 @@
         class="text-sm"
         dataTestid="language-select"
         ariaLabel={$t('settings.general.appearance.language')}
-        value={langPref.value}
-        options={languageOptions}
+        value={pickerValue(langPref.value, AVAILABLE_LOCALES)}
+        options={languageOptionList}
         onChange={(v) => void setLocalePref(String(v))}
       />
       <StatusMessage
