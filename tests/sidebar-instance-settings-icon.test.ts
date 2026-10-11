@@ -60,8 +60,7 @@ const baseProps = {
   onOpenCosmetics: () => {},
   onAddOffline: () => {},
   onSelectInstance: () => {},
-  onOpenManage: () => {},
-  onManageInstance: () => {},
+  onCreateInstance: () => {},
   onOpenMods: () => {},
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
@@ -79,30 +78,32 @@ const baseProps = {
   installing: false,
 };
 
-describe('Sidebar per-instance manage icon', () => {
+describe('Sidebar per-instance settings icon', () => {
   beforeEach(() => initSidebarButtons([]));
 
-  it('manages the CLICKED profile, not the active one', async () => {
-    // Regression guard: the manage modal must open on the row the user clicked,
+  it('asks for the CLICKED profile, not the active one', async () => {
+    // Regression guard: the Settings tab must open on the row the user clicked,
     // even when it is not the active instance. The active switch is async, so
-    // the modal can't rely on activeInstance at open time — the clicked id must
-    // be passed explicitly via onManageInstance.
-    const onManageInstance = vi.fn();
+    // the request names the clicked id and waits for its activation.
+    const onOpenInstanceSettings = vi.fn();
+    const onSelectInstance = vi.fn();
     const alt = instance({ id: 'inst-2', name: 'Other' });
     render(Sidebar, {
       props: {
         ...baseProps,
-        onManageInstance,
+        onOpenInstanceSettings,
+        onSelectInstance,
         instances: [instance(), alt], // active = inst-1
         activeInstance: instance(),
       },
     });
-    // Open the profile dropdown, then press the NON-active row's manage icon.
-    // The Select commits option rows on mousedown, so the manage control is
-    // driven the same way (its mousedown bubbles to select+close the dropdown).
+    // Open the profile dropdown, then press the NON-active row's settings icon.
+    // The Select commits option rows on mousedown, so the icon is driven the
+    // same way: its mousedown bubbles to the row, which makes it active.
     await fireEvent.click(screen.getByRole('combobox', { name: /instance/i }));
-    await fireEvent.mouseDown(screen.getByTestId('sidebar-manage-instance-inst-2'));
-    expect(onManageInstance).toHaveBeenCalledTimes(1);
-    expect(onManageInstance).toHaveBeenCalledWith('inst-2');
+    await fireEvent.mouseDown(screen.getByTestId('sidebar-instance-settings-inst-2'));
+    expect(onOpenInstanceSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenInstanceSettings).toHaveBeenCalledWith('inst-2');
+    expect(onSelectInstance).toHaveBeenCalledWith('inst-2');
   });
 });

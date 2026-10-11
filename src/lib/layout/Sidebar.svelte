@@ -29,6 +29,7 @@
   import { buildInstanceMenuItems } from '$lib/instances/instance-menu';
   import CountPill from '$lib/ui/cards/CountPill.svelte';
   import Menu from '$lib/ui/Menu.svelte';
+  import { estimateMenuHeight } from '$lib/ui/menu-metrics';
   import HideButtonConfirmDialog from '$lib/layout/HideButtonConfirmDialog.svelte';
   import AccountRequiredDialog from '$lib/layout/AccountRequiredDialog.svelte';
   import { SIDEBAR_BUTTONS, type SidebarButtonId } from '$lib/layout/sidebar-buttons';
@@ -45,10 +46,18 @@
     onOpenCosmetics,
     onAddOffline,
     onSelectInstance,
-    onOpenManage,
-    onManageInstance = () => {},
+    onCreateInstance,
+    onOpenInstanceSettings,
+    onActivateInstance,
+    onRenameInstance,
     onCloneInstance = () => {},
     onCreateShortcut,
+    onTranslationsInstance,
+    onExportInstance,
+    onOpenInstanceFolder,
+    onOpenInstanceModsFolder,
+    onDeleteInstance,
+    isBusy = () => false,
     onOpenMods,
     onOpenLogs,
     onOpenModpacks,
@@ -93,17 +102,29 @@
     // the inline field this used to reveal was too easy to miss.
     onAddOffline: () => void;
     onSelectInstance: (id: string) => void;
-    onOpenManage: () => void;
-    // Manage a specific profile (the per-row icon in the profile dropdown):
-    // seeds the manage modal's detail selection to this id, independent of the
-    // async active-instance switch. Defaults to a no-op.
-    onManageInstance?: (instanceId: string) => void;
-    // Open the clone dialog for a specific profile (the right-click menu on a
-    // row in the profile dropdown). Defaults to a no-op.
+    /** Open the create-instance dialog (New instance, and the empty state). */
+    onCreateInstance: () => void;
+    /** Open the Settings tab for this instance — the row's settings icon. Its
+     *  mousedown also commits the row, which makes the instance active; the
+     *  page's request waits for that activation. */
+    onOpenInstanceSettings?: (instanceId: string) => void;
+    // The row menu's actions (shared builder, instance-menu.ts). Each one left
+    // undefined omits its item — a bare mount offers only what it can do.
+    onActivateInstance?: (instanceId: string) => void;
+    onRenameInstance?: (instanceId: string) => void;
+    // Open the clone dialog for a specific profile. Defaults to a no-op.
     onCloneInstance?: (instanceId: string) => void;
     /** Undefined on platforms without desktop-shortcut support — the menu item
      *  is then omitted rather than shown disabled. */
     onCreateShortcut?: (instanceId: string) => void;
+    onTranslationsInstance?: (instanceId: string) => void;
+    onExportInstance?: (instanceId: string) => void;
+    onOpenInstanceFolder?: (instanceId: string) => void;
+    onOpenInstanceModsFolder?: (instanceId: string) => void;
+    onDeleteInstance?: (instanceId: string) => void;
+    /** A task scoped to this instance is running or queued (install, verify,
+     *  mod install, pack update, world migration): Delete waits for it. */
+    isBusy?: (instanceId: string) => boolean;
     onOpenMods: () => void;
     onOpenLogs: () => void;
     // Open the global Modpacks browser (a full-screen modal). Modpacks aren't
@@ -155,8 +176,8 @@
     onOpenGallery?: () => void;
     onOpenSkinEditor?: (account: Account | null) => void;
     // Non-null while the configured data root is unavailable (§7 fallback
-    // gating): disables Play/Install (with an explanatory tooltip) and the
-    // empty-state "Create instance" shortcut. See data-root-gating.ts.
+    // gating): disables Play/Install (with an explanatory tooltip), the
+    // empty-state "+ Create" shortcut and New instance. See data-root-gating.ts.
     playBlockedReason?: string | null;
     createBlockedReason?: string | null;
     // Non-null while the data root is unavailable: disables the "Import from
@@ -192,14 +213,6 @@
   const instanceOptions = $derived(
     instances.map((i) => ({
       value: i.id,
-      icon:
-        i.integrity && !i.integrity.healthy
-          ? ('warning' as const)
-          : modpackUpdates.hasUpdate(i.id)
-            ? ('update' as const)
-            : i.ready
-              ? ('success' as const)
-              : ('download' as const),
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
   );
@@ -260,29 +273,76 @@
     left: number;
     label: string;
     items: ContextMenuItem[];
+    openedByKeyboard: boolean;
+    returnFocusEl: HTMLElement | null;
   } | null>(null);
 
-  function openInstanceMenu(id: string, pos: { x: number; y: number }) {
+  // Where the menu may sit — the ContextMenu.openAt rule: inside the window,
+  // MENU_MARGIN off its edges, by its width and its estimated height.
+  const MENU_WIDTH = 220;
+  const MENU_MARGIN = 8;
+
+  function openInstanceMenu(
+    id: string,
+    pos: { x: number; y: number },
+    how: { byKeyboard: boolean },
+  ) {
     const target = instances.find((i) => i.id === id);
+    // The one builder the Settings tab's Delete shares (instance-menu.ts), with
+    // every action this surface hosts. Create-shortcut is omitted entirely
+    // where the OS has no shortcut support (the page leaves the handler
+    // undefined) rather than shown disabled.
+    const items = buildInstanceMenuItems({
+      // Unknown instance → 'vanilla', the answer that offers less.
+      instance: { id, loader: target?.loader ?? 'vanilla' },
+      isActive: id === activeInstance?.id,
+      isRunning: isRunning(id),
+      isBusy: isBusy(id),
+      isLast: instances.length <= 1,
+      testIdPrefix: 'sidebar-ctx',
+      t: $t,
+      handlers: {
+        onActivate: onActivateInstance,
+        onRename: onRenameInstance,
+        onClone: onCloneInstance,
+        onShortcut: onCreateShortcut,
+        onTranslations: onTranslationsInstance,
+        onExport: onExportInstance,
+        onOpenFolder: onOpenInstanceFolder,
+        onOpenModsFolder: onOpenInstanceModsFolder,
+        onDelete: onDeleteInstance,
+      },
+    });
     instanceMenu = {
-      top: pos.y,
-      left: pos.x,
+      top: Math.min(
+        Math.max(pos.y, MENU_MARGIN),
+        Math.max(MENU_MARGIN, window.innerHeight - estimateMenuHeight(items) - MENU_MARGIN),
+      ),
+      left: Math.min(
+        Math.max(pos.x, MENU_MARGIN),
+        Math.max(MENU_MARGIN, window.innerWidth - MENU_WIDTH - MENU_MARGIN),
+      ),
       label: $t('instance.menu.aria', { name: target?.name ?? id }),
-      // The same builder as the Manage list, with the two actions this
-      // surface hosts. Create-shortcut is omitted entirely where the OS has no
-      // shortcut support (the page leaves the handler undefined) rather than
-      // shown disabled.
-      items: buildInstanceMenuItems({
-        // Unknown instance → 'vanilla', the answer that offers less.
-        instance: { id, loader: target?.loader ?? 'vanilla' },
-        isActive: id === activeInstance?.id,
-        isRunning: isRunning(id),
-        isLast: instances.length <= 1,
-        testIdPrefix: 'sidebar-ctx',
-        t: $t,
-        handlers: { onClone: onCloneInstance, onShortcut: onCreateShortcut },
-      }),
+      items,
+      openedByKeyboard: how.byKeyboard,
+      // From the keyboard, Select has closed its list and refocused its
+      // trigger before calling; from the mouse, focus is wherever it was.
+      returnFocusEl: document.activeElement as HTMLElement | null,
     };
+  }
+
+  // Menu does not return focus itself (its trigger wrappers do). Back to where
+  // the menu was opened from — unless the chosen action moved focus on purpose
+  // (Rename puts it in the Settings tab's name field): only a focus that fell
+  // to <body> is brought back.
+  function closeInstanceMenu() {
+    const back = instanceMenu?.returnFocusEl ?? null;
+    instanceMenu = null;
+    queueMicrotask(() => {
+      if (document.activeElement === document.body || document.activeElement === null) {
+        back?.focus?.();
+      }
+    });
   }
 </script>
 
@@ -470,22 +530,22 @@
               </button>
             </span>
           {:else}
-            <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}>
+            <button type="button" class="btn-primary btn-xs" onclick={onCreateInstance}>
               {$t('sidebar.createInstance')}
             </button>
           {/if}
         {:else}
-          <!-- Per-row Manage inside the profile dropdown. Unlike the account
+          <!-- Per-row settings inside the profile dropdown. Unlike the account
              trash (which stops its own mousedown so it does not commit the row),
              this deliberately lets the mousedown bubble to the option row's
-             commit — selecting that profile (making it active) AND closing the
-             dropdown. It opens Manage via onManageInstance(id) with the clicked
-             id, so the modal seeds its detail to THIS profile directly rather
-             than racing the async active-instance switch. -->
+             commit — making that profile active AND closing the dropdown. The
+             Settings tab always shows the active profile, so the page's request
+             names this id and waits for that activation instead of opening on
+             the previous profile. -->
           {#snippet instanceTrailing(opt: SelectOption)}
             {@const inst = instances.find((x) => x.id === opt.value)}
             {#if inst}
-              {@const manageLabel = $t('sidebar.manageInstanceLabel', { name: inst.name })}
+              {@const settingsLabel = $t('sidebar.instanceSettingsLabel', { name: inst.name })}
               <span class="flex flex-shrink-0 items-center gap-1">
                 {#if isRunning(inst.id)}
                   <!-- Inline Stop for a running row. Hidden at rest, revealed on
@@ -493,7 +553,7 @@
                        active row `.is-active`) — the literal Tailwind variants must
                        live in this file for the JIT scanner. tabindex=-1 keeps the
                        Select's aria-activedescendant focus model intact (focus
-                       stays on the trigger, like the Manage / trash row actions).
+                       stays on the trigger, like the settings / trash row actions).
                        Its mousedown is stopped so it does NOT commit / switch the
                        row — clicking Stop must not select the instance. Fully
                        keyboard-operable stop for ANY running instance already
@@ -518,10 +578,10 @@
                   type="button"
                   tabindex="-1"
                   class="btn-icon btn-icon-sm"
-                  data-testid="sidebar-manage-instance-{inst.id}"
-                  aria-label={manageLabel}
-                  use:tooltip={{ text: manageLabel, describe: false }}
-                  onmousedown={() => onManageInstance(inst.id)}
+                  data-testid="sidebar-instance-settings-{inst.id}"
+                  aria-label={settingsLabel}
+                  use:tooltip={{ text: settingsLabel, describe: false }}
+                  onmousedown={() => onOpenInstanceSettings?.(inst.id)}
                 >
                   <Icon name="sliders" size={14} />
                 </button>
@@ -531,6 +591,28 @@
           {#snippet instanceLeading(opt: SelectOption)}
             {@const inst = instances.find((x) => x.id === opt.value)}
             {#if inst}
+              <!-- One labelled glyph for an exceptional state, the list's only
+                   per-instance status since the Manage list went: integrity
+                   problems outrank a missing download; a ready, healthy
+                   instance shows nothing. Also the trigger's leading snippet,
+                   so the active instance carries it while the list is shut. -->
+              {#if inst.integrity && !inst.integrity.healthy}
+                <Icon
+                  name="warning"
+                  size={14}
+                  class="order-last flex-shrink-0 text-warning-text"
+                  label={$t('instance.integrity.statusProblems', {
+                    count: inst.integrity.problem_count,
+                  })}
+                />
+              {:else if !inst.ready}
+                <Icon
+                  name="download"
+                  size={14}
+                  class="order-last flex-shrink-0 text-muted"
+                  label={$t('instance.manage.iconDownloadNeeded')}
+                />
+              {/if}
               <span class="relative inline-flex flex-shrink-0">
                 <InstanceAvatar instance={inst} size={20} />
                 {#if isRunning(inst.id)}
@@ -567,7 +649,7 @@
               optionLeading={instanceLeading}
               valueLeading={instanceLeading}
               optionTrailing={instanceTrailing}
-              onOptionContextMenu={(opt, pos) => openInstanceMenu(String(opt.value), pos)}
+              onOptionContextMenu={(opt, pos, how) => openInstanceMenu(String(opt.value), pos, how)}
             />
           </div>
           {#if instanceMenu}
@@ -576,33 +658,15 @@
               ariaLabel={instanceMenu.label}
               top={instanceMenu.top}
               left={instanceMenu.left}
-              width={220}
-              onClose={() => (instanceMenu = null)}
+              width={MENU_WIDTH}
+              openedByKeyboard={instanceMenu.openedByKeyboard}
+              onClose={closeInstanceMenu}
             />
           {/if}
-          {#if isVisible('manage') || isVisible('mods')}
-            <!-- A label never breaks inside itself (plan §5b V2: «Папка / модов»). Each button is
-                 at least as wide as its label (`flex-1` from a zero basis, clamped to its unwrapped
-                 content): the two share the line in halves when both fit, and each takes a line
-                 of its own when they do not — «Управление» + «Папка модов» need more than the
-                 sidebar's 216 px. -->
+          {#if isVisible('mods')}
+            <!-- A label never breaks inside itself (plan §5b V2: «Папка / модов»): the
+                 button is at least as wide as its label. -->
             <div class="flex flex-wrap gap-1">
-              {#if isVisible('manage')}
-                <ContextMenu
-                  items={hideMenuItems('manage')}
-                  ariaLabel={$t('sidebar.contextMenuAria')}
-                >
-                  <button
-                    type="button"
-                    data-tour="manage-btn"
-                    class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1 whitespace-nowrap"
-                    onclick={onOpenManage}
-                  >
-                    <Icon name="sliders" size={14} />
-                    {$t('sidebar.manage')}
-                  </button>
-                </ContextMenu>
-              {/if}
               {#if isVisible('mods')}
                 <ContextMenu
                   items={hideMenuItems('mods')}
@@ -724,15 +788,26 @@
 
     <!--
       Content section (§14 sidebar rhythm): the instance-creating actions —
-      Browse modpacks (install a new pack → a new instance) and Import from
-      launcher. Client-only. Section + heading render only when ≥1 member is
-      visible, so a hidden pair leaves no orphaned heading.
+      New instance, Browse modpacks (install a new pack → a new instance) and
+      Import from launcher. Client-only. Section + heading render only when ≥1
+      member is visible, so hidden buttons leave no orphaned heading.
     -->
-    {#if serversUi.mode === 'client' && (isVisible('browse_modpacks') || isVisible('import_launcher'))}
+    {#if serversUi.mode === 'client' && (isVisible('new_instance') || isVisible('browse_modpacks') || isVisible('import_launcher'))}
       <SidebarSection
         heading={$t('sidebar.sectionContent')}
         headingTestid="sidebar-section-content"
       >
+        <HideableSidebarButton
+          id="new_instance"
+          hideItems={hideMenuItems('new_instance')}
+          contextMenuAria={$t('sidebar.contextMenuAria')}
+          testid="sidebar-new-instance"
+          disabledTooltip={createBlockedReason}
+          onclick={onCreateInstance}
+        >
+          <Icon name="plus" size={14} />
+          {$t('sidebar.newInstance')}
+        </HideableSidebarButton>
         <HideableSidebarButton
           id="browse_modpacks"
           hideItems={hideMenuItems('browse_modpacks')}
