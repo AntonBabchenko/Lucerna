@@ -73,10 +73,11 @@ describe('build instructions have one home', () => {
     expect(read(path)).toContain('(docs/BUILDING.md)');
   });
 
-  it.each(['README.md', 'CONTRIBUTING.md', 'docs/BUILDING.md'])(
-    '%s leaves the pnpm version to package.json',
-    (path) => {
-      expect(read(path)).not.toContain('corepack prepare pnpm@');
-    },
-  );
+  it.each([
+    'README.md',
+    'CONTRIBUTING.md',
+    'docs/BUILDING.md',
+  ])('%s leaves the pnpm version to package.json', (path) => {
+    expect(read(path)).not.toContain('corepack prepare pnpm@');
+  });
 });
