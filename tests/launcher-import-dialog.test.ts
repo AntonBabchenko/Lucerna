@@ -438,6 +438,20 @@ describe('LauncherImportDialog', () => {
     expect(note.textContent).toContain('C:\\xmcl\\resourcepacks');
   });
 
+  it('step 2: a linked or broken options.txt is called a file, not a folder', async () => {
+    const view = await step2With([
+      {
+        category: 'options_txt',
+        file_count: 1,
+        total_bytes: 10,
+        location: { kind: 'linked', target: '/home/me/shared/options.txt' },
+      },
+    ]);
+    expect(view.getByTestId('location-note-options_txt').textContent).toContain(
+      'instances.import.linkedFile',
+    );
+  });
+
   it('step 2: an unreadable or broken folder is shown but cannot be selected', async () => {
     const view = await step2With([
       { category: 'mods', file_count: 2, total_bytes: 10, location: { kind: 'local' } },

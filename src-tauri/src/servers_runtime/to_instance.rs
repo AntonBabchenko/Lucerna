@@ -74,14 +74,24 @@ pub async fn create_client_instance(
     // Mods are mandatory for a mod-core client: a copy failure rolls back the
     // half-built instance (mirrors the launcher-import rollback).
     // copy_instance_mods preserves .jar and .jar.disabled state and treats a
-    // missing source as 0 copied. A Paper/Purpur server holds Bukkit plugins
-    // (server-only), so its vanilla client instance copies no mods.
+    // missing source as 0 copied — but a mods/ link to a missing folder, or
+    // one it cannot read, as an error. A Paper/Purpur server holds Bukkit
+    // plugins (server-only), so its vanilla client instance copies no mods.
     if !file.loader.plugin_capable() {
         if let Err(e) = crate::servers_runtime::create::copy_instance_mods(&p.mods, &dst_mods) {
             // Remove the half-built instance directly (not via delete_instance,
             // which silently no-ops on the last instance) — see pipeline.rs's
-            // run_import rollback for the full rationale.
-            let _ = std::fs::remove_dir_all(&instance_root);
+            // run_import rollback for the full rationale. This runs because the
+            // copy already failed (Fallback discipline Q4): a leftover is put
+            // on record, not swallowed.
+            match std::fs::remove_dir_all(&instance_root) {
+                Ok(()) => {}
+                Err(re) if re.kind() == std::io::ErrorKind::NotFound => {}
+                Err(re) => crate::diag!(
+                    "instance-from-server: rollback of {} failed: {re} (copy failed: {e})",
+                    instance_root.display()
+                ),
+            }
             return Err(e);
         }
     }

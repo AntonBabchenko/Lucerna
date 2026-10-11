@@ -5,8 +5,10 @@
 
   // The second line under a content row: where a linked folder points, or why
   // a folder cannot be copied. A plain folder — or no entry — needs no note.
+  // `options.txt` is the one category that is a file, so it is called one.
   let { entry }: { entry: ContentEntry | null } = $props();
   const loc = $derived(entry?.location ?? null);
+  const isFile = $derived(entry?.category === 'options_txt');
 </script>
 
 {#if loc?.kind === 'linked'}
@@ -16,7 +18,8 @@
   >
     <Icon name="link" size={12} class="mt-0.5 shrink-0" />
     <span class="min-w-0 break-all"
-      >{$t('instances.import.linkedFolder')} <span class="font-mono">{loc.target}</span></span
+      >{$t(isFile ? 'instances.import.linkedFile' : 'instances.import.linkedFolder')}
+      <span class="font-mono">{loc.target}</span></span
     >
   </span>
 {:else if loc?.kind === 'broken_link'}
@@ -26,7 +29,8 @@
   >
     <Icon name="warning" size={12} class="mt-0.5 shrink-0" />
     <span class="min-w-0 break-all"
-      >{$t('instances.import.brokenLink')} <span class="font-mono">{loc.target}</span></span
+      >{$t(isFile ? 'instances.import.brokenLinkFile' : 'instances.import.brokenLink')}
+      <span class="font-mono">{loc.target}</span></span
     >
   </span>
 {:else if loc?.kind === 'unreadable'}
@@ -36,7 +40,9 @@
   >
     <Icon name="warning" size={12} class="mt-0.5 shrink-0" />
     <span class="min-w-0 break-all"
-      >{$t('instances.import.unreadableFolder', { reason: loc.reason })}</span
+      >{$t(isFile ? 'instances.import.unreadableFile' : 'instances.import.unreadableFolder', {
+        reason: loc.reason,
+      })}</span
     >
   </span>
 {/if}

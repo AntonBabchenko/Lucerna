@@ -142,7 +142,7 @@ pub fn has_content(path: &Path, want: Expect) -> io::Result<bool> {
 /// a caller that discriminates `NotFound` as "absent" must not read a broken
 /// link that way.
 pub fn broken_link_error(target: &Path) -> io::Error {
-    io::Error::other(format!("links to a missing folder: {}", display(target)))
+    io::Error::other(format!("links to a missing target: {}", display(target)))
 }
 
 /// A target path as the user should read it: `\\?\C:\x` → `C:\x`,
