@@ -22,7 +22,6 @@ const base = () => ({
   onCheckUpdates: vi.fn(),
   onUpdateAll: vi.fn(),
   onRecheckAll: vi.fn(),
-  onOpenModsFolder: vi.fn(),
 });
 
 describe('InstalledToolbar view filter (single mutually-exclusive group)', () => {

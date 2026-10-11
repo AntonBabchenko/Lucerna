@@ -59,7 +59,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     // Installed-asset registry for resource packs / shaders. Default: empty so
     // existing tests see the "Install" button; the installed-state tests below
     // override this with a matching InstalledAsset.
-    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } }),
     assetUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsInstallWithDeps: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
@@ -227,7 +227,7 @@ describe('ModBrowseView — content kind', () => {
       status: 'ok',
       data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
     });
-    assetsList.mockResolvedValue({ status: 'ok', data: [installedShader] });
+    assetsList.mockResolvedValue({ status: 'ok', data: { files: [installedShader], folders: [] } });
 
     render(ModBrowseView, {
       props: {
@@ -253,7 +253,7 @@ describe('ModBrowseView — content kind', () => {
       status: 'ok',
       data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
     });
-    assetsList.mockResolvedValue({ status: 'ok', data: [installedShader] });
+    assetsList.mockResolvedValue({ status: 'ok', data: { files: [installedShader], folders: [] } });
 
     render(ModBrowseView, {
       props: {
@@ -281,7 +281,7 @@ describe('ModBrowseView — content kind', () => {
       status: 'ok',
       data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
     });
-    assetsList.mockResolvedValue({ status: 'ok', data: [installedShader] });
+    assetsList.mockResolvedValue({ status: 'ok', data: { files: [installedShader], folders: [] } });
     assetUninstall.mockClear();
 
     render(ModBrowseView, {
@@ -314,7 +314,10 @@ describe('ModBrowseView — content kind', () => {
     // Installed asset is a DIFFERENT project — no match for shaderHit.
     assetsList.mockResolvedValue({
       status: 'ok',
-      data: [{ ...installedShader, project_id: 'other', filename: 'other.zip' }],
+      data: {
+        files: [{ ...installedShader, project_id: 'other', filename: 'other.zip' }],
+        folders: [],
+      },
     });
 
     render(ModBrowseView, {

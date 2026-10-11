@@ -1281,7 +1281,9 @@
       "libraryReadFailed": "Couldn't read this instance's data pack library, so the results may not show which packs are already installed.",
       "bulkHint": "Select data packs to update or remove several at once",
       "bulkUpdateKeptOld": "The old version was kept so a retry can finish",
-      "blockedRunning": "Quit Minecraft to change this instance's datapacks"
+      "blockedRunning": "Quit Minecraft to change this instance's datapacks",
+      "libraryFolders": "Folders in the library aren't used: {names}. Zip them, or put each in a world's datapacks folder.",
+      "libraryUnreadable": "Couldn't read the library folder, so packs added to it by hand may be missing."
     },
     "install": {
       "toastInstalled": "{count, plural, one {Installed # add-on} other {Installed # add-ons}}",
@@ -1316,8 +1318,21 @@
       "updateFailedToast": "Update failed",
       "removeFailedToast": "Remove failed",
       "bulkHint": "Select add-ons to update or remove several at once",
-      "removeManyConfirm": "{count, plural, one {Remove # add-on?} other {Remove # add-ons?}}"
-    }
+      "removeManyConfirm": "{count, plural, one {Remove # add-on?} other {Remove # add-ons?}}",
+      "folderTag": "folder",
+      "trashedToast": "Moved {name} to the recycle bin",
+      "bulkFoldersNote": "Folders are moved to the recycle bin.",
+      "folderUnreadable": "Couldn't read the folder, so packs added to it by hand may be missing.",
+      "oldFileKept": "Updated {name}, but the old file {file} is still in the folder",
+      "oldFilesKept": "{count, plural, one {# old file is} other {# old files are}} still in the folder"
+    },
+    "openFolder": {
+      "mods": "Mods folder",
+      "resourcePacks": "Resource packs folder",
+      "shaders": "Shaders folder",
+      "datapacks": "Data packs folder"
+    },
+    "openFolderFailed": "Couldn't open the folder."
   },
   "modpacks": {
     "modal": {
@@ -2877,7 +2892,8 @@
       "probeFailed": "It didn't say which Java it is ({details}).",
       "tooOld": "It's Java {found}; this Minecraft version needs Java {required} or newer.",
       "wrongArch": "It's a {found} build; this computer needs {expected}."
-    }
+    },
+    "addonEntryIsLink": "“{name}” is a link, not a pack. Remove it in the file manager."
   },
   "settings": {
     "title": "Settings",

@@ -350,6 +350,12 @@ pub enum Error {
     #[error("Instance directory I/O error at {path}: {details}")]
     ModsInstancePath { path: String, details: String },
 
+    /// An entry of a resource-pack or shader folder is a link (a symlink, or a
+    /// junction on Windows): the launcher neither deletes nor recycles through
+    /// one — the user removes it in the file manager.
+    #[error("{name} is a link, not a pack: remove it in the file manager")]
+    AddonEntryIsLink { name: String },
+
     /// A modpack update stopped in phase 2 and was undone: nothing was changed.
     /// `file_name` is the file it stopped at — the old file it was setting aside
     /// or the new one it was placing; `None` when it stopped while writing the

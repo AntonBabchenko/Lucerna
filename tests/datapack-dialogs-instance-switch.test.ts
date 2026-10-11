@@ -84,8 +84,13 @@ const library: DatapackLibraryView = {
     },
   ],
   worlds: [{ world: 'Beta', level_dat: 'present' }],
+  library_folders: [],
 };
-const emptyLibrary: DatapackLibraryView = { entries: [], worlds: library.worlds };
+const emptyLibrary: DatapackLibraryView = {
+  entries: [],
+  worlds: library.worlds,
+  library_folders: [],
+};
 
 const hit: ModSummary = {
   source: 'modrinth',
@@ -159,7 +164,7 @@ beforeEach(() => {
   c.instanceDependencyPreflight.mockResolvedValue({ status: 'ok', data: { violations: [] } });
   c.scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
   c.checkInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
-  c.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+  c.assetsList.mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } });
   c.assetsCheckUpdates.mockResolvedValue({ status: 'ok', data: [] });
   openMock.mockResolvedValue(['/x/terralith.zip']);
 });
