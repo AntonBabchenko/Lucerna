@@ -45,8 +45,8 @@ describe('onWindowFocus', () => {
     expect(cb).toHaveBeenCalledTimes(2);
   });
 
-  // WebView2 keeps the page focused while another app is in front, so the page's own event does
-  // not come on return: the window's focus event is the one that must work.
+  // The window's focus event is the OS activating the window: it must work on its own, whatever
+  // the webview does with the page's event.
   it('in Tauri, calls back when the window gains focus, not when it loses it', async () => {
     setInTauri(true);
     const cb = vi.fn();

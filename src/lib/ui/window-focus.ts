@@ -11,10 +11,12 @@ const inTauri = (): boolean => Boolean((globalThis as { isTauri?: unknown }).isT
  * Call `cb` each time the launcher window gains focus: the user coming back from the file manager
  * the Add-ons folder button opened, with packs dropped in by hand. Returns the unsubscribe.
  *
- * In the app the signal is Tauri's window focus event — the OS activating the window. The page's
- * own `focus` event cannot be relied on there: WebView2 keeps the page focused while another app is
- * in front (`document.hasFocus()` stays true), so coming back fires nothing. The DOM event stays as
- * the signal outside Tauri; when both arrive for one return, `cb` runs once.
+ * Two signals are heard. Tauri's window focus event is the OS activating the window, on every
+ * platform the launcher ships for. The page's own `focus` is what a webview chooses to raise: on
+ * Windows it comes with every activation (measured 2026-10-12, about 10 ms before Tauri's), but
+ * `document.hasFocus()` there stayed true with another app in front, so the page's view of focus is
+ * not the OS's — and outside Tauri (tests, a plain browser) it is the only signal. One return heard
+ * by both runs `cb` once.
  */
 export function onWindowFocus(cb: () => void): () => void {
   let last = Number.NEGATIVE_INFINITY;
