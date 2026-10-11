@@ -128,6 +128,11 @@ describe('ICU numeric arguments are numbers', () => {
 // ("dl" vs "скач."), so this only bites a message with no words at all.
 // `format.count` was exactly that, which is why $lib/format/count.ts formats a
 // bare integer in code with an explicit locale instead of through a key.
+//
+// Since partial community translations, the cause is fixed where $t formats:
+// $lib/i18n/typed.ts caches its formatters by locale AND message, and
+// tests/i18n-format.test.ts keeps every other module off svelte-i18n's own
+// formatter. This guard stays as the second line behind that one.
 describe('no locale-sensitive message is identical in both locales', () => {
   const enDict = flatten(en as Json);
   const ruDict = flatten(ru as Json);
