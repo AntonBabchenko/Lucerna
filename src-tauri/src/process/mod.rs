@@ -99,6 +99,73 @@ pub async fn install_server(
     Ok(())
 }
 
+/// How long a Java may take to say what it is. A cold JVM start on a slow disk
+/// is a few seconds; anything past this is treated as no answer.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+/// The most of a probe's output kept, per stream. A JVM's property dump is a
+/// few KiB; an executable that floods is not a Java, and once its pipe stops
+/// being read it blocks and runs into the timeout.
+const PROBE_OUTPUT_CAP: u64 = 256 * 1024;
+
+async fn read_capped<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> std::io::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut buf = Vec::new();
+    if let Some(p) = pipe {
+        p.take(PROBE_OUTPUT_CAP).read_to_end(&mut buf).await?;
+    }
+    Ok(buf)
+}
+
+/// Ask a Java what it is: `<console_exe> -XshowSettings:properties -version`.
+/// Returns stderr followed by stdout, or why there is no answer. One-shot,
+/// bounded by `PROBE_TIMEOUT`; the child is killed when the wait is abandoned
+/// (`kill_on_drop`). Documented in `docs/PRINCIPLES.md` Appendix A. The caller
+/// decides what the answer means (`java::verdict`).
+pub async fn probe_java(console_exe: &Path) -> std::result::Result<String, String> {
+    let mut cmd = tokio::process::Command::new(console_exe);
+    cmd.args(["-XshowSettings:properties", "-version"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    // The console `java.exe` started from the GUI launcher would flash a
+    // console window (see `spawn_server`).
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    crate::diag!("process: probing {}", console_exe.display());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("could not start it: {e}"))?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let run = async move {
+        let (out, err) = tokio::join!(read_capped(stdout), read_capped(stderr));
+        let status = child.wait().await.map_err(|e| format!("wait: {e}"))?;
+        let mut text =
+            String::from_utf8_lossy(&err.map_err(|e| format!("read: {e}"))?).into_owned();
+        text.push('\n');
+        text.push_str(&String::from_utf8_lossy(
+            &out.map_err(|e| format!("read: {e}"))?,
+        ));
+        if !status.success() {
+            let first = text
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim();
+            return Err(format!("it exited with {status}: {first}"));
+        }
+        Ok(text)
+    };
+    match tokio::time::timeout(PROBE_TIMEOUT, run).await {
+        Ok(answer) => answer,
+        Err(_) => Err(format!("no answer within {} s", PROBE_TIMEOUT.as_secs())),
+    }
+}
+
 /// Spawn the Minecraft client (`javaw`/`java`). Returns the `Child` so
 /// the caller owns lifecycle and the exit watcher. stdout+stderr are
 /// redirected to the launch-log file handles supplied by the caller;
