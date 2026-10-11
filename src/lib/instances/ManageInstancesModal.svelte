@@ -14,6 +14,7 @@
   import InstanceFolderRow from '$lib/instances/InstanceFolderRow.svelte';
   import { buildInstanceMenuItems, deleteBlockedReason } from '$lib/instances/instance-menu';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
+  import JavaPathField from '$lib/instances/JavaPathField.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import ManageInstanceList from '$lib/instances/ManageInstanceList.svelte';
@@ -393,6 +394,10 @@
         ? createBounds.default_mb
         : FALLBACK_MEMORY_BOUNDS.default_mb),
   );
+
+  // The Java field probes and looks for Javas when it mounts, so it mounts
+  // only once Advanced is open, not on every instance the list selects.
+  let advancedOpen = $state(false);
 
   // Advanced: optional initial heap (-Xms). null = unset (JVM default). Seeded
   // id-gated like the other drafts so a background refresh doesn't clobber it.
@@ -1245,7 +1250,7 @@
                 </div>
 
                 <div>
-                  <details class="mb-3">
+                  <details class="mb-3" bind:open={advancedOpen}>
                     <summary class="cursor-pointer select-none text-xs text-secondary">
                       {$t('instance.manage.advancedSummary')}
                     </summary>
@@ -1278,6 +1283,17 @@
                       <p class="mt-1 text-xs text-placeholder">
                         {$t('instance.manage.minHeapHint')}
                       </p>
+                      {#if advancedOpen}
+                        <JavaPathField
+                          instanceId={selected.id}
+                          value={selected.java}
+                          mcVersion={selected.mc_version}
+                          loader={selected.loader}
+                          loaderVersion={selected.loader_version}
+                          ready={selected.ready}
+                          onChanged={() => onChanged()}
+                        />
+                      {/if}
                     </div>
                   </details>
 

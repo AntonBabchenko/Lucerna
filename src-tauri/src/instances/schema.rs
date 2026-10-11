@@ -169,6 +169,12 @@ pub struct InstanceFile {
     /// "handled". Additive — old instance.json deserialises to None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handled_log_sig: Option<String>,
+    /// The Java this instance runs on. `None` = Lucerna's own runtime for its
+    /// Minecraft version. A local path, so it never leaves the machine: no
+    /// modpack export carries JVM settings, and no importer reads one.
+    /// Additive — old instance.json deserialises to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java: Option<crate::java::JavaChoice>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
@@ -632,6 +638,8 @@ pub struct InstanceWithStatus {
     /// Optional JVM initial heap (`-Xms`) in MB. `None` = JVM default.
     pub min_heap_mb: Option<u32>,
     pub extra_jvm_args: String,
+    /// The Java this instance runs on; `None` = Lucerna's runtime.
+    pub java: Option<crate::java::JavaChoice>,
     pub created_unix_ms: f64,
     /// True iff the effective version JAR is on disk. UI shows ✓/↓ icon.
     pub ready: bool,
@@ -660,6 +668,7 @@ impl InstanceWithStatus {
             max_heap_mb: file.max_heap_mb,
             min_heap_mb: file.min_heap_mb,
             extra_jvm_args: file.extra_jvm_args.clone(),
+            java: file.java.clone(),
             created_unix_ms: file.created_unix_ms,
             ready,
             has_icon,
@@ -866,6 +875,7 @@ mod tests {
             imported_from: None,
             created_from_server: None,
             handled_log_sig: None,
+            java: None,
         }
     }
 
@@ -875,6 +885,27 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: InstanceFile = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
+    }
+
+    #[test]
+    fn an_instance_json_without_java_reads_as_the_default() {
+        let json = serde_json::to_string(&sample()).unwrap();
+        assert!(
+            !json.contains("\"java\""),
+            "None is not written, so older builds see the file they know"
+        );
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.java, None);
+    }
+
+    #[test]
+    fn a_custom_java_round_trips() {
+        let mut s = sample();
+        s.java = Some(crate::java::JavaChoice::Custom {
+            path: "/opt/jdk-21/bin/java".into(),
+        });
+        let back: InstanceFile = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.java, s.java);
     }
 
     #[test]

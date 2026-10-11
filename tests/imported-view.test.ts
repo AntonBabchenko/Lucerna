@@ -83,6 +83,7 @@ const inst = (
     integrity: null,
     imported_from: null,
     created_from_server: null,
+    java: null,
   }) as const;
 
 describe('ImportedView', () => {

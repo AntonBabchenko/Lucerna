@@ -46,6 +46,7 @@ const sampleInstance: InstanceWithStatus = {
   integrity: null,
   imported_from: null,
   created_from_server: null,
+  java: null,
 };
 
 describe('Sidebar', () => {

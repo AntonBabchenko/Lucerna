@@ -427,7 +427,17 @@ pub async fn start(
         .as_ref()
         .map(|jv| jv.component.as_str())
         .unwrap_or(crate::jre::DEFAULT_LEGACY_COMPONENT);
-    let java_path = java_executable_path(component, app)?;
+    // The Java the instance chose, probed and judged against what this version
+    // needs; or Lucerna's runtime. A chosen Java that fails is the launch's
+    // error — never a silent switch to the managed one (`java::launch_java`).
+    let java_source = crate::java::resolve(instance.java.as_ref());
+    let java_path = crate::java::launch_java(
+        &java_source,
+        java_executable_path(component, app)?,
+        crate::java::required_major(&details),
+        |exe, required| async move { crate::java::check(&exe, required).await },
+    )
+    .await?;
 
     let os = current_os();
     let arch = current_arch();
@@ -489,7 +499,14 @@ pub async fn start(
             crate::instances::schema::GpuPreference::Auto
         }
     };
-    if gpu_pref != crate::instances::schema::GpuPreference::Auto {
+    if gpu_pref != crate::instances::schema::GpuPreference::Auto
+        && !crate::java::gpu_applies_to(&java_source)
+    {
+        crate::diag!(
+            "gpu: per-executable preference not written for {}: it is not Lucerna's runtime, and that entry is shared with every program that runs it",
+            java_path.display()
+        );
+    } else if gpu_pref != crate::instances::schema::GpuPreference::Auto {
         match crate::gpu_pref::record_path(app) {
             Ok(record) => match crate::gpu_pref::apply(
                 &crate::platform::gpu::OsRegistry,

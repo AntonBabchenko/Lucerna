@@ -26,7 +26,8 @@ use crate::instances::schema::{InstanceFile, InstanceWithStatus};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct CloneOptions {
     pub saves: bool,
-    /// Instance settings: `max_heap_mb`, `min_heap_mb`, `extra_jvm_args`.
+    /// Instance settings: `max_heap_mb`, `min_heap_mb`, `extra_jvm_args`,
+    /// `java` (a local path, still valid: a clone stays on this machine).
     pub settings: bool,
     /// `resourcepacks/` + `shaderpacks/` under one checkbox.
     pub packs: bool,
@@ -93,6 +94,11 @@ pub fn cloned_instance_file(
         imported_from: src.imported_from.clone(),
         created_from_server: None,
         handled_log_sig: None,
+        java: if copy_settings {
+            src.java.clone()
+        } else {
+            None
+        },
     }
 }
 
@@ -327,6 +333,9 @@ mod tests {
             }),
             created_from_server: Some("srv-1".into()),
             handled_log_sig: Some("sig".into()),
+            java: Some(crate::java::JavaChoice::Custom {
+                path: "/opt/jdk-21/bin/java".into(),
+            }),
         }
     }
 
@@ -345,6 +354,7 @@ mod tests {
         assert_eq!(c.max_heap_mb, 8192);
         assert_eq!(c.min_heap_mb, Some(4096));
         assert_eq!(c.extra_jvm_args, "-XX:+UseG1GC");
+        assert_eq!(c.java, source_file().java);
     }
 
     #[test]
@@ -360,6 +370,10 @@ mod tests {
         assert_eq!(c.max_heap_mb, 3000, "adaptive default, like a fresh create");
         assert_eq!(c.min_heap_mb, None);
         assert_eq!(c.extra_jvm_args, "");
+        assert_eq!(
+            c.java, None,
+            "the clone runs on Lucerna's Java, like a fresh create"
+        );
     }
 
     #[test]

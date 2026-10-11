@@ -357,7 +357,31 @@
       "openModsFolderFailed": "Couldn't open the mods folder.",
       "openSourceFolderFailed": "Couldn't open the source folder.",
       "cloneBtn": "Clone…",
-      "translationsBtn": "Translations"
+      "translationsBtn": "Translations",
+      "java": {
+        "label": "Java",
+        "bundled": "Lucerna's Java (recommended)",
+        "detected": "Java {version} · {vendor}",
+        "detectedNoVendor": "Java {version}",
+        "detectedUnknown": "Java, version unknown",
+        "withDir": "{label} ({dir})",
+        "tooOldOption": "{label}: too old for this version",
+        "saved": "Your Java",
+        "browse": "Browse…",
+        "refresh": "Refresh list",
+        "searching": "Looking for Java on this computer…",
+        "noneFound": "No other Java found on this computer. Browse to pick one.",
+        "detectFailed": "Couldn't look for Java on this computer.",
+        "checking": "Checking this Java…",
+        "statusBundled": "Lucerna downloads the Java this Minecraft version needs.",
+        "statusMatches": "Java {version}: the version this Minecraft needs.",
+        "statusNewer": "Java {found} is newer than the Java {required} this Minecraft version was made for. It usually works; if the game crashes on start, switch back to Lucerna's Java.",
+        "statusNewerLegacy": "Java {found} is newer than Java 8. Vanilla may start, but Forge for this version will not.",
+        "statusUnknown": "This instance isn't installed yet, so the Java it needs is unknown. Lucerna checks it at launch.",
+        "gpuNote": "The graphics card choice in Settings applies to Lucerna's Java only. For this Java, set it in Windows Settings → System → Display → Graphics.",
+        "fileFilter": "Java executable",
+        "savedMark": "Saved"
+      }
     },
     "menu": {
       "aria": "Actions for {name}",
@@ -373,7 +397,7 @@
       "nameLabel": "New name",
       "defaultSuffix": " (copy)",
       "whatToCopy": "What to copy",
-      "optionSettings": "Instance settings (memory, JVM arguments)",
+      "optionSettings": "Instance settings (memory, JVM arguments, Java)",
       "optionPacks": "Resource & shader packs",
       "optionPlaytime": "Playtime",
       "noPlaytime": "No playtime recorded yet",
@@ -2852,7 +2876,16 @@
     "modpackUpdateRolledBack": "Nothing was changed. The pack update stopped at {file}",
     "modpackUpdateRolledBackRecord": "Nothing was changed. The pack update could not write the pack's record",
     "contentUpdateRollbackIncomplete": "The update failed and could not be fully undone. What could not go back is kept in {folder}",
-    "contentUpdateUnfinished": "An earlier update of this profile was not finished. Restart Lucerna to finish undoing it, then try again."
+    "contentUpdateUnfinished": "An earlier update of this profile was not finished. Restart Lucerna to finish undoing it, then try again.",
+    "javaUnusable": "The Java chosen for this instance can't be used ({path}). {reason}",
+    "javaUnusableReason": {
+      "notFound": "The file isn't there any more: it may have been moved or uninstalled.",
+      "unreadable": "Lucerna couldn't read it ({details}).",
+      "notJava": "That isn't a Java executable. Pick java or javaw.",
+      "probeFailed": "It didn't say which Java it is ({details}).",
+      "tooOld": "It's Java {found}; this Minecraft version needs Java {required} or newer.",
+      "wrongArch": "It's a {found} build; this computer needs {expected}."
+    }
   },
   "settings": {
     "title": "Settings",

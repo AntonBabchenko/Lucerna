@@ -37,6 +37,7 @@ fn seed(instances: &Path, name: &str, created_unix_ms: f64) -> String {
         imported_from: None,
         created_from_server: None,
         handled_log_sig: None,
+        java: None,
     };
     // Persist using the RESERVED id (the wiring contract under test).
     write_instance_json(&dir.join("instance.json"), &inst).unwrap();

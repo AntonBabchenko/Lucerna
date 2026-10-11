@@ -133,6 +133,7 @@ function instance(overrides: Partial<InstanceWithStatus> = {}): InstanceWithStat
     integrity: null,
     imported_from: null,
     created_from_server: null,
+    java: null,
     ...overrides,
   };
 }

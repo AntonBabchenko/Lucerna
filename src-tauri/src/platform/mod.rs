@@ -9,6 +9,7 @@
 
 pub mod encoding;
 pub mod gpu;
+pub mod java_registry;
 pub mod protocol;
 
 pub use encoding::path_launchable;

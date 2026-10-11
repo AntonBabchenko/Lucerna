@@ -29,6 +29,7 @@ fn make(id: &str, name: &str) -> InstanceFile {
         imported_from: None,
         created_from_server: None,
         handled_log_sig: None,
+        java: None,
     }
 }
 
