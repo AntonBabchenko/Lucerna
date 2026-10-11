@@ -74,8 +74,13 @@ function version(filename: string): ModVersion {
 }
 const ok = <T>(data: T) => ({ status: 'ok' as const, data });
 
+// `assets_list`'s answer: the registry's files and the unpacked folders (`null`: unreadable).
+function listing(files: InstalledAsset[], folders: string[] | null = []) {
+  return ok({ files, folders });
+}
+
 async function mountWith(list: InstalledAsset[]) {
-  assetsList.mockResolvedValue(ok(list));
+  assetsList.mockResolvedValue(listing(list));
   render(InstalledAssetsView, { props: { instanceId: 'inst-1', kind: 'shader' } });
   await screen.findByTestId('bulk-select-all');
 }
@@ -84,7 +89,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   modsProjects.mockResolvedValue(ok([]));
   assetUninstall.mockResolvedValue(ok(null));
-  assetUpdateOne.mockResolvedValue(ok(null));
+  assetUpdateOne.mockResolvedValue(ok({ old_file_kept: null }));
   assetsChanged.value = 0;
 });
 afterEach(() => {
@@ -167,7 +172,7 @@ describe('InstalledAssetsView — bulk actions', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Update' })).toHaveLength(2));
     // The row's own Remove (instant) — the re-list it triggers used to wipe every badge.
-    assetsList.mockResolvedValue(ok([asset('b.zip')]));
+    assetsList.mockResolvedValue(listing([asset('b.zip')]));
     await fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0]);
     await waitFor(() => expect(assetUninstall).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Update' })).toHaveLength(1));
@@ -192,7 +197,7 @@ describe('InstalledAssetsView — bulk actions', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
     expect(await screen.findByRole('button', { name: 'Update all (2)' })).toBeTruthy();
     // Browse removed a.zip and bumped the shared signal; this view only re-lists.
-    assetsList.mockResolvedValue(ok([asset('b.zip')]));
+    assetsList.mockResolvedValue(listing([asset('b.zip')]));
     assetsChanged.value++;
     expect(await screen.findByRole('button', { name: 'Update all (1)' })).toBeTruthy();
   });
@@ -203,7 +208,7 @@ describe('InstalledAssetsView — bulk actions', () => {
     await fireEvent.click(
       within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Remove' }),
     );
-    assetsList.mockResolvedValue(ok([]));
+    assetsList.mockResolvedValue(listing([]));
     await fireEvent.click(await screen.findByTestId('assets-bulk-remove-confirm'));
     await waitFor(() => expect(assetUninstall).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('list-empty')));

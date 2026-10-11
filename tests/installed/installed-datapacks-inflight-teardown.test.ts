@@ -58,6 +58,7 @@ function listing(inLibrary: boolean, worlds: string[]): DatapackLibraryView {
       { world: 'W1', level_dat: 'present' },
       { world: 'W2', level_dat: 'present' },
     ],
+    library_folders: [],
   };
 }
 
@@ -72,6 +73,7 @@ function twoPacks(): DatapackLibraryView {
       placements: [],
     })),
     worlds: listing(true, []).worlds,
+    library_folders: [],
   };
 }
 

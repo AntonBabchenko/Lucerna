@@ -346,6 +346,13 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "removes a resource or shader pack file and its registry row",
     ),
     (
+        "commands/assets.rs",
+        "assets_list",
+        SHARED_WRITE_GATE,
+        "reconciles the assets registry with the pack folder — adopts hand-placed zips, \
+         drops rows whose file is gone",
+    ),
+    (
         "commands/logs.rs",
         "execute_repair",
         SHARED_WRITE_GATE,
@@ -695,11 +702,6 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
          writer can tear the export (a named gap; the instance itself is untouched)",
     ),
     // commands/assets.rs
-    (
-        "commands/assets.rs",
-        "assets_list",
-        "the installed packs — backfills the assets registry from pack_origin only",
-    ),
     (
         "commands/assets.rs",
         "assets_check_updates",

@@ -238,6 +238,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	openModsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder", { instanceId })),
 	/**
+	 *  Ensure the add-on kind's folder exists (see [`addon_folder`]), then open
+	 *  it in the OS file manager. Idempotent — safe to click repeatedly.
+	 */
+	openAddonFolder: (instanceId: string, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("open_addon_folder", { instanceId, kind })),
+	/**
 	 *  Show an installed mod's jar in the OS file manager, selected — the file as
 	 *  it is on disk, `<file>` or `<file>.disabled`; `reveal_screenshot`'s shape.
 	 * 
@@ -880,13 +885,22 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	assetInstall: (instanceId: string, version: ModVersion_Deserialize, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("asset_install", { instanceId, version, kind })),
 	/**
-	 *  List installed resource packs or shaders for an instance, filtered by
-	 *  `kind`. Reads the per-instance assets registry; never touches mods.
+	 *  The Installed list of resource packs or shaders: the per-instance assets
+	 *  registry reconciled with the pack folder (a hand-placed zip adopted, a row
+	 *  whose file is gone dropped), and the unpacked pack folders in it. Never
+	 *  touches mods.
+	 * 
+	 *  Reconciling writes the registry, so it runs under the per-item writer's
+	 *  shared claim. Refused — a pack update, a clone or a migration holds the
+	 *  instance and may be swapping its pack files — the list is the registry as
+	 *  it is: never a reconcile against files in flux.
 	 */
-	assetsList: (instanceId: string, kind: ContentKind) => typedError<InstalledAsset[], Error>(__TAURI_INVOKE("assets_list", { instanceId, kind })),
+	assetsList: (instanceId: string, kind: ContentKind) => typedError<AssetListing, Error>(__TAURI_INVOKE("assets_list", { instanceId, kind })),
 	/**
-	 *  Remove an asset's file from disk (best-effort) and drop its registry
-	 *  entry. The registry is the source of truth, so a missing file is fine.
+	 *  Remove a pack — its file, or a folder pack to the OS recycle bin — and
+	 *  then its registry row. The folder is the truth: a file that stays would be
+	 *  listed again, so a removal that fails keeps the row and says why; a file
+	 *  already gone is fine (a ghost row's repair).
 	 * 
 	 *  Every asset writer here runs under the instance's SHARED maintenance claim
 	 *  (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
@@ -916,10 +930,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Apply one asset update with replace semantics: install `target` (fetch →
 	 *  verify → copy → registry add), then — when the filename moved — remove the
-	 *  superseded file (best-effort) and its registry row. A download or
-	 *  verification failure leaves the currently installed asset fully intact.
+	 *  superseded file and its registry row. A superseded file that cannot be
+	 *  removed (a running game holds its packs open) stays, with its row, and the
+	 *  outcome says so. A download or verification failure leaves the currently
+	 *  installed asset fully intact.
 	 */
-	assetUpdateOne: (instanceId: string, kind: ContentKind, oldFilename: string, target: ModVersion_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("asset_update_one", { instanceId, kind, oldFilename, target })),
+	assetUpdateOne: (instanceId: string, kind: ContentKind, oldFilename: string, target: ModVersion_Deserialize) => typedError<AssetUpdateOutcome, Error>(__TAURI_INVOKE("asset_update_one", { instanceId, kind, oldFilename, target })),
 	/**
 	 *  For each installed mod in `id`, report whether any platform version
 	 *  exists for the given target `mc` + `loader` — asked in one hash batch
@@ -2783,6 +2799,20 @@ export type ArtifactStatus = "ok" | "missing" |
  */
 "corrupt";
 
+/**
+ *  What `assets_list` answers: the registry rows of one kind, reconciled with
+ *  its folder, and the unpacked pack folders in it — read from disk every time
+ *  and never stored, so `installed-assets.json` keeps its format.
+ */
+export type AssetListing = {
+	files: InstalledAsset[],
+	/**
+	 *  Sorted case-insensitively. `None`: the folder could not be read, so
+	 *  packs placed in it by hand may be missing — the UI says so.
+	 */
+	folders: string[] | null,
+};
+
 /**  One installed resource-pack/shader's update-check result. */
 export type AssetUpdateCheck = AssetUpdateCheck_Serialize | AssetUpdateCheck_Deserialize;
 
@@ -2798,6 +2828,15 @@ export type AssetUpdateCheck_Serialize = {
 	filename: string,
 	name: string,
 	state: AssetUpdateState_Serialize,
+};
+
+/**  What an asset update did with the file it replaced. */
+export type AssetUpdateOutcome = {
+	/**
+	 *  `Some(reason)`: the superseded file could not be removed and stays on
+	 *  disk under its old row. `None`: it is gone, or the name did not change.
+	 */
+	old_file_kept: string | null,
 };
 
 /**  The per-asset update classification (mirrors `ModUpdateState` for mods). */
@@ -3366,6 +3405,14 @@ export type DatapackLibraryView = {
 	 *  picker then shows it as unknown.
 	 */
 	worlds: DatapackWorldView[],
+	/**
+	 *  Directories at the top of the library, sorted case-insensitively. A
+	 *  folder pack cannot be hardlinked into worlds, so the library never uses
+	 *  one: the UI names them instead of ignoring them in silence.
+	 *  `Some(vec![])` when the library does not exist; `None` when it could not
+	 *  be read.
+	 */
+	library_folders: string[] | null,
 };
 
 export type DatapackMigration = {
@@ -3849,6 +3896,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  row's display name.
  */
 { kind: "mods_already_installed"; name: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | 
+/**
+ *  An entry of a resource-pack or shader folder is a link (a symlink, or a
+ *  junction on Windows): the launcher neither deletes nor recycles through
+ *  one — the user removes it in the file manager.
+ */
+{ kind: "addon_entry_is_link"; name: string } | 
 /**
  *  A modpack update stopped in phase 2 and was undone: nothing was changed.
  *  `file_name` is the file it stopped at — the old file it was setting aside

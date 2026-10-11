@@ -74,7 +74,7 @@ vi.mock('$lib/ipc/bindings', () => {
         }),
       ),
       // Other commands a sibling/this view may touch — inert resolved.
-      assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+      assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } }),
     },
     events: {
       modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -155,7 +155,7 @@ describe('ModBrowseView install busy state', () => {
       },
     });
     commands.modsListInstalled.mockResolvedValue({ status: 'ok', data: [] });
-    commands.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+    commands.assetsList.mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } });
     commands.modsProject.mockImplementation((_src: string, id: string) =>
       Promise.resolve({ status: 'ok', data: { summary: mkHit(id, id) } }),
     );
@@ -238,7 +238,7 @@ describe('ModBrowseView install busy state', () => {
       },
     });
     commands.modsListInstalled.mockResolvedValue({ status: 'ok', data: [] });
-    commands.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+    commands.assetsList.mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } });
     commands.modsProject.mockResolvedValue({
       status: 'ok',
       data: { summary: { name: 'Fabric API' } },
@@ -317,7 +317,7 @@ describe('ModBrowseView install busy state', () => {
       },
     });
     commands.modsListInstalled.mockResolvedValue({ status: 'ok', data: [] });
-    commands.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+    commands.assetsList.mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } });
     commands.modsProject.mockResolvedValue({
       status: 'ok',
       data: { summary: { name: 'Sodium', author: 'caffeine', source: 'modrinth', downloads: 0 } },

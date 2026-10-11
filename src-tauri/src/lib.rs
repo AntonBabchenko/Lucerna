@@ -105,6 +105,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::execute_repair,
             commands::share_log_to_mclogs,
             commands::open_mods_folder,
+            commands::open_addon_folder,
             commands::mods_reveal_file,
             commands::list_worlds,
             commands::list_world_names,

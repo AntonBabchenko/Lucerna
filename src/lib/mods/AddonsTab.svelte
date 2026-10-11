@@ -139,6 +139,14 @@
     shader: 'shader',
     datapack: 'datapack',
   };
+  // The kind's folder button in the sub-tab row. Data packs open the instance's library — the
+  // folder the Installed list shows — never a world's datapacks/.
+  const folderLabels: Record<InstanceContentKind, TranslationKey> = {
+    mod: 'addons.openFolder.mods',
+    resource_pack: 'addons.openFolder.resourcePacks',
+    shader: 'addons.openFolder.shaders',
+    datapack: 'addons.openFolder.datapacks',
+  };
 
   // Whether the active instance's Minecraft can load data packs at all (the
   // system arrived in 1.13). `true` with no instance selected — uncertainty
@@ -352,6 +360,18 @@
   // Resource packs / shaders install onto any selected instance (reuses the
   // shared content rule; for non-mod kinds it is simply "an instance is selected").
   const assetInstallDisabled = $derived(!canInstallContent(kind, instanceId, loader));
+
+  // No folder without a profile, and none on Mods for a Vanilla one — the instance menu's rule:
+  // Vanilla loads no mods, and the Mods drop area already says why.
+  const showFolderButton = $derived(
+    instanceId !== null && !(kind === 'mod' && loader === 'vanilla'),
+  );
+  async function openKindFolder() {
+    if (instanceId === null) return;
+    const r = await commands.openAddonFolder(instanceId, kind);
+    if (r.status === 'error')
+      pushWarning(get(t)('addons.openFolderFailed'), [formatError(r.error)]);
+  }
 
   // The local-file drop area of the current kind (DESIGN.md §14): a strip above Browse and a
   // listed Installed view, the full box inside an empty Installed list.
@@ -685,8 +705,23 @@
       ariaLabel={$t('addons.subTabsLabel')}
       onChange={(id) => selectView(id as View)}
     />
-    <!-- The catalogue to browse: nothing on Installed reads it (spec §6.7). -->
-    {#if view === 'browse'}<SourcePicker value={source} onChange={(v) => (source = v)} />{/if}
+    <div class="flex items-center gap-2">
+      <!-- The catalogue to browse: nothing on Installed reads it (spec §6.7). -->
+      {#if view === 'browse'}<SourcePicker value={source} onChange={(v) => (source = v)} />{/if}
+      <!-- The kind's folder, on Browse and Installed alike: a pack downloaded from the web goes
+           there as surely as one found here. Open-folder is always icon + label (DESIGN.md §5). -->
+      {#if showFolderButton}
+        <button
+          type="button"
+          class="btn-secondary btn-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+          data-testid="addons-open-folder"
+          onclick={() => void openKindFolder()}
+        >
+          <Icon name="folderOpen" size={14} />
+          {$t(folderLabels[kind])}
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if kind === 'shader' && detectedShaderLoaders.length === 0}
@@ -794,6 +829,7 @@
               {loader}
               emptyDropzone={view === 'installed' ? installedDropzone : undefined}
               onEmptyChange={(e) => (installedEmpty = e)}
+              visible={view === 'installed'}
             />
           {:else}
             <InstalledAssetsView
@@ -803,6 +839,7 @@
               {loader}
               emptyDropzone={view === 'installed' ? installedDropzone : undefined}
               onEmptyChange={(e) => (installedEmpty = e)}
+              visible={view === 'installed'}
             />
           {/if}
         </div>

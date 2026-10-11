@@ -59,6 +59,8 @@
   import { createListSelection } from '$lib/ui/list-selection.svelte';
   import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
   import { onDestroy, type Snippet } from 'svelte';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
+  import { rereadOnReturn } from '$lib/ui/reread-on-return.svelte';
 
   let {
     instanceId,
@@ -66,6 +68,7 @@
     loader = null,
     emptyDropzone,
     onEmptyChange = () => {},
+    visible = false,
   }: {
     instanceId: string | null;
     mcVersion?: string | null;
@@ -74,6 +77,9 @@
     emptyDropzone?: Snippet;
     /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
     onEmptyChange?: (empty: boolean) => void;
+    /** This list is the one on screen (Add-ons shows Installed): only then does a return to the
+     *  window re-read it. False by default — restrictive. */
+    visible?: boolean;
   } = $props();
 
   let view = $state<DatapackLibraryView | null>(null);
@@ -233,8 +239,13 @@
 
   // Empty is reported, never assumed: no profile, a library still loading or one that could not
   // be read (`view` null) is not empty — the host keeps its strip until the library says so.
+  // A library folder that could not be read (`library_folders: null`) is not an empty library.
   const listEmpty = $derived(
-    instanceId !== null && !loading && view !== null && view.entries.length === 0,
+    instanceId !== null &&
+      !loading &&
+      view !== null &&
+      view.entries.length === 0 &&
+      view.library_folders !== null,
   );
   $effect(() => {
     onEmptyChange(listEmpty);
@@ -278,10 +289,23 @@
     if (gen !== generation) return;
     if (res.status === 'error') error = formatError(res.error);
     else {
+      // A read that now succeeds clears an earlier one's error.
+      error = null;
       view = res.data;
       void enrich(res.data, gen);
     }
+    // This read may have superseded the first one, which then never clears its loading panel.
+    loading = false;
   }
+
+  // The user is back from the library folder the Add-ons button opened, maybe with packs dropped
+  // in — perhaps opened from Browse, with this list hidden: it reads them as soon as it shows.
+  rereadOnReturn({
+    active: () => instanceId !== null && serversUi.mode === 'client',
+    visible: () => visible,
+    idle: () => !busy && !checking && bulkAction === null,
+    reread: () => void refresh(),
+  });
 
   async function checkUpdates() {
     if (instanceId === null) return;
@@ -645,6 +669,17 @@
       {error}
     </div>
   {/if}
+  <!-- The library holds files hardlinked into worlds; a folder cannot be, so one put there is
+       named rather than ignored in silence. `undefined` (an older answer) shows neither. -->
+  {#if view?.library_folders === null}
+    <p class="text-xs text-warning-text mb-2" data-testid="datapack-library-unreadable">
+      {$t('addons.datapacks.libraryUnreadable')}
+    </p>
+  {:else if view?.library_folders && view.library_folders.length > 0}
+    <p class="text-xs text-muted mb-2" data-testid="datapack-library-folders">
+      {$t('addons.datapacks.libraryFolders', { names: view.library_folders.join(', ') })}
+    </p>
+  {/if}
 
   {#if instanceId === null}
     <div class="text-muted text-sm py-6 text-center">{$t('addons.installed.pickInstance')}</div>
@@ -653,7 +688,7 @@
   {:else if (view?.entries.length ?? 0) === 0}
     <!-- A library that could not be read shows its error above, never «no datapacks». The host's
          full drop area replaces its strip once the read says empty (DESIGN.md §14). -->
-    {#if view !== null}
+    {#if view !== null && view.library_folders !== null}
       <!-- Focus lands here after the last removal (`refocusAfterRemoval`): a parking place that
            reads the message, not a control. -->
       <div
