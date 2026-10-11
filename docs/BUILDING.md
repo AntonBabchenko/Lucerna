@@ -3,17 +3,22 @@
 How to compile and run Lucerna on Windows, Linux and macOS. Windows is the
 primary platform; the Linux and macOS builds are beta.
 
-Everything here mirrors what the workflows in [`.github/workflows/`](../.github/workflows/)
-install and run: `ci.yml` builds and tests the launcher on Ubuntu, Windows and
-macOS, and `release.yml` produces the published installers. If this file and a
-workflow ever disagree, the workflow is right and this file has a bug.
+The commands here are the ones the workflows in
+[`.github/workflows/`](../.github/workflows/) run: `ci.yml` runs the Rust tests
+on Ubuntu, Windows and macOS and builds the Linux and macOS bundles, and
+`release.yml` builds the published installers on all three. The Linux packages
+and the Node.js version below are the ones those workflows install; the Windows
+and macOS toolchains follow Tauri's prerequisites, which the CI machines come
+with. If this file and a workflow ever disagree, the workflow is right and this
+file has a bug.
 
 ## Requirements on every platform
 
 - **Git.**
 - **Rust**, installed with [rustup](https://rustup.rs). Lucerna builds with the
-  stable toolchain (pinned in `src-tauri/rust-toolchain.toml`), which is what
-  rustup installs by default.
+  current stable toolchain (pinned in `src-tauri/rust-toolchain.toml`), which is
+  what rustup installs by default. If you installed Rust a while ago, run
+  `rustup update` first: an old stable fails to compile the code.
 - **Node.js 24**, the version CI uses, with **pnpm** enabled through Corepack:
 
   ```sh
@@ -64,6 +69,11 @@ equivalents from the Linux section of Tauri's
 toolchain. You can skip the OpenSSL development package that page lists:
 Lucerna's HTTP client uses rustls, not OpenSSL.
 
+At run time, Lucerna keeps its secrets (Microsoft sign-in tokens, a personal
+CurseForge key, SFTP passwords, AI keys) in the freedesktop Secret Service over
+D-Bus, so a provider such as GNOME Keyring or KWallet has to be running. Without
+one, storing or reading them fails with a "system keyring" error.
+
 ## macOS (beta)
 
 Install Xcode's command line tools:
@@ -72,9 +82,10 @@ Install Xcode's command line tools:
 xcode-select --install
 ```
 
-A full Xcode install works too; Tauri only requires it for iOS, which Lucerna
-does not target. Nothing else is needed: the app uses the system WebKit, and the
-macOS CI job installs no extra packages.
+A full Xcode install works too; Tauri's
+[prerequisites page](https://v2.tauri.app/start/prerequisites/#macos) only
+requires it for iOS, which Lucerna does not target. Nothing else is needed: the
+app uses the system WebKit, and the macOS CI job installs no extra packages.
 
 ## Get the code and run it
 
@@ -85,10 +96,10 @@ pnpm install
 pnpm tauri dev
 ```
 
-`pnpm tauri dev` starts the Vite dev server and opens the launcher. Interface
-edits reload in place; Rust edits rebuild and restart the app. The first run
-compiles the whole Rust dependency tree and takes a while, later runs are
-incremental.
+`pnpm tauri dev` starts the Vite dev server on port 1420 and opens the launcher;
+the port is fixed, so free it if something else holds it. Interface edits
+reload in place; Rust edits rebuild and restart the app. The first run compiles
+the whole Rust dependency tree and takes a while, later runs are incremental.
 
 ## Build release bundles
 
@@ -127,14 +138,27 @@ Its bundles land under `src-tauri/target/universal-apple-darwin/release/bundle/`
 
 ## Build-time variables
 
-These are read when the Rust code compiles, so set them in the shell before
-`pnpm tauri build` (or `pnpm tauri dev`). All are optional.
+These are read when the Rust code compiles, so set them in the shell that runs
+`pnpm tauri build` (or `pnpm tauri dev`). All are optional; leave a variable
+unset rather than empty, because an empty `LUCERNA_MS_CLIENT_ID` compiles in an
+empty client id.
+
+```bash
+LUCERNA_CURSEFORGE_API_KEY="<your key>" pnpm tauri build    # bash / zsh
+```
+
+```powershell
+$env:LUCERNA_CURSEFORGE_API_KEY = "<your key>"; pnpm tauri build    # PowerShell
+```
 
 | Variable | When unset | When set |
 |---|---|---|
 | `LUCERNA_CURSEFORGE_API_KEY` | No key is compiled in. CurseForge, and FTB downloads that go through it, ask for your own free key in Settings → Integrations. | The key is compiled into the binary. |
 | `LUCERNA_MS_CLIENT_ID` | The upstream public Microsoft client id, fine for a build you use yourself. | Your own Azure app id. Required if you distribute a fork. |
-| `LUCERNA_BUILD_TAG`, `LUCERNA_BUILD_COMMIT`, `LUCERNA_BUILD_REPO` | Settings → About says "Local build". | The release identity Settings → About shows and copies. |
+| `LUCERNA_BUILD_TAG`, `LUCERNA_BUILD_COMMIT`, `LUCERNA_BUILD_REPO` | A release build's Settings → About says "Local build". | Set by the release workflow. About accepts only a `vX.Y.Z` tag as a version (anything else shows as unrecognised) and marks a repository other than `AntonBabchenko/Lucerna` as a fork. |
+
+A `pnpm tauri dev` build always calls itself "Development build" in Settings →
+About, whatever these are set to.
 
 Why the CurseForge key and the Microsoft id work this way, and how to register
 your own: [Microsoft sign-in](../CONTRIBUTING.md#microsoft-sign-in-azure-app) and

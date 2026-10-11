@@ -62,8 +62,9 @@ describe('docs/BUILDING.md', () => {
       [...workflow.matchAll(/node-version:\s*['"]?(\d+)/g)].map((match) => match[1]),
     );
     expect(majors.length).toBeGreaterThan(0);
-    expect(new Set(majors).size).toBe(1);
-    expect(building).toContain(`Node.js ${majors[0]}`);
+    expect([...new Set(majors)]).toEqual([majors[0]]);
+    // The bold requirement itself: the guide also mentions newer majors in passing.
+    expect(building).toContain(`**Node.js ${majors[0]}**`);
   });
 });
 

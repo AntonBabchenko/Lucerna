@@ -262,7 +262,7 @@ pnpm tauri build    # build this platform's bundles into src-tauri/target/releas
 
 Run the test suite:
 
-```powershell
+```sh
 cargo test --manifest-path src-tauri/Cargo.toml
 pnpm test
 pnpm typecheck
