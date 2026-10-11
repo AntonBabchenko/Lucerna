@@ -243,26 +243,27 @@ Beta builds for other platforms are published to the same Release:
   Gatekeeper quarantine after dragging **Lucerna** to `/Applications`:
   `xattr -dr com.apple.quarantine /Applications/Lucerna.app`.
 
+Prefer to compile it yourself? See [Build from source](#build-from-source).
+
 ## Build from source
 
-Prerequisites:
+You need Git, Rust, Node.js with pnpm, and your platform's native build tools.
+[`docs/BUILDING.md`](docs/BUILDING.md) lists the prerequisites for Windows,
+Linux and macOS, and covers release bundles and build-time options. With them
+installed:
 
-- Rust toolchain (stable). `rustup install stable`.
-- Node 24 (CI builds and tests on Node 24) and pnpm 11+. `corepack enable && corepack prepare pnpm@latest --activate`.
-- Windows + the Microsoft C++ Build Tools (`Desktop development with C++`).
-- A WebView2 runtime (preinstalled on Windows 11).
-
-```powershell
+```sh
 git clone https://github.com/AntonBabchenko/Lucerna.git
 cd Lucerna
+corepack enable     # runs the pnpm version package.json pins
 pnpm install
 pnpm tauri dev      # run in development
-pnpm tauri build    # produce installer + portable in src-tauri/target/release/bundle/
+pnpm tauri build    # build this platform's bundles into src-tauri/target/release/bundle/
 ```
 
 Run the test suite:
 
-```powershell
+```sh
 cargo test --manifest-path src-tauri/Cargo.toml
 pnpm test
 pnpm typecheck
