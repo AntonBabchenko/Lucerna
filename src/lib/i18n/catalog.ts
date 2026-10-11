@@ -43,15 +43,16 @@ export function canonicalLocaleCode(raw: string): string {
  */
 export function localeEndonym(code: string): string {
   if (typeof Intl.DisplayNames !== 'function') return code;
-  let names: Intl.DisplayNames;
+  let name: string | undefined;
   try {
-    names = new Intl.DisplayNames([code], { type: 'language', fallback: 'none' });
+    const names = new Intl.DisplayNames([code], { type: 'language', fallback: 'none' });
+    if (primaryLanguage(names.resolvedOptions().locale) !== primaryLanguage(code)) return code;
+    // Throws too, for a tag it accepted above but cannot name (`en-u-ca-gregory`).
+    name = names.of(code);
   } catch (e) {
     if (e instanceof RangeError) return code;
     throw e;
   }
-  if (primaryLanguage(names.resolvedOptions().locale) !== primaryLanguage(code)) return code;
-  const name = names.of(code);
   if (!name) return code;
   const [first, ...rest] = Array.from(name);
   return first.toLocaleUpperCase(code) + rest.join('');
@@ -92,4 +93,49 @@ export function translatedPercent(dict: unknown, source: unknown): number {
   if (paths.length === 0) return 0;
   const translated = paths.filter((p) => (stringAt(dict, p) ?? '') !== '').length;
   return Math.floor((translated * 100) / paths.length);
+}
+
+/**
+ * A locale file's canonical code from its glob path, whatever its extension:
+ * `./locales/pt_BR.json` and `./locales/pt_BR.md` are both `pt-BR`. '' when the
+ * path names no file. The UI dictionaries and the changelog translations key
+ * by this one function, so a code means the same language in both.
+ */
+export function localeCodeFromPath(path: string): string {
+  return canonicalLocaleCode(path.match(/\/([^/]+)\.[^./]+$/)?.[1] ?? '');
+}
+
+export interface BundledLocale extends LocaleInfo {
+  dict: unknown;
+}
+
+/**
+ * The bundle from an eager glob of dictionaries: one entry per file, keyed by
+ * its canonical code, sorted by code, each measured against the dictionary of
+ * `sourceCode` (none: every language measures 0, so System picks none).
+ */
+export function bundleLocales(
+  modules: Readonly<Record<string, { default: unknown }>>,
+  sourceCode: string,
+): BundledLocale[] {
+  const found = Object.entries(modules)
+    .map(([path, mod]) => ({ code: localeCodeFromPath(path), dict: mod.default }))
+    .filter((l) => l.code !== '')
+    .sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
+  const source = found.find((l) => l.code === sourceCode)?.dict;
+  return found.map(({ code, dict }) => ({
+    code,
+    dict,
+    endonym: localeEndonym(code),
+    percent: translatedPercent(dict, source),
+  }));
+}
+
+/**
+ * The languages "System" may pick on its own: translated far enough that the
+ * UI does not come out as a mix with English. Any of the others can still be
+ * chosen by hand.
+ */
+export function systemLocaleCodes(bundle: readonly LocaleInfo[]): string[] {
+  return bundle.filter((l) => l.percent >= SYSTEM_LOCALE_MIN_PERCENT).map((l) => l.code);
 }

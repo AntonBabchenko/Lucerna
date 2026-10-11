@@ -5,7 +5,7 @@
 // chunk, loaded on demand — a language costs nothing until it is selected.
 // English is not a locale here: CHANGELOG.md itself is the source, embedded by
 // ./source.ts.
-import { canonicalLocaleCode } from '$lib/i18n/catalog';
+import { localeCodeFromPath } from '$lib/i18n/catalog';
 import { parseChangelog } from './parse';
 import type { Changelog } from './types';
 
@@ -14,13 +14,19 @@ export const CHANGELOG_SOURCE_LOCALE = 'en';
 
 type RawLoader = () => Promise<string>;
 
-const LOADERS: Readonly<Record<string, RawLoader>> = Object.fromEntries(
-  Object.entries(import.meta.glob<string>('./locales/*.md', { query: '?raw', import: 'default' }))
-    .map(
-      ([path, load]) =>
-        [canonicalLocaleCode(path.match(/\/([^/]+)\.md$/)?.[1] ?? ''), load] as const,
-    )
-    .filter(([code]) => code !== ''),
+/** The glob's loaders keyed by canonical locale code, as the UI dictionaries are. */
+export function loadersByCode(
+  glob: Readonly<Record<string, RawLoader>>,
+): Readonly<Record<string, RawLoader>> {
+  return Object.fromEntries(
+    Object.entries(glob)
+      .map(([path, load]) => [localeCodeFromPath(path), load] as const)
+      .filter(([code]) => code !== ''),
+  );
+}
+
+const LOADERS = loadersByCode(
+  import.meta.glob<string>('./locales/*.md', { query: '?raw', import: 'default' }),
 );
 
 /** Sorted codes that have a changelog translation in the bundle. */

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bundleLocales,
   canonicalLocaleCode,
+  localeCodeFromPath,
   localeEndonym,
   stringAt,
+  systemLocaleCodes,
   translatedPercent,
 } from '../src/lib/i18n/catalog';
 
@@ -43,6 +46,14 @@ describe('localeEndonym', () => {
     // resolves to the HOST locale: on a Russian Windows, «латинский».
     expect(localeEndonym('la')).toBe('la');
     expect(localeEndonym('tlh')).toBe('tlh');
+  });
+
+  it('falls back to the code when Intl accepts the tag but cannot name it', () => {
+    // DisplayNames is built for these, but .of() throws a RangeError on the
+    // extension and private-use subtags — a file named so must not break the
+    // whole bundle at import time.
+    expect(localeEndonym('en-u-ca-gregory')).toBe('en-u-ca-gregory');
+    expect(localeEndonym('en-x-priv')).toBe('en-x-priv');
   });
 });
 
@@ -85,5 +96,61 @@ describe('stringAt', () => {
     expect(stringAt({ a: { b: 1 } }, ['a', 'b'])).toBeNull();
     expect(stringAt({ a: {} }, ['a', 'b'])).toBeNull();
     expect(stringAt(null, ['a'])).toBeNull();
+  });
+});
+
+describe('localeCodeFromPath', () => {
+  it('reads the canonical code from a glob path, whatever the extension', () => {
+    expect(localeCodeFromPath('./locales/pt_BR.json')).toBe('pt-BR');
+    expect(localeCodeFromPath('./locales/ru.md')).toBe('ru');
+    expect(localeCodeFromPath('./locales/en.json')).toBe('en');
+  });
+
+  it('is empty for a path that names no file', () => {
+    expect(localeCodeFromPath('./locales/')).toBe('');
+  });
+});
+
+// n keys named k0..k(n-1), all holding `v`.
+const keys = (n: number, v: string) =>
+  Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, v]));
+
+describe('bundleLocales', () => {
+  it('keys every file by its canonical code, sorted, measured against the source', () => {
+    const bundle = bundleLocales(
+      {
+        './locales/ru.json': { default: keys(100, 'р') },
+        './locales/pt_BR.json': { default: keys(42, 'p') },
+        './locales/en.json': { default: keys(100, 'e') },
+      },
+      'en',
+    );
+    expect(bundle.map((l) => [l.code, l.percent])).toEqual([
+      ['en', 100],
+      ['pt-BR', 42],
+      ['ru', 100],
+    ]);
+    expect(bundle[2].endonym).toBe('Русский');
+    expect(bundle[1].dict).toEqual(keys(42, 'p'));
+  });
+
+  it('measures nothing as translated when the source language is missing', () => {
+    const bundle = bundleLocales({ './locales/ru.json': { default: keys(3, 'р') } }, 'en');
+    expect(bundle.map((l) => l.percent)).toEqual([0]);
+  });
+});
+
+describe('systemLocaleCodes', () => {
+  it('lets System pick a language from 90% translated, not below', () => {
+    const bundle = bundleLocales(
+      {
+        './locales/en.json': { default: keys(100, 'e') },
+        './locales/de.json': { default: keys(89, 'd') },
+        './locales/fr.json': { default: keys(90, 'f') },
+        './locales/it.json': { default: keys(91, 'i') },
+      },
+      'en',
+    );
+    expect(systemLocaleCodes(bundle)).toEqual(['en', 'fr', 'it']);
   });
 });

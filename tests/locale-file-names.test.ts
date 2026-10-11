@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CHANGELOG_LOCALES } from '../src/lib/changelog/locales';
+import { loadersByCode } from '../src/lib/changelog/locales';
 import { canonicalLocaleCode } from '../src/lib/i18n/catalog';
 
 // A locale file's name IS its language: the bundle canonicalises it (Weblate
@@ -58,9 +58,10 @@ describe('locale file names', () => {
     expect(problems(names)).toEqual([]);
   });
 
-  it('keys the changelog translations by the same canonical code as the UI', () => {
-    // A Weblate pt_BR.md must serve the UI locale pt-BR, so the loader keys
-    // are canonicalised exactly as the dictionaries' are.
-    for (const code of CHANGELOG_LOCALES) expect(code).toBe(canonicalLocaleCode(code));
+  it('keys a Weblate-named changelog translation by the code the UI locale uses', () => {
+    const load = async () => '';
+    const loaders = loadersByCode({ './locales/pt_BR.md': load, './locales/ru.md': load });
+    expect(Object.keys(loaders).sort()).toEqual(['pt-BR', 'ru']);
+    expect(loaders['pt-BR']).toBe(load);
   });
 });
