@@ -47,9 +47,9 @@ const report = (path: string) => ({
 });
 const instance = (java: unknown) => ({ id: 'a', java }) as never;
 
-function setup(java: unknown = null, detected = [JDK21, JDK8]) {
+function setup(java: unknown = null, detected = [JDK21, JDK8], required = 21) {
   vi.mocked(commands.javaDetect).mockResolvedValue({ status: 'ok', data: detected });
-  vi.mocked(commands.instanceJavaRequirement).mockResolvedValue({ status: 'ok', data: 21 });
+  vi.mocked(commands.instanceJavaRequirement).mockResolvedValue({ status: 'ok', data: required });
   vi.mocked(commands.javaCheck).mockResolvedValue({
     status: 'ok',
     data: report('/opt/jdk-21/bin/java'),
@@ -163,6 +163,23 @@ describe('JavaPathField', () => {
     expect(old.getAttribute('aria-disabled')).toBe('true');
     await fireEvent.mouseDown(old);
     expect(commands.setInstanceJava).not.toHaveBeenCalled();
+  });
+
+  it('lists the Java the version names first', async () => {
+    const JDK25 = {
+      ...JDK21,
+      path: '/opt/jdk-25/bin/java',
+      home: '/opt/jdk-25',
+      major: 25,
+      version: '25.0.1',
+    };
+    setup(null, [JDK25, JDK21, JDK8], 8);
+    await screen.findByText(/Lucerna downloads the Java/);
+    await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent ?? '');
+    expect(names[1]).toMatch(/1\.8\.0_402/);
+    expect(names[2]).toMatch(/25\.0\.1/);
+    expect(names[3]).toMatch(/21\.0\.4/);
   });
 
   it('says so when nothing else is installed', async () => {

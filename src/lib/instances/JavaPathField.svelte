@@ -145,8 +145,12 @@
   const options = $derived.by((): SelectOption[] => {
     const tr = $t;
     const list: SelectOption[] = [{ value: BUNDLED, label: tr('instance.manage.java.bundled') }];
+    // The Java the version names first, then the newer ones newest first,
+    // then the ones too old for it.
+    const rank = (j: DetectedJava) =>
+      tooOld(j) ? 2 : required !== null && j.major === required ? 0 : 1;
     const sorted = [...(detected ?? [])].sort(
-      (a, b) => Number(tooOld(a)) - Number(tooOld(b)) || (b.major ?? 0) - (a.major ?? 0),
+      (a, b) => rank(a) - rank(b) || (b.major ?? 0) - (a.major ?? 0),
     );
     for (const j of sorted) {
       list.push({ value: j.path, label: labelOf(j, tr), disabled: tooOld(j) });
