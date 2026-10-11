@@ -81,6 +81,7 @@ mod tests {
             imported_from: None,
             created_from_server: None,
             handled_log_sig: None,
+            java: None,
         }
     }
 

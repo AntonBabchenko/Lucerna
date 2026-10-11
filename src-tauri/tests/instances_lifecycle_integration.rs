@@ -35,6 +35,7 @@ fn make(id: &str, name: &str, mc: &str, created_unix_ms: f64) -> InstanceFile {
         imported_from: None,
         created_from_server: None,
         handled_log_sig: None,
+        java: None,
     }
 }
 
