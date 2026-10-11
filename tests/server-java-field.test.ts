@@ -78,6 +78,25 @@ describe('ServerJavaField', () => {
     expect(old.getAttribute('aria-disabled')).toBe('true');
   });
 
+  // A server has no window: Settings' graphics-card choice says nothing to it.
+  it('says nothing about the graphics card for a server', async () => {
+    vi.mocked(commands.javaCheck).mockResolvedValue({
+      status: 'ok',
+      data: {
+        path: JDK21.path,
+        version: '21.0.4',
+        major: 21,
+        vendor: null,
+        arch: 'x64',
+        verdict: { kind: 'matches' },
+        gpu_choice_ignored: true,
+      },
+    });
+    setup(server({ java: { kind: 'custom', path: JDK21.path } }));
+    expect(await screen.findByText(/the version this Minecraft needs/)).toBeTruthy();
+    expect(screen.queryByText(/graphics card/)).toBeNull();
+  });
+
   it("Default names the Settings row for the server's Java version", async () => {
     appSettings.loaded = {
       kind: 'ok',

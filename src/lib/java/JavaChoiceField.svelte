@@ -40,6 +40,7 @@
     defaultOption = null,
     lucernaWrites,
     bundledStatus = null,
+    gpuNote = true,
     testid = 'java-path-field',
   }: {
     /** Reload when it changes BY VALUE — hosts replace their lists wholesale. */
@@ -56,6 +57,9 @@
     /** What «Lucerna's Java» means where the version's own wording does not
      *  fit — a Settings row speaks for every instance on a Java version. */
     bundledStatus?: string | null;
+    /** Say that Settings' graphics-card choice skips this Java. A server has
+     *  no window, so its field leaves it out. */
+    gpuNote?: boolean;
     testid?: string;
   } = $props();
 
@@ -320,7 +324,7 @@
     class="mt-1 text-xs"
     dataTestid="{testid}-status"
   />
-  {#if savedPath !== null && report?.gpu_choice_ignored}
+  {#if gpuNote && savedPath !== null && report?.gpu_choice_ignored}
     <p class="mt-1 text-xs text-muted">{$t('instance.manage.java.gpuNote')}</p>
   {/if}
 </div>

@@ -32,5 +32,6 @@
   {save}
   defaultOption={defaultOptionFor('server')}
   lucernaWrites={{ kind: 'bundled' }}
+  gpuNote={false}
   testid="server-java-field"
 />
