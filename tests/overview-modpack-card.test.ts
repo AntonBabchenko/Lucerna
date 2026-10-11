@@ -45,6 +45,7 @@ const modrinthInst = {
   integrity: null,
   imported_from: null,
   created_from_server: null,
+  java: null,
 };
 
 function okData(data: ModpackInstanceUpdate[]) {

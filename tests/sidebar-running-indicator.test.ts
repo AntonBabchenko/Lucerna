@@ -55,6 +55,7 @@ function instance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
     integrity: null,
     imported_from: null,
     created_from_server: null,
+    java: null,
     ...over,
   };
 }

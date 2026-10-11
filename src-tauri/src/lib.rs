@@ -12,6 +12,7 @@ pub mod file_identity;
 pub mod forge;
 pub mod gpu_pref;
 pub mod instances;
+pub mod java;
 pub mod journal;
 pub mod jre;
 pub mod l10n;
@@ -162,6 +163,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_instance_memory,
             commands::set_instance_min_heap,
             commands::set_instance_jvm_args,
+            commands::set_instance_java,
+            commands::instance_java_requirement,
+            commands::java_detect,
+            commands::java_check,
             commands::instance_memory_bounds,
             commands::detach_instance_pack,
             commands::open_instance_folder,

@@ -527,6 +527,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**  Optional JVM initial heap (`-Xms`) in MB. `None` = JVM default. */
 	min_heap_mb: number | null,
 	extra_jvm_args: string,
+	/**  The Java this instance runs on; `None` = Lucerna's runtime. */
+	java: JavaChoice | null,
 	created_unix_ms: number | null,
 	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
 	ready: boolean,
@@ -596,6 +598,31 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**  Set the optional JVM initial heap (`-Xms`). `None`/0 clears it. */
 	setInstanceMinHeap: (id: string, minHeapMb: number | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_min_heap", { id, minHeapMb })),
 	setInstanceJvmArgs: (id: string, args: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_jvm_args", { id, args })),
+	/**
+	 *  Store an instance's Java. A custom path is normalised and probed against
+	 *  the instance's need FIRST; an unusable one is refused and nothing is
+	 *  written. Not behind the maintenance gate, like the heap and the JVM
+	 *  arguments: it changes no file the game or a migration touches, and it
+	 *  applies from the next launch.
+	 */
+	setInstanceJava: (id: string, choice: 
+/**
+ *  Always Lucerna's own runtime. Distinct from "absent" once Settings can
+ *  name a default per Java version; until then the two behave the same.
+ */
+{ kind: "bundled" } | 
+/**  This executable. */
+{ kind: "custom"; path: string } | null) => typedError<JavaSaved, Error>(__TAURI_INVOKE("set_instance_java", { id, choice })),
+	/**
+	 *  The Java major an instance's installed version needs; `None` when it is not
+	 *  installed yet. Reads the version JSON on disk — the one launch reads — and
+	 *  never the network.
+	 */
+	instanceJavaRequirement: (id: string) => typedError<number | null, Error>(__TAURI_INVOKE("instance_java_requirement", { id })),
+	/**  The Javas installed on this machine, Lucerna's own runtimes excluded. */
+	javaDetect: (refresh: boolean) => typedError<DetectedJava[], Error>(__TAURI_INVOKE("java_detect", { refresh })),
+	/**  Probe a path against an optional requirement, without saving it. */
+	javaCheck: (path: string, requiredMajor: number | null) => typedError<JavaReport, Error>(__TAURI_INVOKE("java_check", { path, requiredMajor })),
 	instanceMemoryBounds: () => __TAURI_INVOKE<MemoryBounds>("instance_memory_bounds"),
 	/**
 	 *  Clear all modpack provenance fields (`mrpack_*`) from an instance,
@@ -3013,7 +3040,10 @@ export type ClientModFinding = {
 /**  What to copy beyond the always-copied set (mods + registry + icon). */
 export type CloneOptions = {
 	saves: boolean,
-	/**  Instance settings: `max_heap_mb`, `min_heap_mb`, `extra_jvm_args`. */
+	/**
+	 *  Instance settings: `max_heap_mb`, `min_heap_mb`, `extra_jvm_args`,
+	 *  `java` (a local path, still valid: a clone stays on this machine).
+	 */
 	settings: boolean,
 	/**  `resourcepacks/` + `shaderpacks/` under one checkbox. */
 	packs: boolean,
@@ -3621,6 +3651,19 @@ export type DetailOutcome = { kind: "installed"; fetched: Fetched; placement: Pl
 /**  Destination already held a byte-identical file; no store call was made. */
 { kind: "unchanged" } | { kind: "skipped"; reason: string } | { kind: "failed"; reason: string };
 
+export type DetectSource = "java_home" | "path" | "registry" | "known_dir" | "user_dir";
+
+export type DetectedJava = {
+	/**  The executable that would be stored if picked. */
+	path: string,
+	home: string,
+	major: number | null,
+	version: string | null,
+	vendor: string | null,
+	arch: string | null,
+	source: DetectSource,
+};
+
 /**
  *  A single diagnoser hit. Returned by `diagnose` and consumed
  *  directly by the UI. Pattern_id is on the wire so per-pattern
@@ -3733,7 +3776,14 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  truncated, Logs as the way in. Absence is never this — the helpers in
  *  `accounts::keychain` turn `NoEntry` into `Ok(None)` before it can be.
  */
-{ kind: "keyring"; op: KeyringOp; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
+{ kind: "keyring"; op: KeyringOp; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | 
+/**
+ *  A Java the user chose for an instance cannot run this game, or could
+ *  not be checked. Never answered by launching Lucerna's own Java instead
+ *  (CLAUDE.md, Fallback discipline). `reason` is typed so the UI can say
+ *  it in the user's language.
+ */
+{ kind: "java_unusable"; path: string; reason: JavaUnusableReason } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
 /**  The proposed folder name reduced to nothing once normalised to ASCII. */
 { kind: "instance_dir_name_empty" } | 
 /**  Another directory already occupies that name. */
@@ -5078,6 +5128,8 @@ export type InstanceWithStatus = {
 	/**  Optional JVM initial heap (`-Xms`) in MB. `None` = JVM default. */
 	min_heap_mb: number | null,
 	extra_jvm_args: string,
+	/**  The Java this instance runs on; `None` = Lucerna's runtime. */
+	java: JavaChoice | null,
 	created_unix_ms: number | null,
 	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
 	ready: boolean,
@@ -5108,6 +5160,79 @@ export type IntegrityStatus = {
 	categories: CategoryReport[],
 	problem_count: number,
 };
+
+/**
+ *  What an instance says about its Java. Stored in `instance.json` as
+ *  `{"kind": "bundled"}` / `{"kind": "custom", "path": "…"}`; absent = the
+ *  default (Lucerna's runtime).
+ */
+export type JavaChoice = 
+/**
+ *  Always Lucerna's own runtime. Distinct from "absent" once Settings can
+ *  name a default per Java version; until then the two behave the same.
+ */
+{ kind: "bundled" } | 
+/**  This executable. */
+{ kind: "custom"; path: string };
+
+/**  What the UI and the log are told about a usable Java. */
+export type JavaReport = {
+	/**  The executable that is stored and run. */
+	path: string,
+	version: string,
+	major: number,
+	vendor: string | null,
+	arch: string,
+	verdict: JavaVerdict,
+	/**
+	 *  True where Settings' graphics-card choice does not reach this Java: on
+	 *  Windows it is a registry entry keyed by the executable, and Lucerna
+	 *  writes it only for its own runtime (spec §8.3).
+	 */
+	gpu_choice_ignored: boolean,
+};
+
+export type JavaSaved = {
+	instance: InstanceWithStatus,
+	/**  The probe's report for a custom Java; `None` for Lucerna's runtime. */
+	report: JavaReport | null,
+};
+
+/**
+ *  Why a chosen Java cannot be used. Typed so the UI can say it in the
+ *  user's language (same reasoning as `error::DatapackRejection`).
+ */
+export type JavaUnusableReason = 
+/**  The file is not there. */
+{ kind: "not_found" } | 
+/**  The file could not be read (permissions, a broken link, a directory). */
+{ kind: "unreadable"; details: string } | 
+/**  The path does not name a Java executable. */
+{ kind: "not_java" } | 
+/**
+ *  It would not say what it is: it could not start, exited with an error,
+ *  timed out, or answered without its version or architecture.
+ */
+{ kind: "probe_failed"; details: string } | 
+/**  Older than the Minecraft version needs. */
+{ kind: "too_old"; found: number; required: number } | 
+/**
+ *  Built for another architecture than this launcher, whose natives it
+ *  therefore cannot load.
+ */
+{ kind: "wrong_arch"; found: string; expected: string };
+
+/**  A usable Java's standing against what the Minecraft version needs. */
+export type JavaVerdict = 
+/**  The major the version names. */
+{ kind: "matches" } | 
+/**  Newer than the version names. Allowed; the UI says so. */
+{ kind: "newer"; found: number; required: number } | 
+/**
+ *  The instance is not installed, so its need is unknown yet; launch
+ *  checks it.
+ */
+{ kind: "requirement_unknown" };
 
 /**  One recorded moment in an instance's life. */
 export type JournalEntry = JournalEntry_Serialize | JournalEntry_Deserialize;

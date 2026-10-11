@@ -78,6 +78,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     integrity: null,
     imported_from: null,
     created_from_server: null,
+    java: null,
     ...over,
   };
 }

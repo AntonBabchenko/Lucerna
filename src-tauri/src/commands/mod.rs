@@ -24,6 +24,8 @@ mod versions;
 pub use versions::*;
 mod instances;
 pub use instances::*;
+mod java;
+pub use java::*;
 mod logs;
 pub use logs::*;
 mod journal;

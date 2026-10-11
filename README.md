@@ -203,7 +203,8 @@ To run the launcher:
 - An internet connection for the first download of each Minecraft version.
   Once a version is installed, offline play works without one.
 - Java is **not** a prerequisite — the launcher downloads the correct Java
-  runtime straight from Mojang for each Minecraft version.
+  runtime straight from Mojang for each Minecraft version. If you prefer your
+  own (GraalVM, a tuned JDK), point an instance at it under Manage → Advanced.
 
 To actually play Minecraft (these are Minecraft's own requirements, not the
 launcher's):
