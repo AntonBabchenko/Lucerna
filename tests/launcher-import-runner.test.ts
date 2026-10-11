@@ -31,8 +31,13 @@ const mockForeign: ForeignInstance = {
   max_heap_mb: 4096,
   extra_jvm_args: null,
   content: [
-    { category: 'mods', file_count: 42, total_bytes: 1024 * 1024 * 100 },
-    { category: 'config', file_count: 5, total_bytes: null },
+    {
+      category: 'mods',
+      file_count: 42,
+      total_bytes: 1024 * 1024 * 100,
+      location: { kind: 'local' },
+    },
+    { category: 'config', file_count: 5, total_bytes: null, location: { kind: 'local' } },
   ],
   known_mods: [],
 };

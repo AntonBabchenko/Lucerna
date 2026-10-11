@@ -3,12 +3,15 @@
   import { save } from '@tauri-apps/plugin-dialog';
   import { commands } from '$lib/ipc/bindings';
   import type {
+    ContentEntry,
     ExportMetadata,
     ExportOptions,
     ExportPreview,
     ModpackExportProgress,
     ModpackFormat,
   } from '$lib/ipc/bindings';
+  import { isSelectable } from '$lib/instances/import/content-location';
+  import ContentLocationNote from '$lib/instances/import/ContentLocationNote.svelte';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
@@ -47,11 +50,28 @@
       const r = await commands.exportPreview(instanceId);
       if (r.status === 'ok') {
         preview = r.data;
+        // A folder that is there but cannot be copied (unreadable, or a link
+        // to a missing one) is never sent as included — the export would
+        // refuse it. An absent one is harmless either way.
+        includeConfig &&= !blocked('config');
+        includeResourcepacks &&= !blocked('resource_packs');
+        includeShaderpacks &&= !blocked('shaderpacks');
+        includeWorlds &&= !blocked('saves');
       } else {
         loadError = formatError(r.error);
       }
     })();
   });
+
+  function entryFor(cat: ContentEntry['category']): ContentEntry | null {
+    return preview?.content.find((c) => c.category === cat) ?? null;
+  }
+
+  /** The category is there but cannot be copied. */
+  function blocked(cat: ContentEntry['category']): boolean {
+    const e = entryFor(cat);
+    return e !== null && !isSelectable(e);
+  }
 
   const unresolvable = $derived(preview ? unresolvableMods(preview.mods, format, mode) : []);
 
@@ -177,34 +197,54 @@
           ><input type="checkbox" checked disabled />
           {$t('modpacks.export.modsCount', { count: preview.mods.length })}</label
         >
-        {#if preview.has_config}
+        <!-- Each row's note sits under its label: where a linked folder points
+             (its content is exported), or why a folder cannot be. -->
+        <ContentLocationNote entry={entryFor('mods')} />
+        {#if entryFor('config')}
           <label
-            ><input type="checkbox" bind:checked={includeConfig} />
+            ><input type="checkbox" bind:checked={includeConfig} disabled={blocked('config')} />
             {$t('modpacks.export.configs')}</label
           >
-          <p class="text-xs text-muted">
-            {$t('modpacks.export.configsWarning')}
-          </p>
+          <ContentLocationNote entry={entryFor('config')} />
+          <!-- The secrets warning is about what would be packed: moot for a
+               folder that cannot be included. -->
+          {#if !blocked('config')}
+            <p class="text-xs text-muted">
+              {$t('modpacks.export.configsWarning')}
+            </p>
+          {/if}
         {/if}
-        {#if preview.has_resourcepacks}
+        {#if entryFor('resource_packs')}
           <label
-            ><input type="checkbox" bind:checked={includeResourcepacks} />
+            ><input
+              type="checkbox"
+              bind:checked={includeResourcepacks}
+              disabled={blocked('resource_packs')}
+            />
             {$t('modpacks.export.resourcePacks')}</label
           >
+          <ContentLocationNote entry={entryFor('resource_packs')} />
         {/if}
-        {#if preview.has_shaderpacks}
+        {#if entryFor('shaderpacks')}
           <label
-            ><input type="checkbox" bind:checked={includeShaderpacks} />
+            ><input
+              type="checkbox"
+              bind:checked={includeShaderpacks}
+              disabled={blocked('shaderpacks')}
+            />
             {$t('modpacks.export.shaderPacks')}</label
           >
+          <ContentLocationNote entry={entryFor('shaderpacks')} />
         {/if}
-        {#if preview.has_saves}
+        {#if entryFor('saves')}
+          {@const savesBytes = blocked('saves') ? 0 : (entryFor('saves')?.total_bytes ?? 0)}
           <label>
-            <input type="checkbox" bind:checked={includeWorlds} />
-            {$t('modpacks.export.worlds')}{formatSize($t, preview.saves_size_bytes)
-              ? ` (${formatSize($t, preview.saves_size_bytes)})`
+            <input type="checkbox" bind:checked={includeWorlds} disabled={blocked('saves')} />
+            <span>{$t('modpacks.export.worlds')}</span>{formatSize($t, savesBytes)
+              ? ` (${formatSize($t, savesBytes)})`
               : ''}
           </label>
+          <ContentLocationNote entry={entryFor('saves')} />
           {#if includeWorlds}
             <p class="text-xs text-danger">
               {$t('modpacks.export.worldsWarning')}

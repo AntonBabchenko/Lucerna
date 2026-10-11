@@ -50,8 +50,18 @@ const mockForeign = {
   max_heap_mb: 4096,
   extra_jvm_args: null,
   content: [
-    { category: 'mods' as const, file_count: 42, total_bytes: 104857600 },
-    { category: 'config' as const, file_count: 5, total_bytes: null },
+    {
+      category: 'mods' as const,
+      file_count: 42,
+      total_bytes: 104857600,
+      location: { kind: 'local' as const },
+    },
+    {
+      category: 'config' as const,
+      file_count: 5,
+      total_bytes: null,
+      location: { kind: 'local' as const },
+    },
   ],
   known_mods: [],
 };
@@ -298,7 +308,14 @@ describe('LauncherImportDialog', () => {
       loader_version: '47.2.0',
       max_heap_mb: null,
       extra_jvm_args: null,
-      content: [{ category: 'mods' as const, file_count: 1, total_bytes: 10 }],
+      content: [
+        {
+          category: 'mods' as const,
+          file_count: 1,
+          total_bytes: 10,
+          location: { kind: 'local' as const },
+        },
+      ],
       known_mods: [],
     };
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -324,7 +341,14 @@ describe('LauncherImportDialog', () => {
       loader_version: '0.16.5',
       max_heap_mb: null,
       extra_jvm_args: null,
-      content: [{ category: 'mods' as const, file_count: 1, total_bytes: 10 }],
+      content: [
+        {
+          category: 'mods' as const,
+          file_count: 1,
+          total_bytes: 10,
+          location: { kind: 'local' as const },
+        },
+      ],
       known_mods: [],
     };
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -384,6 +408,83 @@ describe('LauncherImportDialog', () => {
     fireEvent.click(getByTestId('browse-folder-btn'));
     await waitFor(() => expect(queryByTestId('import-btn')).toBeNull());
     expect(getByTestId('discover-btn')).toBeTruthy();
+  });
+
+  // ---- a linked, broken or unreadable folder -----------------------------
+
+  async function step2With(content: unknown[]) {
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { instances: [{ ...mockForeign, content }], empty_launchers: [] },
+    });
+    const view = render(LauncherImportDialog, { props: { onClose: vi.fn() } });
+    fireEvent.click(await view.findByTestId('instance-row'));
+    await view.findByTestId('category-list');
+    return view;
+  }
+
+  it('step 2: a linked folder is selectable and says where it points', async () => {
+    const view = await step2With([
+      {
+        category: 'resource_packs',
+        file_count: 3,
+        total_bytes: 10,
+        location: { kind: 'linked', target: 'C:\\xmcl\\resourcepacks' },
+      },
+    ]);
+    expect((view.getByTestId('cat-resource_packs') as HTMLInputElement).checked).toBe(true);
+    const note = view.getByTestId('location-note-resource_packs');
+    expect(note.textContent).toContain('instances.import.linkedFolder');
+    expect(note.textContent).toContain('C:\\xmcl\\resourcepacks');
+  });
+
+  it('step 2: an unreadable or broken folder is shown but cannot be selected', async () => {
+    const view = await step2With([
+      { category: 'mods', file_count: 2, total_bytes: 10, location: { kind: 'local' } },
+      {
+        category: 'saves',
+        file_count: 0,
+        total_bytes: 0,
+        location: { kind: 'unreadable', reason: 'Access is denied.' },
+      },
+      {
+        category: 'shaderpacks',
+        file_count: 0,
+        total_bytes: 0,
+        location: { kind: 'broken_link', target: 'E:\\pool' },
+      },
+    ]);
+    for (const cat of ['saves', 'shaderpacks']) {
+      const box = view.getByTestId(`cat-${cat}`) as HTMLInputElement;
+      expect(box.disabled).toBe(true);
+      expect(box.checked).toBe(false);
+      expect(view.getByTestId(`location-note-${cat}`)).toBeTruthy();
+    }
+    // Select-all ranges over what can be copied only.
+    fireEvent.click(view.getByTestId('toggle-all-btn'));
+    await waitFor(() =>
+      expect((view.getByTestId('cat-mods') as HTMLInputElement).checked).toBe(false),
+    );
+    fireEvent.click(view.getByTestId('toggle-all-btn'));
+    await waitFor(() =>
+      expect((view.getByTestId('cat-mods') as HTMLInputElement).checked).toBe(true),
+    );
+    expect((view.getByTestId('cat-saves') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('step 2: when nothing can be read, Import is off and says so', async () => {
+    const view = await step2With([
+      {
+        category: 'mods',
+        file_count: 0,
+        total_bytes: 0,
+        location: { kind: 'unreadable', reason: 'Access is denied.' },
+      },
+    ]);
+    expect(view.getByTestId('import-blocked-reason').textContent).toBe(
+      'instances.import.nothingReadable',
+    );
+    expect((view.getByTestId('import-btn') as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

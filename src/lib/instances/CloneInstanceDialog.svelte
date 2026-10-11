@@ -3,6 +3,8 @@
   import { get } from 'svelte/store';
   import { defaultCloneName, INSTANCE_NAME_MAX } from '$lib/instances/clone-request';
   import { categoryLabelKey } from '$lib/instances/import/category-display';
+  import { isSelectable } from '$lib/instances/import/content-location';
+  import ContentLocationNote from '$lib/instances/import/ContentLocationNote.svelte';
   import type { CloneOptions, ContentEntry, InstanceWithStatus } from '$lib/ipc/bindings';
   import { commands } from '$lib/ipc/bindings';
   import { formatSize } from '$lib/format/size';
@@ -60,29 +62,53 @@
     return content?.find((c) => c.category === category) ?? null;
   }
 
-  /** Files + bytes label for one option row; packs sums both categories. */
-  function sizeLabel(key: 'saves' | 'config' | 'options_txt' | 'packs' | 'mods'): string {
-    if (content === null) return '';
-    const entries = (
-      key === 'packs' ? [entryFor('resource_packs'), entryFor('shaderpacks')] : [entryFor(key)]
-    ).filter((e): e is ContentEntry => e !== null);
+  type ContentKey = 'saves' | 'config' | 'options_txt' | 'packs' | 'mods';
+
+  /** The scan entries behind one option row; packs has two categories. */
+  function entriesFor(key: ContentKey): ContentEntry[] {
+    if (content === null) return [];
+    const cats: ContentEntry['category'][] =
+      key === 'packs' ? ['resource_packs', 'shaderpacks'] : [key];
+    return cats.map(entryFor).filter((e): e is ContentEntry => e !== null);
+  }
+
+  /** Files + bytes of what can be copied for one row; packs sums both. An
+   *  option that is off shows no size: nothing of it will be copied. */
+  function sizeLabel(key: ContentKey): string {
+    if (key !== 'mods' && contentDisabled(key)) return '';
+    const entries = entriesFor(key).filter(isSelectable);
     if (entries.length === 0) return '';
     const files = entries.reduce((n, e) => n + e.file_count, 0);
     const bytes = entries.reduce((n, e) => n + (e.total_bytes ?? 0), 0);
     return `${files} · ${formatSize(get(t), bytes)}`;
   }
 
-  /** True once the scan proves there is nothing to copy for this option. */
-  function contentDisabled(key: 'saves' | 'config' | 'options_txt' | 'packs'): boolean {
+  /** True once the scan proves this option cannot be copied: nothing of it
+   *  is there, or one of its folders cannot be read / links to a missing
+   *  one. A clone is all-or-nothing, so one such folder would fail the whole
+   *  clone; the option is off and its note says why. */
+  function contentDisabled(key: Exclude<ContentKey, 'mods'>): boolean {
     if (content === null) return false;
-    if (key === 'packs') {
-      return entryFor('resource_packs') === null && entryFor('shaderpacks') === null;
-    }
-    return entryFor(key) === null;
+    const entries = entriesFor(key);
+    return entries.length === 0 || !entries.every(isSelectable);
   }
 
+  // The always-copied mods folder cannot be read (or links to a missing
+  // folder): the clone would fail, so Clone is off and says why.
+  const modsBlocked = $derived.by(() => {
+    const mods = content === null ? null : entryFor('mods');
+    return mods !== null && !isSelectable(mods);
+  });
+
   type OptionKey = keyof CloneOptions;
-  type Row = { key: OptionKey; label: string; icon: IconName; disabled: boolean; hint: string };
+  type Row = {
+    key: OptionKey;
+    label: string;
+    icon: IconName;
+    disabled: boolean;
+    hint: string;
+    entries: ContentEntry[];
+  };
 
   const rows = $derived<Row[]>([
     {
@@ -91,6 +117,7 @@
       icon: 'globe',
       disabled: contentDisabled('saves'),
       hint: sizeLabel('saves'),
+      entries: entriesFor('saves'),
     },
     {
       key: 'settings',
@@ -98,6 +125,7 @@
       icon: 'sliders',
       disabled: false,
       hint: '',
+      entries: [],
     },
     {
       key: 'packs',
@@ -105,6 +133,7 @@
       icon: 'resourcePack',
       disabled: contentDisabled('packs'),
       hint: sizeLabel('packs'),
+      entries: entriesFor('packs'),
     },
     {
       key: 'config',
@@ -112,6 +141,7 @@
       icon: 'settings',
       disabled: contentDisabled('config'),
       hint: sizeLabel('config'),
+      entries: entriesFor('config'),
     },
     {
       key: 'options_txt',
@@ -119,6 +149,7 @@
       icon: 'scrollText',
       disabled: contentDisabled('options_txt'),
       hint: sizeLabel('options_txt'),
+      entries: entriesFor('options_txt'),
     },
     {
       key: 'playtime',
@@ -126,10 +157,11 @@
       icon: 'play',
       disabled: hasPlaytime === false,
       hint: hasPlaytime === false ? $t('instance.clone.noPlaytime') : '',
+      entries: [],
     },
   ]);
 
-  const canSubmit = $derived(name.trim() !== '');
+  const canSubmit = $derived(name.trim() !== '' && !modsBlocked);
 
   function submit() {
     const trimmed = name.trim();
@@ -185,7 +217,6 @@
               class="flex items-center gap-3 rounded-md px-2 py-2 transition-colors"
               class:cursor-pointer={!row.disabled}
               class:hover:bg-subtle={!row.disabled}
-              class:opacity-50={row.disabled}
             >
               <input
                 type="checkbox"
@@ -196,8 +227,20 @@
                 onchange={() => (options[row.key] = !options[row.key])}
                 data-testid={`clone-opt-${row.key}`}
               />
-              <Icon name={row.icon} size={16} class="shrink-0 text-secondary" />
-              <span class="flex-1 text-sm text-primary">{row.label}</span>
+              <!-- A disabled row dims its name, not the note saying why. -->
+              <Icon
+                name={row.icon}
+                size={16}
+                class={`shrink-0 text-secondary ${row.disabled ? 'opacity-50' : ''}`}
+              />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm text-primary" class:opacity-50={row.disabled}
+                  >{row.label}</span
+                >
+                {#each row.entries as entry (entry.category)}
+                  <ContentLocationNote {entry} />
+                {/each}
+              </span>
               {#if row.hint}
                 <span class="shrink-0 text-xs text-muted">{row.hint}</span>
               {/if}
@@ -210,17 +253,27 @@
         data-testid="clone-mods-always"
       >
         <Icon name="puzzle" size={14} class="mt-0.5 shrink-0" />
-        <span>
+        <span class="min-w-0">
           {$t('instance.clone.modsAlways')}
           {#if sizeLabel('mods')}
             · {sizeLabel('mods')}
           {/if}
+          {#each entriesFor('mods') as entry (entry.category)}
+            <ContentLocationNote {entry} />
+          {/each}
         </span>
       </p>
     </div>
   </div>
 
   <footer class="flex items-center justify-end gap-2 border-t border-border-subtle px-5 py-3">
+    {#if modsBlocked}
+      <span
+        id="clone-blocked-reason"
+        class="mr-auto text-xs text-secondary"
+        data-testid="clone-blocked-reason">{$t('instance.clone.modsUnavailable')}</span
+      >
+    {/if}
     <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
       {$t('common.cancel')}
     </button>
@@ -228,6 +281,7 @@
       type="button"
       class="btn-primary btn-sm inline-flex items-center gap-1.5"
       disabled={!canSubmit}
+      aria-describedby={modsBlocked ? 'clone-blocked-reason' : undefined}
       onclick={submit}
       data-testid="clone-submit"
     >

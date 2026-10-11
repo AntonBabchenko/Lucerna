@@ -2,8 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { shouldWarnVanillaWithMods } from '$lib/instances/import/vanilla-mods-warning';
 import type { ContentEntry } from '$lib/ipc/bindings';
 
-const mods = (n: number): ContentEntry => ({ category: 'mods', file_count: n, total_bytes: 1 });
-const saves = (): ContentEntry => ({ category: 'saves', file_count: 1, total_bytes: 1 });
+const local = { kind: 'local' } as const;
+const mods = (n: number): ContentEntry => ({
+  category: 'mods',
+  file_count: n,
+  total_bytes: 1,
+  location: local,
+});
+const saves = (): ContentEntry => ({
+  category: 'saves',
+  file_count: 1,
+  total_bytes: 1,
+  location: local,
+});
 
 describe('shouldWarnVanillaWithMods', () => {
   it('warns when loader is vanilla and mods are present', () => {
