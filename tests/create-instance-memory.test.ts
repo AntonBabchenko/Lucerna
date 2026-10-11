@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
-import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
+import type { VersionEntry } from '$lib/ipc/bindings';
 
 const m = vi.hoisted(() => ({
   instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
@@ -56,34 +56,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/webview', () => ({}));
 vi.mock('$lib/servers/server-state.svelte', () => ({ serverState: { list: [] } }));
 
-import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
-
-function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
-  return {
-    id: 'inst-1',
-    name: 'Default',
-    mc_version: '1.20.1',
-    loader: 'vanilla',
-    loader_version: null,
-    max_heap_mb: 2048,
-    min_heap_mb: null,
-    extra_jvm_args: '',
-    created_unix_ms: null,
-    ready: true,
-    has_icon: false,
-    mrpack_name: null,
-    mrpack_version: null,
-    mrpack_project_id: null,
-    mrpack_source: null,
-    mrpack_summary: null,
-    mrpack_version_id: null,
-    integrity: null,
-    imported_from: null,
-    created_from_server: null,
-    java: null,
-    ...over,
-  };
-}
+import CreateInstanceDialog from '$lib/instances/CreateInstanceDialog.svelte';
 
 const version: VersionEntry = {
   id: '1.20.1',
@@ -92,22 +65,20 @@ const version: VersionEntry = {
   url: '',
 };
 
+// The dialog mounts fresh on every open (the page renders it under {#if}).
 function renderModal() {
-  const inst = makeInstance();
-  return render(ManageInstancesModal, {
+  return render(CreateInstanceDialog, {
     props: {
-      open: true,
-      instances: [inst],
-      activeInstance: inst,
       versions: [version],
-      onChanged: () => {},
+      activate: vi.fn().mockResolvedValue(null),
+      onCreated: () => {},
+      onClose: () => {},
     },
   });
 }
 
-/** Open the create form and fill the two fields Create validates. */
+/** Fill the two fields Create validates. */
 async function openCreateForm() {
-  await fireEvent.click(screen.getByRole('button', { name: '+ New instance' }));
   await fireEvent.input(screen.getByLabelText(/name/i), { target: { value: 'My Instance' } });
   // The MC version uses the custom Select — options commit on mousedown.
   await fireEvent.click(screen.getByRole('combobox'));
@@ -156,8 +127,8 @@ describe('create-instance form — memory picker', () => {
     expect(m.createInstance).toHaveBeenCalledWith('My Instance', '1.20.1', 'vanilla', null, 6144);
   });
 
-  it('forgets the previous choice when the create form is reopened', async () => {
-    renderModal();
+  it('forgets the previous choice when the dialog is opened again', async () => {
+    const first = renderModal();
     await openCreateForm();
 
     const slider = screen.getByRole('slider') as HTMLInputElement;
@@ -165,10 +136,11 @@ describe('create-instance form — memory picker', () => {
     await fireEvent.input(slider, { target: { value: '12288' } });
     expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('12288');
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await fireEvent.click(screen.getByRole('button', { name: '+ New instance' }));
-
-    expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('6144');
+    first.unmount();
+    renderModal();
+    await waitFor(() =>
+      expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('6144'),
+    );
   });
 });
 
