@@ -171,10 +171,13 @@ pub fn copy_clone_content(
     Ok(())
 }
 
-/// Copy a single optional metadata file. A missing source is fine; a failed
-/// copy is fatal (the caller rolls back the whole clone).
+/// Copy a single optional metadata file. A missing source is fine; one that
+/// cannot be read, or links to a missing file, is an error, as is a failed
+/// copy — all fatal (the caller rolls back the whole clone).
 fn copy_meta_file(src: &Path, dst: &Path) -> Result<()> {
-    if !src.is_file() {
+    if !crate::content_root::has_content(src, crate::content_root::Expect::File)
+        .map_err(|e| Error::io(src.display().to_string(), e))?
+    {
         return Ok(());
     }
     if let Some(parent) = dst.parent() {
@@ -185,8 +188,9 @@ fn copy_meta_file(src: &Path, dst: &Path) -> Result<()> {
 }
 
 /// Recursively copy every file under `src` into the matching relative path
-/// under `dst`. A missing `src` is fine (nothing to copy); any copy failure
-/// is fatal, matching every other copy in this module.
+/// under `dst`. A missing `src` is fine (nothing to copy); one that cannot be
+/// read, or links to a missing folder, is an error, and any copy failure is
+/// fatal, matching every other copy in this module.
 ///
 /// Reuses [`pipeline::collect_files`]'s enumeration — the same "list every
 /// real file under a tree" recursion [`copy_category`] already delegates to
@@ -216,7 +220,9 @@ fn copy_meta_file(src: &Path, dst: &Path) -> Result<()> {
 /// `Placement::Copied`, which the design already treats as a fully supported
 /// outcome (see `mods::store::materialize`'s fallback).
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    if !src.is_dir() {
+    if !crate::content_root::has_content(src, crate::content_root::Expect::Dir)
+        .map_err(|e| Error::io(src.display().to_string(), e))?
+    {
         return Ok(());
     }
     for relpath in crate::instances::import::pipeline::collect_files(src)? {
@@ -685,5 +691,16 @@ mod tests {
 
         assert!(seen.contains(&(ContentCategory::Mods, 1, 1)));
         assert!(seen.contains(&(ContentCategory::Saves, 1, 1)));
+    }
+
+    #[test]
+    fn copy_meta_file_refuses_an_unreadable_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = crate::content_root::test_links::unstattable(tmp.path()).join("icon.png");
+        let res = copy_meta_file(&src, &tmp.path().join("dst/icon.png"));
+        assert!(
+            res.is_err(),
+            "could-not-tell must not read as no-icon: {res:?}"
+        );
     }
 }

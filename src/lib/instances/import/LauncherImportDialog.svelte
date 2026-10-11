@@ -8,6 +8,8 @@
   import { t } from '$lib/i18n';
   import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
   import { categoryLabelKey } from '$lib/instances/import/category-display';
+  import { isSelectable } from '$lib/instances/import/content-location';
+  import ContentLocationNote from '$lib/instances/import/ContentLocationNote.svelte';
   import { shouldWarnVanillaWithMods } from '$lib/instances/import/vanilla-mods-warning';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -123,8 +125,8 @@
   $effect.pre(() => {
     if (chosen && seededFor !== chosen) {
       seededFor = chosen;
-      // Default: check all categories that have files
-      const available = new Set(chosen.content.map((c) => c.category));
+      // Default: check every category that can be copied
+      const available = new Set(chosen.content.filter(isSelectable).map((c) => c.category));
       selected = new Set(ALL_CATEGORIES.filter((c) => available.has(c)));
       targetName = chosen.name;
       mcVersionInput = chosen.mc_version;
@@ -139,8 +141,10 @@
     selected = next;
   }
 
+  // The categories that can be copied — what select-all and the default
+  // selection range over. A broken or unreadable one is listed, not here.
   const availableCategories = $derived(
-    chosen ? chosen.content.map((c) => c.category) : ([] as ContentCategory[]),
+    chosen ? chosen.content.filter(isSelectable).map((c) => c.category) : ([] as ContentCategory[]),
   );
 
   const showVanillaWithModsWarning = $derived(
@@ -153,10 +157,6 @@
 
   function toggleAll() {
     selected = allSelected ? new Set() : new Set(availableCategories);
-  }
-
-  function contentEntry(cat: ContentCategory) {
-    return chosen?.content.find((c) => c.category === cat) ?? null;
   }
 
   function categoryLabel(cat: ContentCategory): string {
@@ -253,8 +253,9 @@
     if (targetName.trim() === '') return $t('instances.import.disabledReason.name');
     if (mcVersionInput.trim() === '') return $t('instances.import.disabledReason.version');
     if (selected.size === 0) {
+      if (!chosen || chosen.content.length === 0) return $t('instances.import.noContent');
       return availableCategories.length === 0
-        ? $t('instances.import.noContent')
+        ? $t('instances.import.nothingReadable')
         : $t('instances.import.disabledReason.content');
     }
     return null;
@@ -557,30 +558,39 @@
           />
         </div>
 
-        {#if availableCategories.length === 0}
+        {#if chosen.content.length === 0}
           <p class="rounded-md bg-subtle px-3 py-3 text-sm text-muted">
             {$t('instances.import.noContent')}
           </p>
         {:else}
           <ul class="space-y-0.5" data-testid="category-list">
-            {#each availableCategories as cat (cat)}
-              {@const entry = contentEntry(cat)}
+            <!-- Every entry is listed; a broken or unreadable folder shows why
+                 it cannot be ticked instead of vanishing from the list. -->
+            {#each chosen.content as entry (entry.category)}
+              {@const cat = entry.category}
+              {@const selectable = isSelectable(entry)}
               <li>
                 <label
                   for={`cat-${cat}`}
-                  class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-subtle"
+                  class="flex items-center gap-3 rounded-md px-2 py-2 transition-colors"
+                  class:cursor-pointer={selectable}
+                  class:hover:bg-subtle={selectable}
                 >
                   <input
                     type="checkbox"
                     id={`cat-${cat}`}
                     checked={selected.has(cat)}
+                    disabled={!selectable}
                     onchange={() => toggleCategory(cat)}
                     class="rounded"
                     data-testid={`cat-${cat}`}
                   />
                   <Icon name={categoryIcon(cat)} size={16} class="shrink-0 text-secondary" />
-                  <span class="flex-1 text-sm text-primary">{categoryLabel(cat)}</span>
-                  {#if entry}
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-sm text-primary">{categoryLabel(cat)}</span>
+                    <ContentLocationNote {entry} />
+                  </span>
+                  {#if selectable}
                     <span class="shrink-0 text-xs text-muted">
                       {entry.file_count}{#if entry.total_bytes != null}
                         · {formatSize($t, entry.total_bytes)}{/if}

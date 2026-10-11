@@ -51,6 +51,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **Import, clone and export say when a folder is a link.** A content folder
+  that is really a symbolic link or junction (XMCL's shared resource packs, or
+  one made with `mklink`) is marked with where it points; the files it points
+  to are what gets copied, or packed into the modpack.
+- **A folder that can't be read is shown instead of quietly skipped.** Import,
+  clone and export now list such a folder, or a link whose folder is gone, with
+  the reason, and don't copy it.
+- **A broken link to the mods folder no longer erases the mod list.** If the
+  mods folder linked to a place that was missing, such as an unplugged drive,
+  the launcher forgot where every mod came from; it now reports the broken link
+  and keeps the list.
 - **A pack deleted from its folder by hand leaves the list, and one still on
   disk stays in it.** Removing or updating a pack the running game holds open
   now says the file stayed instead of dropping its row, and packs a modpack

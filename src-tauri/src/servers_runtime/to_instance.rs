@@ -74,14 +74,24 @@ pub async fn create_client_instance(
     // Mods are mandatory for a mod-core client: a copy failure rolls back the
     // half-built instance (mirrors the launcher-import rollback).
     // copy_instance_mods preserves .jar and .jar.disabled state and treats a
-    // missing source as 0 copied. A Paper/Purpur server holds Bukkit plugins
-    // (server-only), so its vanilla client instance copies no mods.
+    // missing source as 0 copied — but a mods/ link to a missing folder, or
+    // one it cannot read, as an error. A Paper/Purpur server holds Bukkit
+    // plugins (server-only), so its vanilla client instance copies no mods.
     if !file.loader.plugin_capable() {
         if let Err(e) = crate::servers_runtime::create::copy_instance_mods(&p.mods, &dst_mods) {
             // Remove the half-built instance directly (not via delete_instance,
             // which silently no-ops on the last instance) — see pipeline.rs's
-            // run_import rollback for the full rationale.
-            let _ = std::fs::remove_dir_all(&instance_root);
+            // run_import rollback for the full rationale. This runs because the
+            // copy already failed (Fallback discipline Q4): a leftover is put
+            // on record, not swallowed.
+            match std::fs::remove_dir_all(&instance_root) {
+                Ok(()) => {}
+                Err(re) if re.kind() == std::io::ErrorKind::NotFound => {}
+                Err(re) => crate::diag!(
+                    "instance-from-server: rollback of {} failed: {re} (copy failed: {e})",
+                    instance_root.display()
+                ),
+            }
             return Err(e);
         }
     }
@@ -145,8 +155,11 @@ const CONFIG_DIRS: &[&str] = &["config", "resourcepacks"];
 
 /// Copy the server's `config/` and `resourcepacks/` directories (when present)
 /// from `runtime` into the client instance's `.minecraft` dir. Skips absent
-/// dirs and symlinks (cycle/escape safety). The first hard error surfaces to
-/// the caller, which logs it (best-effort by design).
+/// dirs; a dir that is itself a link has its target copied (see
+/// [`crate::content_root`]); symlinks inside are skipped (cycle/escape
+/// safety). A dir that cannot be read, or links to a missing folder, is an
+/// error. The first hard error surfaces to the caller, which logs it
+/// (best-effort by design).
 ///
 /// `datapacks/` used to be on this list and was dead at both ends: a server
 /// keeps its packs in `runtime/<level>/datapacks/`, and the client reads its
@@ -158,7 +171,9 @@ pub(crate) fn copy_server_config_dirs(
 ) -> Result<()> {
     for name in CONFIG_DIRS {
         let src = runtime.join(name);
-        if src.is_dir() {
+        if crate::content_root::has_content(&src, crate::content_root::Expect::Dir)
+            .map_err(|e| Error::io(src.display().to_string(), e))?
+        {
             copy_dir_recursive(&src, &mc_dir.join(name))?;
         }
     }
@@ -702,6 +717,41 @@ mod tests {
             "datapacks go to the instance library, not into .minecraft/"
         );
         assert!(!mc.join("logs").exists(), "only config dirs are mirrored");
+    }
+
+    #[test]
+    fn config_dirs_copy_a_linked_root() {
+        let d = tempfile::tempdir().unwrap();
+        let pool = d.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        std::fs::write(pool.join("pack.zip"), b"z").unwrap();
+        let runtime = d.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        crate::content_root::test_links::link_dir(&pool, &runtime.join("resourcepacks"));
+        let mc = d.path().join("minecraft");
+
+        copy_server_config_dirs(&runtime, &mc).unwrap();
+
+        assert_eq!(
+            std::fs::read(mc.join("resourcepacks/pack.zip")).unwrap(),
+            b"z"
+        );
+    }
+
+    #[test]
+    fn config_dirs_refuse_a_broken_link_root() {
+        let d = tempfile::tempdir().unwrap();
+        let pool = d.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        let runtime = d.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        crate::content_root::test_links::link_dir(&pool, &runtime.join("config"));
+        std::fs::remove_dir(&pool).unwrap();
+
+        assert!(
+            copy_server_config_dirs(&runtime, &d.path().join("minecraft")).is_err(),
+            "the caller logs it; it must not be a silent skip"
+        );
     }
 
     #[test]

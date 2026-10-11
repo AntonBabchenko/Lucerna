@@ -20,22 +20,31 @@ type CopyProgress<'a> = dyn FnMut(u32, u32) + 'a;
 
 /// Copy one content category from `src_mc/<cat>` to `dst_mc/<cat>`,
 /// recursively. The source is opened read-only — this never writes under
-/// `src_mc`. Symlinked entries that would escape the category dir are
-/// skipped. Returns the number of files copied.
+/// `src_mc`. A link at the category root is the instance's content and its
+/// target is copied as real files (see [`crate::content_root`]); links found
+/// INSIDE the tree are skipped. A root that cannot be read, or links to a
+/// missing folder, is an error — never "nothing to copy". Returns the number
+/// of files copied.
 pub fn copy_category(
     src_mc: &Path,
     dst_mc: &Path,
     cat: ContentCategory,
     progress: &mut CopyProgress<'_>,
 ) -> Result<u32> {
+    use crate::content_root::{has_content, Expect};
     let rel = cat.rel_path();
     let src = src_mc.join(rel);
     let dst = dst_mc.join(rel);
+    let want = if cat.is_file() {
+        Expect::File
+    } else {
+        Expect::Dir
+    };
+    if !has_content(&src, want).map_err(|e| io(&src, e))? {
+        return Ok(0);
+    }
 
     if cat.is_file() {
-        if !src.is_file() {
-            return Ok(0);
-        }
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io(&dst, e))?;
         }
@@ -44,9 +53,6 @@ pub fn copy_category(
         return Ok(1);
     }
 
-    if !src.is_dir() {
-        return Ok(0);
-    }
     let files = collect_files(&src)?;
     let total = files.len() as u32;
     let mut done = 0u32;
@@ -198,8 +204,10 @@ pub async fn adopt_copied_jars(
 /// Run a full import. Creates the instance, copies the selected
 /// categories, recovers mod identities, and finalizes. On a mandatory-
 /// phase failure (instance create, or Mods copy when Mods selected) the
-/// half-built instance is deleted (rollback). Best-effort failures
-/// (other categories, enrich) are tolerated and reflected in the result.
+/// half-built instance is deleted (rollback). Best-effort failures are
+/// tolerated: a category that could not be copied is logged (the outcome
+/// does not carry it yet), and an enrich failure leaves its jars untracked,
+/// which the returned count reflects.
 ///
 /// Returns the new instance id plus the number of copied jars whose identity
 /// could not be recovered. That count is a RESULT, not progress, so it rides
@@ -277,7 +285,9 @@ pub async fn run_import(
                 // `get_active_instance`.
                 return Err(rollback_partial_instance(&instance_root, e));
             }
-            // best-effort category: tolerate, continue.
+            // Best-effort: the instance is usable without this category. The
+            // outcome does not report it yet (a follow-up); the log does.
+            crate::diag!("import: {cat:?} was not copied: {e}");
         }
     }
 
@@ -532,5 +542,105 @@ mod tests {
             !mystery.enrich_attempted,
             "untracked jar left for hash-enrich pass"
         );
+    }
+
+    // ---- a linked, broken or unreadable category root ---------------------
+
+    use crate::content_root::test_links::{link_dir, unstattable};
+
+    #[test]
+    fn copy_category_copies_a_linked_root_as_real_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = tmp.path().join("pool");
+        write(&pool.join("a.zip"), "A");
+        write(&pool.join("nested/b.zip"), "B");
+        let src_mc = tmp.path().join("src/.minecraft");
+        std::fs::create_dir_all(&src_mc).unwrap();
+        link_dir(&pool, &src_mc.join("resourcepacks"));
+        let dst_mc = tmp.path().join("dst/.minecraft");
+
+        let n = copy_category(
+            &src_mc,
+            &dst_mc,
+            ContentCategory::ResourcePacks,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(n, 2, "the target's content is the instance's content");
+        let dst = dst_mc.join("resourcepacks");
+        let meta = std::fs::symlink_metadata(&dst).unwrap();
+        assert!(
+            meta.is_dir() && !meta.file_type().is_symlink(),
+            "a real folder, not a link"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("nested/b.zip")).unwrap(),
+            "B"
+        );
+    }
+
+    #[test]
+    fn copy_category_refuses_a_broken_link_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = tmp.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        let src_mc = tmp.path().join("src/.minecraft");
+        std::fs::create_dir_all(&src_mc).unwrap();
+        link_dir(&pool, &src_mc.join("saves"));
+        std::fs::remove_dir(&pool).unwrap();
+
+        let res = copy_category(
+            &src_mc,
+            &tmp.path().join("dst/.minecraft"),
+            ContentCategory::Saves,
+            &mut |_, _| {},
+        );
+        assert!(
+            res.is_err(),
+            "a broken link is could-not-tell, not nothing-to-copy: {res:?}"
+        );
+    }
+
+    #[test]
+    fn copy_category_refuses_an_unreadable_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let res = copy_category(
+            &unstattable(tmp.path()),
+            &tmp.path().join("dst/.minecraft"),
+            ContentCategory::Config,
+            &mut |_, _| {},
+        );
+        assert!(
+            res.is_err(),
+            "could-not-tell must not copy nothing and succeed: {res:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_category_copies_a_linked_root_options_txt_as_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path().join("shared-options.txt");
+        std::fs::write(&shared, "version:3465").unwrap();
+        let src_mc = tmp.path().join("src/.minecraft");
+        std::fs::create_dir_all(&src_mc).unwrap();
+        std::os::unix::fs::symlink(&shared, src_mc.join("options.txt")).unwrap();
+        let dst_mc = tmp.path().join("dst/.minecraft");
+
+        copy_category(
+            &src_mc,
+            &dst_mc,
+            ContentCategory::OptionsTxt,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        let dst = dst_mc.join("options.txt");
+        assert!(!std::fs::symlink_metadata(&dst)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(dst).unwrap(), "version:3465");
     }
 }

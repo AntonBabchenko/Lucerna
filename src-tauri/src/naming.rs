@@ -265,7 +265,17 @@ impl DirCleanup {
 impl Drop for DirCleanup {
     fn drop(&mut self) {
         if let Some(path) = self.path.take() {
-            let _ = std::fs::remove_dir_all(path);
+            // This runs because something already failed (Fallback discipline
+            // Q4): a directory left behind is put on record, not swallowed.
+            // NotFound means nothing was left.
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => crate::diag!(
+                    "cleanup: could not remove the partly-created {}: {e}",
+                    path.display()
+                ),
+            }
         }
     }
 }
