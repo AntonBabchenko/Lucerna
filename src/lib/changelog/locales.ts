@@ -1,9 +1,11 @@
 // Translations of CHANGELOG.md: one Keep-a-Changelog mirror per locale at
-// ./locales/<code>.md, the same BCP-47 codes as src/lib/i18n/locales/<code>.json
-// and discovered the same way (no registration). Each file is its own Vite
+// ./locales/<code>.md, the same BCP-47 codes as src/lib/i18n/locales/<code>.json,
+// discovered and canonicalised the same way (no registration; a Weblate
+// `pt_BR.md` serves the UI locale `pt-BR`). Each file is its own Vite
 // chunk, loaded on demand — a language costs nothing until it is selected.
 // English is not a locale here: CHANGELOG.md itself is the source, embedded by
 // ./source.ts.
+import { canonicalLocaleCode } from '$lib/i18n/catalog';
 import { parseChangelog } from './parse';
 import type { Changelog } from './types';
 
@@ -14,7 +16,10 @@ type RawLoader = () => Promise<string>;
 
 const LOADERS: Readonly<Record<string, RawLoader>> = Object.fromEntries(
   Object.entries(import.meta.glob<string>('./locales/*.md', { query: '?raw', import: 'default' }))
-    .map(([path, load]) => [path.match(/\/([^/]+)\.md$/)?.[1] ?? '', load] as const)
+    .map(
+      ([path, load]) =>
+        [canonicalLocaleCode(path.match(/\/([^/]+)\.md$/)?.[1] ?? ''), load] as const,
+    )
     .filter(([code]) => code !== ''),
 );
 
