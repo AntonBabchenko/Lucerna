@@ -1,9 +1,11 @@
 // Translations of CHANGELOG.md: one Keep-a-Changelog mirror per locale at
-// ./locales/<code>.md, the same BCP-47 codes as src/lib/i18n/locales/<code>.json
-// and discovered the same way (no registration). Each file is its own Vite
+// ./locales/<code>.md, the same BCP-47 codes as src/lib/i18n/locales/<code>.json,
+// discovered and canonicalised the same way (no registration; a Weblate
+// `pt_BR.md` serves the UI locale `pt-BR`). Each file is its own Vite
 // chunk, loaded on demand — a language costs nothing until it is selected.
 // English is not a locale here: CHANGELOG.md itself is the source, embedded by
 // ./source.ts.
+import { localeCodeFromPath } from '$lib/i18n/catalog';
 import { parseChangelog } from './parse';
 import type { Changelog } from './types';
 
@@ -12,10 +14,19 @@ export const CHANGELOG_SOURCE_LOCALE = 'en';
 
 type RawLoader = () => Promise<string>;
 
-const LOADERS: Readonly<Record<string, RawLoader>> = Object.fromEntries(
-  Object.entries(import.meta.glob<string>('./locales/*.md', { query: '?raw', import: 'default' }))
-    .map(([path, load]) => [path.match(/\/([^/]+)\.md$/)?.[1] ?? '', load] as const)
-    .filter(([code]) => code !== ''),
+/** The glob's loaders keyed by canonical locale code, as the UI dictionaries are. */
+export function loadersByCode(
+  glob: Readonly<Record<string, RawLoader>>,
+): Readonly<Record<string, RawLoader>> {
+  return Object.fromEntries(
+    Object.entries(glob)
+      .map(([path, load]) => [localeCodeFromPath(path), load] as const)
+      .filter(([code]) => code !== ''),
+  );
+}
+
+const LOADERS = loadersByCode(
+  import.meta.glob<string>('./locales/*.md', { query: '?raw', import: 'default' }),
 );
 
 /** Sorted codes that have a changelog translation in the bundle. */

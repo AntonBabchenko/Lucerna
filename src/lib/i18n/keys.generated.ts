@@ -2870,6 +2870,7 @@ export type TranslationKey =
   | 'settings.general.appearance.iconZoom'
   | 'settings.general.appearance.iconZoomDescription'
   | 'settings.general.appearance.language'
+  | 'settings.general.appearance.languagePartial'
   | 'settings.general.appearance.languageSystem'
   | 'settings.general.appearance.rainbowIcons'
   | 'settings.general.appearance.rainbowIconsDescription'

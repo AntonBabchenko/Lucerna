@@ -32,6 +32,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   (an unpacked one goes to the recycle bin), and an Installed list re-reads
   itself when you come back to the launcher.
 
+### Changed
+
+- **A language added by translators shows up properly.** The language picker
+  shows each language under its own name where the system knows it, and how
+  much of a partly translated one is done; System switches to the system's
+  language once at least 90% of it is translated, where it used to know only
+  Russian.
+
 ### Fixed
 
 - **A pack deleted from its folder by hand leaves the list, and one still on
