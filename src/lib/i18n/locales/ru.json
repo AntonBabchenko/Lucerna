@@ -357,7 +357,31 @@
       "openModsFolderFailed": "Не удалось открыть папку модов.",
       "openSourceFolderFailed": "Не удалось открыть исходную папку.",
       "cloneBtn": "Клонировать…",
-      "translationsBtn": "Переводы"
+      "translationsBtn": "Переводы",
+      "java": {
+        "label": "Java",
+        "bundled": "Java от Lucerna (рекомендуется)",
+        "detected": "Java {version} · {vendor}",
+        "detectedNoVendor": "Java {version}",
+        "detectedUnknown": "Java, версия неизвестна",
+        "withDir": "{label} ({dir})",
+        "tooOldOption": "{label}: слишком старая для этой версии",
+        "saved": "Ваша Java",
+        "browse": "Обзор…",
+        "refresh": "Обновить список",
+        "searching": "Ищем Java на этом компьютере…",
+        "noneFound": "Другой Java на этом компьютере не найдено. Укажите её через «Обзор…».",
+        "detectFailed": "Не удалось поискать Java на этом компьютере.",
+        "checking": "Проверяем эту Java…",
+        "statusBundled": "Lucerna сама скачивает Java, которая нужна этой версии Minecraft.",
+        "statusMatches": "Java {version}: именно она нужна этой версии Minecraft.",
+        "statusNewer": "Java {found} новее, чем Java {required}, под которую сделана эта версия Minecraft. Обычно это работает; если игра падает при запуске, верните Java от Lucerna.",
+        "statusNewerLegacy": "Java {found} новее, чем Java 8. Ванильная игра может запуститься, но Forge для этой версии не запустится.",
+        "statusUnknown": "Профиль ещё не установлен, поэтому неизвестно, какая Java ему нужна. Lucerna проверит её при запуске.",
+        "gpuNote": "Выбор видеокарты в настройках действует только на Java от Lucerna. Для этой Java задайте его в Windows: Параметры → Система → Дисплей → Графика.",
+        "fileFilter": "Исполняемый файл Java",
+        "savedMark": "Сохранено"
+      }
     },
     "menu": {
       "aria": "Действия для {name}",
@@ -2844,7 +2868,16 @@
     "modpackUpdateRolledBack": "Ничего не изменено. Обновление сборки остановилось на файле {file}",
     "modpackUpdateRolledBackRecord": "Ничего не изменено. Обновление не смогло записать данные сборки",
     "contentUpdateRollbackIncomplete": "Обновление не удалось, и отменить его полностью не получилось. То, что не удалось вернуть, лежит в {folder}",
-    "contentUpdateUnfinished": "Предыдущее обновление этого профиля не было завершено. Перезапустите Lucerna, чтобы довести его отмену до конца, и попробуйте снова."
+    "contentUpdateUnfinished": "Предыдущее обновление этого профиля не было завершено. Перезапустите Lucerna, чтобы довести его отмену до конца, и попробуйте снова.",
+    "javaUnusable": "Выбранную для профиля Java нельзя использовать ({path}). {reason}",
+    "javaUnusableReason": {
+      "notFound": "Файла больше нет: его могли переместить или удалить.",
+      "unreadable": "Lucerna не смогла его прочитать ({details}).",
+      "notJava": "Это не исполняемый файл Java. Выберите java или javaw.",
+      "probeFailed": "Она не сообщила, какая это Java ({details}).",
+      "tooOld": "Это Java {found}, а этой версии Minecraft нужна Java {required} или новее.",
+      "wrongArch": "Это сборка {found}, а этому компьютеру нужна {expected}."
+    }
   },
   "settings": {
     "title": "Настройки",

@@ -55,6 +55,7 @@ const fabricInst = {
   integrity: { healthy: true, checked_unix_ms: Date.now(), categories: [], problem_count: 0 },
   imported_from: null,
   created_from_server: null,
+  java: null,
 };
 
 const overviewProps = {
