@@ -39,6 +39,7 @@
     save,
     defaultOption = null,
     lucernaWrites,
+    bundledStatus = null,
     testid = 'java-path-field',
   }: {
     /** Reload when it changes BY VALUE — hosts replace their lists wholesale. */
@@ -52,6 +53,9 @@
     /** What the «Lucerna's Java» option stores: an explicit pin where a
      *  «Default» option exists, `null` (no row) in Settings. */
     lucernaWrites: JavaChoice | null;
+    /** What «Lucerna's Java» means where the version's own wording does not
+     *  fit — a Settings row speaks for every instance on a Java version. */
+    bundledStatus?: string | null;
     testid?: string;
   } = $props();
 
@@ -232,7 +236,7 @@
       if (current === null && defaultOption) {
         return { tone: 'info', text: defaultOption.statusFor(required) };
       }
-      return { tone: 'info', text: tr('instance.manage.java.statusBundled') };
+      return { tone: 'info', text: bundledStatus ?? tr('instance.manage.java.statusBundled') };
     }
     if (report === null) return null;
     const v = report.verdict;

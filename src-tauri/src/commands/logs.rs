@@ -549,7 +549,7 @@ pub async fn execute_repair(
             crate::versions::install_version(
                 &effective_id,
                 &app,
-                crate::versions::JrePhase::Install,
+                crate::versions::JreFor::Instance(&instance_id),
             )
             .await?;
         }

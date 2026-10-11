@@ -1649,7 +1649,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Store a server's Java. A chosen Java is normalised and probed against the
 	 *  server's Java major FIRST (looked up when not cached yet; unknown offline,
 	 *  then only its architecture is checked); an unusable one is refused and
-	 *  nothing is written. Applies from the next start.
+	 *  nothing is written. «Default» and «Lucerna's Java» need no lookup, so they
+	 *  save offline at once. Applies from the next start.
 	 */
 	serverSetJava: (id: string, choice: 
 /**  Always Lucerna's own runtime, whatever Settings names as the default. */

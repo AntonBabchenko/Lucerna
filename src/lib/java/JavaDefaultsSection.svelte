@@ -85,6 +85,7 @@
           loadRequired={async () => ({ status: 'ok', data: r.major })}
           save={saveFor(r.major)}
           lucernaWrites={null}
+          bundledStatus={$t('settings.general.java.rowBundled', { major: r.major })}
           testid="java-default-{r.major}"
         />
       {/each}

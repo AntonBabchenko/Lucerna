@@ -378,13 +378,6 @@ function firstLineTruncated(raw: string): string {
     : `${codePoints.slice(0, DETAIL_TRUNCATE_CODE_POINTS).join('')}…`;
 }
 
-/**
- * Why a chosen Java cannot be used, in the user's language. Exhaustive like
- * `datapackRejectionKey`: a new `JavaUnusableReason` variant fails to compile
- * here instead of rendering nothing. Exported for `JavaPathField`, which shows
- * the same reason under the field. Nested details (probe output, an OS error)
- * are cut to their first line; the launcher log keeps them whole.
- */
 /** Whose Java it was — an instance's own, Settings' row for a major, or a
  *  server's own — so the sentence names the place to change it. */
 function javaUnusableKey(origin: JavaOrigin): TranslationKey {
@@ -425,6 +418,13 @@ function jreUnavailableReasonText(reason: JreUnavailableReason): string {
   }
 }
 
+/**
+ * Why a chosen Java cannot be used, in the user's language. Exhaustive like
+ * `datapackRejectionKey`: a new `JavaUnusableReason` variant fails to compile
+ * here instead of rendering nothing. Exported for `JavaPathField`, which shows
+ * the same reason under the field. Nested details (probe output, an OS error)
+ * are cut to their first line; the launcher log keeps them whole.
+ */
 export function javaUnusableReasonText(reason: JavaUnusableReason): string {
   const translate = get(t);
   switch (reason.kind) {

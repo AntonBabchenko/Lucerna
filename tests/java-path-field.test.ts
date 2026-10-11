@@ -48,7 +48,17 @@ const report = (path: string) => ({
 });
 const instance = (java: unknown) => ({ id: 'a', java }) as never;
 
-function setup(java: unknown = null, detected = [JDK21, JDK8], required = 21) {
+type Row = { major: number; path: string };
+
+/** `rows`: Settings as read, with these per-major rows; `null` leaves
+ *  Settings unread. */
+function setup(
+  java: unknown = null,
+  detected = [JDK21, JDK8],
+  required = 21,
+  rows: Row[] | null = [],
+) {
+  if (rows !== null) settingsWith(rows);
   vi.mocked(commands.javaDetect).mockResolvedValue({ status: 'ok', data: detected });
   vi.mocked(commands.instanceJavaRequirement).mockResolvedValue({ status: 'ok', data: required });
   vi.mocked(commands.javaCheck).mockResolvedValue({
@@ -75,7 +85,7 @@ afterEach(() => {
 });
 
 /** Settings as loaded, with these per-major rows. */
-function settingsWith(rows: { major: number; path: string }[]) {
+function settingsWith(rows: Row[]) {
   appSettings.loaded = { kind: 'ok', file: { general: { java_defaults: rows } } } as never;
 }
 
@@ -90,14 +100,25 @@ describe('JavaPathField', () => {
   });
 
   it('Default names the Settings row for the Java this version needs', async () => {
-    settingsWith([{ major: 21, path: '/opt/jdk-21/bin/java' }]);
-    setup();
+    setup(null, [JDK21, JDK8], 21, [{ major: 21, path: '/opt/jdk-21/bin/java' }]);
     expect(
       await screen.findByText(/Settings' Java for Java 21: \/opt\/jdk-21\/bin\/java/),
     ).toBeTruthy();
     await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
     expect(
       await screen.findByRole('option', { name: /Default \(now: Settings' Java 21\)/ }),
+    ).toBeTruthy();
+  });
+
+  // Settings not read (pending, or unreadable — then the launch refuses): the
+  // field must not claim Lucerna's Java.
+  it('Default claims nothing while Settings is unread', async () => {
+    setup(null, [JDK21, JDK8], 21, null);
+    expect(await screen.findByText(/Follows the Java set in Settings for Java 21/)).toBeTruthy();
+    expect(screen.queryByText(/Lucerna downloads the Java/)).toBeNull();
+    await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
+    expect(
+      await screen.findByRole('option', { name: /^Default \(follows Settings\)/ }),
     ).toBeTruthy();
   });
 

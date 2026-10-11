@@ -168,6 +168,16 @@ pub fn set_java(
     Ok(file)
 }
 
+/// Cache the Java component and major a start looked up, over a fresh read of
+/// `server.json`: only those two fields change, so a setting saved while the
+/// lookup ran is kept.
+pub fn cache_java_runtime(json: &Path, component: &str, major: u32) -> Result<()> {
+    let mut file = read_server_json(json)?;
+    file.java_component = Some(component.to_string());
+    file.java_major = Some(major);
+    write_server_json(json, &file)
+}
+
 /// Delete the server's SFTP password from the OS keyring — the last thing
 /// Delete server does, after the directory is gone. Reported, not swallowed:
 /// server ids are name slugs, so only a server recreated under the SAME name

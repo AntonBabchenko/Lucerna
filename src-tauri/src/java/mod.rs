@@ -9,6 +9,7 @@
 //! runtime: see `launch_java`.
 
 pub mod detect;
+pub mod install_phase;
 pub mod path;
 pub mod probe;
 pub mod verdict;

@@ -281,26 +281,26 @@ async fn server_java(
     json: &Path,
     app: &tauri::AppHandle,
 ) -> crate::error::Result<PathBuf> {
-    use crate::java::{JavaChoice, JavaOrigin, JavaSource, Owner};
+    use crate::java::{JavaChoice, JavaSource};
     let defaults =
         crate::java::defaults_for(file.java.as_ref(), || crate::java::settings_defaults(app))?;
     let own_custom = matches!(file.java, Some(JavaChoice::Custom { .. }));
-    let wants_major = own_custom || (file.java.is_none() && !defaults.is_empty());
     let mut component = file.java_component.clone();
     let mut major = file.java_major;
-    if component.is_none() || (wants_major && major.is_none()) {
+    if component.is_none() || (needs_major(file.java.as_ref(), &defaults) && major.is_none()) {
         match crate::servers_runtime::create::resolve_server_java_component(&file.mc_version).await
         {
             Ok(j) => {
-                component = Some(j.component.clone());
-                major = Some(j.major);
-                let mut upgraded = file.clone();
-                upgraded.java_component = Some(j.component);
-                upgraded.java_major = Some(j.major);
-                // A cache: when the write fails the next start resolves again.
-                if let Err(e) = crate::servers_runtime::store::write_server_json(json, &upgraded) {
+                // A cache, written over a fresh read so a setting saved while
+                // the lookup ran is kept; when the write fails the next start
+                // looks it up again.
+                if let Err(e) =
+                    crate::servers_runtime::store::cache_java_runtime(json, &j.component, j.major)
+                {
                     crate::diag!("servers: could not cache the Java component: {e}");
                 }
+                component = Some(j.component);
+                major = Some(j.major);
             }
             // The server's own Java needs no lookup to start; only its
             // version check is lost, and the log says so.
@@ -310,16 +310,7 @@ async fn server_java(
             Err(e) => return Err(e),
         }
     }
-    let source = match (file.java.as_ref(), major) {
-        (Some(JavaChoice::Custom { path }), _) => JavaSource::Custom {
-            path: PathBuf::from(path),
-            origin: JavaOrigin::Server,
-        },
-        (choice, Some(m)) => crate::java::resolve(choice, Owner::Server, &defaults, m),
-        // No own Java and no Settings row that needs the major.
-        (_, None) => JavaSource::Managed,
-    };
-    match source {
+    match server_source(file.java.as_ref(), &defaults, major) {
         JavaSource::Managed => {
             let component = component.ok_or_else(|| {
                 crate::error::Error::io("<server java>", "no Java component for this version")
@@ -345,6 +336,40 @@ async fn server_java(
             );
             Ok(console_java_path(&exe))
         }
+    }
+}
+
+/// Whether a start needs the server's Java major: its own Java is checked
+/// against it, and a Settings row is picked by it. Pure.
+fn needs_major(
+    choice: Option<&crate::java::JavaChoice>,
+    defaults: &[crate::java::JavaDefault],
+) -> bool {
+    match choice {
+        Some(crate::java::JavaChoice::Custom { .. }) => true,
+        Some(crate::java::JavaChoice::Bundled) => false,
+        None => !defaults.is_empty(),
+    }
+}
+
+/// Which Java a server starts on (pure): its own Java, whatever the major
+/// (unknown offline, then only its architecture is checked); else Settings'
+/// row for a known major; else Lucerna's runtime.
+fn server_source(
+    choice: Option<&crate::java::JavaChoice>,
+    defaults: &[crate::java::JavaDefault],
+    major: Option<u32>,
+) -> crate::java::JavaSource {
+    use crate::java::{JavaChoice, JavaOrigin, JavaSource, Owner};
+    match (choice, major) {
+        (Some(JavaChoice::Custom { path }), _) => JavaSource::Custom {
+            path: PathBuf::from(path),
+            origin: JavaOrigin::Server,
+        },
+        (choice, Some(m)) => crate::java::resolve(choice, Owner::Server, defaults, m),
+        // `needs_major` looks the major up whenever a row could apply, and a
+        // failed lookup refuses the start, so no row is skipped here.
+        (_, None) => JavaSource::Managed,
     }
 }
 
@@ -1073,6 +1098,56 @@ mod tests {
             console_java_path(Path::new("/x/bin/java")),
             Path::new("/x/bin/java")
         );
+    }
+
+    fn row(major: u32, path: &str) -> crate::java::JavaDefault {
+        crate::java::JavaDefault {
+            major,
+            path: path.into(),
+        }
+    }
+
+    #[test]
+    fn a_servers_own_java_wins_without_knowing_the_major() {
+        use crate::java::{JavaChoice, JavaOrigin, JavaSource};
+        let own = JavaChoice::Custom {
+            path: "/j17/bin/java".into(),
+        };
+        assert_eq!(
+            server_source(Some(&own), &[row(17, "/other/bin/java")], None),
+            JavaSource::Custom {
+                path: PathBuf::from("/j17/bin/java"),
+                origin: JavaOrigin::Server,
+            }
+        );
+        assert!(needs_major(Some(&own), &[]));
+    }
+
+    #[test]
+    fn a_server_with_no_choice_follows_the_settings_row_for_its_major() {
+        use crate::java::{JavaOrigin, JavaSource};
+        let rows = [row(8, "/j8/bin/java"), row(21, "/j21/bin/java")];
+        assert!(needs_major(None, &rows));
+        assert_eq!(
+            server_source(None, &rows, Some(21)),
+            JavaSource::Custom {
+                path: PathBuf::from("/j21/bin/java"),
+                origin: JavaOrigin::Default { major: 21 },
+            }
+        );
+        assert_eq!(server_source(None, &rows, Some(17)), JavaSource::Managed);
+    }
+
+    #[test]
+    fn a_server_pinned_to_lucernas_java_ignores_settings() {
+        use crate::java::{JavaChoice, JavaSource};
+        let rows = [row(21, "/j21/bin/java")];
+        assert!(!needs_major(Some(&JavaChoice::Bundled), &rows));
+        assert_eq!(
+            server_source(Some(&JavaChoice::Bundled), &rows, Some(21)),
+            JavaSource::Managed
+        );
+        assert!(!needs_major(None, &[]));
     }
 
     #[test]

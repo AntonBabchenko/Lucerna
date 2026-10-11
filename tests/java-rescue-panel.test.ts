@@ -42,19 +42,26 @@ const noRuntime: JavaProblem = {
   reason: { kind: 'unsupported_platform', os: 'linux', arch: 'aarch64' },
 };
 
-function setup(problem: JavaProblem = noRuntime, detected = [JDK21, JDK17, JDK8]) {
+function setup(
+  problem: JavaProblem = noRuntime,
+  detected = [JDK21, JDK17, JDK8],
+  followsSettings = true,
+) {
   vi.mocked(commands.javaDetect).mockResolvedValue({ status: 'ok', data: detected });
-  const onResolved = vi.fn();
+  const onJavaSaved = vi.fn();
+  const onRuntimeReady = vi.fn();
   const onProblem = vi.fn();
   render(JavaRescuePanel, {
     problem,
     message: "Lucerna couldn't get Java 17 for this version.",
     instanceId: 'a',
-    onResolved,
+    followsSettings,
+    onJavaSaved,
+    onRuntimeReady,
     onProblem,
     onDismiss: vi.fn(),
   });
-  return { onResolved, onProblem };
+  return { onJavaSaved, onRuntimeReady, onProblem };
 }
 
 async function optionNames(): Promise<string[]> {
@@ -79,13 +86,13 @@ describe('JavaRescuePanel', () => {
   });
 
   it('"Use for this instance" saves the Java, then runs the install again', async () => {
-    const { onResolved } = setup();
+    const { onJavaSaved } = setup();
     vi.mocked(commands.setInstanceJava).mockResolvedValue({
       status: 'ok',
       data: { instance: { id: 'a' } as never, report: null },
     });
     await fireEvent.click(await screen.findByRole('button', { name: 'Use for this instance' }));
-    await waitFor(() => expect(onResolved).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onJavaSaved).toHaveBeenCalledWith('a'));
     expect(commands.setInstanceJava).toHaveBeenCalledWith('a', {
       kind: 'custom',
       path: JDK17.path,
@@ -93,7 +100,7 @@ describe('JavaRescuePanel', () => {
   });
 
   it('a refused write says why and retries nothing', async () => {
-    const { onResolved } = setup();
+    const { onJavaSaved } = setup();
     vi.mocked(commands.setInstanceJava).mockResolvedValue({
       status: 'error',
       error: {
@@ -105,11 +112,11 @@ describe('JavaRescuePanel', () => {
     } as never);
     await fireEvent.click(await screen.findByRole('button', { name: 'Use for this instance' }));
     expect(await screen.findByText(/can't be used/)).toBeTruthy();
-    expect(onResolved).not.toHaveBeenCalled();
+    expect(onJavaSaved).not.toHaveBeenCalled();
   });
 
   it('"Use for every instance on Java 17" writes the Settings row', async () => {
-    const { onResolved } = setup();
+    const { onJavaSaved } = setup();
     vi.mocked(commands.setJavaDefault).mockResolvedValue({
       status: 'ok',
       data: {
@@ -120,8 +127,33 @@ describe('JavaRescuePanel', () => {
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Use for every instance on Java 17' }),
     );
-    await waitFor(() => expect(onResolved).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onJavaSaved).toHaveBeenCalledWith('a'));
     expect(commands.setJavaDefault).toHaveBeenCalledWith(17, JDK17.path);
+  });
+
+  // A Settings row does not reach an instance pinned to Lucerna's Java or to
+  // its own: offering it would write the row and fail the same way again.
+  it('offers no Settings row to an instance that does not follow Settings', async () => {
+    setup(noRuntime, [JDK17], false);
+    expect(await screen.findByRole('button', { name: 'Use for this instance' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /every instance/ })).toBeNull();
+  });
+
+  it('a search that failed is not "nothing found"', async () => {
+    vi.mocked(commands.javaDetect).mockRejectedValue(new Error('ipc down'));
+    const onJavaSaved = vi.fn();
+    render(JavaRescuePanel, {
+      problem: noRuntime,
+      message: 'm',
+      instanceId: 'a',
+      followsSettings: true,
+      onJavaSaved,
+      onRuntimeReady: vi.fn(),
+      onProblem: vi.fn(),
+      onDismiss: vi.fn(),
+    });
+    expect(await screen.findByText(/Couldn't look for a Java 17/)).toBeTruthy();
+    expect(screen.queryByText(/No Java 17 or newer was found/)).toBeNull();
   });
 
   it('asks a Java that does not say its version, and offers it when it fits', async () => {
@@ -171,21 +203,26 @@ describe('JavaRescuePanel', () => {
   });
 
   it('a runtime that is only not downloaded is downloaded on request', async () => {
-    const { onResolved } = setup({ kind: 'managed_java_missing', component: 'java-runtime-gamma' });
+    const { onRuntimeReady, onJavaSaved } = setup({
+      kind: 'managed_java_missing',
+      component: 'java-runtime-gamma',
+    });
     vi.mocked(commands.ensureInstanceJre).mockResolvedValue({ status: 'ok', data: null });
     await fireEvent.click(await screen.findByRole('button', { name: 'Download Java' }));
-    await waitFor(() => expect(onResolved).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onRuntimeReady).toHaveBeenCalledWith('a'));
     expect(commands.ensureInstanceJre).toHaveBeenCalledWith('a');
+    // Only the runtime was missing: no full install runs after it.
+    expect(onJavaSaved).not.toHaveBeenCalled();
   });
 
   it('a download that cannot get the runtime hands the new problem up', async () => {
-    const { onResolved, onProblem } = setup({
+    const { onRuntimeReady, onProblem } = setup({
       kind: 'managed_java_missing',
       component: 'java-runtime-gamma',
     });
     vi.mocked(commands.ensureInstanceJre).mockResolvedValue({ status: 'error', error: noRuntime });
     await fireEvent.click(await screen.findByRole('button', { name: 'Download Java' }));
     await waitFor(() => expect(onProblem).toHaveBeenCalledWith(noRuntime));
-    expect(onResolved).not.toHaveBeenCalled();
+    expect(onRuntimeReady).not.toHaveBeenCalled();
   });
 });

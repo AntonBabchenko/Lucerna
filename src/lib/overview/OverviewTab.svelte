@@ -57,7 +57,8 @@
     onDismissInstallError,
     javaProblem = null,
     onJavaProblem = () => {},
-    onJavaResolved = () => {},
+    onJavaSaved = () => {},
+    onRuntimeReady = () => {},
     onDismissModsError,
     onOpenLogs,
     onOpenServers,
@@ -104,8 +105,10 @@
      *  the rescue then stands in for the plain line. */
     javaProblem?: JavaProblem | null;
     onJavaProblem?: (e: JavaProblem) => void;
-    /** A Java was saved or the runtime downloaded: the page retries the install. */
-    onJavaResolved?: () => void;
+    /** A Java was saved for that instance: the page retries its install. */
+    onJavaSaved?: (instanceId: string) => void;
+    /** Lucerna's runtime was downloaded for that instance. */
+    onRuntimeReady?: (instanceId: string) => void;
     onDismissModsError: () => void;
     onOpenLogs: () => void;
     onOpenServers: () => void;
@@ -573,7 +576,9 @@
             problem={javaProblem}
             message={installError}
             instanceId={activeInstance.id}
-            onResolved={onJavaResolved}
+            followsSettings={activeInstance.java === null}
+            {onJavaSaved}
+            {onRuntimeReady}
             onProblem={onJavaProblem}
             onDismiss={onDismissInstallError}
           />

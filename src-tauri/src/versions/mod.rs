@@ -11,7 +11,7 @@ pub(crate) mod report;
 pub mod resolve;
 pub mod version_json;
 
-pub use install::{install_version, InstallPhase, InstallProgress, JrePhase};
+pub use install::{install_version, InstallPhase, InstallProgress, JreFor, JrePhase};
 pub use loaders::{Loader, LoaderVersion};
 pub use manifest::{
     clear_cache_for_test as clear_manifest_cache_for_test, list_manifest, VersionEntry, VersionType,

@@ -753,7 +753,8 @@
       "labelLucerna": "Default (now: Lucerna's Java)",
       "statusUnknownInstance": "Follows Settings: the Java chosen there for the version this instance needs, or Lucerna's Java. Lucerna checks it at launch.",
       "statusUnknownServer": "Follows Settings: the Java chosen there for the version this server needs, or Lucerna's Java.",
-      "statusSettings": "Settings' Java for Java {major}: {path}. Lucerna checks it at every launch."
+      "statusSettings": "Settings' Java for Java {major}: {path}. Lucerna checks it at every launch.",
+      "statusUnread": "Follows the Java set in Settings for Java {major}, if there is one; otherwise Lucerna's Java."
     },
     "rescue": {
       "offer": "A Java {major} or newer on this computer can run it instead.",
@@ -763,7 +764,8 @@
       "forMajor": "Use for every instance on Java {major}",
       "installerExplain": "Forge and NeoForge installers run only on Lucerna's Java, so a Java on this computer can't stand in for this step.",
       "missingExplain": "Download it to play on Lucerna's Java, or choose a Java on this computer in the instance's settings.",
-      "download": "Download Java"
+      "download": "Download Java",
+      "searchFailed": "Couldn't look for a Java {major} or newer on this computer. Pick one with Browse."
     }
   },
   "launch": {
@@ -3178,7 +3180,8 @@
         "intro": "The Java for instances and servers that need each Java version. One that chose its own Java in its settings keeps it.",
         "rowLabel": "Java {major}",
         "empty": "No instance needs a Java yet. Rows appear here once an instance is installed.",
-        "majorsFailed": "Couldn't read which Java versions the installed instances need."
+        "majorsFailed": "Couldn't read which Java versions the installed instances need.",
+        "rowBundled": "Instances and servers that need Java {major} run on Lucerna's Java, unless they chose their own."
       }
     },
     "storage": {

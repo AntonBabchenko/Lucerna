@@ -606,7 +606,8 @@ pub struct ServerJavaSaved {
 /// Store a server's Java. A chosen Java is normalised and probed against the
 /// server's Java major FIRST (looked up when not cached yet; unknown offline,
 /// then only its architecture is checked); an unusable one is refused and
-/// nothing is written. Applies from the next start.
+/// nothing is written. «Default» and «Lucerna's Java» need no lookup, so they
+/// save offline at once. Applies from the next start.
 #[tauri::command]
 #[specta::specta]
 pub async fn server_set_java(
@@ -618,16 +619,18 @@ pub async fn server_set_java(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let current = store::read_server_json(&crate::paths::server_paths(&base, &id).json)?;
     let mut major = current.java_major;
-    if major.is_none() {
-        match crate::servers_runtime::create::resolve_server_java_component(&current.mc_version)
-            .await
-        {
-            Ok(j) => major = Some(j.major),
-            Err(e) => crate::diag!("servers: Java major unknown for {id} ({e})"),
-        }
-    }
     let (stored, report) = match choice {
         Some(JavaChoice::Custom { path }) => {
+            if major.is_none() {
+                match crate::servers_runtime::create::resolve_server_java_component(
+                    &current.mc_version,
+                )
+                .await
+                {
+                    Ok(j) => major = Some(j.major),
+                    Err(e) => crate::diag!("servers: Java major unknown for {id} ({e})"),
+                }
+            }
             let refuse = |p: &str, reason| Error::JavaUnusable {
                 path: p.to_string(),
                 origin: JavaOrigin::Server,

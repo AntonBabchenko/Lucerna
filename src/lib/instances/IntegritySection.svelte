@@ -73,7 +73,7 @@
     if (!isStale()) required = major;
   }
   const ownJava = $derived(
-    java?.kind === 'custom' || (java === null && settingsRowFor(required) !== null),
+    java?.kind === 'custom' || (java === null && settingsRowFor(required).kind === 'row'),
   );
 
   const op = $derived(taskFor({ instanceId }));

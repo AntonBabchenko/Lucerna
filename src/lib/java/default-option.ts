@@ -8,18 +8,28 @@ import type { JavaDefault } from '$lib/ipc/bindings';
 import { generalDisplayed } from '$lib/settings/app-settings.svelte';
 import type { DefaultOption } from './JavaChoiceField.svelte';
 
-/** Settings' row for a Java major, when there is one. */
-export function settingsRowFor(required: number | null): JavaDefault | null {
-  if (required === null) return null;
-  return generalDisplayed()?.java_defaults?.find((d) => d.major === required) ?? null;
+/** What Settings says for a Java major: its row, none, or — the need not
+ *  known yet, or Settings not read (pending or unreadable) — unknown, which is
+ *  never shown as «Lucerna's Java». */
+export type SettingsRow =
+  | { kind: 'unknown' }
+  | { kind: 'none' }
+  | { kind: 'row'; row: JavaDefault };
+
+export function settingsRowFor(required: number | null): SettingsRow {
+  const general = generalDisplayed();
+  if (required === null || general === null) return { kind: 'unknown' };
+  const row = general.java_defaults?.find((d) => d.major === required);
+  return row ? { kind: 'row', row } : { kind: 'none' };
 }
 
 export function defaultOptionFor(owner: 'instance' | 'server'): DefaultOption {
   return {
     labelFor: (required) => {
       const tr = get(t);
-      if (required === null) return tr('java.default.label');
-      return settingsRowFor(required)
+      const answer = settingsRowFor(required);
+      if (answer.kind === 'unknown' || required === null) return tr('java.default.label');
+      return answer.kind === 'row'
         ? tr('java.default.labelSettings', { major: required })
         : tr('java.default.labelLucerna');
     },
@@ -32,9 +42,10 @@ export function defaultOptionFor(owner: 'instance' | 'server'): DefaultOption {
             : 'java.default.statusUnknownServer',
         );
       }
-      const row = settingsRowFor(required);
-      return row
-        ? tr('java.default.statusSettings', { major: required, path: row.path })
+      const answer = settingsRowFor(required);
+      if (answer.kind === 'unknown') return tr('java.default.statusUnread', { major: required });
+      return answer.kind === 'row'
+        ? tr('java.default.statusSettings', { major: required, path: answer.row.path })
         : tr('instance.manage.java.statusBundled');
     },
   };

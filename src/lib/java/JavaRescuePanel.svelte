@@ -33,7 +33,9 @@
     problem,
     message,
     instanceId,
-    onResolved,
+    followsSettings,
+    onJavaSaved,
+    onRuntimeReady,
     onProblem,
     onDismiss,
   }: {
@@ -41,9 +43,15 @@
     /** The error as the page already words it. */
     message: string;
     instanceId: string;
-    /** A Java was saved, or the runtime downloaded: the page runs the install
-     *  again (a no-op for an installed instance) and drops this panel. */
-    onResolved: () => void;
+    /** The instance stores no Java of its own, so a Settings row applies to
+     *  it. Pinned to Lucerna's Java or to its own, a row would not help it,
+     *  and «every instance on Java N» is not offered. */
+    followsSettings: boolean;
+    /** A Java was saved for this instance (by id — the user may have switched
+     *  meanwhile): the page runs its install again. */
+    onJavaSaved: (instanceId: string) => void;
+    /** Lucerna's runtime is downloaded: nothing else needs installing. */
+    onRuntimeReady: (instanceId: string) => void;
     /** The download failed in a way this panel answers too. */
     onProblem: (e: JavaProblem) => void;
     onDismiss: () => void;
@@ -53,6 +61,7 @@
   const PROBE_CONCURRENCY = 4;
 
   let candidates = $state<DetectedJava[] | null>(null);
+  let detectFailed = $state(false);
   let picked = $state<string | null>(null);
   /** A file picked by Browse; probed by the write, like any other choice. */
   let browsed = $state<string | null>(null);
@@ -72,11 +81,14 @@
     const need = required;
     if (need === null) return;
     let found: DetectedJava[] = [];
+    detectFailed = false;
     try {
       const r = await commands.javaDetect(false);
       if (r.status === 'ok') found = r.data;
+      else detectFailed = true;
     } catch {
-      // An empty list says it: nothing was found to offer. Browse still works.
+      // Not "nothing found": the search itself failed, and the panel says so.
+      detectFailed = true;
     }
     const known = found.filter((j) => j.major !== null && j.major >= need);
     // A Java without a `release` file says nothing about its version; ask it.
@@ -134,9 +146,10 @@
 
   async function useForInstance() {
     const path = picked;
+    const id = instanceId;
     if (path === null) return;
-    await act(async () => {
-      const r = await commands.setInstanceJava(instanceId, { kind: 'custom', path });
+    await act(id, async () => {
+      const r = await commands.setInstanceJava(id, { kind: 'custom', path });
       return r.status === 'ok' ? null : formatError(r.error);
     });
   }
@@ -144,8 +157,9 @@
   async function useForMajor() {
     const path = picked;
     const major = required;
+    const id = instanceId;
     if (path === null || major === null) return;
-    await act(async () => {
+    await act(id, async () => {
       const r = await writeGeneralVia(
         () => commands.setJavaDefault(major, path),
         (d) => d.settings,
@@ -156,7 +170,7 @@
 
   // A write that failed retries nothing: the choice was not saved, so the
   // install would fail the same way.
-  async function act(write: () => Promise<string | null>) {
+  async function act(id: string, write: () => Promise<string | null>) {
     busy = true;
     failure = null;
     try {
@@ -165,7 +179,7 @@
         failure = err;
         return;
       }
-      onResolved();
+      onJavaSaved(id);
     } catch (e) {
       failure = e instanceof Error ? e.message : String(e);
     } finally {
@@ -174,11 +188,12 @@
   }
 
   async function downloadRuntime() {
+    const id = instanceId;
     busy = true;
     failure = null;
     try {
-      const r = await commands.ensureInstanceJre(instanceId);
-      if (r.status === 'ok') onResolved();
+      const r = await commands.ensureInstanceJre(id);
+      if (r.status === 'ok') onRuntimeReady(id);
       else if (isJavaProblem(r.error)) onProblem(r.error);
       else failure = formatError(r.error);
     } catch (e) {
@@ -217,7 +232,9 @@
   {:else}
     {#if options.length === 0}
       <p class="text-xs text-secondary" data-testid="java-rescue-none">
-        {$t('java.rescue.none', { major: required ?? 0 })}
+        {detectFailed
+          ? $t('java.rescue.searchFailed', { major: required ?? 0 })
+          : $t('java.rescue.none', { major: required ?? 0 })}
       </p>
     {:else}
       <p class="text-xs text-secondary">{$t('java.rescue.offer', { major: required ?? 0 })}</p>
@@ -236,9 +253,11 @@
         <BusyButton class="btn-primary btn-sm" {busy} onclick={() => void useForInstance()}>
           {$t('java.rescue.forInstance')}
         </BusyButton>
-        <BusyButton class="btn-secondary btn-sm" {busy} onclick={() => void useForMajor()}>
-          {$t('java.rescue.forMajor', { major: required ?? 0 })}
-        </BusyButton>
+        {#if followsSettings}
+          <BusyButton class="btn-secondary btn-sm" {busy} onclick={() => void useForMajor()}>
+            {$t('java.rescue.forMajor', { major: required ?? 0 })}
+          </BusyButton>
+        {/if}
       {/if}
       <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={browse}>
         {$t('instance.manage.java.browse')}

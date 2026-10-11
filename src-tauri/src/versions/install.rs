@@ -70,6 +70,18 @@ fn require_client_downloads(
     })
 }
 
+/// Whose install this is, which decides phase 1b once the version's JSON is
+/// known.
+#[derive(Debug, Clone, Copy)]
+pub enum JreFor<'a> {
+    /// A bare version: Lucerna's runtime is installed.
+    Version,
+    /// An instance (by id): Lucerna's runtime is skipped when the instance
+    /// resolves to a usable Java of its own or of Settings
+    /// (`java::install_phase`).
+    Instance(&'a str),
+}
+
 /// What `install_version` does with Lucerna's Java runtime (phase 1b).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JrePhase {
@@ -97,14 +109,14 @@ pub enum JrePhase {
 /// A failed install returns no report at all: every phase short-circuits on
 /// its first error, so there is no partial truth to report.
 ///
-/// `jre` decides phase 1b. `Skip` is for an instance that resolves to a
-/// usable Java of its own or of Settings (`commands::java::install_jre_phase`):
-/// Lucerna's runtime is neither needed nor downloaded. Every other caller —
-/// repair, the logs fix, the bare version install — passes `Install`.
+/// `jre_for` decides phase 1b after phase 1, from the version's JSON: an
+/// instance's install, repair and the logs fix skip Lucerna's runtime when the
+/// instance resolves to a usable Java of its own or of Settings; a bare
+/// version install always installs it.
 pub async fn install_version(
     version_id: &str,
     app: &tauri::AppHandle,
-    jre: JrePhase,
+    jre_for: JreFor<'_>,
 ) -> Result<Vec<TaskDetail>> {
     let mut report: Vec<TaskDetail> = Vec::new();
 
@@ -140,10 +152,16 @@ pub async fn install_version(
         .unwrap_or(crate::jre::DEFAULT_LEGACY_COMPONENT)
         .to_string();
     emit(app, version_id, InstallPhase::Jre, 0, 1, 0.0);
+    let jre = match jre_for {
+        JreFor::Version => JrePhase::Install,
+        JreFor::Instance(id) => crate::java::install_phase::for_instance(app, id, &details).await,
+    };
     if let JrePhase::Skip { java } = &jre {
         emit(app, version_id, InstallPhase::Jre, 1, 1, 0.0);
+        // The Java it runs on instead, by its path: `name` is an artefact
+        // identifier (see `phase_row`), never UI copy.
         report.push(super::report::phase_row(
-            format!("java: {}", java.display()),
+            java.display().to_string(),
             java.display().to_string(),
             None,
             0,

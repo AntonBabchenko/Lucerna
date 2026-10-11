@@ -4,7 +4,7 @@
 use crate::error::Error;
 use crate::instances::schema::{GeneralSettings, InstanceWithStatus};
 use crate::java::detect::DetectedJava;
-use crate::java::{JavaChoice, JavaDefault, JavaOrigin, JavaReport, JavaUnusableReason, Owner};
+use crate::java::{JavaChoice, JavaDefault, JavaOrigin, JavaReport, JavaUnusableReason};
 use serde::Serialize;
 use specta::Type;
 use std::sync::{Mutex, MutexGuard};
@@ -235,50 +235,6 @@ fn with_row(rows: &[JavaDefault], major: u32, row: Option<JavaDefault>) -> Vec<J
     next.extend(row);
     next.sort_by_key(|r| r.major);
     next
-}
-
-/// What phase 1b of an instance's install should do with Lucerna's runtime:
-/// skip it for an instance that resolves to a usable Java of its own (or of
-/// Settings), install it otherwise. Anything that cannot be told — unreadable
-/// Settings, a chosen Java that fails its probe — installs it: downloading a
-/// runtime runs nothing, and the launch still refuses a chosen Java that
-/// fails, so the restrictive answer here is "install".
-pub(crate) async fn install_jre_phase(
-    app: &tauri::AppHandle,
-    instance_id: &str,
-    effective_id: &str,
-) -> Result<crate::versions::install::JrePhase, Error> {
-    use crate::versions::install::JrePhase;
-    let instance = crate::instances::read_instance(app, instance_id)?;
-    let details = crate::versions::install::ensure_version_json(effective_id, app).await?;
-    let required = crate::java::required_major(&details);
-    let defaults = match crate::java::defaults_for(instance.java.as_ref(), || {
-        crate::java::settings_defaults(app)
-    }) {
-        Ok(d) => d,
-        Err(e) => {
-            crate::diag!("install: {e}; installing Lucerna's Java");
-            return Ok(JrePhase::Install);
-        }
-    };
-    match crate::java::resolve(instance.java.as_ref(), Owner::Instance, &defaults, required) {
-        crate::java::JavaSource::Managed => Ok(JrePhase::Install),
-        crate::java::JavaSource::Custom { path, .. } => {
-            let Ok(exe) = crate::java::path::normalize(&path.to_string_lossy()) else {
-                return Ok(JrePhase::Install);
-            };
-            match crate::java::check(&exe, Some(required)).await {
-                Ok(_) => Ok(JrePhase::Skip { java: exe }),
-                Err(reason) => {
-                    crate::diag!(
-                        "install: the chosen Java {} cannot run this ({reason:?}); installing Lucerna's Java",
-                        exe.display()
-                    );
-                    Ok(JrePhase::Install)
-                }
-            }
-        }
-    }
 }
 
 /// Download Lucerna's runtime for an instance's version — the action behind

@@ -1832,9 +1832,16 @@
               onDismissInstallError={() => setInstallError(null)}
               {javaProblem}
               onJavaProblem={(e) => setInstallError(formatError(e), e)}
-              onJavaResolved={() => {
+              onJavaSaved={(id) => {
+                // The user may have switched instances while the write ran.
+                if (activeInstance?.id !== id) return;
                 setInstallError(null);
                 void onInstall();
+              }}
+              onRuntimeReady={(id) => {
+                if (activeInstance?.id !== id) return;
+                setInstallError(null);
+                void refreshInstances();
               }}
               onDismissModsError={() => (modsError = null)}
               onOpenLogs={() => {
