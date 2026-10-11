@@ -1091,6 +1091,30 @@ mod tests {
             .collect()
     }
 
+    #[tokio::test]
+    async fn list_refuses_a_broken_link_root_and_keeps_the_registry() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let pool = root.join("pool");
+        let sha = place_jar(&pool, "sodium.jar", b"MOD").await;
+        std::fs::create_dir_all(root.join(".minecraft")).unwrap();
+        crate::content_root::test_links::link_dir(&pool, &mods_dir(root));
+        add(root, provenanced("sodium.jar", sha)).await.unwrap();
+        let before = std::fs::read(registry_path(root)).unwrap();
+
+        std::fs::remove_dir_all(&pool).unwrap(); // the drive is unplugged
+
+        assert!(
+            list(root).await.is_err(),
+            "a broken mods/ link is could-not-tell"
+        );
+        assert_eq!(
+            std::fs::read(registry_path(root)).unwrap(),
+            before,
+            "the registry must survive, not be pruned to empty"
+        );
+    }
+
     /// Rows `order` names come first, in its order (matched case-blind); the
     /// rest keep their relative order after them.
     #[tokio::test]

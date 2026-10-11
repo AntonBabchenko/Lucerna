@@ -3,6 +3,7 @@ pub mod cancel_registry;
 pub mod cli;
 pub mod close;
 mod commands;
+pub mod content_root;
 pub mod data_root;
 pub mod datapacks;
 pub mod deeplink;

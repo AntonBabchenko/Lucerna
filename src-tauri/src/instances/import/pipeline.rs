@@ -533,4 +533,104 @@ mod tests {
             "untracked jar left for hash-enrich pass"
         );
     }
+
+    // ---- a linked, broken or unreadable category root ---------------------
+
+    use crate::content_root::test_links::{link_dir, unstattable};
+
+    #[test]
+    fn copy_category_copies_a_linked_root_as_real_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = tmp.path().join("pool");
+        write(&pool.join("a.zip"), "A");
+        write(&pool.join("nested/b.zip"), "B");
+        let src_mc = tmp.path().join("src/.minecraft");
+        std::fs::create_dir_all(&src_mc).unwrap();
+        link_dir(&pool, &src_mc.join("resourcepacks"));
+        let dst_mc = tmp.path().join("dst/.minecraft");
+
+        let n = copy_category(
+            &src_mc,
+            &dst_mc,
+            ContentCategory::ResourcePacks,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(n, 2, "the target's content is the instance's content");
+        let dst = dst_mc.join("resourcepacks");
+        let meta = std::fs::symlink_metadata(&dst).unwrap();
+        assert!(
+            meta.is_dir() && !meta.file_type().is_symlink(),
+            "a real folder, not a link"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("nested/b.zip")).unwrap(),
+            "B"
+        );
+    }
+
+    #[test]
+    fn copy_category_refuses_a_broken_link_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = tmp.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        let src_mc = tmp.path().join("src/.minecraft");
+        std::fs::create_dir_all(&src_mc).unwrap();
+        link_dir(&pool, &src_mc.join("saves"));
+        std::fs::remove_dir(&pool).unwrap();
+
+        let res = copy_category(
+            &src_mc,
+            &tmp.path().join("dst/.minecraft"),
+            ContentCategory::Saves,
+            &mut |_, _| {},
+        );
+        assert!(
+            res.is_err(),
+            "a broken link is could-not-tell, not nothing-to-copy: {res:?}"
+        );
+    }
+
+    #[test]
+    fn copy_category_refuses_an_unreadable_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let res = copy_category(
+            &unstattable(tmp.path()),
+            &tmp.path().join("dst/.minecraft"),
+            ContentCategory::Config,
+            &mut |_, _| {},
+        );
+        assert!(
+            res.is_err(),
+            "could-not-tell must not copy nothing and succeed: {res:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_category_copies_a_linked_root_options_txt_as_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path().join("shared-options.txt");
+        std::fs::write(&shared, "version:3465").unwrap();
+        let src_mc = tmp.path().join("src/.minecraft");
+        std::fs::create_dir_all(&src_mc).unwrap();
+        std::os::unix::fs::symlink(&shared, src_mc.join("options.txt")).unwrap();
+        let dst_mc = tmp.path().join("dst/.minecraft");
+
+        copy_category(
+            &src_mc,
+            &dst_mc,
+            ContentCategory::OptionsTxt,
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        let dst = dst_mc.join("options.txt");
+        assert!(!std::fs::symlink_metadata(&dst)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(dst).unwrap(), "version:3465");
+    }
 }

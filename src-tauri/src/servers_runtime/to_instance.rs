@@ -705,6 +705,41 @@ mod tests {
     }
 
     #[test]
+    fn config_dirs_copy_a_linked_root() {
+        let d = tempfile::tempdir().unwrap();
+        let pool = d.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        std::fs::write(pool.join("pack.zip"), b"z").unwrap();
+        let runtime = d.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        crate::content_root::test_links::link_dir(&pool, &runtime.join("resourcepacks"));
+        let mc = d.path().join("minecraft");
+
+        copy_server_config_dirs(&runtime, &mc).unwrap();
+
+        assert_eq!(
+            std::fs::read(mc.join("resourcepacks/pack.zip")).unwrap(),
+            b"z"
+        );
+    }
+
+    #[test]
+    fn config_dirs_refuse_a_broken_link_root() {
+        let d = tempfile::tempdir().unwrap();
+        let pool = d.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        let runtime = d.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        crate::content_root::test_links::link_dir(&pool, &runtime.join("config"));
+        std::fs::remove_dir(&pool).unwrap();
+
+        assert!(
+            copy_server_config_dirs(&runtime, &d.path().join("minecraft")).is_err(),
+            "the caller logs it; it must not be a silent skip"
+        );
+    }
+
+    #[test]
     fn config_dir_copy_is_noop_when_runtime_has_none() {
         let d = tempfile::tempdir().unwrap();
         let runtime = d.path().join("runtime");

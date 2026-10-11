@@ -672,4 +672,15 @@ mod tests {
         assert!(seen.contains(&(ContentCategory::Mods, 1, 1)));
         assert!(seen.contains(&(ContentCategory::Saves, 1, 1)));
     }
+
+    #[test]
+    fn copy_meta_file_refuses_an_unreadable_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = crate::content_root::test_links::unstattable(tmp.path()).join("icon.png");
+        let res = copy_meta_file(&src, &tmp.path().join("dst/icon.png"));
+        assert!(
+            res.is_err(),
+            "could-not-tell must not read as no-icon: {res:?}"
+        );
+    }
 }

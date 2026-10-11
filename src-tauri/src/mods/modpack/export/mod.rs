@@ -233,3 +233,67 @@ pub async fn run_export(
     });
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mods::platform::ModSource;
+
+    #[tokio::test]
+    async fn run_export_refuses_an_unreadable_root_before_resolving() {
+        let td = tempfile::tempdir().unwrap();
+        let root = crate::content_root::test_links::unstattable(td.path());
+        let m = InstalledMod {
+            filename: "jei.jar".into(),
+            sha1: "a".repeat(40),
+            source: Some(ModSource::Curseforge),
+            project_id: Some("238222".into()),
+            version_id: Some("5101366".into()),
+            name: "JEI".into(),
+            version_number: None,
+            installed_at: "2026-10-11T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        };
+        let opts = ExportOptions {
+            format: ModpackFormat::Curseforge,
+            mode: ExportMode::Lightweight,
+            include_config: true,
+            include_resourcepacks: false,
+            include_shaderpacks: false,
+            include_worlds: false,
+            bundle_shas: vec![],
+            metadata: ExportMetadata {
+                name: "P".into(),
+                version: "1".into(),
+                author: String::new(),
+                summary: String::new(),
+            },
+        };
+        let seen = std::sync::Mutex::new(Vec::<String>::new());
+        let sink = |p: ModpackExportProgress| seen.lock().unwrap().push(format!("{p:?}"));
+
+        let res = run_export(
+            &root,
+            "1.20.1",
+            LoaderKind::Forge,
+            None,
+            &[m],
+            &opts,
+            &td.path().join("out.zip"),
+            &sink,
+        )
+        .await;
+
+        assert!(
+            res.is_err(),
+            "an included root that cannot be read fails the export"
+        );
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "it must fail before the Resolving phase: {:?}",
+            seen.lock().unwrap()
+        );
+    }
+}

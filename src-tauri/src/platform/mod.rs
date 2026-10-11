@@ -204,6 +204,14 @@ pub fn set_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Test-only: set a Unix permission mode. Here because `PermissionsExt` is
+/// confined to `platform::` (`structural_platform_chokepoint`).
+#[cfg(all(test, unix))]
+pub(crate) fn set_mode_for_test(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+}
+
 /// Create ONE directory, exclusively (fails if `path` already exists; the
 /// parent must exist), readable by its owner only. On Unix that is mode
 /// `0o700` at creation — no window in which it is world-readable. On Windows

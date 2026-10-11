@@ -36,16 +36,48 @@ impl ContentCategory {
     }
 }
 
+/// Where a category's content is, as the preview shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContentLocation {
+    /// A real folder (or file, for `options.txt`) inside the instance.
+    Local,
+    /// The root is a symbolic link or junction. The counts are the target's
+    /// content, which is what gets copied, as real files.
+    Linked { target: String },
+    /// The root is a link whose target is missing. Counts are 0; the row
+    /// cannot be selected and a copy refuses.
+    BrokenLink { target: String },
+    /// The root could not be inspected or listed. Counts are 0; `reason` is
+    /// the OS error.
+    Unreadable { reason: String },
+}
+
 /// A category present on disk in the source, with size info for the preview.
 ///
 /// `total_bytes` is `f64` — specta forbids exporting `u64` across the IPC
 /// boundary (BigInt precision loss). A directory's byte total stays well
 /// within `f64`'s 2^53 exact-integer range, so no precision is lost.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct ContentEntry {
     pub category: ContentCategory,
     pub file_count: u32,
     pub total_bytes: f64,
+    pub location: ContentLocation,
+}
+
+impl ContentEntry {
+    /// An entry that has no countable content: a broken link or an
+    /// unreadable root.
+    #[allow(dead_code)] // red build only: the real scan uses it
+    fn without_content(category: ContentCategory, location: ContentLocation) -> Self {
+        Self {
+            category,
+            file_count: 0,
+            total_bytes: 0.0,
+            location,
+        }
+    }
 }
 
 /// A mod whose platform identity is already known from the source's
@@ -205,6 +237,7 @@ pub fn scan_content(minecraft_dir: &Path) -> Vec<ContentEntry> {
                     category: cat,
                     file_count: 1,
                     total_bytes: bytes as f64,
+                    location: ContentLocation::Local,
                 })
             } else {
                 let (file_count, total_bytes) = dir_stats(&path)?;
@@ -212,6 +245,7 @@ pub fn scan_content(minecraft_dir: &Path) -> Vec<ContentEntry> {
                     category: cat,
                     file_count,
                     total_bytes: total_bytes as f64,
+                    location: ContentLocation::Local,
                 })
             }
         })
@@ -265,11 +299,13 @@ mod tests {
                     category: ContentCategory::Mods,
                     file_count: 120,
                     total_bytes: 200_000_000.0,
+                    location: ContentLocation::Local,
                 },
                 ContentEntry {
                     category: ContentCategory::Saves,
                     file_count: 2,
                     total_bytes: 3_000_000_000.0,
+                    location: ContentLocation::Local,
                 },
             ],
             known_mods: vec![],
@@ -320,5 +356,118 @@ mod tests {
         fi.max_heap_mb = None;
         let plan = build_import_plan(&fi, &[ContentCategory::Mods], "n", 1024, 12288, 3000);
         assert_eq!(plan.max_heap_mb, 3000);
+    }
+
+    // ---- a linked, broken or unreadable category root ---------------------
+
+    use crate::content_root::test_links::{link_dir, same_dir, unstattable};
+
+    fn entry(content: &[ContentEntry], cat: ContentCategory) -> Option<&ContentEntry> {
+        content.iter().find(|e| e.category == cat)
+    }
+
+    #[test]
+    fn scan_marks_a_linked_root_and_counts_its_target() {
+        let td = tempfile::tempdir().unwrap();
+        let pool = td.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        std::fs::write(pool.join("a.zip"), b"AAAA").unwrap();
+        std::fs::write(pool.join("b.zip"), b"BB").unwrap();
+        let mc = td.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("config")).unwrap();
+        std::fs::write(mc.join("config/x.toml"), b"x").unwrap();
+        link_dir(&pool, &mc.join("resourcepacks"));
+
+        let content = scan_content(&mc);
+
+        let rp = entry(&content, ContentCategory::ResourcePacks).expect("a linked root is listed");
+        assert_eq!(
+            (rp.file_count, rp.total_bytes),
+            (2, 6.0),
+            "counts are the target's"
+        );
+        match &rp.location {
+            ContentLocation::Linked { target } => {
+                assert!(
+                    same_dir(Path::new(target), &pool),
+                    "{target} is not the pool"
+                )
+            }
+            other => panic!("a linked root must say where it points, got {other:?}"),
+        }
+        assert_eq!(
+            entry(&content, ContentCategory::Config).unwrap().location,
+            ContentLocation::Local
+        );
+    }
+
+    #[test]
+    fn scan_shows_a_broken_link_root() {
+        let td = tempfile::tempdir().unwrap();
+        let pool = td.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        let mc = td.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        link_dir(&pool, &mc.join("shaderpacks"));
+        std::fs::remove_dir(&pool).unwrap();
+
+        let content = scan_content(&mc);
+
+        let sp = entry(&content, ContentCategory::Shaderpacks)
+            .expect("a broken link is shown, not dropped");
+        assert!(
+            matches!(sp.location, ContentLocation::BrokenLink { .. }),
+            "got {:?}",
+            sp.location
+        );
+        assert_eq!(sp.file_count, 0);
+    }
+
+    #[test]
+    fn scan_reports_an_unreadable_root_when_stat_fails() {
+        let td = tempfile::tempdir().unwrap();
+        let content = scan_content(&unstattable(td.path()));
+        let mods = entry(&content, ContentCategory::Mods)
+            .expect("a root that cannot be stated is shown, not dropped");
+        assert!(
+            matches!(mods.location, ContentLocation::Unreadable { .. }),
+            "got {:?}",
+            mods.location
+        );
+        assert_eq!(content.len(), 6, "every category is could-not-tell");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_reports_an_unreadable_root_when_listing_fails() {
+        let td = tempfile::tempdir().unwrap();
+        let mc = td.path().join(".minecraft");
+        let rp = mc.join("resourcepacks");
+        std::fs::create_dir_all(&rp).unwrap();
+        std::fs::write(rp.join("a.zip"), b"A").unwrap();
+        crate::platform::set_mode_for_test(&rp, 0o000).unwrap();
+        let listable = std::fs::read_dir(&rp).is_ok(); // running as root
+        let content = scan_content(&mc);
+        crate::platform::set_mode_for_test(&rp, 0o755).unwrap();
+        if listable {
+            return;
+        }
+        let e = entry(&content, ContentCategory::ResourcePacks).expect("shown, not dropped");
+        assert!(
+            matches!(e.location, ContentLocation::Unreadable { .. }),
+            "got {:?}",
+            e.location
+        );
+    }
+
+    #[test]
+    fn scan_ignores_an_options_txt_folder() {
+        let td = tempfile::tempdir().unwrap();
+        let mc = td.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("options.txt")).unwrap();
+        assert!(
+            entry(&scan_content(&mc), ContentCategory::OptionsTxt).is_none(),
+            "a folder named options.txt holds no options"
+        );
     }
 }
