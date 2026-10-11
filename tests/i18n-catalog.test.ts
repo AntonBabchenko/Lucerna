@@ -37,6 +37,13 @@ describe('localeEndonym', () => {
     expect(localeEndonym('xx')).toBe('xx');
     expect(localeEndonym('not a tag!')).toBe('not a tag!');
   });
+
+  it('falls back to the code, not to a name in the host language, for a language Intl has no data for', () => {
+    // ICU has no Latin or Klingon locale data, so DisplayNames silently
+    // resolves to the HOST locale: on a Russian Windows, «латинский».
+    expect(localeEndonym('la')).toBe('la');
+    expect(localeEndonym('tlh')).toBe('tlh');
+  });
 });
 
 describe('translatedPercent', () => {

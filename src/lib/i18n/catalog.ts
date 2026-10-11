@@ -36,20 +36,30 @@ export function canonicalLocaleCode(raw: string): string {
  * list: «Русский», «Français», «Português (Brasil)». Intl gives the name in
  * running-text case («русский»), so the first letter is raised by that
  * language's own rules. When Intl has no name for the code, the code is what
- * we know, and the code is what we show.
+ * we know, and the code is what we show. That includes a language Intl has no
+ * data for (Latin, Klingon): DisplayNames then quietly resolves to the HOST
+ * locale and names it in the OS language («латинский» on a Russian Windows),
+ * so a name is used only when it was given in the code's own language.
  */
 export function localeEndonym(code: string): string {
   if (typeof Intl.DisplayNames !== 'function') return code;
-  let name: string | undefined;
+  let names: Intl.DisplayNames;
   try {
-    name = new Intl.DisplayNames([code], { type: 'language', fallback: 'none' }).of(code);
+    names = new Intl.DisplayNames([code], { type: 'language', fallback: 'none' });
   } catch (e) {
     if (e instanceof RangeError) return code;
     throw e;
   }
+  if (primaryLanguage(names.resolvedOptions().locale) !== primaryLanguage(code)) return code;
+  const name = names.of(code);
   if (!name) return code;
   const [first, ...rest] = Array.from(name);
   return first.toLocaleUpperCase(code) + rest.join('');
+}
+
+/** `pt` for `pt-BR`, `zh` for `zh_Hans`: the language subtag, lower-cased. */
+function primaryLanguage(tag: string): string {
+  return tag.split(/[-_]/)[0].toLowerCase();
 }
 
 /** The string at `path` in a nested dictionary, or null when there is none. */
