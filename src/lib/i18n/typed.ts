@@ -40,7 +40,8 @@ export const t = derived(
   [json, locale],
   ([lookup, current]) =>
     (key: TranslationKey, values?: InterpolationValues): string => {
-      const message: unknown = lookup(key);
+      // Look up and format in the same locale this translator was made for.
+      const message: unknown = lookup(key, current ?? undefined);
       // No message anywhere in the fallback chain: the key itself, as svelte-i18n renders it.
       if (typeof message !== 'string' || message === '') return key;
       if (values === undefined || current == null) return message;

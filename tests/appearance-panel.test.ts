@@ -176,7 +176,8 @@ describe('AppearancePanel', () => {
   });
 
   it('shows System, not an empty box, when the saved language is no longer shipped', () => {
-    langPref.value = 'de';
+    // 'zz' is no language at all, so it stays unshipped whatever translations arrive.
+    langPref.value = 'zz';
     try {
       render(AppearancePanel);
       expect(screen.getByTestId('language-select').textContent).toMatch(/System/);

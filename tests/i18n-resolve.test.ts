@@ -111,6 +111,11 @@ describe('matchSystemLocale without Intl.Locale (system WebKit before Safari 14)
   it('without likely subtags, never guesses across a script', () => {
     expect(matchSystemLocale('zh-TW', ['en', 'zh-Hans'])).toBeNull();
     expect(matchSystemLocale('zh-CN', ['en', 'zh-Hans'])).toBeNull();
+    // A missing script is unknown here, not absent: Taiwan and China both read
+    // as plain `zh`, so a regional candidate is no safe match for another region.
+    expect(matchSystemLocale('zh-TW', ['zh-CN'])).toBeNull();
+    expect(matchSystemLocale('zh-HK', ['zh-CN', 'zh-TW'])).toBeNull();
+    expect(matchSystemLocale('pt-PT', ['pt-BR'])).toBeNull();
   });
 
   it('still gives up on an unreadable OS language', () => {

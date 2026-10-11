@@ -2,12 +2,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { get } from 'svelte/store';
 import { addMessages } from 'svelte-i18n';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AVAILABLE_LOCALES, locale, t } from '../src/lib/i18n';
 
 describe('i18n formatting', () => {
-  it('discovers en and ru', () => {
-    expect(AVAILABLE_LOCALES).toEqual(['en', 'ru']);
+  it('discovers en and ru, sorted, among whatever else ships', () => {
+    // Not an exact list: a community language arrives as a file, with no
+    // registration and no test to update.
+    expect(AVAILABLE_LOCALES).toEqual(expect.arrayContaining(['en', 'ru']));
+    expect([...AVAILABLE_LOCALES]).toEqual([...AVAILABLE_LOCALES].sort());
   });
 
   it('formats a key in English then Russian after locale.set', async () => {
@@ -23,12 +26,39 @@ describe('i18n formatting', () => {
   // the first call: a number first formatted in German kept German grouping
   // after a switch to English. The bug only shows on the SECOND locale, so the
   // order matters: partial first, then English.
+  //
+  // Synthetic on purpose: a test-only key that exists in English alone, and a
+  // private-use German locale no real dictionary will ever be named, so the
+  // test means the same thing whatever languages ship.
   it('formats a message a partial locale shares with English in each locale’s own way', () => {
-    addMessages('de', {});
-    locale.set('de');
-    expect(get(t)('modpacks.card.downloadsShort', { count: 1234567 })).toBe('1.234.567 dl');
+    addMessages('en', { __test: { count: '{n, number} things' } });
+    addMessages('de-x-partial', {});
+    locale.set('de-x-partial');
+    expect(get(t)('__test.count' as never, { n: 1234567 })).toBe('1.234.567 things');
     locale.set('en');
-    expect(get(t)('modpacks.card.downloadsShort', { count: 1234567 })).toBe('1,234,567 dl');
+    expect(get(t)('__test.count' as never, { n: 1234567 })).toBe('1,234,567 things');
+  });
+
+  it('shows a message it cannot format as written, and says so', () => {
+    locale.set('en');
+    addMessages('en', { __test: { broken: 'Count: {n, number' } });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(get(t)('__test.broken' as never, { n: 1 })).toBe('Count: {n, number');
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('gives a new translator when a dictionary gains messages', () => {
+    locale.set('en');
+    const seen: string[] = [];
+    const stop = t.subscribe((tr) => seen.push(tr('__test.late' as never)));
+    addMessages('en', { __test: { late: 'Arrived' } });
+    stop();
+    expect(seen.at(0)).toBe('__test.late');
+    expect(seen.at(-1)).toBe('Arrived');
   });
 
   it('renders a key with no message anywhere as the key', () => {

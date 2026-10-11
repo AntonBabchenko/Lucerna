@@ -48,6 +48,8 @@ interface Tag {
   region: string;
   /** Whether the tag itself names a region (`de-CH`), not just its likely one. */
   hasRegion: boolean;
+  /** Whether likely subtags were filled in, so an empty script means "none", not "unknown". */
+  maximized: boolean;
 }
 
 function parseTag(code: string): Tag | null {
@@ -63,6 +65,7 @@ function parseTag(code: string): Tag | null {
       script: max.script ?? '',
       region: max.region ?? '',
       hasRegion: own.region !== undefined,
+      maximized: true,
     };
   } catch (e) {
     if (e instanceof RangeError) return null;
@@ -73,9 +76,11 @@ function parseTag(code: string): Tag | null {
 /**
  * The same facts without `Intl.Locale` (system WebKit before Safari 14, i.e.
  * macOS 10.13): the subtags as written, with no likely ones filled in. `ru-RU`
- * still meets `ru` and `de-AT` meets `de` (same language, no script on either);
- * `zh-CN` no longer reaches `zh-Hans`, which is the restrictive answer —
- * English — rather than a guess across scripts.
+ * still meets `ru` and `de-AT` meets `de`. A missing script is then unknown,
+ * not absent (`zh-TW` and `zh-CN` both read as plain `zh`), so the matcher
+ * gives a regional OS language only a bare-language candidate; `zh-CN` no
+ * longer reaches `zh-Hans` or `zh-TW` — the restrictive answer, English,
+ * rather than a guess across scripts.
  */
 function splitTag(code: string): Tag | null {
   const canonical = canonicalLocaleCode(code);
@@ -99,6 +104,7 @@ function splitTag(code: string): Tag | null {
     script,
     region,
     hasRegion: region !== '',
+    maximized: false,
   };
 }
 
@@ -123,7 +129,13 @@ export function matchSystemLocale(osLang: string, candidates: readonly string[])
   const os = parseTag(osLang ?? '');
   if (os === null) return null;
   const tags = candidates.map(parseTag).filter((t): t is Tag => t !== null);
-  const sameScript = tags.filter((t) => t.language === os.language && t.script === os.script);
+  const sameScript = tags.filter(
+    (t) =>
+      t.language === os.language &&
+      t.script === os.script &&
+      // Without likely subtags only a bare language (`de`, `ru`) is known to fit.
+      (os.maximized || (!t.hasRegion && t.script === '')),
+  );
   return (
     preferred(tags.filter((t) => t.exact === os.exact)) ??
     preferred(sameScript.filter((t) => t.region === os.region)) ??
