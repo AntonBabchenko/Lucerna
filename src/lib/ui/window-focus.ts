@@ -3,6 +3,10 @@
  * the Add-ons folder button opened, with packs dropped in by hand. Returns the unsubscribe.
  */
 export function onWindowFocus(cb: () => void): () => void {
-  window.addEventListener('focus', cb);
-  return () => window.removeEventListener('focus', cb);
+  // The window's own focus only: an element taking focus inside the page is not a return.
+  const onFocus = (e: Event) => {
+    if (e.target === window) cb();
+  };
+  window.addEventListener('focus', onFocus);
+  return () => window.removeEventListener('focus', onFocus);
 }

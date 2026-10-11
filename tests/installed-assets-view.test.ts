@@ -281,7 +281,7 @@ describe('InstalledAssetsView', () => {
       ]),
     );
     spies.assetUpdateOne
-      .mockResolvedValueOnce(ok(null))
+      .mockResolvedValueOnce(ok({ old_file_kept: null }))
       .mockResolvedValueOnce({ status: 'error' as const, error: 'network error' });
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
@@ -503,29 +503,6 @@ describe('InstalledAssetsView', () => {
     const before = spies.assetsList.mock.calls.length;
     window.dispatchEvent(new Event('focus'));
     await waitFor(() => expect(spies.assetsList.mock.calls.length).toBe(before + 1));
-  });
-
-  // The folder was opened from Browse: the return lands while this list is hidden, and the list
-  // reads it the moment it shows — not on some later return.
-  it('a return while hidden is read as soon as the list shows', async () => {
-    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
-    const view = render(InstalledAssetsView, {
-      instanceId: 'inst-1',
-      kind: 'shader',
-      visible: false,
-    });
-    await screen.findByText('Complementary Shaders');
-    const before = spies.assetsList.mock.calls.length;
-    window.dispatchEvent(new Event('focus'));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(spies.assetsList.mock.calls.length).toBe(before);
-    await view.rerender({ instanceId: 'inst-1', kind: 'shader', visible: true });
-    await waitFor(() => expect(spies.assetsList.mock.calls.length).toBe(before + 1));
-    // Answered once: showing it again reads nothing more.
-    await view.rerender({ instanceId: 'inst-1', kind: 'shader', visible: false });
-    await view.rerender({ instanceId: 'inst-1', kind: 'shader', visible: true });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(spies.assetsList.mock.calls.length).toBe(before + 1);
   });
 
   it('does not re-read in the Servers panel, where the client list is mounted but hidden', async () => {

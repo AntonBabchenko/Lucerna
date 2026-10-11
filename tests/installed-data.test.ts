@@ -133,15 +133,17 @@ describe('createInstalledData', () => {
   // is the newer truth, whichever answers last.
   it('of two refreshes in flight, the later one wins', async () => {
     let releaseFirst!: (v: unknown) => void;
+    // The first list hangs; every later one answers with the newer truth.
     mocks.modsListInstalled
       .mockImplementationOnce(() => new Promise((r) => (releaseFirst = r)))
-      .mockResolvedValueOnce({ status: 'ok', data: [row('new', null)] });
+      .mockResolvedValue({ status: 'ok', data: [row('new', null)] });
     mocks.modsPackOriginSummary.mockResolvedValue({ status: 'ok', data: null });
     mocks.modsProjects.mockResolvedValue({ status: 'ok', data: [] });
     const data = createInstalledData(() => 'i');
     const first = data.refresh();
     await data.refresh();
     releaseFirst({ status: 'ok', data: [row('old', null)] });
+    // The overtaken refresh resolves with the newest: its caller reads the newer rows.
     await first;
     expect(data.rows.map((r) => r.installed.sha1)).toEqual(['new']);
     expect(data.loading).toBe(false);

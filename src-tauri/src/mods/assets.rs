@@ -828,23 +828,23 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    /// A pack folder that cannot be listed is could-not-tell: every row stays
+    /// and nothing is written. A file where the folder should be makes
+    /// `read_dir` fail with something other than "not found" on every OS, with
+    /// no permission games (those are platform primitives).
     #[tokio::test]
     async fn an_unreadable_folder_keeps_every_row() {
-        use std::os::unix::fs::PermissionsExt;
         let td = tempfile::tempdir().unwrap();
         add(td.path(), sample(ContentKind::ResourcePack, "Kept.zip"))
             .await
             .unwrap();
         let d = pack_dir(td.path(), ContentKind::ResourcePack);
-        std::fs::create_dir_all(&d).unwrap();
-        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let l = listing(td.path(), ContentKind::ResourcePack, true).await;
-        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let l = l.unwrap();
-        if l.folders.is_some() {
-            return; // running as root: the folder was readable after all
-        }
+        std::fs::create_dir_all(d.parent().unwrap()).unwrap();
+        std::fs::write(&d, b"not a folder").unwrap();
+        let l = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert_eq!(l.folders, None, "could not tell, said as such");
         assert_eq!(l.files.len(), 1);
         assert_eq!(
             list(td.path(), ContentKind::ResourcePack)
