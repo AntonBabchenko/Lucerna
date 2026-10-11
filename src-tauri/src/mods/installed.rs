@@ -574,9 +574,28 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
 
     // (base_filename, sha1_lower, enabled) for every file on disk.
     // A missing mods/ directory is equivalent to an empty one: any stale
-    // JSON entries should still be dropped.
+    // JSON entries should still be dropped. A mods/ LINK to a missing folder
+    // is not missing — it is refused below.
     let mut on_disk: Vec<(String, String, bool)> = Vec::new();
-    if fs::try_exists(&dir).await.map_err(|e| io_err(&dir, e))? {
+    let present = fs::try_exists(&dir).await.map_err(|e| io_err(&dir, e))?;
+    if !present {
+        // `try_exists` follows a link, so a mods/ link whose target is gone (a
+        // junction to an unplugged drive) reads as absent — and the pass below
+        // would then drop every row. That is could-not-tell, not empty.
+        match fs::symlink_metadata(&dir).await {
+            Ok(m) if m.file_type().is_symlink() => {
+                let target = fs::read_link(&dir).await.map_err(|e| io_err(&dir, e))?;
+                return Err(io_err(
+                    &dir,
+                    crate::content_root::broken_link_error(&target),
+                ));
+            }
+            Ok(_) => {} // appeared since `try_exists`: the next read sees it
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_err(&dir, e)),
+        }
+    }
+    if present {
         let mut rd = fs::read_dir(&dir).await.map_err(|e| io_err(&dir, e))?;
         while let Some(entry) = rd.next_entry().await.map_err(|e| io_err(&dir, e))? {
             let meta = entry.metadata().await.map_err(|e| io_err(&dir, e))?;

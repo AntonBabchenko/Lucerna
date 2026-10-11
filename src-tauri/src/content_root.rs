@@ -38,15 +38,43 @@ pub enum Resolved {
     Other,
 }
 
+/// What is at `path`, without following a link at `path` itself. `Absent`
+/// only for `NotFound`; any other failure to state the path — or a link's
+/// target — is `Err`, "could not tell".
 pub fn inspect(path: &Path) -> io::Result<RootKind> {
-    // NAIVE STUB (red build) — today's semantics: follows the link, folds
-    // every error into "absent". Replaced by the real inspector.
-    Ok(if path.is_dir() {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(RootKind::Absent),
+        Err(e) => return Err(e),
+    };
+    let ft = meta.file_type();
+    // True for a Windows junction too: its mount-point tag is a name
+    // surrogate, which std reports as a symlink (data_root/migrate.rs relies
+    // on the same fact).
+    if ft.is_symlink() {
+        let named = std::fs::read_link(path)?;
+        let target = match path.parent() {
+            Some(parent) if named.is_relative() => parent.join(named),
+            _ => named,
+        };
+        let resolves_to = match std::fs::metadata(path) {
+            Ok(m) if m.is_dir() => Resolved::Dir,
+            Ok(m) if m.is_file() => Resolved::File,
+            Ok(_) => Resolved::Other,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Resolved::Missing,
+            Err(e) => return Err(e),
+        };
+        return Ok(RootKind::Linked {
+            target,
+            resolves_to,
+        });
+    }
+    Ok(if ft.is_dir() {
         RootKind::Dir
-    } else if path.is_file() {
+    } else if ft.is_file() {
         RootKind::File
     } else {
-        RootKind::Absent
+        RootKind::Other
     })
 }
 
@@ -117,10 +145,22 @@ pub fn broken_link_error(target: &Path) -> io::Error {
     io::Error::other(format!("links to a missing folder: {}", display(target)))
 }
 
-/// A target path as the user should read it.
+/// A target path as the user should read it: `\\?\C:\x` → `C:\x`,
+/// `\\?\UNC\srv\sh` → `\\srv\sh` (a no-op off Windows). Display only — the
+/// result is never handed back to the file system — so the verbatim prefix
+/// goes even where `dunce::simplified` keeps it (it leaves UNC paths alone).
 pub fn display(target: &Path) -> String {
-    // NAIVE STUB (red build) — replaced by the verbatim-prefix-stripping one.
-    target.display().to_string()
+    let shown = target.display().to_string();
+    #[cfg(windows)]
+    {
+        if let Some(rest) = shown.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = shown.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+    }
+    shown
 }
 
 /// Real links for tests: a Unix symlink, or a Windows directory junction,

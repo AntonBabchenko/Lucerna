@@ -145,8 +145,11 @@ const CONFIG_DIRS: &[&str] = &["config", "resourcepacks"];
 
 /// Copy the server's `config/` and `resourcepacks/` directories (when present)
 /// from `runtime` into the client instance's `.minecraft` dir. Skips absent
-/// dirs and symlinks (cycle/escape safety). The first hard error surfaces to
-/// the caller, which logs it (best-effort by design).
+/// dirs; a dir that is itself a link has its target copied (see
+/// [`crate::content_root`]); symlinks inside are skipped (cycle/escape
+/// safety). A dir that cannot be read, or links to a missing folder, is an
+/// error. The first hard error surfaces to the caller, which logs it
+/// (best-effort by design).
 ///
 /// `datapacks/` used to be on this list and was dead at both ends: a server
 /// keeps its packs in `runtime/<level>/datapacks/`, and the client reads its
@@ -158,7 +161,9 @@ pub(crate) fn copy_server_config_dirs(
 ) -> Result<()> {
     for name in CONFIG_DIRS {
         let src = runtime.join(name);
-        if src.is_dir() {
+        if crate::content_root::has_content(&src, crate::content_root::Expect::Dir)
+            .map_err(|e| Error::io(src.display().to_string(), e))?
+        {
             copy_dir_recursive(&src, &mc_dir.join(name))?;
         }
     }

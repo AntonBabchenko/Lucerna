@@ -42,6 +42,22 @@ pub async fn run_export(
     let mc_dir = instance_root.join(".minecraft");
     let mods_dir = mc_dir.join("mods");
 
+    // An included folder that cannot be read (or links to a missing one)
+    // fails now, before the Resolving phase spends time on the network.
+    // `collect_dir_entries` checks again when it walks; this is the early exit.
+    for (included, rel) in [
+        (opts.include_config, "config"),
+        (opts.include_resourcepacks, "resourcepacks"),
+        (opts.include_shaderpacks, "shaderpacks"),
+        (opts.include_worlds, "saves"),
+    ] {
+        if included {
+            let dir = mc_dir.join(rel);
+            crate::content_root::has_content(&dir, crate::content_root::Expect::Dir)
+                .map_err(|e| Error::io(dir.display().to_string(), e))?;
+        }
+    }
+
     let (referenced, unresolvable) = classify::classify(opts.format, opts.mode, enabled_mods);
 
     // Decide which unresolvable mods get bundled. Full mode -> all; otherwise

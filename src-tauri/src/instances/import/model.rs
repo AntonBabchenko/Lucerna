@@ -69,7 +69,6 @@ pub struct ContentEntry {
 impl ContentEntry {
     /// An entry that has no countable content: a broken link or an
     /// unreadable root.
-    #[allow(dead_code)] // red build only: the real scan uses it
     fn without_content(category: ContentCategory, location: ContentLocation) -> Self {
         Self {
             category,
@@ -217,8 +216,10 @@ pub fn is_injected_mod(filename: &str) -> bool {
 }
 
 /// Inspect a `.minecraft`-shaped dir and report which content categories
-/// exist, with a recursive file count and byte total (for the preview).
-/// Never errors — a missing dir yields an empty list.
+/// exist, with a recursive file count and byte total (for the preview), and
+/// where each one is ([`ContentLocation`]). Never errors: a missing category
+/// is left out, but one that cannot be read is an `Unreadable` entry and a
+/// link to a missing folder a `BrokenLink` one — never left out.
 pub fn scan_content(minecraft_dir: &Path) -> Vec<ContentEntry> {
     let all = [
         ContentCategory::Mods,
@@ -229,39 +230,76 @@ pub fn scan_content(minecraft_dir: &Path) -> Vec<ContentEntry> {
         ContentCategory::OptionsTxt,
     ];
     all.into_iter()
-        .filter_map(|cat| {
-            let path = minecraft_dir.join(cat.rel_path());
-            if cat.is_file() {
-                let bytes = fs::metadata(&path).ok()?.len();
-                Some(ContentEntry {
-                    category: cat,
-                    file_count: 1,
-                    total_bytes: bytes as f64,
-                    location: ContentLocation::Local,
-                })
-            } else {
-                let (file_count, total_bytes) = dir_stats(&path)?;
-                (file_count > 0).then_some(ContentEntry {
-                    category: cat,
-                    file_count,
-                    total_bytes: total_bytes as f64,
-                    location: ContentLocation::Local,
-                })
-            }
-        })
+        .filter_map(|cat| scan_one(minecraft_dir, cat))
         .collect()
 }
 
-/// Recursive (count, bytes) for a dir. `None` if the dir does not exist.
-fn dir_stats(dir: &Path) -> Option<(u32, u64)> {
-    if !dir.is_dir() {
-        return None;
+fn scan_one(minecraft_dir: &Path, cat: ContentCategory) -> Option<ContentEntry> {
+    use crate::content_root::{content_at, display, Content, Expect};
+    let path = minecraft_dir.join(cat.rel_path());
+    let want = if cat.is_file() {
+        Expect::File
+    } else {
+        Expect::Dir
+    };
+    let unreadable = |e: std::io::Error| {
+        ContentEntry::without_content(
+            cat,
+            ContentLocation::Unreadable {
+                reason: e.to_string(),
+            },
+        )
+    };
+    let location = match content_at(&path, want) {
+        Ok(Content::Nothing) => return None,
+        Ok(Content::Local) => ContentLocation::Local,
+        Ok(Content::Linked { target }) => ContentLocation::Linked {
+            target: display(&target),
+        },
+        Ok(Content::BrokenLink { target }) => {
+            return Some(ContentEntry::without_content(
+                cat,
+                ContentLocation::BrokenLink {
+                    target: display(&target),
+                },
+            ))
+        }
+        Err(e) => return Some(unreadable(e)),
+    };
+    // Both measurements follow a link at the root: the counts are what a copy
+    // would take.
+    let measured = if cat.is_file() {
+        fs::metadata(&path).map(|m| (1, m.len()))
+    } else {
+        dir_stats(&path)
+    };
+    match measured {
+        Ok((file_count, bytes)) => (file_count > 0).then_some(ContentEntry {
+            category: cat,
+            file_count,
+            total_bytes: bytes as f64,
+            location,
+        }),
+        Err(e) => Some(unreadable(e)),
     }
+}
+
+/// Recursive (count, bytes) under `dir`, a folder known to hold content
+/// (followed if it is a link). A root that cannot be listed is `Err`. Below it
+/// an unreadable subfolder is still skipped — a known gap the linked-roots fix
+/// left for a follow-up.
+fn dir_stats(dir: &Path) -> std::io::Result<(u32, u64)> {
     let mut count = 0u32;
     let mut bytes = 0u64;
     let mut stack = vec![dir.to_path_buf()];
+    let mut at_root = true;
     while let Some(d) = stack.pop() {
-        let Ok(rd) = fs::read_dir(&d) else { continue };
+        let rd = match fs::read_dir(&d) {
+            Ok(rd) => rd,
+            Err(e) if at_root => return Err(e),
+            Err(_) => continue, // a subfolder: the known gap above
+        };
+        at_root = false;
         for entry in rd.flatten() {
             let p = entry.path();
             // Do not follow symlinks while measuring (matches the copy guard).
@@ -274,7 +312,7 @@ fn dir_stats(dir: &Path) -> Option<(u32, u64)> {
             }
         }
     }
-    Some((count, bytes))
+    Ok((count, bytes))
 }
 
 #[cfg(test)]

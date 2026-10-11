@@ -158,14 +158,18 @@ pub fn write_archive(dest: &Path, entries: &[ZipEntry]) -> Result<(), Error> {
 }
 
 /// Recursively collect files under `dir` into `ZipEntry`s rooted at
-/// `archive_prefix` (e.g. `overrides/config`). Returns empty when `dir`
-/// does not exist. Files are added; directories are recursed.
-/// **Symlinks are never followed** — any symlink entry is silently skipped
-/// to prevent infinite cycles and to avoid leaking external files into the
-/// shared archive.
+/// `archive_prefix` (e.g. `overrides/config`). Empty when `dir` does not
+/// exist. A link at `dir` itself is the instance's content and its target is
+/// walked (the export dialog marks such a folder); a `dir` that cannot be
+/// read, or links to a missing folder, is an error. Files are added;
+/// directories are recursed. **Symlinks inside the tree are never followed**
+/// — they are silently skipped, to prevent infinite cycles and to keep
+/// external files out of the shared archive.
 pub fn collect_dir_entries(dir: &Path, archive_prefix: &str) -> Result<Vec<ZipEntry>, Error> {
     let mut out = Vec::new();
-    if !dir.exists() {
+    if !crate::content_root::has_content(dir, crate::content_root::Expect::Dir)
+        .map_err(|e| Error::io(dir.display().to_string(), e))?
+    {
         return Ok(out);
     }
     collect_recursive(dir, archive_prefix, &mut out)?;

@@ -20,22 +20,31 @@ type CopyProgress<'a> = dyn FnMut(u32, u32) + 'a;
 
 /// Copy one content category from `src_mc/<cat>` to `dst_mc/<cat>`,
 /// recursively. The source is opened read-only — this never writes under
-/// `src_mc`. Symlinked entries that would escape the category dir are
-/// skipped. Returns the number of files copied.
+/// `src_mc`. A link at the category root is the instance's content and its
+/// target is copied as real files (see [`crate::content_root`]); links found
+/// INSIDE the tree are skipped. A root that cannot be read, or links to a
+/// missing folder, is an error — never "nothing to copy". Returns the number
+/// of files copied.
 pub fn copy_category(
     src_mc: &Path,
     dst_mc: &Path,
     cat: ContentCategory,
     progress: &mut CopyProgress<'_>,
 ) -> Result<u32> {
+    use crate::content_root::{has_content, Expect};
     let rel = cat.rel_path();
     let src = src_mc.join(rel);
     let dst = dst_mc.join(rel);
+    let want = if cat.is_file() {
+        Expect::File
+    } else {
+        Expect::Dir
+    };
+    if !has_content(&src, want).map_err(|e| io(&src, e))? {
+        return Ok(0);
+    }
 
     if cat.is_file() {
-        if !src.is_file() {
-            return Ok(0);
-        }
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io(&dst, e))?;
         }
@@ -44,9 +53,6 @@ pub fn copy_category(
         return Ok(1);
     }
 
-    if !src.is_dir() {
-        return Ok(0);
-    }
     let files = collect_files(&src)?;
     let total = files.len() as u32;
     let mut done = 0u32;
@@ -198,8 +204,10 @@ pub async fn adopt_copied_jars(
 /// Run a full import. Creates the instance, copies the selected
 /// categories, recovers mod identities, and finalizes. On a mandatory-
 /// phase failure (instance create, or Mods copy when Mods selected) the
-/// half-built instance is deleted (rollback). Best-effort failures
-/// (other categories, enrich) are tolerated and reflected in the result.
+/// half-built instance is deleted (rollback). Best-effort failures are
+/// tolerated: a category that could not be copied is logged (the outcome
+/// does not carry it yet), and an enrich failure leaves its jars untracked,
+/// which the returned count reflects.
 ///
 /// Returns the new instance id plus the number of copied jars whose identity
 /// could not be recovered. That count is a RESULT, not progress, so it rides
@@ -277,7 +285,9 @@ pub async fn run_import(
                 // `get_active_instance`.
                 return Err(rollback_partial_instance(&instance_root, e));
             }
-            // best-effort category: tolerate, continue.
+            // Best-effort: the instance is usable without this category. The
+            // outcome does not report it yet (a follow-up); the log does.
+            crate::diag!("import: {cat:?} was not copied: {e}");
         }
     }
 
