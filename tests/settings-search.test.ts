@@ -4,7 +4,11 @@ import en from '$lib/i18n/locales/en.json';
 import ru from '$lib/i18n/locales/ru.json';
 import { matchesWord, normalize, searchSettings, words } from '$lib/settings/search';
 import type { SettingsAnchor, SettingsSearchEntry } from '$lib/settings/search-index';
-import { SETTINGS_ENTRIES } from '$lib/settings/search-index';
+import {
+  LANGUAGE_SEARCH_WORDS,
+  SETTINGS_ENTRIES,
+  SETTINGS_SEARCH,
+} from '$lib/settings/search-index';
 
 const ENTRIES: SettingsSearchEntry[] = [
   {
@@ -172,6 +176,24 @@ describe('searchSettings', () => {
 
   it('returns [] when nothing matches', () => {
     expect(searchSettings('zzzz', ENTRIES, t as never)).toEqual([]);
+  });
+
+  it('matches words an entry carries beside its translated keywords', () => {
+    const entries: SettingsSearchEntry[] = [
+      { ...ENTRIES[1], extraKeywords: ['Deutsch', 'Sprache'] },
+      ENTRIES[0],
+    ];
+    expect(searchSettings('sprache', entries, t as never).map((e) => e.anchor)).toEqual([
+      'appearance.theme',
+    ]);
+    expect(searchSettings('sprache', ENTRIES, t as never)).toEqual([]);
+  });
+});
+
+describe('the language row is findable in every bundled language', () => {
+  it('carries each bundled language’s own name and its own word for "Language"', () => {
+    expect(LANGUAGE_SEARCH_WORDS).toEqual(['English', 'Language', 'Русский', 'Язык']);
+    expect(SETTINGS_SEARCH['appearance.language'].extraKeywords).toBe(LANGUAGE_SEARCH_WORDS);
   });
 });
 
