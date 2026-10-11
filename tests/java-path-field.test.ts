@@ -95,6 +95,10 @@ describe('JavaPathField', () => {
     );
     expect(onChanged).toHaveBeenCalled();
     expect(await screen.findByText(/the version this Minecraft needs/)).toBeTruthy();
+    // The host here never refreshes its `value` prop: the field must describe
+    // what was saved, not the old "Lucerna's Java" it was given.
+    expect(screen.queryByText(/Lucerna downloads the Java/)).toBeNull();
+    expect(screen.getByText('/opt/jdk-21/bin/java')).toBeTruthy();
   });
 
   it('a refused pick shows why and saves nothing', async () => {

@@ -55,7 +55,14 @@
   // applied, so a slow probe never overwrites a newer choice.
   let seq = 0;
 
-  const savedPath = $derived(value?.kind === 'custom' ? value.path : null);
+  // What the backend confirmed it saved, held until the host's instance list
+  // catches up with it. Without it the field would describe the OLD value for
+  // the round trip after a save — "Lucerna downloads the Java…" flashing next
+  // to a report for the Java just chosen. Reset whenever the field loads for an
+  // instance (its own reload keys), never by a host refresh.
+  let confirmed = $state<{ choice: JavaChoice | null } | null>(null);
+  const current = $derived(confirmed ? confirmed.choice : value);
+  const savedPath = $derived(current?.kind === 'custom' ? current.path : null);
 
   function reasonOf(e: IpcError): string {
     return e.kind === 'java_unusable' ? javaUnusableReasonText(e.reason) : formatError(e);
@@ -81,6 +88,7 @@
 
   async function load(id: string) {
     const mine = ++seq;
+    confirmed = null;
     refusal = null;
     report = null;
     saved = false;
@@ -173,6 +181,7 @@
         // it even when the field has moved on to another instance.
         onChanged(r.data.instance);
         if (mine === seq) {
+          confirmed = { choice: r.data.instance.java };
           report = r.data.report;
           saved = true;
         }
