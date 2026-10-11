@@ -12,6 +12,8 @@ describe('rereadOnReturn', () => {
     const onReread = vi.fn();
     render(RereadOnReturnHost, { props: { onReread } });
     returnToWindow();
+    // Two returns, not one heard twice: apart by more than the window that folds those together.
+    await new Promise((r) => setTimeout(r, 350));
     returnToWindow();
     await tick();
     expect(onReread).toHaveBeenCalledTimes(2);
