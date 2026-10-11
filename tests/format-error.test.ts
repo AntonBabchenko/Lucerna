@@ -344,6 +344,11 @@ describe('formatError', () => {
       keyring: { kind: 'keyring', op: 'write', details: 'Platform secure storage failure: x' },
       hash_mismatch: { kind: 'hash_mismatch', path: 'p.jar', expected: 'a', got: 'b' },
       java_spawn: { kind: 'java_spawn', details: 'no java' },
+      java_unusable: {
+        kind: 'java_unusable',
+        path: 'C:\\jdk8\\bin\\javaw.exe',
+        reason: { kind: 'too_old', found: 8, required: 21 },
+      },
       already_running: { kind: 'already_running', instance_id: 'abc' },
       account_not_set: { kind: 'account_not_set' },
       instance_busy: { kind: 'instance_busy' },

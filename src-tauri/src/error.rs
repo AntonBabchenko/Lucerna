@@ -105,6 +105,16 @@ pub enum Error {
     #[error("Java spawn failed: {details}")]
     JavaSpawn { details: String },
 
+    /// A Java the user chose for an instance cannot run this game, or could
+    /// not be checked. Never answered by launching Lucerna's own Java instead
+    /// (CLAUDE.md, Fallback discipline). `reason` is typed so the UI can say
+    /// it in the user's language.
+    #[error("the chosen Java cannot be used: {path}")]
+    JavaUnusable {
+        path: String,
+        reason: crate::java::JavaUnusableReason,
+    },
+
     #[error("instance {instance_id} is already running")]
     AlreadyRunning { instance_id: String },
 

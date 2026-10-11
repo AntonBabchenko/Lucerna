@@ -106,6 +106,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         imported_from: None,
         created_from_server: None,
         handled_log_sig: None,
+        java: None,
     };
     write_instance_json(
         &instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?,

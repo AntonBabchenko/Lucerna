@@ -9,6 +9,7 @@ import type {
   FolderProblem,
   FormatError,
   Error as IpcError,
+  JavaUnusableReason,
   LoaderKind,
   MigrationRole,
 } from '$lib/ipc/bindings';
@@ -267,6 +268,9 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   // `datapackRejectionKey` below for why the reason is a typed lookup rather
   // than a raw string.
   datapack_invalid: 'clean',
+  // Clean: the reason is typed. Its nested `details` (probe output, an OS
+  // error) are shown cut to one line by `javaUnusableReasonText`.
+  java_unusable: 'clean',
   // Structured fields only (filename + two sizes) — nothing to truncate.
   datapack_too_large: 'clean',
   // Built from the instance's own version string — nothing to truncate.
@@ -353,6 +357,54 @@ function dataLocationMigrationFailed(
   }
   // A backend reason may already end in a full stop; never render "..".
   return `${head.replace(/[.\s]+$/, '')}. ${sentences.join(' ')}`;
+}
+
+/** The first line of a nested detail, cut like `withDetailTail` cuts one. */
+function firstLineTruncated(raw: string): string {
+  const line = raw.split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  const codePoints = [...line.trim()];
+  return codePoints.length <= DETAIL_TRUNCATE_CODE_POINTS
+    ? codePoints.join('')
+    : `${codePoints.slice(0, DETAIL_TRUNCATE_CODE_POINTS).join('')}…`;
+}
+
+/**
+ * Why a chosen Java cannot be used, in the user's language. Exhaustive like
+ * `datapackRejectionKey`: a new `JavaUnusableReason` variant fails to compile
+ * here instead of rendering nothing. Exported for `JavaPathField`, which shows
+ * the same reason under the field. Nested details (probe output, an OS error)
+ * are cut to their first line; the launcher log keeps them whole.
+ */
+export function javaUnusableReasonText(reason: JavaUnusableReason): string {
+  const translate = get(t);
+  switch (reason.kind) {
+    case 'not_found':
+      return translate('errors.javaUnusableReason.notFound');
+    case 'unreadable':
+      return translate('errors.javaUnusableReason.unreadable', {
+        details: firstLineTruncated(reason.details),
+      });
+    case 'not_java':
+      return translate('errors.javaUnusableReason.notJava');
+    case 'probe_failed':
+      return translate('errors.javaUnusableReason.probeFailed', {
+        details: firstLineTruncated(reason.details),
+      });
+    case 'too_old':
+      return translate('errors.javaUnusableReason.tooOld', {
+        found: reason.found,
+        required: reason.required,
+      });
+    case 'wrong_arch':
+      return translate('errors.javaUnusableReason.wrongArch', {
+        found: reason.found,
+        expected: reason.expected,
+      });
+    default: {
+      const _exhaustive: never = reason;
+      return _exhaustive;
+    }
+  }
 }
 
 /**
@@ -522,6 +574,11 @@ export function formatError(e: IpcError): string {
       return translate('errors.hashMismatch', { path: e.path });
     case 'java_spawn':
       return withDetailTail(translate('errors.javaSpawn'), e.details);
+    case 'java_unusable':
+      return translate('errors.javaUnusable', {
+        path: e.path,
+        reason: javaUnusableReasonText(e.reason),
+      });
     case 'already_running':
       return translate('errors.alreadyRunning');
     case 'account_not_set':

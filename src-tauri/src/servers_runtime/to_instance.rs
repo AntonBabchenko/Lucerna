@@ -739,6 +739,7 @@ mod tests {
             imported_from: None,
             created_from_server: Some("srv-1".into()),
             handled_log_sig: None,
+            java: None,
         };
         let res = ClientInstanceResult {
             instance: InstanceWithStatus::from_file(&file, false, false),

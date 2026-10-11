@@ -209,6 +209,7 @@ pub fn create_instance(
         imported_from,
         created_from_server,
         handled_log_sig: None,
+        java: None,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&json_path, &inst)?;
@@ -407,6 +408,17 @@ pub fn set_instance_jvm_args(
     extra_jvm_args: String,
 ) -> Result<InstanceWithStatus> {
     mutate(app, id, |i| i.extra_jvm_args = extra_jvm_args)
+}
+
+/// Store the instance's Java choice as given. The command validates a custom
+/// path first (`commands::java::set_instance_java`); this only writes. Like
+/// the heap and JVM arguments, it applies from the next launch.
+pub fn set_instance_java(
+    app: &tauri::AppHandle,
+    id: &str,
+    java: Option<crate::java::JavaChoice>,
+) -> Result<InstanceWithStatus> {
+    mutate(app, id, |i| i.java = java)
 }
 
 pub fn set_instance_handled_log_sig(
@@ -648,6 +660,7 @@ mod tests {
             imported_from: None,
             created_from_server: None,
             handled_log_sig: None,
+            java: None,
         }
     }
 
@@ -701,6 +714,7 @@ mod tests {
             imported_from: None,
             created_from_server: None,
             handled_log_sig: None,
+            java: None,
         }
     }
 

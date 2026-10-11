@@ -31,6 +31,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   dropped into their folder, zipped or unpacked, are listed and can be removed
   (an unpacked one goes to the recycle bin), and an Installed list re-reads
   itself when you come back to the launcher.
+- **Run an instance on your own Java.** Manage → Advanced → Java lists the
+  Javas found on this computer and has a Browse button. Lucerna checks the
+  chosen Java before every launch and refuses one that cannot run the game,
+  saying why, rather than starting it on its own Java instead.
 
 ### Changed
 
