@@ -8,6 +8,7 @@
   import { onMount } from 'svelte';
   import { commands, type ThemePreference } from '$lib/ipc/bindings';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
+  import { SYSTEM_LOCALES } from '$lib/i18n/dictionaries';
   import { getOsLang, resolveLocale } from '$lib/i18n/resolve';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -32,7 +33,7 @@
     const base = $t('settings.general.appearance.languageSystem');
     const os = getOsLang();
     if (os === '') return base;
-    const code = resolveLocale('system', AVAILABLE_LOCALES, os);
+    const code = resolveLocale('system', AVAILABLE_LOCALES, os, SYSTEM_LOCALES);
     return $t('settings.general.appearance.systemResolved', {
       system: base,
       value: LOCALE_LABELS[code] ?? code,
