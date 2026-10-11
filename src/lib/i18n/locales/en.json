@@ -215,7 +215,8 @@
     "modBrowser": "Mod browser",
     "addons": "Add-ons",
     "worlds": "Worlds",
-    "screenshots": "Screenshots"
+    "screenshots": "Screenshots",
+    "settings": "Settings"
   },
   "sidebar": {
     "account": "Account",
@@ -279,7 +280,9 @@
       "title": "Add an account first",
       "body": "You need an account to launch the game, so this button can't be hidden yet. Add an account, then you can hide it.",
       "ok": "Got it"
-    }
+    },
+    "newInstance": "New instance",
+    "instanceSettingsLabel": "Settings for {name}"
   },
   "running": {
     "pill": {
@@ -687,6 +690,22 @@
     "updateRecovery": {
       "restored": "An update of \"{name}\" was interrupted last time; it was undone and the profile is as it was.",
       "incomplete": "An interrupted update of \"{name}\" could not be fully undone. Check its mods; what could not go back is kept in {folder}."
+    },
+    "settings": {
+      "tabAria": "Instance settings",
+      "gameSection": "Game",
+      "launchSection": "Launch",
+      "dangerTitle": "Danger zone",
+      "busyBlocked": "Wait for the current task on this instance to finish.",
+      "lockedRunning": "Stop the game to change the version or the loader.",
+      "lockedBusy": "The version and the loader can be changed once the current task on this instance finishes.",
+      "folderLocked": "The folder can be renamed once the game is stopped and nothing runs on this instance.",
+      "noInstances": "No instances yet.",
+      "noActive": "No instance is selected. Pick one in the sidebar.",
+      "createdNotSwitched": "Created {name}",
+      "activateFailed": "Couldn't switch to {name}",
+      "saveFailedLate": "{field} of {name} wasn't saved",
+      "deletedNowActive": "Deleted {name}. {other} is now active."
     }
   },
   "instances": {
@@ -2281,6 +2300,12 @@
         "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key; add one in Settings, under Integrations. Each import lands in its own new instance and leaves your existing ones alone.",
         "titleBasic": "Add modpacks",
         "bodyBasic": "A modpack is a ready-made bundle of mods. Drop a pack file here, or browse modpacks from Modrinth, CurseForge, and FTB. Each pack you add becomes its own new instance and leaves your other instances alone."
+      },
+      "instanceSettings": {
+        "title": "Instance settings",
+        "body": "The Settings tab holds this instance's Minecraft version, loader, memory and Java. Your first instance may not have a version yet, so pick one there before you play. New instances come from New instance in the sidebar.",
+        "titleBasic": "Set up your instance",
+        "bodyBasic": "The Settings tab is where you choose which Minecraft version this instance plays, its mod system and how much memory it gets. Your first instance may not have a version yet, so pick one there. To make another instance, use New instance in the sidebar."
       }
     },
     "contextual": {
@@ -2532,6 +2557,32 @@
           "body": "The up arrow on this row counts the installed mods that require this mod, and its panel lists them under Required by. If a mod can't load without it, Lucerna names that mod when you disable or remove this one, and offers to disable it too.",
           "titleBasic": "Mods that need it",
           "bodyBasic": "The arrow number shows how many of your mods ask for this one. If you turn it off or remove it and another mod can't load without it, Lucerna tells you which one."
+        }
+      },
+      "instanceSettings": {
+        "game": {
+          "title": "Game and launch",
+          "body": "Version, loader, memory, Java and JVM arguments. Each change saves on its own when you leave the field.",
+          "titleBasic": "The game and its memory",
+          "bodyBasic": "Pick the Minecraft version, the mod system and the memory here. Changes save by themselves when you move on."
+        },
+        "actions": {
+          "title": "Instance actions",
+          "body": "Clone, a desktop shortcut, mod translations and the instance folder.",
+          "titleBasic": "What you can do with it",
+          "bodyBasic": "Make a copy, put a shortcut on the desktop, translate mods or open the folder."
+        },
+        "danger": {
+          "title": "Delete the instance",
+          "body": "Delete removes the instance and all its files, worlds included, after you type a confirmation.",
+          "titleBasic": "Deleting",
+          "bodyBasic": "Delete removes the instance and everything in it. It asks you to confirm first."
+        },
+        "integrity": {
+          "title": "Verify and repair",
+          "body": "Verify checks this instance's files (client jar, libraries, assets, Java runtime, profile) against Mojang's hashes. If anything is missing or corrupt, Repair re-downloads just the bad files.",
+          "titleBasic": "Check the files",
+          "bodyBasic": "Verify checks that this instance's files are all present and intact. If something is missing or broken, Repair downloads just the parts that need fixing."
         }
       }
     },
@@ -3011,7 +3062,8 @@
           "importLauncher": "Import from launcher",
           "gallery": "Gallery",
           "logs": "Logs",
-          "oneWayNote": "Hiding Servers, Skin and cape, or Import from launcher removes the only way to reach those features. Gallery keeps a per-instance Screenshots tab, but the all-instances view is only here."
+          "oneWayNote": "Hiding Servers, Skin and cape, or Import from launcher removes the only way to reach those features. Gallery keeps a per-instance Screenshots tab, but the all-instances view is only here.",
+          "newInstance": "New instance"
         },
         "theme": "Theme",
         "themeHint": "System follows your operating system's light or dark setting.",
