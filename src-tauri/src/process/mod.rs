@@ -103,8 +103,9 @@ pub async fn install_server(
 /// is a few seconds; anything past this is treated as no answer.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 /// The most of a probe's output kept, per stream. A JVM's property dump is a
-/// few KiB; an executable that floods is not a Java, and once its pipe stops
-/// being read it blocks and runs into the timeout.
+/// few KiB; an executable that floods is not a Java. Once its pipe is no
+/// longer read it fails to write (or blocks and runs into the timeout); either
+/// way the answer is a refusal.
 const PROBE_OUTPUT_CAP: u64 = 256 * 1024;
 
 async fn read_capped<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> std::io::Result<Vec<u8>> {

@@ -397,7 +397,7 @@
       "nameLabel": "New name",
       "defaultSuffix": " (copy)",
       "whatToCopy": "What to copy",
-      "optionSettings": "Instance settings (memory, JVM arguments)",
+      "optionSettings": "Instance settings (memory, JVM arguments, Java)",
       "optionPacks": "Resource & shader packs",
       "optionPlaytime": "Playtime",
       "noPlaytime": "No playtime recorded yet",

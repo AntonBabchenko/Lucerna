@@ -503,7 +503,7 @@ pub async fn start(
         && !crate::java::gpu_applies_to(&java_source)
     {
         crate::diag!(
-            "gpu: not applied: {} is not Lucerna's runtime, and its registry entry is shared with every program that runs it",
+            "gpu: per-executable preference not written for {}: it is not Lucerna's runtime, and that entry is shared with every program that runs it",
             java_path.display()
         );
     } else if gpu_pref != crate::instances::schema::GpuPreference::Auto {

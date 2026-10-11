@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import JavaPathField from '$lib/instances/JavaPathField.svelte';
+import JavaPathFieldInList from './fixtures/JavaPathFieldInList.svelte';
 import { locale } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
 
@@ -167,6 +168,35 @@ describe('JavaPathField', () => {
   it('says so when nothing else is installed', async () => {
     setup(null, []);
     expect(await screen.findByText(/No other Java found/)).toBeTruthy();
+  });
+
+  it('a host refresh with the same values neither re-probes nor wipes "Saved"', async () => {
+    // Manage replaces its instance list wholesale on every refresh, and a save
+    // triggers one: the field must not treat a new object with the same values
+    // as a new instance.
+    vi.mocked(commands.javaDetect).mockResolvedValue({ status: 'ok', data: [JDK21] });
+    vi.mocked(commands.instanceJavaRequirement).mockResolvedValue({ status: 'ok', data: 21 });
+    vi.mocked(commands.javaCheck).mockResolvedValue({
+      status: 'ok',
+      data: report('/opt/jdk-21/bin/java'),
+    });
+    vi.mocked(commands.setInstanceJava).mockResolvedValue({
+      status: 'ok',
+      data: {
+        instance: instance({ kind: 'custom', path: '/opt/jdk-21/bin/java' }),
+        report: report('/opt/jdk-21/bin/java'),
+      },
+    });
+    render(JavaPathFieldInList);
+    await waitFor(() => expect(commands.javaCheck).toHaveBeenCalledTimes(1));
+    openMock.mockResolvedValue('/opt/jdk-21/bin/java');
+    await fireEvent.click(await screen.findByRole('button', { name: 'Browse…' }));
+    expect(await screen.findByText('Saved')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'host refresh' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(commands.instanceJavaRequirement).toHaveBeenCalledTimes(1);
+    expect(commands.javaCheck).toHaveBeenCalledTimes(1);
   });
 
   it('checks the saved Java against what the instance needs', async () => {

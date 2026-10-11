@@ -397,7 +397,7 @@
       "nameLabel": "Новое имя",
       "defaultSuffix": " (копия)",
       "whatToCopy": "Что скопировать",
-      "optionSettings": "Настройки профиля (память, аргументы JVM)",
+      "optionSettings": "Настройки профиля (память, аргументы JVM, Java)",
       "optionPacks": "Ресурспаки и шейдеры",
       "optionPlaytime": "Время игры",
       "noPlaytime": "Время игры ещё не записано",
@@ -2876,7 +2876,7 @@
       "notJava": "Это не исполняемый файл Java. Выберите java или javaw.",
       "probeFailed": "Она не сообщила, какая это Java ({details}).",
       "tooOld": "Это Java {found}, а этой версии Minecraft нужна Java {required} или новее.",
-      "wrongArch": "Это сборка {found}, а этому компьютеру нужна {expected}."
+      "wrongArch": "Эта Java собрана под {found}, а этому компьютеру нужна {expected}."
     }
   },
   "settings": {

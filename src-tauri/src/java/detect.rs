@@ -169,8 +169,16 @@ pub fn collect(roots: &Roots, exclude: &Path) -> Vec<DetectedJava> {
         }
     }
     for (parent, source) in &roots.parents {
-        let Ok(entries) = std::fs::read_dir(parent) else {
-            continue;
+        let entries = match std::fs::read_dir(parent) {
+            Ok(entries) => entries,
+            // Most known folders simply do not exist on a given machine.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                // Said, so an empty list can be told from a list that could
+                // not be read; Browse still works either way.
+                crate::diag!("java detect: cannot read {}: {e}", parent.display());
+                continue;
+            }
         };
         for entry in entries.flatten() {
             if let Some(home) = homes_in(&entry.path())

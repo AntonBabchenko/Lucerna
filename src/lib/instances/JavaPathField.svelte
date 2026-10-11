@@ -5,6 +5,7 @@
   // instance and saves nothing, so the field never shows a value it could not
   // launch with.
   import { open as openFile } from '@tauri-apps/plugin-dialog';
+  import { untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { t, type Translate } from '$lib/i18n';
   import {
@@ -67,10 +68,15 @@
     return e instanceof Error ? e.message : String(e);
   }
 
+  // Deduplicated by value: the host's instance list is replaced wholesale on
+  // every refresh (a save here triggers one), and an object-identity change
+  // must not re-probe the Java and wipe the "Saved" mark. A string that is
+  // recomputed equal notifies nothing.
+  const reloadKey = $derived(JSON.stringify([instanceId, mcVersion, loader, loaderVersion, ready]));
+
   $effect(() => {
-    // Tracked reload keys; everything after the first await is untracked.
-    const key = [instanceId, mcVersion, loader, loaderVersion, ready] as const;
-    void load(key[0]);
+    void reloadKey;
+    untrack(() => void load(instanceId));
   });
 
   async function load(id: string) {
@@ -158,18 +164,24 @@
     saved = false;
     try {
       const r = await commands.setInstanceJava(instanceId, choice);
-      if (mine !== seq) return;
       if (r.status === 'ok') {
-        report = r.data.report;
-        saved = true;
+        // Saved, whatever happened meanwhile: the instance list must learn of
+        // it even when the field has moved on to another instance.
         onChanged(r.data.instance);
-      } else {
+        if (mine === seq) {
+          report = r.data.report;
+          saved = true;
+        }
+      } else if (mine === seq) {
         refusal = reasonOf(r.error);
       }
     } catch (e) {
       if (mine === seq) refusal = thrownText(e);
     } finally {
-      if (mine === seq) busy = false;
+      // Unconditional: the controls are disabled while busy, so no other
+      // commit can be in flight, and a load that superseded this one must
+      // not leave the field locked.
+      busy = false;
     }
   }
 
@@ -185,13 +197,19 @@
   }
 
   async function browse() {
-    const picked = await openFile({
-      multiple: false,
-      directory: false,
-      filters: onWindows()
-        ? [{ name: get(t)('instance.manage.java.fileFilter'), extensions: ['exe'] }]
-        : undefined,
-    });
+    let picked: string | string[] | null;
+    try {
+      picked = await openFile({
+        multiple: false,
+        directory: false,
+        filters: onWindows()
+          ? [{ name: get(t)('instance.manage.java.fileFilter'), extensions: ['exe'] }]
+          : undefined,
+      });
+    } catch (e) {
+      refusal = thrownText(e);
+      return;
+    }
     if (typeof picked === 'string') await commit({ kind: 'custom', path: picked });
   }
 
