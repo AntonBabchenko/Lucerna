@@ -131,7 +131,7 @@ describe('LocalizationModal', () => {
 
   // Regression coverage for the shared-state fix: +page.svelte seeds `lang`
   // with the launcher's resolved UI locale, which can be a bare code like
-  // "ru" (see resolve.ts — AVAILABLE_LOCALES only has 2-letter codes). The
+  // "ru" (or a tag such as "pt-BR" — see resolve.ts). The
   // backend resolves that to a full Minecraft code and returns it in
   // `coverage.lang`; the modal must write it back through the bindable prop
   // so its own picker (and, via the same binding, the Overview row) settle

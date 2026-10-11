@@ -28,6 +28,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   chosen Java before every launch and refuses one that cannot run the game,
   saying why, rather than starting it on its own Java instead.
 
+### Changed
+
+- **A language added by translators shows up properly.** The language picker
+  shows each language under its own name where the system knows it, and how
+  much of a partly translated one is done; System switches to the system's
+  language once at least 90% of it is translated, where it used to know only
+  Russian.
+
 ## [0.27.0] — 2026-10-09
 
 ### Added

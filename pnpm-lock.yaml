@@ -20,6 +20,9 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2
         version: 2.5.4
+      intl-messageformat:
+        specifier: ^10.7.18
+        version: 10.7.18
       skinview3d:
         specifier: ^3.4.2
         version: 3.4.2
