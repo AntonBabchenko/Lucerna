@@ -40,7 +40,7 @@
   import { createListSelection } from '$lib/ui/list-selection.svelte';
   import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
-  import { onWindowFocus } from '$lib/ui/window-focus';
+  import { rereadOnReturn } from '$lib/ui/reread-on-return.svelte';
 
   let {
     instanceId,
@@ -99,12 +99,21 @@
   let folderUnreadable = $state(false);
   // One list for the rows, the selection and the bulk bar: files in registry order, then folders.
   // Keys never collide — the backend never lets a directory hold a file's row.
+  // `key` is the name on disk, which the commands take; `id` keys the rows and the selection. A
+  // reconciled list never holds a file and a folder of one name, but a list read without the
+  // reconcile (another operation holds the profile) can: the form keeps them apart.
   type Row =
-    | { form: 'file'; key: string; name: string; asset: InstalledAsset }
-    | { form: 'folder'; key: string; name: string };
+    | { form: 'file'; id: string; key: string; name: string; asset: InstalledAsset }
+    | { form: 'folder'; id: string; key: string; name: string };
   const rows = $derived<Row[]>([
-    ...assets.map((a) => ({ form: 'file' as const, key: a.filename, name: a.name, asset: a })),
-    ...folders.map((f) => ({ form: 'folder' as const, key: f, name: f })),
+    ...assets.map((a) => ({
+      form: 'file' as const,
+      id: `file:${a.filename}`,
+      key: a.filename,
+      name: a.name,
+      asset: a,
+    })),
+    ...folders.map((f) => ({ form: 'folder' as const, id: `folder:${f}`, key: f, name: f })),
   ]);
   let loading = $state(false);
   let busy = $state(false);
@@ -237,18 +246,22 @@
     const res = await commands.assetsList(instanceId, kind);
     if (gen !== generation) return;
     if (res.status === 'error') error = formatError(res.error);
-    else apply(res.data, gen);
+    else {
+      // A read that now succeeds clears an earlier one's error.
+      error = null;
+      apply(res.data, gen);
+    }
     // This read may have superseded the first one, which then never clears its loading panel.
     loading = false;
   }
 
-  // The user is back from the folder the Add-ons button opened, maybe with packs dropped in: re-read
-  // the list on screen, in the client panel, unless a write of this view runs (it re-reads itself).
-  $effect(() => {
-    if (!visible || instanceId === null || serversUi.mode !== 'client') return;
-    return onWindowFocus(() => {
-      if (!busy && !checking && bulkAction === null) void refresh();
-    });
+  // The user is back from the folder the Add-ons button opened, maybe with packs dropped in —
+  // perhaps opened from Browse, with this list hidden: it reads them as soon as it shows.
+  rereadOnReturn({
+    active: () => instanceId !== null && serversUi.mode === 'client',
+    visible: () => visible,
+    idle: () => !busy && !checking && bulkAction === null,
+    reread: () => void refresh(),
   });
 
   function openDetail(asset: InstalledAsset) {
@@ -433,7 +446,7 @@
   // The bulk bar (DESIGN.md §9). Keys are filenames, the row identity of this list; the selection
   // is cleared when the profile or the kind changes.
   const selection = createListSelection(
-    () => rows.map((r) => r.key),
+    () => rows.map((r) => r.id),
     () => (instanceId === null ? null : `${instanceId}\u0000${kind}`),
   );
   onDestroy(() => selection.dispose());
@@ -443,8 +456,10 @@
   let listEl = $state<HTMLElement | null>(null);
   let emptyListEl = $state<HTMLElement | null>(null);
 
-  const selectedAssets = $derived(assets.filter((a) => selection.selected.has(a.filename)));
-  const selectedRows = $derived(rows.filter((r) => selection.selected.has(r.key)));
+  const selectedRows = $derived(rows.filter((r) => selection.selected.has(r.id)));
+  const selectedAssets = $derived(
+    selectedRows.flatMap((r) => (r.form === 'file' ? [r.asset] : [])),
+  );
   const bulkToUpdate = $derived(
     selectedAssets.flatMap((a) => {
       const latest = updatable(a.filename);
@@ -523,7 +538,7 @@
     if (id === null || !targets) return;
     const index = Math.max(
       0,
-      rows.findIndex((r) => selection.selected.has(r.key)),
+      rows.findIndex((r) => selection.selected.has(r.id)),
     );
     bulkAction = 'remove';
     busy = true;
@@ -632,15 +647,15 @@
         onAction={onBulkAction}
         onClear={selection.clear}
       />
-      {#each rows as row (row.key)}
+      {#each rows as row (row.id)}
         {#if row.form === 'folder'}
           <!-- An unpacked pack: only its name is known — no source, no version, no update. The
                tag says it is a folder in words, not by the icon alone. -->
           <CardShell variant="compact-row" accent="none" testid="asset-row">
             <SelectRowCheckbox
-              checked={selection.selected.has(row.key)}
+              checked={selection.selected.has(row.id)}
               name={row.name}
-              onChange={(c) => selection.toggle(row.key, c)}
+              onChange={(c) => selection.toggle(row.id, c)}
             />
             <CardMedia iconUrl={null} placeholder="folderOpen" size="sm" />
             <div class="min-w-0 flex-1 truncate">
@@ -661,9 +676,9 @@
           {@const latest = updatable(asset.filename)}
           <CardShell variant="compact-row" accent={latest ? 'warning' : 'none'} testid="asset-row">
             <SelectRowCheckbox
-              checked={selection.selected.has(asset.filename)}
+              checked={selection.selected.has(row.id)}
               name={asset.name}
-              onChange={(c) => selection.toggle(asset.filename, c)}
+              onChange={(c) => selection.toggle(row.id, c)}
             />
             {#if asset.source && asset.project_id}
               <button

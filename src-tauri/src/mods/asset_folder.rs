@@ -52,21 +52,17 @@ pub fn pack_dir(instance_root: &Path, kind: ContentKind) -> PathBuf {
     }
 }
 
-/// A file name the game reads as a zip pack: the `.zip` suffix, ASCII
-/// case-insensitive.
+/// A file name the game reads as a zip pack: the game's own test,
+/// `String.endsWith(".zip")` — case-sensitive, so `Pack.ZIP` is not one
+/// (`datapacks::detect::has_zip_suffix`) — and something before it.
 pub fn is_zip_name(name: &str) -> bool {
-    // `get`, not indexing: the last four bytes of a non-ASCII name may not be a
-    // char boundary, and a byte slice there panics.
-    name.len() > 4
-        && name
-            .get(name.len() - 4..)
-            .is_some_and(|tail| tail.eq_ignore_ascii_case(".zip"))
+    name.len() > 4 && crate::datapacks::detect::has_zip_suffix(name)
 }
 
 /// The display name of a hand-placed zip: its file name without `.zip`.
 pub fn zip_stem(name: &str) -> &str {
     if is_zip_name(name) {
-        // `is_zip_name` saw four ASCII bytes at the end: a char boundary.
+        // `is_zip_name` saw the four ASCII bytes `.zip` at the end: a char boundary.
         &name[..name.len() - 4]
     } else {
         name
@@ -137,7 +133,9 @@ pub fn match_rows(rows: Vec<InstalledAsset>, entries: &[FolderEntry]) -> Matched
 pub async fn read_entries(dir: &Path) -> Option<Vec<FolderEntry>> {
     let mut rd = match fs::read_dir(dir).await {
         Ok(rd) => rd,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return absent_or_unknown(dir).await;
+        }
         Err(e) => {
             crate::diag!("assets: could not read {}: {e}", dir.display());
             return None;
@@ -168,6 +166,54 @@ pub async fn read_entries(dir: &Path) -> Option<Vec<FolderEntry>> {
         });
     }
     Some(out)
+}
+
+/// `read_dir` said "not found": the folder is truly absent (no packs), or it is
+/// a link — a shared resourcepacks folder linked in — whose target is gone or
+/// unmounted. Only a confirmed absence is an empty folder; a dangling link is
+/// "could not tell", and the caller then keeps every row.
+async fn absent_or_unknown(dir: &Path) -> Option<Vec<FolderEntry>> {
+    match fs::symlink_metadata(dir).await {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Vec::new()),
+        Ok(_) => {
+            crate::diag!(
+                "assets: {} is there but cannot be listed (a link to nowhere?)",
+                dir.display()
+            );
+            None
+        }
+        Err(e) => {
+            crate::diag!(
+                "assets: could not tell whether {} exists: {e}",
+                dir.display()
+            );
+            None
+        }
+    }
+}
+
+/// Whether the zip at `path` is a pack of `kind` as the game reads one: a
+/// resource pack holds `pack.mcmeta` at its root (Minecraft skips a zip
+/// without it), a shader pack holds a `shaders/` folder (Iris and OptiFine
+/// look one level down too). A zip that will not open is no pack; an I/O error
+/// is "could not tell", returned as `Err`. Synchronous: run it off the
+/// executor.
+pub fn zip_is_pack(path: &Path, kind: ContentKind) -> std::io::Result<bool> {
+    let file = std::io::BufReader::new(std::fs::File::open(path)?);
+    let archive = match zip::ZipArchive::new(file) {
+        Ok(archive) => archive,
+        Err(zip::result::ZipError::Io(e)) => return Err(e),
+        // Not a readable zip: the game cannot load it either.
+        Err(_) => return Ok(false),
+    };
+    Ok(match kind {
+        ContentKind::Shader => archive.file_names().any(|n| {
+            let mut parts = n.split('/');
+            let first = parts.next();
+            first == Some("shaders") || parts.next() == Some("shaders")
+        }),
+        _ => archive.index_for_name("pack.mcmeta").is_some(),
+    })
 }
 
 /// The unpacked pack folders among `entries`, sorted case-insensitively. A
@@ -203,18 +249,28 @@ pub async fn folder_packs(dir: &Path, kind: ContentKind, entries: &[FolderEntry]
     out
 }
 
+/// What [`remove_entry`] found and removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removed {
+    /// Nothing was there: a ghost row's repair.
+    Nothing,
+    File,
+    /// A folder pack, moved to the recycle bin. It never has a registry row.
+    Folder,
+}
+
 /// Remove one entry of a pack folder by its real type: a file is deleted, a
 /// folder pack goes to the OS recycle bin through `recycle` (it may be the
 /// user's own work), a link is refused, and nothing there is success — a ghost
 /// row's repair. Any failure is returned, so the caller keeps the row: the
 /// folder is the truth, and a file that stayed would be listed again.
-pub async fn remove_entry<F>(path: &Path, recycle: F) -> Result<(), Error>
+pub async fn remove_entry<F>(path: &Path, recycle: F) -> Result<Removed, Error>
 where
     F: FnOnce(PathBuf) -> std::io::Result<()> + Send + 'static,
 {
     let meta = match fs::symlink_metadata(path).await {
         Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Removed::Nothing),
         Err(e) => return Err(io_err(path, e)),
     };
     if meta.file_type().is_symlink() {
@@ -230,13 +286,15 @@ where
         // The thread may panic (the `trash` crate unwraps a COM call on
         // Windows): that is a failed removal, never a crashed command.
         return match tokio::task::spawn_blocking(move || recycle(owned)).await {
-            Ok(result) => result.map_err(|e| io_err(path, e)),
+            Ok(result) => result
+                .map(|()| Removed::Folder)
+                .map_err(|e| io_err(path, e)),
             Err(join) => Err(io_err(path, std::io::Error::other(join.to_string()))),
         };
     }
     match fs::remove_file(path).await {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => Ok(Removed::File),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Removed::Nothing),
         Err(e) => Err(io_err(path, e)),
     }
 }
@@ -360,8 +418,12 @@ mod tests {
     }
 
     #[test]
-    fn zip_names_are_read_safely() {
-        assert!(is_zip_name("Faithful.ZIP"));
+    fn zip_names_follow_the_games_rule() {
+        assert!(is_zip_name("Faithful.zip"));
+        assert!(
+            !is_zip_name("Faithful.ZIP"),
+            "the game's test is case-sensitive"
+        );
         assert!(!is_zip_name(".zip"));
         assert!(!is_zip_name("日本語"), "a multi-byte tail must not panic");
         assert_eq!(zip_stem("Пак.zip"), "Пак");
@@ -394,16 +456,19 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let p = td.path().join("A.zip");
         std::fs::write(&p, b"a").unwrap();
-        remove_entry(&p, bin_ok).await.unwrap();
+        assert_eq!(remove_entry(&p, bin_ok).await.unwrap(), Removed::File);
         assert!(!p.exists());
     }
 
     #[tokio::test]
     async fn removal_of_nothing_is_ok() {
         let td = tempfile::tempdir().unwrap();
-        remove_entry(&td.path().join("ghost.zip"), bin_ok)
-            .await
-            .unwrap();
+        assert_eq!(
+            remove_entry(&td.path().join("ghost.zip"), bin_ok)
+                .await
+                .unwrap(),
+            Removed::Nothing
+        );
     }
 
     #[tokio::test]
@@ -413,12 +478,13 @@ mod tests {
         std::fs::create_dir_all(&p).unwrap();
         let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
         let s = seen.clone();
-        remove_entry(&p, move |q| {
+        let removed = remove_entry(&p, move |q| {
             *s.lock().unwrap() = Some(q);
             Ok(())
         })
         .await
         .unwrap();
+        assert_eq!(removed, Removed::Folder);
         assert_eq!(seen.lock().unwrap().as_deref(), Some(p.as_path()));
         assert!(
             p.exists(),

@@ -84,7 +84,7 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { screenOwnedElsewhere } from '$lib/onboarding/tour-presence';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
-  import { onWindowFocus } from '$lib/ui/window-focus';
+  import { rereadOnReturn } from '$lib/ui/reread-on-return.svelte';
   import { anyTourRunning } from '$lib/ui/layer-stack.svelte';
   import {
     DEPS_TOUR_IDLE,
@@ -1146,14 +1146,14 @@
       pushWarning(get(t)('mods.installed.recheckFailed'), [compat.error]);
   }
 
-  // The user is back from the mods folder the Add-ons button opened, maybe with jars dropped in:
-  // re-read the list on screen, in the client panel, unless a write runs (it re-reads itself when
-  // done). The list announces `ModsReconciled`, whose handler deliberately does not re-list.
-  $effect(() => {
-    if (!visible || instanceId === null || serversUi.mode !== 'client') return;
-    return onWindowFocus(() => {
-      if (!busy) void data.refresh();
-    });
+  // The user is back from the mods folder the Add-ons button opened, maybe with jars dropped in —
+  // perhaps opened from Browse, with this list hidden: it reads them as soon as it shows. The list
+  // announces `ModsReconciled`, whose handler deliberately does not re-list.
+  rereadOnReturn({
+    active: () => instanceId !== null && serversUi.mode === 'client',
+    visible: () => visible,
+    idle: () => !busy,
+    reread: () => void data.refresh(),
   });
 
   // The row menu (spec §6.8). «Показать в папке»: the jar as it is on disk (`.disabled` too),

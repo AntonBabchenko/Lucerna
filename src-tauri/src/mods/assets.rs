@@ -159,6 +159,27 @@ pub async fn listing(
     let mut changed = matched.changed;
     for name in matched.adopt {
         let path = dir.join(&name);
+        // Only a zip the game reads as a pack of this kind becomes a row: a
+        // backup archive left in the folder is no pack, there or here.
+        let probe = path.clone();
+        match tokio::task::spawn_blocking(move || asset_folder::zip_is_pack(&probe, kind)).await {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => continue,
+            Ok(Err(e)) => {
+                crate::diag!(
+                    "assets: could not tell whether {} is a pack: {e}",
+                    path.display()
+                );
+                continue;
+            }
+            Err(join) => {
+                crate::diag!(
+                    "assets: pack check of {} did not run: {join}",
+                    path.display()
+                );
+                continue;
+            }
+        }
         match crate::mods::txn::file_sha1(&path).await {
             Ok(Some(sha)) => {
                 rows.push(adopted(kind, &name, &sha, origin.as_ref()));
@@ -579,10 +600,32 @@ mod tests {
         hex::encode(sha1::Sha1::digest(bytes))
     }
 
+    /// A zip holding `entries` (name, bytes) — what the folder needs for a file
+    /// to count as a pack.
+    fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, bytes) in entries {
+            w.start_file(*name, opts).unwrap();
+            w.write_all(bytes).unwrap();
+        }
+        w.finish().unwrap().into_inner()
+    }
+
+    fn resource_pack(tag: &str) -> Vec<u8> {
+        zip_of(&[
+            ("pack.mcmeta", tag.as_bytes()),
+            ("assets/minecraft/x", b"x"),
+        ])
+    }
+
     #[tokio::test]
     async fn listing_adopts_a_hand_placed_zip_as_a_manual_row() {
         let td = tempfile::tempdir().unwrap();
-        put(td.path(), ContentKind::ResourcePack, "Mine.zip", b"my pack");
+        let bytes = resource_pack("mine");
+        put(td.path(), ContentKind::ResourcePack, "Mine.zip", &bytes);
         let l = listing(td.path(), ContentKind::ResourcePack, true)
             .await
             .unwrap();
@@ -591,7 +634,7 @@ mod tests {
         assert_eq!(a.filename, "Mine.zip");
         assert_eq!(a.name, "Mine");
         assert_eq!(a.source, None);
-        assert_eq!(a.sha1, sha1_of(b"my pack"));
+        assert_eq!(a.sha1, sha1_of(&bytes));
         // Persisted: a plain read sees it too.
         assert_eq!(
             list(td.path(), ContentKind::ResourcePack).await.unwrap(),
@@ -609,16 +652,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        origin.files[0].sha1 = sha1_of(b"faithful").to_uppercase();
+        let bytes = resource_pack("faithful");
+        origin.files[0].sha1 = sha1_of(&bytes).to_uppercase();
         crate::mods::installed::set_pack_origin(td.path(), origin)
             .await
             .unwrap();
-        put(
-            td.path(),
-            ContentKind::ResourcePack,
-            "Faithful.zip",
-            b"faithful",
-        );
+        put(td.path(), ContentKind::ResourcePack, "Faithful.zip", &bytes);
 
         let l = listing(td.path(), ContentKind::ResourcePack, true)
             .await
@@ -629,6 +668,32 @@ mod tests {
         assert_eq!(a.project_id.as_deref(), Some("pid"));
         assert_eq!(a.version_id.as_deref(), Some("vid"));
         assert_eq!(a.name, "Faithful.zip");
+    }
+
+    #[tokio::test]
+    async fn listing_adopts_only_zips_the_game_reads_as_packs() {
+        let td = tempfile::tempdir().unwrap();
+        // Not a zip at all, a zip without pack.mcmeta, and a shader without shaders/.
+        put(
+            td.path(),
+            ContentKind::ResourcePack,
+            "notes.zip",
+            b"plain text",
+        );
+        let backup = zip_of(&[("world/level.dat", b"x")]);
+        put(td.path(), ContentKind::ResourcePack, "backup.zip", &backup);
+        let odd = zip_of(&[("readme.txt", b"x")]);
+        put(td.path(), ContentKind::Shader, "Odd.zip", &odd);
+        // A shader pack nested one folder down, as some are shipped.
+        let bsl = zip_of(&[("BSL_v8/shaders/final.fsh", b"x")]);
+        put(td.path(), ContentKind::Shader, "BSL.zip", &bsl);
+        let r = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert!(r.files.is_empty(), "no zip there is a resource pack");
+        let s = listing(td.path(), ContentKind::Shader, true).await.unwrap();
+        let names: Vec<_> = s.files.iter().map(|a| a.filename.as_str()).collect();
+        assert_eq!(names, ["BSL.zip"]);
     }
 
     #[tokio::test]
@@ -683,7 +748,12 @@ mod tests {
         add(td.path(), sample(ContentKind::ResourcePack, "Gone.zip"))
             .await
             .unwrap();
-        put(td.path(), ContentKind::ResourcePack, "New.zip", b"n");
+        put(
+            td.path(),
+            ContentKind::ResourcePack,
+            "New.zip",
+            &resource_pack("n"),
+        );
         let l = listing(td.path(), ContentKind::ResourcePack, false)
             .await
             .unwrap();
@@ -708,7 +778,12 @@ mod tests {
     #[tokio::test]
     async fn a_steady_listing_does_not_rewrite_the_registry() {
         let td = tempfile::tempdir().unwrap();
-        put(td.path(), ContentKind::ResourcePack, "A.zip", b"a");
+        put(
+            td.path(),
+            ContentKind::ResourcePack,
+            "A.zip",
+            &resource_pack("a"),
+        );
         listing(td.path(), ContentKind::ResourcePack, true)
             .await
             .unwrap();
@@ -723,6 +798,33 @@ mod tests {
             std::fs::read(&path).unwrap(),
             [before.as_slice(), b" "].concat(),
             "nothing changed, so nothing was written"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_pack_folder_linked_to_nowhere_keeps_every_row() {
+        let td = tempfile::tempdir().unwrap();
+        add(td.path(), sample(ContentKind::ResourcePack, "Kept.zip"))
+            .await
+            .unwrap();
+        let d = pack_dir(td.path(), ContentKind::ResourcePack);
+        std::fs::create_dir_all(d.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(td.path().join("unmounted"), &d).unwrap();
+        let l = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            l.folders, None,
+            "a dangling link is could-not-tell, not empty"
+        );
+        assert_eq!(l.files.len(), 1);
+        assert_eq!(
+            list(td.path(), ContentKind::ResourcePack)
+                .await
+                .unwrap()
+                .len(),
+            1
         );
     }
 

@@ -496,7 +496,18 @@ describe('InstalledAssetsView', () => {
     expect(onEmptyChange).not.toHaveBeenCalledWith(true);
   });
 
-  it('re-reads when the window regains focus, only while it is the list on screen', async () => {
+  it('re-reads when the window regains focus while it is the list on screen', async () => {
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader', visible: true });
+    await screen.findByText('Complementary Shaders');
+    const before = spies.assetsList.mock.calls.length;
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(spies.assetsList.mock.calls.length).toBe(before + 1));
+  });
+
+  // The folder was opened from Browse: the return lands while this list is hidden, and the list
+  // reads it the moment it shows — not on some later return.
+  it('a return while hidden is read as soon as the list shows', async () => {
     spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     const view = render(InstalledAssetsView, {
       instanceId: 'inst-1',
@@ -509,20 +520,80 @@ describe('InstalledAssetsView', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(spies.assetsList.mock.calls.length).toBe(before);
     await view.rerender({ instanceId: 'inst-1', kind: 'shader', visible: true });
+    await waitFor(() => expect(spies.assetsList.mock.calls.length).toBe(before + 1));
+    // Answered once: showing it again reads nothing more.
+    await view.rerender({ instanceId: 'inst-1', kind: 'shader', visible: false });
+    await view.rerender({ instanceId: 'inst-1', kind: 'shader', visible: true });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spies.assetsList.mock.calls.length).toBe(before + 1);
+  });
+
+  it('does not re-read in the Servers panel, where the client list is mounted but hidden', async () => {
+    const { serversUi } = await import('$lib/servers/servers-ui.svelte');
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader', visible: true });
+    await screen.findByText('Complementary Shaders');
+    const before = spies.assetsList.mock.calls.length;
+    serversUi.mode = 'servers';
+    try {
+      await new Promise((r) => setTimeout(r, 0));
+      window.dispatchEvent(new Event('focus'));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(spies.assetsList.mock.calls.length).toBe(before);
+    } finally {
+      serversUi.mode = 'client';
+    }
+  });
+
+  // A return during a removal is not dropped: the list reads it once the removal is done.
+  it('a return during a removal is read once the removal ends', async () => {
+    let finishRemove!: (v: unknown) => void;
+    spies.assetsList.mockResolvedValue(listing([makeAsset()], ['Dev Pack']));
+    spies.assetUninstall.mockImplementation(() => new Promise((r) => (finishRemove = r)));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader', visible: true });
+    await screen.findByText('Dev Pack');
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove' });
+    await fireEvent.click(removeButtons[removeButtons.length - 1]);
+    const before = spies.assetsList.mock.calls.length;
     window.dispatchEvent(new Event('focus'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spies.assetsList.mock.calls.length).toBe(before);
+    finishRemove(ok(null));
     await waitFor(() => expect(spies.assetsList.mock.calls.length).toBe(before + 1));
   });
 
-  it('a focus re-read that overtakes the first read does not leave the loading panel up', async () => {
+  // The loading panel is up only while nothing is listed: an empty answer shows whether `loading`
+  // was cleared, because the empty list (and the host's drop area) needs it cleared.
+  it('a focus re-read that overtakes the first read does not leave the list loading', async () => {
     let releaseFirst!: (v: unknown) => void;
     spies.assetsList
       .mockImplementationOnce(() => new Promise((r) => (releaseFirst = r)))
+      .mockResolvedValue(listing([]));
+    const onEmptyChange = vi.fn();
+    render(InstalledAssetsView, {
+      instanceId: 'inst-1',
+      kind: 'shader',
+      visible: true,
+      onEmptyChange,
+    });
+    window.dispatchEvent(new Event('focus'));
+    expect(await screen.findByTestId('list-empty')).toBeTruthy();
+    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
+    releaseFirst(listing([]));
+  });
+
+  it('a read that succeeds after a failed one clears its error', async () => {
+    spies.assetsList
+      .mockResolvedValueOnce({
+        status: 'error',
+        error: { kind: 'io', path: 'p', details: 'denied' },
+      })
       .mockResolvedValue(listing([makeAsset()]));
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader', visible: true });
+    await screen.findByText(/denied/);
     window.dispatchEvent(new Event('focus'));
     await screen.findByText('Complementary Shaders');
-    releaseFirst(listing([makeAsset()]));
-    await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
+    expect(screen.queryByText(/denied/)).toBeNull();
   });
 
   it('an update that leaves the old file on disk says so instead of a plain «Updated»', async () => {

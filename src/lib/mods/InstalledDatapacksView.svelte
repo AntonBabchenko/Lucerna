@@ -60,7 +60,7 @@
   import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
   import { onDestroy, type Snippet } from 'svelte';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
-  import { onWindowFocus } from '$lib/ui/window-focus';
+  import { rereadOnReturn } from '$lib/ui/reread-on-return.svelte';
 
   let {
     instanceId,
@@ -289,6 +289,8 @@
     if (gen !== generation) return;
     if (res.status === 'error') error = formatError(res.error);
     else {
+      // A read that now succeeds clears an earlier one's error.
+      error = null;
       view = res.data;
       void enrich(res.data, gen);
     }
@@ -297,13 +299,12 @@
   }
 
   // The user is back from the library folder the Add-ons button opened, maybe with packs dropped
-  // in: re-read the list on screen, in the client panel, unless a write of this view runs (it
-  // re-reads itself when done).
-  $effect(() => {
-    if (!visible || instanceId === null || serversUi.mode !== 'client') return;
-    return onWindowFocus(() => {
-      if (!busy && !checking && bulkAction === null) void refresh();
-    });
+  // in — perhaps opened from Browse, with this list hidden: it reads them as soon as it shows.
+  rereadOnReturn({
+    active: () => instanceId !== null && serversUi.mode === 'client',
+    visible: () => visible,
+    idle: () => !busy && !checking && bulkAction === null,
+    reread: () => void refresh(),
   });
 
   async function checkUpdates() {
