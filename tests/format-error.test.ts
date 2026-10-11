@@ -434,6 +434,7 @@ describe('formatError', () => {
       mods_unsafe_filename: { kind: 'mods_unsafe_filename', filename: '../../evil.jar' },
       mods_cache_io: { kind: 'mods_cache_io', details: 'd' },
       mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
+      addon_entry_is_link: { kind: 'addon_entry_is_link', name: 'Dev Pack' },
       modpack_update_rolled_back: {
         kind: 'modpack_update_rolled_back',
         file_name: 'c.jar',

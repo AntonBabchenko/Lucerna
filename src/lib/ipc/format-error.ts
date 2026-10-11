@@ -187,6 +187,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   modpack_sha1_unavailable: 'clean',
   modpack_mod_distribution_disabled: 'clean',
   modpack_overrides_path_escape: 'clean',
+  // A pack folder entry that is a link: names it and says where to remove it.
+  addon_entry_is_link: 'clean',
   modpack_overrides_too_large: 'clean',
   modpack_no_files_selected: 'clean',
   modpack_partial_failure: 'clean',
@@ -660,6 +662,8 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.modsCacheIo'), e.details);
     case 'mods_instance_path':
       return withDetailTail(translate('errors.modsInstancePath', { path: e.path }), e.details);
+    case 'addon_entry_is_link':
+      return translate('errors.addonEntryIsLink', { name: e.name });
     case 'modpack_update_rolled_back':
       return withCause(
         e.file_name === null

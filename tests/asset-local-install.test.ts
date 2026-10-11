@@ -39,7 +39,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } }),
     assetsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     assetInstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     assetUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

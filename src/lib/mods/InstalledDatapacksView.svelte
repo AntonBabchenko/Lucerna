@@ -59,6 +59,8 @@
   import { createListSelection } from '$lib/ui/list-selection.svelte';
   import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
   import { onDestroy, type Snippet } from 'svelte';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
+  import { onWindowFocus } from '$lib/ui/window-focus';
 
   let {
     instanceId,
@@ -66,6 +68,7 @@
     loader = null,
     emptyDropzone,
     onEmptyChange = () => {},
+    visible = false,
   }: {
     instanceId: string | null;
     mcVersion?: string | null;
@@ -74,6 +77,9 @@
     emptyDropzone?: Snippet;
     /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
     onEmptyChange?: (empty: boolean) => void;
+    /** This list is the one on screen (Add-ons shows Installed): only then does a return to the
+     *  window re-read it. False by default — restrictive. */
+    visible?: boolean;
   } = $props();
 
   let view = $state<DatapackLibraryView | null>(null);
@@ -281,7 +287,19 @@
       view = res.data;
       void enrich(res.data, gen);
     }
+    // This read may have superseded the first one, which then never clears its loading panel.
+    loading = false;
   }
+
+  // The user is back from the library folder the Add-ons button opened, maybe with packs dropped
+  // in: re-read the list on screen, in the client panel, unless a write of this view runs (it
+  // re-reads itself when done).
+  $effect(() => {
+    if (!visible || instanceId === null || serversUi.mode !== 'client') return;
+    return onWindowFocus(() => {
+      if (!busy && !checking && bulkAction === null) void refresh();
+    });
+  });
 
   async function checkUpdates() {
     if (instanceId === null) return;
@@ -644,6 +662,17 @@
     <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-2">
       {error}
     </div>
+  {/if}
+  <!-- The library holds files hardlinked into worlds; a folder cannot be, so one put there is
+       named rather than ignored in silence. `undefined` (an older answer) shows neither. -->
+  {#if view?.library_folders === null}
+    <p class="text-xs text-warning-text mb-2" data-testid="datapack-library-unreadable">
+      {$t('addons.datapacks.libraryUnreadable')}
+    </p>
+  {:else if view?.library_folders && view.library_folders.length > 0}
+    <p class="text-xs text-muted mb-2" data-testid="datapack-library-folders">
+      {$t('addons.datapacks.libraryFolders', { names: view.library_folders.join(', ') })}
+    </p>
   {/if}
 
   {#if instanceId === null}

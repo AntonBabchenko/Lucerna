@@ -110,6 +110,11 @@ function ok<T>(data: T) {
   return { status: 'ok' as const, data };
 }
 
+// `assets_list`'s answer: the registry's files and the unpacked folders (`null`: unreadable).
+function listing(files: InstalledAsset[], folders: string[] | null = []) {
+  return ok({ files, folders });
+}
+
 describe('InstalledAssetsView', () => {
   beforeEach(() => {
     for (const s of Object.values(spies)) s.mockReset();
@@ -128,7 +133,7 @@ describe('InstalledAssetsView', () => {
   });
 
   it('renders an asset row with its name and a Remove button', async () => {
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
 
@@ -138,7 +143,7 @@ describe('InstalledAssetsView', () => {
   });
 
   it('loads the project icon for a platform asset', async () => {
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
 
     const { container } = render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
 
@@ -149,7 +154,7 @@ describe('InstalledAssetsView', () => {
   });
 
   it('calls assetUninstall with (instanceId, kind, filename) on Remove', async () => {
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     spies.assetUninstall.mockResolvedValue(ok(null));
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
@@ -162,7 +167,7 @@ describe('InstalledAssetsView', () => {
 
   it('shows an Update button after Check updates and updates via assetUpdateOne', async () => {
     const latest = makeVersion();
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     spies.assetsCheckUpdates.mockResolvedValue(
       ok([
         {
@@ -172,7 +177,7 @@ describe('InstalledAssetsView', () => {
         },
       ]),
     );
-    spies.assetUpdateOne.mockResolvedValue(ok(null));
+    spies.assetUpdateOne.mockResolvedValue(ok({ old_file_kept: null }));
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
 
@@ -212,7 +217,7 @@ describe('InstalledAssetsView', () => {
       },
     });
     spies.assetsList.mockResolvedValue(
-      ok([
+      listing([
         makeAsset(),
         makeAsset({ filename: 'faithful.zip', project_id: 'proj-2', name: 'Faithful' }),
       ]),
@@ -231,7 +236,7 @@ describe('InstalledAssetsView', () => {
         },
       ]),
     );
-    spies.assetUpdateOne.mockResolvedValue(ok(null));
+    spies.assetUpdateOne.mockResolvedValue(ok({ old_file_kept: null }));
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
 
@@ -256,7 +261,7 @@ describe('InstalledAssetsView', () => {
     const latestA = makeVersion();
     const latestB = makeVersion({ project_id: 'proj-2', version_id: 'ver-9' });
     spies.assetsList.mockResolvedValue(
-      ok([
+      listing([
         makeAsset(),
         makeAsset({ filename: 'faithful.zip', project_id: 'proj-2', name: 'Faithful' }),
       ]),
@@ -290,7 +295,7 @@ describe('InstalledAssetsView', () => {
   });
 
   it('does not render Update all when nothing is updatable', async () => {
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     spies.assetsCheckUpdates.mockResolvedValue(
       ok([
         {
@@ -317,7 +322,7 @@ describe('InstalledAssetsView', () => {
   });
 
   it('calls pushWarning and does not remove the row when assetUninstall returns an error', async () => {
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     spies.assetUninstall.mockResolvedValue({ status: 'error' as const, error: 'disk full' });
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
@@ -331,7 +336,7 @@ describe('InstalledAssetsView', () => {
   });
 
   it('calls pushWarning and does not crash when assetsCheckUpdates returns an error', async () => {
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     spies.assetsCheckUpdates.mockResolvedValue({
       status: 'error' as const,
       error: 'network error',
@@ -348,7 +353,7 @@ describe('InstalledAssetsView', () => {
   });
 
   it('resets checking to false when assetsCheckUpdates throws (IPC error)', async () => {
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     spies.assetsCheckUpdates.mockRejectedValue(new Error('ipc failure'));
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
@@ -368,7 +373,7 @@ describe('InstalledAssetsView', () => {
 
   it('shows the check_failed warning indicator when an asset check fails', async () => {
     const reason = 'Project was delisted from Modrinth';
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     spies.assetsCheckUpdates.mockResolvedValue(
       ok([
         {
@@ -395,7 +400,7 @@ describe('InstalledAssetsView', () => {
   it('refetches assetsList when the shared assetsChanged signal is bumped', async () => {
     // Start with an empty list — simulates the bug: a pack installed from Browse
     // exists on disk but the Installed view was rendered before it landed.
-    spies.assetsList.mockResolvedValue(ok([] as InstalledAsset[]));
+    spies.assetsList.mockResolvedValue(listing([] as InstalledAsset[]));
 
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
 
@@ -404,7 +409,7 @@ describe('InstalledAssetsView', () => {
 
     // A pack is now installed elsewhere (Browse / a producer) → the next list
     // call should surface it. Bumping the signal must drive a refetch.
-    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     assetsChanged.value++;
 
     expect(await screen.findByText('Complementary Shaders')).toBeTruthy();
@@ -417,7 +422,7 @@ describe('InstalledAssetsView', () => {
     createRawSnippet(() => ({ render: () => '<div data-testid="host-dropzone"></div>' }));
 
   it('reports an empty list to its host and renders the host’s drop area in it', async () => {
-    spies.assetsList.mockResolvedValue(ok([] as InstalledAsset[]));
+    spies.assetsList.mockResolvedValue(listing([] as InstalledAsset[]));
     const onEmptyChange = vi.fn();
     render(InstalledAssetsView, {
       instanceId: 'inst-1',
@@ -448,5 +453,92 @@ describe('InstalledAssetsView', () => {
     expect(screen.queryByText('Nothing installed in this instance yet.')).toBeNull();
     expect(screen.queryByTestId('host-dropzone')).toBeNull();
     expect(onEmptyChange).not.toHaveBeenCalledWith(true);
+  });
+  // ── Packs placed by hand (the folder is the truth) ──────────────────────────
+
+  it('lists a folder pack after the files, tagged as a folder in words', async () => {
+    spies.assetsList.mockResolvedValue(listing([makeAsset()], ['Dev Pack']));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+    await screen.findByText('Dev Pack');
+    const rows = screen.getAllByTestId('asset-row');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('Complementary Shaders');
+    expect(rows[1].textContent).toContain('Dev Pack');
+    expect(rows[1].textContent).toContain('folder');
+  });
+
+  it('removing a folder pack says it went to the recycle bin', async () => {
+    spies.assetsList.mockResolvedValue(listing([], ['Dev Pack']));
+    spies.assetUninstall.mockResolvedValue(ok(null));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'resource_pack' });
+    await screen.findByText('Dev Pack');
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(spies.assetUninstall).toHaveBeenCalledWith('inst-1', 'resource_pack', 'Dev Pack'),
+    );
+    expect(pushSuccess).toHaveBeenCalledWith('Moved Dev Pack to the recycle bin');
+    await waitFor(() => expect(screen.queryByText('Dev Pack')).toBeNull());
+  });
+
+  it('a folder that could not be read is said above the list, which still shows', async () => {
+    spies.assetsList.mockResolvedValue(listing([makeAsset()], null));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+    expect(await screen.findByTestId('asset-folder-unreadable')).toBeTruthy();
+    expect(screen.getAllByTestId('asset-row')).toHaveLength(1);
+  });
+
+  it('re-reads when the window regains focus, only while it is the list on screen', async () => {
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
+    const view = render(InstalledAssetsView, {
+      instanceId: 'inst-1',
+      kind: 'shader',
+      visible: false,
+    });
+    await screen.findByText('Complementary Shaders');
+    const before = spies.assetsList.mock.calls.length;
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spies.assetsList.mock.calls.length).toBe(before);
+    await view.rerender({ instanceId: 'inst-1', kind: 'shader', visible: true });
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(spies.assetsList.mock.calls.length).toBe(before + 1));
+  });
+
+  it('a focus re-read that overtakes the first read does not leave the loading panel up', async () => {
+    let releaseFirst!: (v: unknown) => void;
+    spies.assetsList
+      .mockImplementationOnce(() => new Promise((r) => (releaseFirst = r)))
+      .mockResolvedValue(listing([makeAsset()]));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader', visible: true });
+    window.dispatchEvent(new Event('focus'));
+    await screen.findByText('Complementary Shaders');
+    releaseFirst(listing([makeAsset()]));
+    await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
+  });
+
+  it('an update that leaves the old file on disk says so instead of a plain «Updated»', async () => {
+    const latest = makeVersion();
+    spies.assetsList.mockResolvedValue(listing([makeAsset()]));
+    spies.assetsCheckUpdates.mockResolvedValue(
+      ok([
+        {
+          filename: 'complementary.zip',
+          name: 'Complementary Shaders',
+          state: { kind: 'update_available', latest },
+        },
+      ]),
+    );
+    spies.assetUpdateOne.mockResolvedValue(ok({ old_file_kept: 'in use by another process' }));
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+    await screen.findByText('Complementary Shaders');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Update' }));
+    await waitFor(() =>
+      expect(pushWarning).toHaveBeenCalledWith(
+        'Updated Complementary Shaders, but the old file complementary.zip is still in the folder',
+        ['in use by another process'],
+      ),
+    );
+    expect(pushSuccess).not.toHaveBeenCalledWith('Updated Complementary Shaders');
   });
 });

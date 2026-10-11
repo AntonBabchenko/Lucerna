@@ -61,7 +61,6 @@ vi.mock('$lib/ipc/bindings', () => ({
       data: { requirements: [], order: sha1s },
     })),
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    openModsFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // The row menu: the jar on disk and the hold.
     modsRevealFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsSetHold: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -254,16 +253,6 @@ describe('InstalledModsView', () => {
     expect(mod.commands.modsRemovalImpact).toHaveBeenCalledWith('i', ['abc']);
   });
 
-  it('the ⋯ menu opens the mods folder of this profile', async () => {
-    const mod = await import('$lib/ipc/bindings');
-    render(InstalledModsView, {
-      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
-    });
-    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: /open mods folder/i }));
-    await waitFor(() => expect(mod.commands.openModsFolder).toHaveBeenCalledWith('i'));
-  });
-
   // The re-check is a thing the user asked for: when its compatibility half fails, the spinner
   // going away must not read as "all clear".
   it('a re-check whose compatibility check fails says so', async () => {
@@ -280,6 +269,20 @@ describe('InstalledModsView', () => {
     await fireEvent.click(screen.getByRole('menuitem', { name: /re-check/i }));
     await waitFor(() =>
       expect(toastList().some((t) => t.title === "Couldn't re-check compatibility")).toBe(true),
+    );
+  });
+
+  // Back from the mods folder the Add-ons button opened: the list on screen re-reads itself.
+  it('re-reads the list when the window regains focus while it is on screen', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric', visible: true },
+    });
+    await waitFor(() => expect(screen.getByText('Just Enough Items')).toBeTruthy());
+    const before = vi.mocked(mod.commands.modsListInstalled).mock.calls.length;
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() =>
+      expect(vi.mocked(mod.commands.modsListInstalled).mock.calls.length).toBeGreaterThan(before),
     );
   });
 
