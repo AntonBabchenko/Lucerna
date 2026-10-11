@@ -53,27 +53,34 @@ async fn sweep_stale_lucerna_packs(inst_root: &std::path::Path, keep_filename: O
             continue;
         }
 
-        match crate::mods::install::safe_asset_remove_path(
+        let gone = match crate::mods::install::safe_asset_remove_path(
             inst_root,
             crate::mods::platform::ContentKind::ResourcePack,
             &asset.filename,
         ) {
-            Ok(path) => {
-                if let Err(e) = tokio::fs::remove_file(&path).await {
-                    if e.kind() != std::io::ErrorKind::NotFound {
-                        crate::diag!(
-                            "[l10n] apply: could not remove stale pack {}: {e}",
-                            asset.filename
-                        );
-                    }
+            Ok(path) => match tokio::fs::remove_file(&path).await {
+                Ok(()) => true,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+                Err(e) => {
+                    crate::diag!(
+                        "[l10n] apply: could not remove stale pack {}: {e}",
+                        asset.filename
+                    );
+                    false
                 }
-            }
+            },
             Err(e) => {
                 crate::diag!(
                     "[l10n] apply: refusing to remove stale pack {} ({e})",
                     asset.filename
                 );
+                false
             }
+        };
+        // A file that stayed keeps its row: the Add-ons list reads the folder,
+        // and a row dropped here would bring the file back as a manual pack.
+        if !gone {
+            continue;
         }
 
         if let Err(e) = crate::mods::assets::remove(
@@ -390,6 +397,34 @@ mod tests {
         assert_eq!(installed.len(), 1);
         assert_eq!(installed[0].filename, "Faithful.zip");
         assert!(resourcepacks_dir(inst_root).join("Faithful.zip").exists());
+    }
+
+    /// The Add-ons list reads the folder: a stale pack whose file could not be
+    /// removed keeps its row, or it would come back as a manual pack.
+    #[tokio::test]
+    async fn a_stale_pack_that_cannot_be_removed_keeps_its_row() {
+        let td = tempfile::tempdir().unwrap();
+        let inst_root = td.path();
+        let ru = format!("{}ru_ru.zip", crate::l10n::options_txt::PACK_PREFIX);
+        crate::mods::asset_local::install_asset_local(
+            inst_root,
+            crate::mods::platform::ContentKind::ResourcePack,
+            &ru,
+            &generated_pack("ru_ru"),
+        )
+        .await
+        .unwrap();
+        // A directory where the file was: `remove_file` fails on every OS, as it
+        // does on Windows for a pack the running game holds open.
+        let file = resourcepacks_dir(inst_root).join(&ru);
+        std::fs::remove_file(&file).unwrap();
+        std::fs::create_dir_all(file.join("inner")).unwrap();
+
+        sweep_stale_lucerna_packs(inst_root, None).await;
+
+        let installed = installed_resource_packs(inst_root).await;
+        assert_eq!(installed.len(), 1, "the row of a file that stayed is kept");
+        assert_eq!(installed[0].filename, ru);
     }
 
     #[tokio::test]

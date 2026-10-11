@@ -14,6 +14,7 @@ describe('PRINCIPLES.md Appendix A — opener rows', () => {
     for (const cmd of [
       'open_instance_folder',
       'open_mods_folder',
+      'open_addon_folder',
       'open_saves_folder',
       'open_screenshots_folder',
       'open_backups_folder',

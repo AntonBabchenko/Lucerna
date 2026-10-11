@@ -219,9 +219,12 @@ pub async fn list_at(
     let rows: Vec<InstalledDatapack> = stored.iter().map(|s| s.pack.clone()).collect();
     let root = instance_root.to_path_buf();
     let rows_for_scan = rows.clone();
-    let worlds = tokio::task::spawn_blocking(move || gather(&root, &rows_for_scan))
-        .await
-        .map_err(|e| Error::io(instance_root.display().to_string(), format!("join: {e}")))?;
+    let (worlds, folders) = tokio::task::spawn_blocking(move || {
+        let folders = library_folders(&library_dir_at(&root));
+        (gather(&root, &rows_for_scan), folders)
+    })
+    .await
+    .map_err(|e| Error::io(instance_root.display().to_string(), format!("join: {e}")))?;
 
     // Library rows, then world-only PACKS: an on-disk pack entry that no
     // registry name resolves to (R2). A pack removed from the library without
@@ -287,7 +290,51 @@ pub async fn list_at(
                 level_dat: f.level_dat,
             })
             .collect(),
+        library_folders: folders,
     })
+}
+
+/// Top-level directories of the library (`DatapackLibraryView::library_folders`):
+/// the registry adopts only files, so a folder dropped there is otherwise
+/// ignored in silence. Synchronous: it runs inside the listing's
+/// `spawn_blocking`.
+fn library_folders(lib: &Path) -> Option<Vec<String>> {
+    let rd = match std::fs::read_dir(lib) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(e) => {
+            crate::diag!("datapacks library: could not read {}: {e}", lib.display());
+            return None;
+        }
+    };
+    let mut out = Vec::new();
+    for entry in rd {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                crate::diag!(
+                    "datapacks library: could not read an entry of {}: {e}",
+                    lib.display()
+                );
+                return None;
+            }
+        };
+        match entry.file_type() {
+            Ok(t) if t.is_dir() => out.push(entry.file_name().to_string_lossy().into_owned()),
+            Ok(_) => {
+                // A file (the registry adopts it) or a link: not a folder pack.
+            }
+            Err(e) => {
+                crate::diag!(
+                    "datapacks library: could not stat {}: {e}",
+                    entry.path().display()
+                );
+                return None;
+            }
+        }
+    }
+    out.sort_by_key(|n| n.to_lowercase());
+    Some(out)
 }
 
 /// This pack's placement in one world, or `None` when the world does not
@@ -392,6 +439,34 @@ mod tests {
     use crate::datapacks::{library, world_link, WorldPackState};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn library_folders_names_directories_only() {
+        let td = tempfile::tempdir().unwrap();
+        let lib = library_dir_at(td.path());
+        std::fs::create_dir_all(lib.join("My Pack").join("data")).unwrap();
+        // The registry never adopts a directory, whatever its name says.
+        std::fs::create_dir_all(lib.join("odd.zip")).unwrap();
+        std::fs::write(lib.join("real.zip"), b"zip").unwrap();
+        assert_eq!(
+            library_folders(&lib),
+            Some(vec!["My Pack".to_string(), "odd.zip".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_missing_library_has_no_folders() {
+        let td = tempfile::tempdir().unwrap();
+        assert_eq!(library_folders(&library_dir_at(td.path())), Some(vec![]));
+    }
+
+    #[tokio::test]
+    async fn the_library_listing_carries_its_folders() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(library_dir_at(td.path()).join("My Pack")).unwrap();
+        let view = list_at(td.path(), None).await.unwrap();
+        assert_eq!(view.library_folders, Some(vec!["My Pack".to_string()]));
+    }
 
     fn datapack_zip(pack_format: u32) -> Vec<u8> {
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));

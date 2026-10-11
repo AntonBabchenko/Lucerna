@@ -23,6 +23,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **A folder button for every kind of add-on.** Add-ons shows "Mods folder",
+  "Resource packs folder", "Shaders folder" or "Data packs folder" above the
+  list, beside the source picker while browsing; the data packs one opens the
+  profile's library.
+- **Packs you put in a folder yourself show up.** Resource packs and shaders
+  dropped into their folder, zipped or unpacked, are listed and can be removed
+  (an unpacked one goes to the recycle bin), and an Installed list re-reads
+  itself when you come back to the launcher.
 - **Run an instance on your own Java.** Manage → Advanced → Java lists the
   Javas found on this computer and has a Browse button. Lucerna checks the
   chosen Java before every launch and refuses one that cannot run the game,
@@ -40,6 +48,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
   much of a partly translated one is done; System switches to the system's
   language once at least 90% of it is translated, where it used to know only
   Russian.
+
+### Fixed
+
+- **A pack deleted from its folder by hand leaves the list, and one still on
+  disk stays in it.** Removing or updating a pack the running game holds open
+  now says the file stayed instead of dropping its row, and packs a modpack
+  update installs are listed too.
+- **A folder in the data pack library is named instead of ignored.** The library
+  takes zip files only, and the Installed list now says which folders it cannot
+  use.
 
 ## [0.27.0] — 2026-10-09
 

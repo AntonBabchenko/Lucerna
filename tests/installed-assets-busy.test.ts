@@ -58,6 +58,11 @@ function ok<T>(data: T) {
   return { status: 'ok' as const, data };
 }
 
+// `assets_list`'s answer: the registry's files and the unpacked folders (`null`: unreadable).
+function listing(files: InstalledAsset[], folders: string[] | null = []) {
+  return ok({ files, folders });
+}
+
 describe('InstalledAssetsView busy state', () => {
   beforeEach(() => {
     assetsList.mockReset();
@@ -90,7 +95,7 @@ describe('InstalledAssetsView busy state', () => {
   });
 
   it('spins the Check-updates button while the check runs and clears it on resolve', async () => {
-    assetsList.mockResolvedValue(ok([makeAsset()]));
+    assetsList.mockResolvedValue(listing([makeAsset()]));
     // A deferred promise we control — the check stays in flight until we resolve.
     let resolveCheck!: (v: unknown) => void;
     assetsCheckUpdates.mockReturnValue(

@@ -105,6 +105,7 @@ const pack: InstalledDatapack = {
 const library: DatapackLibraryView = {
   entries: [{ pack, in_library: true, compat: { kind: 'unknown' }, placements: [] }],
   worlds: [{ world: 'Beta', level_dat: 'only_old' }],
+  library_folders: [],
 };
 
 const listingFailure = {
@@ -170,7 +171,7 @@ beforeEach(() => {
   c.instanceDependencyPreflight.mockResolvedValue({ status: 'ok', data: { violations: [] } });
   c.scanInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
   c.checkInstanceModCompat.mockResolvedValue({ status: 'ok', data: [] });
-  c.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+  c.assetsList.mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } });
   c.assetsCheckUpdates.mockResolvedValue({ status: 'ok', data: [] });
   openMock.mockResolvedValue(['/x/terralith.zip']);
 });

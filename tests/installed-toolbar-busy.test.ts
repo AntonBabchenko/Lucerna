@@ -26,7 +26,6 @@ const base = () => ({
   onCheckUpdates: vi.fn(),
   onUpdateAll: vi.fn(),
   onRecheckAll: vi.fn(),
-  onOpenModsFolder: vi.fn(),
 });
 
 const spinnerIn = (btn: HTMLElement | null) => btn?.querySelector('[role="status"]') ?? null;
@@ -65,19 +64,16 @@ describe('InstalledToolbar', () => {
     expect(screen.queryByTestId('updates-checked-at')).toBeNull();
   });
 
-  it('the ⋯ menu re-checks compatibility and dependencies, and opens the mods folder', async () => {
+  // The mods folder opens from the Add-ons sub-tab row now, so ⋯ holds the re-check alone.
+  it('the ⋯ menu re-checks compatibility and dependencies', async () => {
     const p = base();
     render(InstalledToolbar, { props: p });
     await fireEvent.click(more());
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual([
       'Re-check compatibility and dependencies',
-      'Open mods folder',
     ]);
     await fireEvent.click(screen.getByRole('menuitem', { name: /re-check/i }));
     expect(p.onRecheckAll).toHaveBeenCalledOnce();
-    await fireEvent.click(more());
-    await fireEvent.click(screen.getByRole('menuitem', { name: /open mods folder/i }));
-    expect(p.onOpenModsFolder).toHaveBeenCalledOnce();
   });
 
   it('while the re-check runs, a labelled spinner shows and the item is off', async () => {
