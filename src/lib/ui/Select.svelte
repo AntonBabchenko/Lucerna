@@ -84,7 +84,11 @@
     // per-instance actions menu). Receives the option and the pointer
     // position; the callback owns rendering its own menu. Not offered for
     // disabled rows; without it right-click keeps its native behavior.
-    onOptionContextMenu?: (option: Option, pos: { x: number; y: number }) => void;
+    onOptionContextMenu?: (
+      option: Option,
+      pos: { x: number; y: number },
+      how: { byKeyboard: boolean },
+    ) => void;
   } = $props();
 
   const MAX_POPOVER_HEIGHT = 240; // preferred cap; clamped down to viewport room
@@ -252,6 +256,24 @@
       const opt = options[activeIndex];
       closeList();
       onDeleteOption(opt);
+    } else if (
+      onOptionContextMenu &&
+      activeIndex >= 0 &&
+      (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))
+    ) {
+      // The keyboard twin of a right-click on the active row. The list closes
+      // first (which refocuses the trigger), so the menu that opens can return
+      // focus somewhere real; the key's default would open the WebView menu.
+      e.preventDefault();
+      e.stopPropagation();
+      const opt = options[activeIndex];
+      const r = document.getElementById(optionId(activeIndex))?.getBoundingClientRect();
+      closeList();
+      onOptionContextMenu(
+        opt,
+        { x: r ? r.left + 8 : 8, y: r ? r.bottom : 8 },
+        { byKeyboard: true },
+      );
     } else if (e.key === 'Tab') {
       // Commit the active option, then let focus move on naturally.
       commit(activeIndex);
@@ -377,7 +399,7 @@
           if (!onOptionContextMenu || opt.disabled) return;
           e.preventDefault();
           e.stopPropagation();
-          onOptionContextMenu(opt, { x: e.clientX, y: e.clientY });
+          onOptionContextMenu(opt, { x: e.clientX, y: e.clientY }, { byKeyboard: false });
         }}
         onmouseenter={() => {
           if (!opt.disabled) activeIndex = i;
