@@ -34,6 +34,7 @@
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent, type InstanceContentKind } from './content-kind';
+  import { initialBrowse, rememberBrowse } from './addons-view-memory.svelte';
   import { installFailureToast, installFailureWarning } from '$lib/mods/install-failure';
   import {
     dismissLibraryReadWarning,
@@ -157,7 +158,10 @@
           : 'puzzle',
   );
 
-  let query = $state('');
+  // Seeded from the session's memory of this kind (addons-view-memory): leaving
+  // Add-ons unmounts this view, and the search must survive the round trip.
+  const rememberedBrowse = untrack(() => initialBrowse(kind));
+  let query = $state(rememberedBrowse.query);
   // Filters mirror the active instance's MC + loader. They re-sync
   // whenever the user switches to a different instance — keeping a
   // stale filter from a previous instance would surface mods that
@@ -177,7 +181,8 @@
     // mislead users.
     loaderFilter = loader && loader !== 'vanilla' ? loader : '';
   });
-  let sort = $state<ModSort>('downloads');
+  let sort = $state<ModSort>(rememberedBrowse.sort);
+  $effect(() => rememberBrowse(kind, { query, sort }));
   // Show everything by default; installed mods get the "Installed · vX" badge —
   // the same mark-don't-remove behaviour as Modrinth/Prism/CurseForge browsers.
   // Unchecking the inline "Show installed" toggle hides installed mods locally
