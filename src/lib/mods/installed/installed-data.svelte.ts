@@ -18,7 +18,7 @@ export type InstalledData = ReturnType<typeof createInstalledData>;
 // the pack-origin chip data, runs the one-shot enrichment backfill, and
 // resolves a ModSummary per platform mod via a few batched lookups (one per
 // source). Every commit is guarded against an instance-switch race via
-// `getInstanceId() === reqId`.
+// `getInstanceId() === reqId`, and against a newer refresh of the same instance via `seq`.
 export function createInstalledData(getInstanceId: () => string | null) {
   let rows = $state<Row[]>([]);
   let packSummary = $state<PackOriginSummary | null>(null);
@@ -28,18 +28,23 @@ export function createInstalledData(getInstanceId: () => string | null) {
   // blanked then). A reader that must not act on the empty in-between list waits for it to name
   // the current profile (the deps tour's attempt).
   let loadedFor = $state<string | null>(null);
+  // Bumped by every refresh: only the latest one commits.
+  let seq = 0;
 
   async function refresh(): Promise<void> {
     // Capture the instance this refresh is for. Several awaits happen below; if
     // the user switches instances mid-flight we must NOT commit this (now stale)
-    // instance's data over the newer one. Every commit is guarded by
-    // `getInstanceId() === reqId`.
+    // instance's data over the newer one — nor over a NEWER refresh of the same
+    // instance (a window-focus re-read racing a mods-changed one): two lists of
+    // one profile can answer out of order. Every commit is guarded by `current()`.
     const reqId = getInstanceId();
     if (!reqId) {
       rows = [];
       loadedFor = null;
       return;
     }
+    const mine = ++seq;
+    const current = () => getInstanceId() === reqId && seq === mine;
     loading = true;
     error = null;
 
@@ -49,7 +54,7 @@ export function createInstalledData(getInstanceId: () => string | null) {
       commands.modsListInstalled(reqId),
       commands.modsPackOriginSummary(reqId),
     ]);
-    if (getInstanceId() !== reqId) return;
+    if (!current()) return;
     if (listRes.status === 'error') {
       error = formatError(listRes.error);
       loading = false;
@@ -72,7 +77,7 @@ export function createInstalledData(getInstanceId: () => string | null) {
     ) {
       await commands.modsEnrichPackMods(reqId);
       const r2 = await commands.modsListInstalled(reqId);
-      if (getInstanceId() !== reqId) return;
+      if (!current()) return;
       if (r2.status === 'ok') list = r2.data;
     }
 
@@ -101,8 +106,9 @@ export function createInstalledData(getInstanceId: () => string | null) {
         }
       }),
     );
-    if (getInstanceId() !== reqId) {
-      loading = false;
+    if (!current()) {
+      // A newer refresh of this profile owns `loading`; a switch leaves it to us.
+      if (getInstanceId() !== reqId) loading = false;
       return;
     }
     rows = list.map((m) => ({
