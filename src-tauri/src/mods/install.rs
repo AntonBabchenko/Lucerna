@@ -894,7 +894,7 @@ pub async fn update_asset(
     old_filename: &str,
     target: ModVersion,
     progress: &ProgressFn,
-) -> Result<(), Error> {
+) -> Result<crate::mods::platform::AssetUpdateOutcome, Error> {
     if !crate::mods::modpack::path_safety::is_safe_filename(&target.primary_file.filename) {
         return Err(Error::ModsUnsafeFilename {
             filename: target.primary_file.filename.clone(),
@@ -937,10 +937,29 @@ pub async fn update_asset(
 
     if old_filename != new_filename {
         let old_path = safe_asset_remove_path(instance_root, kind, old_filename)?;
-        let _ = fs::remove_file(&old_path).await; // best-effort; registry is source of truth
+        match fs::remove_file(&old_path).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Already gone: its row goes below.
+            }
+            Err(e) => {
+                // The pack list reads the folder, so a file that stays keeps its
+                // row — dropping it would bring the file back as a manual pack —
+                // and the caller is told: the game still sees both versions.
+                crate::diag!(
+                    "assets: could not remove the superseded {}: {e}",
+                    old_path.display()
+                );
+                return Ok(crate::mods::platform::AssetUpdateOutcome {
+                    old_file_kept: Some(e.to_string()),
+                });
+            }
+        }
         crate::mods::assets::remove(instance_root, kind, old_filename).await?;
     }
-    Ok(())
+    Ok(crate::mods::platform::AssetUpdateOutcome {
+        old_file_kept: None,
+    })
 }
 
 #[cfg(test)]
@@ -2214,7 +2233,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_bytes(new_body.to_vec()))
             .mount(&s)
             .await;
-        update_asset(
+        let outcome = update_asset(
             td_data.path(),
             td_inst.path(),
             ContentKind::Shader,
@@ -2224,6 +2243,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(outcome.old_file_kept, None);
 
         let dir = td_inst.path().join(".minecraft/shaderpacks");
         assert!(dir.join("BSL_v8.3.zip").exists());
@@ -2237,6 +2257,53 @@ mod tests {
         assert_eq!(listed.len(), 1, "exactly one registry row after update");
         assert_eq!(listed[0].filename, "BSL_v8.3.zip");
         assert_eq!(listed[0].version_id.as_deref(), Some("v2"));
+    }
+
+    /// The pack list reads the folder: an old file that cannot be removed keeps
+    /// its row, and the update says so instead of hiding it.
+    #[tokio::test]
+    async fn update_asset_keeps_and_reports_an_old_file_it_cannot_remove() {
+        use crate::mods::platform::ContentKind;
+        let s = MockServer::start().await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        seed_installed_asset(&s, &td_data, &td_inst, "BSL_v8.2.zip", b"old-bytes").await;
+        // A directory where the old file was: `remove_file` fails on every OS,
+        // as it does on Windows for a pack the running game holds open.
+        let dir = td_inst.path().join(".minecraft/shaderpacks");
+        std::fs::remove_file(dir.join("BSL_v8.2.zip")).unwrap();
+        std::fs::create_dir_all(dir.join("BSL_v8.2.zip").join("inner")).unwrap();
+
+        let new_body = b"new-bytes";
+        Mock::given(method("GET"))
+            .and(path("/BSL_v8.3.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(new_body.to_vec()))
+            .mount(&s)
+            .await;
+        let outcome = update_asset(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            "BSL_v8.2.zip",
+            asset_target(&s, "BSL_v8.3.zip", new_body),
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.old_file_kept.is_some(), "the kept file is reported");
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::Shader)
+            .await
+            .unwrap();
+        let mut names: Vec<_> = listed.iter().map(|a| a.filename.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            ["BSL_v8.2.zip", "BSL_v8.3.zip"],
+            "the old row stays with its file"
+        );
     }
 
     #[tokio::test]

@@ -717,7 +717,10 @@ pub async fn open_addon_folder(
 
 /// Create `dir` if it is missing and open it in the file manager — the one
 /// opener call the two folder commands above share.
-async fn open_dir(app: &tauri::AppHandle, dir: &std::path::Path) -> Result<(), crate::error::Error> {
+async fn open_dir(
+    app: &tauri::AppHandle,
+    dir: &std::path::Path,
+) -> Result<(), crate::error::Error> {
     use tauri_plugin_opener::OpenerExt;
     tokio::fs::create_dir_all(dir)
         .await
@@ -953,7 +956,10 @@ mod addon_folder_tests {
     fn each_kind_opens_its_own_folder() {
         let root = Path::new("/inst/A");
         let mc = root.join(".minecraft");
-        assert_eq!(addon_folder(root, ContentKind::Mod).unwrap(), mc.join("mods"));
+        assert_eq!(
+            addon_folder(root, ContentKind::Mod).unwrap(),
+            mc.join("mods")
+        );
         assert_eq!(
             addon_folder(root, ContentKind::ResourcePack).unwrap(),
             mc.join("resourcepacks")

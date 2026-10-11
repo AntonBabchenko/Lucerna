@@ -236,6 +236,12 @@ pub struct DatapackLibraryView {
     /// name is not a usable world folder name, is left out, and the world
     /// picker then shows it as unknown.
     pub worlds: Vec<DatapackWorldView>,
+    /// Directories at the top of the library, sorted case-insensitively. A
+    /// folder pack cannot be hardlinked into worlds, so the library never uses
+    /// one: the UI names them instead of ignoring them in silence.
+    /// `Some(vec![])` when the library does not exist; `None` when it could not
+    /// be read.
+    pub library_folders: Option<Vec<String>>,
 }
 
 /// Where a catalog-installed datapack came from. `None` at every local-install

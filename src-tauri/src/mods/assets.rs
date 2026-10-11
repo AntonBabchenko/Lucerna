@@ -11,7 +11,7 @@ use std::path::Path;
 use tokio::fs;
 
 use crate::error::Error;
-use crate::mods::platform::{ContentKind, InstalledAsset, ModSource};
+use crate::mods::platform::{AssetListing, ContentKind, InstalledAsset, ModSource};
 use crate::mods::registry_lock;
 
 fn registry_path(instance_root: &Path) -> std::path::PathBuf {
@@ -104,6 +104,126 @@ pub async fn remove(instance_root: &Path, kind: ContentKind, filename: &str) -> 
     let mut items = list_all(instance_root).await?;
     items.retain(|a| !(a.kind == kind && a.filename == filename));
     write_all(instance_root, &items).await
+}
+
+/// The Installed list of one kind: the registry reconciled with the pack
+/// folder, and the unpacked pack folders in it (`mods::asset_folder`).
+///
+/// `may_write` is whether the caller holds the instance's shared maintenance
+/// claim. Without it nothing is reconciled — a pack update or a clone may be
+/// swapping the folder's files, and dropping a row its rollback needs would
+/// lose the pack's provenance — and `files` is the registry as it is.
+///
+/// The folder is read, and new zips hashed, under the registry lock, as mods
+/// do: an install places its file before it adds its row, so a scan taken
+/// outside the lock could see the row without the file and drop it.
+pub async fn listing(
+    instance_root: &Path,
+    kind: ContentKind,
+    may_write: bool,
+) -> Result<AssetListing, Error> {
+    use crate::mods::asset_folder;
+    let dir = asset_folder::pack_dir(instance_root, kind);
+    // Read before the assets registry lock: `get_pack_origin` takes the mods
+    // registry's (the order `backfill_from_pack_origin_if_missing` keeps).
+    // Could not tell → reconcile nothing this time, rather than persist pack
+    // files as manual rows.
+    let origin = if may_write {
+        match crate::mods::installed::get_pack_origin(instance_root).await {
+            Ok(origin) => Some(origin),
+            Err(e) => {
+                crate::diag!("assets: pack origin unreadable, folder not reconciled: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let all = list_all(instance_root).await?;
+    let Some(entries) = asset_folder::read_entries(&dir).await else {
+        let files = all.into_iter().filter(|a| a.kind == kind).collect();
+        return Ok(AssetListing {
+            files,
+            folders: None,
+        });
+    };
+    let folders = Some(asset_folder::folder_packs(&dir, kind, &entries).await);
+    let Some(origin) = origin else {
+        let files = all.into_iter().filter(|a| a.kind == kind).collect();
+        return Ok(AssetListing { files, folders });
+    };
+    let (this, other): (Vec<_>, Vec<_>) = all.into_iter().partition(|a| a.kind == kind);
+    let matched = asset_folder::match_rows(this, &entries);
+    let mut rows = matched.rows;
+    let mut changed = matched.changed;
+    for name in matched.adopt {
+        let path = dir.join(&name);
+        match crate::mods::txn::file_sha1(&path).await {
+            Ok(Some(sha)) => {
+                rows.push(adopted(kind, &name, &sha, origin.as_ref()));
+                changed = true;
+            }
+            Ok(None) => {
+                // Gone since the folder was read: the next listing sees the truth.
+            }
+            Err(e) => crate::diag!("assets: not adopting {}, unreadable: {e}", path.display()),
+        }
+    }
+    if changed {
+        let mut merged = other;
+        merged.extend(rows.iter().cloned());
+        if let Err(e) = write_all(instance_root, &merged).await {
+            crate::diag!("assets: reconciled registry not saved, redone next listing: {e}");
+        }
+    }
+    Ok(AssetListing {
+        files: rows,
+        folders,
+    })
+}
+
+/// The row for a `.zip` found in the folder without one. A file the modpack
+/// placed — its sha1 is a `pack_origin` file of this kind, which is how a pack
+/// update installs packs, without a row — keeps the pack's provenance, as the
+/// backfill gives it; any other is a manual row named after the file.
+/// `installed_at` is when Lucerna first saw it.
+fn adopted(
+    kind: ContentKind,
+    filename: &str,
+    sha1: &str,
+    origin: Option<&crate::mods::installed::PackOrigin>,
+) -> InstalledAsset {
+    let now = chrono::Utc::now().to_rfc3339();
+    let from_pack = origin.and_then(|o| {
+        o.files.iter().find(|f| {
+            f.sha1.eq_ignore_ascii_case(sha1)
+                && crate::mods::install::content_kind_for_install_path(&f.install_path)
+                    == Some(kind)
+        })
+    });
+    match from_pack {
+        Some(f) => make_asset(
+            kind,
+            filename,
+            sha1,
+            Some(f.source),
+            (!f.project_id.is_empty()).then(|| f.project_id.clone()),
+            (!f.version_id.is_empty()).then(|| f.version_id.clone()),
+            &f.name,
+            now,
+        ),
+        None => make_asset(
+            kind,
+            filename,
+            sha1,
+            None,
+            None,
+            None,
+            crate::mods::asset_folder::zip_stem(filename),
+            now,
+        ),
+    }
 }
 
 /// Build an `InstalledAsset` for a file discovered during modpack import or the
@@ -439,6 +559,197 @@ mod tests {
         assert!(
             all.iter().any(|a| a.filename == "BSL.zip"),
             "the backfill erased an asset installed while it ran: {all:?}"
+        );
+    }
+
+    // ── listing: the folder is the truth ─────────────────────────────────
+
+    fn pack_dir(root: &Path, kind: ContentKind) -> std::path::PathBuf {
+        crate::mods::asset_folder::pack_dir(root, kind)
+    }
+
+    fn put(root: &Path, kind: ContentKind, name: &str, bytes: &[u8]) {
+        let d = pack_dir(root, kind);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(name), bytes).unwrap();
+    }
+
+    fn sha1_of(bytes: &[u8]) -> String {
+        use sha1::Digest;
+        hex::encode(sha1::Sha1::digest(bytes))
+    }
+
+    #[tokio::test]
+    async fn listing_adopts_a_hand_placed_zip_as_a_manual_row() {
+        let td = tempfile::tempdir().unwrap();
+        put(td.path(), ContentKind::ResourcePack, "Mine.zip", b"my pack");
+        let l = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert_eq!(l.files.len(), 1);
+        let a = &l.files[0];
+        assert_eq!(a.filename, "Mine.zip");
+        assert_eq!(a.name, "Mine");
+        assert_eq!(a.source, None);
+        assert_eq!(a.sha1, sha1_of(b"my pack"));
+        // Persisted: a plain read sees it too.
+        assert_eq!(
+            list(td.path(), ContentKind::ResourcePack).await.unwrap(),
+            l.files
+        );
+    }
+
+    #[tokio::test]
+    async fn listing_gives_a_pack_placed_zip_its_pack_origin() {
+        let td = tempfile::tempdir().unwrap();
+        record_pack_origin_with_a_resource_pack(td.path()).await;
+        // A pack update places its packs without a registry row; the file's
+        // bytes are the pack file's.
+        let mut origin = crate::mods::installed::get_pack_origin(td.path())
+            .await
+            .unwrap()
+            .unwrap();
+        origin.files[0].sha1 = sha1_of(b"faithful").to_uppercase();
+        crate::mods::installed::set_pack_origin(td.path(), origin)
+            .await
+            .unwrap();
+        put(
+            td.path(),
+            ContentKind::ResourcePack,
+            "Faithful.zip",
+            b"faithful",
+        );
+
+        let l = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert_eq!(l.files.len(), 1);
+        let a = &l.files[0];
+        assert_eq!(a.source, Some(ModSource::Modrinth));
+        assert_eq!(a.project_id.as_deref(), Some("pid"));
+        assert_eq!(a.version_id.as_deref(), Some("vid"));
+        assert_eq!(a.name, "Faithful.zip");
+    }
+
+    #[tokio::test]
+    async fn listing_drops_a_row_whose_file_is_gone_and_keeps_the_other_kind() {
+        let td = tempfile::tempdir().unwrap();
+        add(td.path(), sample(ContentKind::ResourcePack, "Gone.zip"))
+            .await
+            .unwrap();
+        add(td.path(), sample(ContentKind::Shader, "BSL.zip"))
+            .await
+            .unwrap();
+        std::fs::create_dir_all(pack_dir(td.path(), ContentKind::ResourcePack)).unwrap();
+        let l = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert!(l.files.is_empty());
+        assert_eq!(
+            list(td.path(), ContentKind::Shader).await.unwrap().len(),
+            1,
+            "the other kind's rows are untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn listing_lists_folder_packs_by_the_games_rule_and_never_stores_them() {
+        let td = tempfile::tempdir().unwrap();
+        let rp = pack_dir(td.path(), ContentKind::ResourcePack);
+        std::fs::create_dir_all(rp.join("Dev Pack")).unwrap();
+        std::fs::write(rp.join("Dev Pack").join("pack.mcmeta"), b"{}").unwrap();
+        std::fs::create_dir_all(rp.join("not a pack")).unwrap();
+        let sh = pack_dir(td.path(), ContentKind::Shader);
+        std::fs::create_dir_all(sh.join("MyShader").join("shaders")).unwrap();
+        std::fs::create_dir_all(sh.join("Empty")).unwrap();
+        std::fs::write(sh.join("BSL.zip.txt"), b"settings").unwrap();
+
+        let r = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert_eq!(r.folders, Some(vec!["Dev Pack".to_string()]));
+        let s = listing(td.path(), ContentKind::Shader, true).await.unwrap();
+        assert_eq!(s.folders, Some(vec!["MyShader".to_string()]));
+        assert!(s.files.is_empty(), "a settings file is not a pack");
+        assert!(
+            list_all(td.path()).await.unwrap().is_empty(),
+            "folders are never stored"
+        );
+    }
+
+    #[tokio::test]
+    async fn listing_without_the_claim_reconciles_nothing() {
+        let td = tempfile::tempdir().unwrap();
+        add(td.path(), sample(ContentKind::ResourcePack, "Gone.zip"))
+            .await
+            .unwrap();
+        put(td.path(), ContentKind::ResourcePack, "New.zip", b"n");
+        let l = listing(td.path(), ContentKind::ResourcePack, false)
+            .await
+            .unwrap();
+        assert_eq!(l.files.len(), 1, "no reconcile without the claim");
+        assert_eq!(l.files[0].filename, "Gone.zip");
+        assert_eq!(l.folders, Some(vec![]));
+    }
+
+    #[tokio::test]
+    async fn a_missing_folder_drops_this_kinds_rows() {
+        let td = tempfile::tempdir().unwrap();
+        add(td.path(), sample(ContentKind::ResourcePack, "Gone.zip"))
+            .await
+            .unwrap();
+        let l = listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert!(l.files.is_empty());
+        assert_eq!(l.folders, Some(vec![]));
+    }
+
+    #[tokio::test]
+    async fn a_steady_listing_does_not_rewrite_the_registry() {
+        let td = tempfile::tempdir().unwrap();
+        put(td.path(), ContentKind::ResourcePack, "A.zip", b"a");
+        listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        let path = registry_path(td.path());
+        let before = std::fs::read(&path).unwrap();
+        // Make the would-be rewrite observable: a rewrite restores the bytes.
+        std::fs::write(&path, [before.as_slice(), b" "].concat()).unwrap();
+        listing(td.path(), ContentKind::ResourcePack, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            [before.as_slice(), b" "].concat(),
+            "nothing changed, so nothing was written"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_unreadable_folder_keeps_every_row() {
+        use std::os::unix::fs::PermissionsExt;
+        let td = tempfile::tempdir().unwrap();
+        add(td.path(), sample(ContentKind::ResourcePack, "Kept.zip"))
+            .await
+            .unwrap();
+        let d = pack_dir(td.path(), ContentKind::ResourcePack);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let l = listing(td.path(), ContentKind::ResourcePack, true).await;
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let l = l.unwrap();
+        if l.folders.is_some() {
+            return; // running as root: the folder was readable after all
+        }
+        assert_eq!(l.files.len(), 1);
+        assert_eq!(
+            list(td.path(), ContentKind::ResourcePack)
+                .await
+                .unwrap()
+                .len(),
+            1
         );
     }
 }
