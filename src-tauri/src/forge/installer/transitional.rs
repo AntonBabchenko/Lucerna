@@ -217,8 +217,10 @@ pub async fn install(
     // pipeline, but this function can be called in isolation (e.g. from e2e
     // tests) and should be self-sufficient — it's idempotent when cached.
     let vanilla_jre_component;
+    let vanilla_major;
     {
         let vanilla_details = crate::versions::install::ensure_version_json(mc, app).await?;
+        vanilla_major = crate::java::required_major(&vanilla_details);
         vanilla_jre_component = vanilla_details
             .java_version
             .as_ref()
@@ -242,7 +244,21 @@ pub async fn install(
     // function doesn't have the event-emission infrastructure that
     // install_version has; the JRE is typically already installed by the time
     // the Forge install step runs.
-    crate::jre::ensure_jre(&vanilla_jre_component, app, |_, _, _| {}).await?;
+    // The processors write the shared libraries cache and their output is not
+    // checksummed, so they run on Lucerna's runtime only — never on a Java the
+    // user chose. When that runtime cannot be had, the error says this step
+    // needed it (spec 2026-10-11-custom-java §7.1).
+    crate::jre::ensure_jre(&vanilla_jre_component, app, |_, _, _| {})
+        .await
+        .map_err(|e| {
+            crate::jre::unavailable(
+                e,
+                &vanilla_jre_component,
+                vanilla_major,
+                crate::error::JreStage::InstallerTools,
+                app,
+            )
+        })?;
     let java_bin = crate::jre::java_executable_path(&vanilla_jre_component, app)?;
 
     // Extract maven/ subtree from installer (forge universal jar etc.) into

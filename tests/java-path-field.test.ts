@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import JavaPathField from '$lib/instances/JavaPathField.svelte';
 import { commands } from '$lib/ipc/bindings';
+import { __resetAppSettingsForTest, appSettings } from '$lib/settings/app-settings.svelte';
 import JavaPathFieldInList from './fixtures/JavaPathFieldInList.svelte';
 
 // The Java an instance runs on (spec 2026-10-11 custom-java §6.1): what a user
@@ -68,12 +69,48 @@ function setup(java: unknown = null, detected = [JDK21, JDK8], required = 21) {
 }
 
 beforeAll(() => locale.set('en'));
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  __resetAppSettingsForTest();
+});
+
+/** Settings as loaded, with these per-major rows. */
+function settingsWith(rows: { major: number; path: string }[]) {
+  appSettings.loaded = { kind: 'ok', file: { general: { java_defaults: rows } } } as never;
+}
 
 describe('JavaPathField', () => {
-  it("starts on Lucerna's Java and says what that means", async () => {
+  it("starts on Default, which is Lucerna's Java while Settings names none", async () => {
     setup();
     expect(await screen.findByText(/Lucerna downloads the Java/)).toBeTruthy();
+    await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
+    expect(
+      await screen.findByRole('option', { name: /Default \(now: Lucerna's Java\)/ }),
+    ).toBeTruthy();
+  });
+
+  it('Default names the Settings row for the Java this version needs', async () => {
+    settingsWith([{ major: 21, path: '/opt/jdk-21/bin/java' }]);
+    setup();
+    expect(
+      await screen.findByText(/Settings' Java for Java 21: \/opt\/jdk-21\/bin\/java/),
+    ).toBeTruthy();
+    await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
+    expect(
+      await screen.findByRole('option', { name: /Default \(now: Settings' Java 21\)/ }),
+    ).toBeTruthy();
+  });
+
+  it('choosing Default stores no choice of its own', async () => {
+    const { onChanged } = setup({ kind: 'custom', path: '/opt/jdk-21/bin/java' });
+    vi.mocked(commands.setInstanceJava).mockResolvedValue({
+      status: 'ok',
+      data: { instance: instance(null), report: null },
+    });
+    await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
+    await fireEvent.mouseDown(await screen.findByRole('option', { name: /^Default/ }));
+    await waitFor(() => expect(commands.setInstanceJava).toHaveBeenCalledWith('a', null));
+    expect(onChanged).toHaveBeenCalled();
   });
 
   it('Browse saves the picked file and shows its verdict', async () => {
@@ -109,6 +146,7 @@ describe('JavaPathField', () => {
       error: {
         kind: 'java_unusable',
         path: '/opt/jdk8/bin/java',
+        origin: { kind: 'instance' },
         reason: { kind: 'too_old', found: 8, required: 21 },
       },
     } as never);
@@ -132,7 +170,9 @@ describe('JavaPathField', () => {
       data: { instance: instance({ kind: 'bundled' }), report: null },
     });
     await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
-    await fireEvent.mouseDown(await screen.findByRole('option', { name: /Lucerna's Java/ }));
+    await fireEvent.mouseDown(
+      await screen.findByRole('option', { name: /^Lucerna's Java \(recommended\)/ }),
+    );
     await waitFor(() =>
       expect(commands.setInstanceJava).toHaveBeenCalledWith('a', { kind: 'bundled' }),
     );
@@ -181,9 +221,10 @@ describe('JavaPathField', () => {
     await screen.findByText(/Lucerna downloads the Java/);
     await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
     const names = (await screen.findAllByRole('option')).map((o) => o.textContent ?? '');
-    expect(names[1]).toMatch(/1\.8\.0_402/);
-    expect(names[2]).toMatch(/25\.0\.1/);
-    expect(names[3]).toMatch(/21\.0\.4/);
+    // Default, then Lucerna's Java, then what was found.
+    expect(names[2]).toMatch(/1\.8\.0_402/);
+    expect(names[3]).toMatch(/25\.0\.1/);
+    expect(names[4]).toMatch(/21\.0\.4/);
   });
 
   it('says so when nothing else is installed', async () => {

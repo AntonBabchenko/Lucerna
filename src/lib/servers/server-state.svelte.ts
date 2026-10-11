@@ -7,6 +7,7 @@ import {
   type FirewallState,
   type InstallMissingReport,
   type Error as IpcError,
+  type JavaChoice,
   type LastUpload,
   type QuarantineReport,
   type ServerConnectivity,
@@ -595,6 +596,14 @@ async function updateRuntimeConfig(
   return { ok: false, error: r.error };
 }
 
+/** Store a server's Java (probed by the backend first; a refusal saves
+ *  nothing). The list learns of a save whatever the field shows meanwhile. */
+async function setJava(id: string, choice: JavaChoice | null) {
+  const r = await commands.serverSetJava(id, choice);
+  if (r.status === 'ok') replaceInList(r.data.server);
+  return r;
+}
+
 async function remove(id: string): Promise<{ ok: true } | ServerStoreFailure> {
   const r = await commands.serverDelete(id);
   if (r.status === 'ok') {
@@ -807,6 +816,7 @@ export const serverState = {
   },
   rename,
   updateRuntimeConfig,
+  setJava,
   remove,
   connectivity,
   firewallStatus,

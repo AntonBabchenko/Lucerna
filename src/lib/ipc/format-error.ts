@@ -9,7 +9,9 @@ import type {
   FolderProblem,
   FormatError,
   Error as IpcError,
+  JavaOrigin,
   JavaUnusableReason,
+  JreUnavailableReason,
   LoaderKind,
   MigrationRole,
 } from '$lib/ipc/bindings';
@@ -269,6 +271,14 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   // Clean: the reason is typed. Its nested `details` (probe output, an OS
   // error) are shown cut to one line by `javaUnusableReasonText`.
   java_unusable: 'clean',
+  // Settings could not be read: an io or parse failure, whose raw text is
+  // useful only in the log.
+  java_settings_unreadable: 'opaque',
+  // A component name only.
+  managed_java_missing: 'clean',
+  // Clean like `java_unusable`: the reason is typed, and a download's nested
+  // `details` are cut to one line by `jreUnavailableReasonText`.
+  jre_unavailable: 'clean',
   // Structured fields only (filename + two sizes) — nothing to truncate.
   datapack_too_large: 'clean',
   // Built from the instance's own version string — nothing to truncate.
@@ -373,6 +383,46 @@ function firstLineTruncated(raw: string): string {
  * the same reason under the field. Nested details (probe output, an OS error)
  * are cut to their first line; the launcher log keeps them whole.
  */
+/** Whose Java it was — an instance's own, Settings' row for a major, or a
+ *  server's own — so the sentence names the place to change it. */
+function javaUnusableKey(origin: JavaOrigin): TranslationKey {
+  switch (origin.kind) {
+    case 'instance':
+      return 'errors.javaUnusable';
+    case 'default':
+      return 'errors.javaUnusableDefault';
+    case 'server':
+      return 'errors.javaUnusableServer';
+    default: {
+      const _exhaustive: never = origin;
+      return _exhaustive;
+    }
+  }
+}
+
+/** Why Lucerna's runtime could not be had. Exhaustive like
+ *  `javaUnusableReasonText`. */
+function jreUnavailableReasonText(reason: JreUnavailableReason): string {
+  const translate = get(t);
+  switch (reason.kind) {
+    case 'download':
+      return translate('errors.jreUnavailableReason.download', {
+        details: firstLineTruncated(reason.details),
+      });
+    case 'unsupported_platform':
+      return translate('errors.jreUnavailableReason.unsupportedPlatform', {
+        os: reason.os,
+        arch: reason.arch,
+      });
+    case 'unknown_component':
+      return translate('errors.jreUnavailableReason.unknownComponent', { id: reason.id });
+    default: {
+      const _exhaustive: never = reason;
+      return _exhaustive;
+    }
+  }
+}
+
 export function javaUnusableReasonText(reason: JavaUnusableReason): string {
   const translate = get(t);
   switch (reason.kind) {
@@ -573,10 +623,20 @@ export function formatError(e: IpcError): string {
     case 'java_spawn':
       return withDetailTail(translate('errors.javaSpawn'), e.details);
     case 'java_unusable':
-      return translate('errors.javaUnusable', {
+      return translate(javaUnusableKey(e.origin), {
         path: e.path,
+        major: e.origin.kind === 'default' ? e.origin.major : 0,
         reason: javaUnusableReasonText(e.reason),
       });
+    case 'java_settings_unreadable':
+      return withDetailTail(translate('errors.javaSettingsUnreadable'), e.details);
+    case 'managed_java_missing':
+      return translate('errors.managedJavaMissing');
+    case 'jre_unavailable':
+      return translate(
+        e.stage === 'game_runtime' ? 'errors.jreUnavailable' : 'errors.jreUnavailableInstaller',
+        { major: e.major, reason: jreUnavailableReasonText(e.reason) },
+      );
     case 'already_running':
       return translate('errors.alreadyRunning');
     case 'account_not_set':

@@ -49,7 +49,8 @@ pub async fn repair_instance_report(
     emit_repairing(app, instance_id, 0, 1);
 
     if needs_full_install(report.manifest_recoverable, &report.problems) {
-        crate::versions::install_version(effective_id, app).await?;
+        crate::versions::install_version(effective_id, app, crate::versions::JrePhase::Install)
+            .await?;
     } else {
         repair_targeted(&report.problems, instance_id, effective_id, app).await?;
     }
@@ -93,7 +94,8 @@ async fn repair_targeted(
         .iter()
         .any(|p| matches!(p.category, VerifyCategory::Assets | VerifyCategory::Jre));
     if needs_full {
-        crate::versions::install_version(effective_id, app).await?;
+        crate::versions::install_version(effective_id, app, crate::versions::JrePhase::Install)
+            .await?;
     }
     Ok(())
 }

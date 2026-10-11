@@ -427,14 +427,40 @@ pub async fn start(
         .as_ref()
         .map(|jv| jv.component.as_str())
         .unwrap_or(crate::jre::DEFAULT_LEGACY_COMPONENT);
-    // The Java the instance chose, probed and judged against what this version
-    // needs; or Lucerna's runtime. A chosen Java that fails is the launch's
-    // error — never a silent switch to the managed one (`java::launch_java`).
-    let java_source = crate::java::resolve(instance.java.as_ref());
+    // The Java the instance chose — or Settings' default for the major this
+    // version needs — probed and judged; else Lucerna's runtime, which must be
+    // on disk. A chosen Java that fails is the launch's error, never a silent
+    // switch to the managed one (`java::launch_java`), and Settings that cannot
+    // be read are a refusal, never "no default" (`java::defaults_for`).
+    let required = crate::java::required_major(&details);
+    let defaults = crate::java::defaults_for(instance.java.as_ref(), || {
+        crate::java::settings_defaults(app)
+    })?;
+    let java_source = crate::java::resolve(
+        instance.java.as_ref(),
+        crate::java::Owner::Instance,
+        &defaults,
+        required,
+    );
+    let managed_java = java_executable_path(component, app)?;
+    if java_source == crate::java::JavaSource::Managed {
+        let marker = crate::jre::marker_path(component, app)?;
+        match crate::java::jre_presence(&marker, &managed_java) {
+            crate::java::Presence::Present => {}
+            crate::java::Presence::Missing => {
+                return Err(Error::ManagedJavaMissing {
+                    component: component.to_string(),
+                })
+            }
+            crate::java::Presence::Unreadable(details) => {
+                return Err(Error::io(managed_java.display().to_string(), details))
+            }
+        }
+    }
     let java_path = crate::java::launch_java(
         &java_source,
-        java_executable_path(component, app)?,
-        crate::java::required_major(&details),
+        managed_java,
+        Some(required),
         |exe, required| async move { crate::java::check(&exe, required).await },
     )
     .await?;

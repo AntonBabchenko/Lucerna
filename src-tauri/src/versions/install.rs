@@ -70,6 +70,15 @@ fn require_client_downloads(
     })
 }
 
+/// What `install_version` does with Lucerna's Java runtime (phase 1b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JrePhase {
+    /// Download it if needed (the default for every version install).
+    Install,
+    /// The instance runs on this Java instead; do not download Lucerna's.
+    Skip { java: std::path::PathBuf },
+}
+
 /// Drive the full install pipeline for `version_id`.
 ///
 /// Phases:
@@ -87,7 +96,16 @@ fn require_client_downloads(
 ///
 /// A failed install returns no report at all: every phase short-circuits on
 /// its first error, so there is no partial truth to report.
-pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result<Vec<TaskDetail>> {
+///
+/// `jre` decides phase 1b. `Skip` is for an instance that resolves to a
+/// usable Java of its own or of Settings (`commands::java::install_jre_phase`):
+/// Lucerna's runtime is neither needed nor downloaded. Every other caller —
+/// repair, the logs fix, the bare version install — passes `Install`.
+pub async fn install_version(
+    version_id: &str,
+    app: &tauri::AppHandle,
+    jre: JrePhase,
+) -> Result<Vec<TaskDetail>> {
     let mut report: Vec<TaskDetail> = Vec::new();
 
     emit(app, version_id, InstallPhase::Manifest, 0, 1, 0.0);
@@ -122,38 +140,58 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
         .unwrap_or(crate::jre::DEFAULT_LEGACY_COMPONENT)
         .to_string();
     emit(app, version_id, InstallPhase::Jre, 0, 1, 0.0);
-    // `ensure_jre` returns `()`, and its byte total surfaces only through this
-    // progress callback. Latch the last tick here rather than widening a
-    // function other call sites share.
-    let jre_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    {
-        let app_clone = app.clone();
-        let version_id_owned = version_id.to_string();
-        let jre_bytes = std::sync::Arc::clone(&jre_bytes);
-        crate::jre::ensure_jre(&component, app, move |done, total, bytes| {
-            jre_bytes.store(bytes, std::sync::atomic::Ordering::Relaxed);
-            InstallProgress {
-                version_id: version_id_owned.clone(),
-                phase: InstallPhase::Jre,
-                files_done: done,
-                files_total: total,
-                bytes_done: bytes as f64,
-                current_step: None,
-            }
-            .emit(&app_clone)
-            .ok();
-        })
-        .await?;
+    if let JrePhase::Skip { java } = &jre {
+        emit(app, version_id, InstallPhase::Jre, 1, 1, 0.0);
+        report.push(super::report::phase_row(
+            format!("java: {}", java.display()),
+            java.display().to_string(),
+            None,
+            0,
+        ));
+    } else {
+        let major = crate::java::required_major(&details);
+        // `ensure_jre` returns `()`, and its byte total surfaces only through this
+        // progress callback. Latch the last tick here rather than widening a
+        // function other call sites share.
+        let jre_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        {
+            let app_clone = app.clone();
+            let version_id_owned = version_id.to_string();
+            let jre_bytes = std::sync::Arc::clone(&jre_bytes);
+            crate::jre::ensure_jre(&component, app, move |done, total, bytes| {
+                jre_bytes.store(bytes, std::sync::atomic::Ordering::Relaxed);
+                InstallProgress {
+                    version_id: version_id_owned.clone(),
+                    phase: InstallPhase::Jre,
+                    files_done: done,
+                    files_total: total,
+                    bytes_done: bytes as f64,
+                    current_step: None,
+                }
+                .emit(&app_clone)
+                .ok();
+            })
+            .await
+            .map_err(|e| {
+                crate::jre::unavailable(
+                    e,
+                    &component,
+                    major,
+                    crate::error::JreStage::GameRuntime,
+                    app,
+                )
+            })?;
+        }
+        // No explicit "Jre done" emit — the per-file callback fires
+        // total/total on the last file. For a fully-cached install,
+        // ensure_jre's marker-fast-path itself emits (1, 1, 0).
+        report.push(super::report::phase_row(
+            format!("runtime/{component}"),
+            format!("runtime/{component}"),
+            None,
+            jre_bytes.load(std::sync::atomic::Ordering::Relaxed),
+        ));
     }
-    // No explicit "Jre done" emit — the per-file callback fires
-    // total/total on the last file. For a fully-cached install,
-    // ensure_jre's marker-fast-path itself emits (1, 1, 0).
-    report.push(super::report::phase_row(
-        format!("runtime/{component}"),
-        format!("runtime/{component}"),
-        None,
-        jre_bytes.load(std::sync::atomic::Ordering::Relaxed),
-    ));
 
     // Phase 2: libraries
     let lib_count = details.libraries.len() as u32;

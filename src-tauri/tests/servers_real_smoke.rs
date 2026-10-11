@@ -27,6 +27,8 @@ fn file(id: &str, loader: ServerCore, loader_version: Option<&str>) -> ServerFil
         created_from_instance: None,
         handled_log_sig: None,
         java_component: None,
+        java_major: None,
+        java: None,
         upload: None,
     }
 }

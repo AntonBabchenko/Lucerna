@@ -261,10 +261,90 @@ pub fn reconcile_running(
 
 /// Console JVM: on Windows `jre::java_executable_path` returns `javaw.exe`
 /// (no console → no stdout). Servers stream stdout, so swap to `java.exe`.
+/// Case-insensitive: a Java the user picked may be stored as `JAVAW.EXE`, and
+/// left as is it would run the server with no stdout.
 pub(crate) fn console_java_path(javaw: &Path) -> PathBuf {
     match javaw.file_name().and_then(|n| n.to_str()) {
-        Some("javaw.exe") => javaw.with_file_name("java.exe"),
+        Some(n) if n.eq_ignore_ascii_case("javaw.exe") => javaw.with_file_name("java.exe"),
         _ => javaw.to_path_buf(),
+    }
+}
+
+/// The console Java a server starts on (spec 2026-10-11-custom-java §7.1):
+/// its own choice, else Settings' row for its major, else Lucerna's runtime.
+/// A chosen Java is normalised and probed and any refusal is the start's
+/// error — never a switch to Lucerna's runtime. A chosen Java starts without
+/// the network; Lucerna's runtime does not (`ensure_jre` checks Mojang's
+/// manifest first).
+async fn server_java(
+    file: &crate::servers_runtime::schema::ServerFile,
+    json: &Path,
+    app: &tauri::AppHandle,
+) -> crate::error::Result<PathBuf> {
+    use crate::java::{JavaChoice, JavaOrigin, JavaSource, Owner};
+    let defaults =
+        crate::java::defaults_for(file.java.as_ref(), || crate::java::settings_defaults(app))?;
+    let own_custom = matches!(file.java, Some(JavaChoice::Custom { .. }));
+    let wants_major = own_custom || (file.java.is_none() && !defaults.is_empty());
+    let mut component = file.java_component.clone();
+    let mut major = file.java_major;
+    if component.is_none() || (wants_major && major.is_none()) {
+        match crate::servers_runtime::create::resolve_server_java_component(&file.mc_version).await
+        {
+            Ok(j) => {
+                component = Some(j.component.clone());
+                major = Some(j.major);
+                let mut upgraded = file.clone();
+                upgraded.java_component = Some(j.component);
+                upgraded.java_major = Some(j.major);
+                // A cache: when the write fails the next start resolves again.
+                if let Err(e) = crate::servers_runtime::store::write_server_json(json, &upgraded) {
+                    crate::diag!("servers: could not cache the Java component: {e}");
+                }
+            }
+            // The server's own Java needs no lookup to start; only its
+            // version check is lost, and the log says so.
+            Err(e) if own_custom => crate::diag!(
+                "servers: cannot learn the Java major ({e}); the chosen Java's architecture is still checked"
+            ),
+            Err(e) => return Err(e),
+        }
+    }
+    let source = match (file.java.as_ref(), major) {
+        (Some(JavaChoice::Custom { path }), _) => JavaSource::Custom {
+            path: PathBuf::from(path),
+            origin: JavaOrigin::Server,
+        },
+        (choice, Some(m)) => crate::java::resolve(choice, Owner::Server, &defaults, m),
+        // No own Java and no Settings row that needs the major.
+        (_, None) => JavaSource::Managed,
+    };
+    match source {
+        JavaSource::Managed => {
+            let component = component.ok_or_else(|| {
+                crate::error::Error::io("<server java>", "no Java component for this version")
+            })?;
+            crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
+            let javaw = crate::jre::java_executable_path(&component, app)?;
+            Ok(console_java_path(&javaw))
+        }
+        JavaSource::Custom { path, origin } => {
+            let refuse =
+                |reason: crate::java::JavaUnusableReason| crate::error::Error::JavaUnusable {
+                    path: path.to_string_lossy().into_owned(),
+                    origin,
+                    reason,
+                };
+            let exe = crate::java::path::normalize(&path.to_string_lossy()).map_err(refuse)?;
+            let report = crate::java::check(&exe, major).await.map_err(refuse)?;
+            crate::diag!(
+                "servers: Java {} {} ({:?})",
+                report.version,
+                exe.display(),
+                report.verdict
+            );
+            Ok(console_java_path(&exe))
+        }
     }
 }
 
@@ -399,23 +479,7 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     crate::servers_runtime::eula::require_accepted(file.eula_accepted)?;
 
-    // Prefer the Java component cached at create time so a server that ran once
-    // starts offline. Fall back to resolving it over the network (pre-existing
-    // servers) and lazy-persist it so the next launch is offline-capable too.
-    let component = match &file.java_component {
-        Some(c) => c.clone(),
-        None => {
-            let c = crate::servers_runtime::create::resolve_server_java_component(&file.mc_version)
-                .await?;
-            let mut upgraded = file.clone();
-            upgraded.java_component = Some(c.clone());
-            let _ = crate::servers_runtime::store::write_server_json(&p.json, &upgraded);
-            c
-        }
-    };
-    crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
-    let javaw = crate::jre::java_executable_path(&component, app)?;
-    let java = console_java_path(&javaw);
+    let java = server_java(&file, &p.json, app).await?;
 
     let argv = build_launch_argv(
         file.loader,
@@ -1008,6 +1072,14 @@ mod tests {
         assert_eq!(
             console_java_path(Path::new("/x/bin/java")),
             Path::new("/x/bin/java")
+        );
+    }
+
+    #[test]
+    fn console_java_swap_ignores_the_case_a_picked_path_was_stored_in() {
+        assert_eq!(
+            console_java_path(Path::new("/x/bin/JAVAW.EXE")),
+            Path::new("/x/bin/java.exe")
         );
     }
 

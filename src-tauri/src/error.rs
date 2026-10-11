@@ -16,6 +16,31 @@ pub enum ModsAuthKind {
     Invalid,
 }
 
+/// Which step needed Lucerna's Java runtime when it could not be obtained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum JreStage {
+    /// The game itself — a Java chosen on this computer can run it instead.
+    GameRuntime,
+    /// A Forge/NeoForge install processor. Those write the shared libraries
+    /// cache and their output is not checksummed, so only Lucerna's runtime
+    /// runs them.
+    InstallerTools,
+}
+
+/// Why Lucerna's runtime could not be obtained. Typed so the UI can say it in
+/// the user's language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum JreUnavailableReason {
+    /// It is not on disk and fetching it failed.
+    Download { details: String },
+    /// Mojang publishes no runtime for this system.
+    UnsupportedPlatform { os: String, arch: String },
+    /// Mojang's runtime list has no such component for this system.
+    UnknownComponent { id: String },
+}
+
 /// Why a file the user picked is not a usable datapack. A typed reason rather
 /// than a message, so the UI can localise it — the launcher ships in English
 /// and Russian and a hand-written English sentence inside a `clean` error would
@@ -105,14 +130,38 @@ pub enum Error {
     #[error("Java spawn failed: {details}")]
     JavaSpawn { details: String },
 
-    /// A Java the user chose for an instance cannot run this game, or could
-    /// not be checked. Never answered by launching Lucerna's own Java instead
-    /// (CLAUDE.md, Fallback discipline). `reason` is typed so the UI can say
-    /// it in the user's language.
+    /// A Java the user chose — for an instance, a server, or in Settings for
+    /// a Java major — cannot run this game, or could not be checked. Never
+    /// answered by launching Lucerna's own Java instead (CLAUDE.md, Fallback
+    /// discipline). `origin` says which setting to fix; `reason` is typed so
+    /// the UI can say it in the user's language.
     #[error("the chosen Java cannot be used: {path}")]
     JavaUnusable {
         path: String,
+        origin: crate::java::JavaOrigin,
         reason: crate::java::JavaUnusableReason,
+    },
+
+    /// A launch whose Java defers to Settings could not read Settings, so it
+    /// cannot tell which Java to use. A refusal, never "no default".
+    #[error("could not read Lucerna's settings to choose a Java: {details}")]
+    JavaSettingsUnreadable { details: String },
+
+    /// Lucerna's runtime for this version is not on disk — the shared version
+    /// was installed for an instance that uses its own Java. The UI offers to
+    /// download it; launch never downloads it silently.
+    #[error("Lucerna's Java runtime {component} is not installed")]
+    ManagedJavaMissing { component: String },
+
+    /// Lucerna's runtime for this version could not be obtained. `stage`
+    /// says whether the game itself needs it (a Java on this computer can stand
+    /// in) or a Forge/NeoForge install step does (it cannot).
+    #[error("Lucerna's Java runtime {component} is unavailable")]
+    JreUnavailable {
+        component: String,
+        major: u32,
+        stage: JreStage,
+        reason: JreUnavailableReason,
     },
 
     #[error("instance {instance_id} is already running")]

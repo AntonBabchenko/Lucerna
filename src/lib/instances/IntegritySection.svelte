@@ -8,7 +8,13 @@
   import { effectiveIntegrityStatus } from '$lib/instances/integrity-freshness';
   import { enqueueIntegrity } from '$lib/ops/op-queue.svelte';
   import { taskFor } from '$lib/tasks/registry.svelte';
-  import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type IntegrityStatus,
+    type JavaChoice,
+    type VerifyCategory,
+  } from '$lib/ipc/bindings';
+  import { settingsRowFor } from '$lib/java/default-option';
 
   // Observer view: the verify/repair op is owned by the task registry
   // (`$lib/tasks/registry.svelte`), not this section — `op-queue.svelte.ts`
@@ -29,12 +35,46 @@
     isRunning = false,
     name,
     status = null,
+    java = null,
+    requirementKey = '',
   }: {
     instanceId: string;
     isRunning?: boolean;
     name: string;
     status?: IntegrityStatus | null;
+    /** The instance's own Java choice; `null` follows Settings. */
+    java?: JavaChoice | null;
+    /** Changes when the version, and so the Java major it needs, may have. */
+    requirementKey?: string;
   } = $props();
+
+  // A Java the user chose is not Lucerna's to check or repair, so the check has
+  // no row for it (spec 2026-10-11-custom-java §7): launch probes it every time
+  // instead, and this line says so. «Default» counts when Settings names a Java
+  // for the major this version needs; a need that could not be read shows no
+  // line rather than a guess.
+  let required = $state<number | null>(null);
+  $effect(() => {
+    void requirementKey;
+    let stale = false;
+    void loadRequired(instanceId, () => stale);
+    return () => {
+      stale = true;
+    };
+  });
+  async function loadRequired(id: string, isStale: () => boolean) {
+    let major: number | null = null;
+    try {
+      const r = await commands.instanceJavaRequirement(id);
+      if (r.status === 'ok') major = r.data;
+    } catch {
+      // Unknown: no line, as for a typed error.
+    }
+    if (!isStale()) required = major;
+  }
+  const ownJava = $derived(
+    java?.kind === 'custom' || (java === null && settingsRowFor(required) !== null),
+  );
 
   const op = $derived(taskFor({ instanceId }));
   // A persisted "healthy" result from a previous launcher session is treated as
@@ -156,5 +196,11 @@
     {/if}
   {:else}
     <p class="mt-2 text-xs text-muted">{$t('instance.integrity.statusNotChecked')}</p>
+  {/if}
+  {#if ownJava}
+    <p class="mt-2 text-xs text-muted flex items-center gap-1.5" data-testid="integrity-own-java">
+      <Icon name="info" />
+      {$t('instance.integrity.ownJava')}
+    </p>
   {/if}
 </section>

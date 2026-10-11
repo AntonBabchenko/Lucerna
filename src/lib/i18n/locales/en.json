@@ -479,7 +479,8 @@
       "toastRepaired": "{name}: repaired",
       "toastRepairPartial": "{name}: {count, plural, one {# file could not be repaired} other {# files could not be repaired}}",
       "toastError": "{name}: {error}",
-      "statusQueued": "Queued for check…"
+      "statusQueued": "Queued for check…",
+      "ownJava": "Java: yours, checked at every launch"
     },
     "compat": {
       "dialogLabel": "Mod compatibility warning",
@@ -743,6 +744,26 @@
         "recovering_identities": "Identifying mods…",
         "done": "Done."
       }
+    }
+  },
+  "java": {
+    "default": {
+      "label": "Default (follows Settings)",
+      "labelSettings": "Default (now: Settings' Java {major})",
+      "labelLucerna": "Default (now: Lucerna's Java)",
+      "statusUnknownInstance": "Follows Settings: the Java chosen there for the version this instance needs, or Lucerna's Java. Lucerna checks it at launch.",
+      "statusUnknownServer": "Follows Settings: the Java chosen there for the version this server needs, or Lucerna's Java.",
+      "statusSettings": "Settings' Java for Java {major}: {path}. Lucerna checks it at every launch."
+    },
+    "rescue": {
+      "offer": "A Java {major} or newer on this computer can run it instead.",
+      "none": "No Java {major} or newer was found on this computer. Install one, or pick it with Browse.",
+      "pickLabel": "Java to use",
+      "forInstance": "Use for this instance",
+      "forMajor": "Use for every instance on Java {major}",
+      "installerExplain": "Forge and NeoForge installers run only on Lucerna's Java, so a Java on this computer can't stand in for this step.",
+      "missingExplain": "Download it to play on Lucerna's Java, or choose a Java on this computer in the instance's settings.",
+      "download": "Download Java"
     }
   },
   "launch": {
@@ -2877,6 +2898,17 @@
       "probeFailed": "It didn't say which Java it is ({details}).",
       "tooOld": "It's Java {found}; this Minecraft version needs Java {required} or newer.",
       "wrongArch": "It's a {found} build; this computer needs {expected}."
+    },
+    "javaUnusableDefault": "The Java set in Settings for Java {major} can't be used ({path}). {reason}",
+    "javaUnusableServer": "The Java chosen for this server can't be used ({path}). {reason}",
+    "javaSettingsUnreadable": "Lucerna couldn't read its settings, so it can't tell which Java to run.",
+    "managedJavaMissing": "Lucerna's Java for this version isn't downloaded.",
+    "jreUnavailable": "Lucerna couldn't get Java {major} for this version. {reason}",
+    "jreUnavailableInstaller": "Lucerna couldn't get Java {major}, which the Forge or NeoForge installer runs on. {reason}",
+    "jreUnavailableReason": {
+      "download": "The download failed ({details}).",
+      "unsupportedPlatform": "Mojang publishes no Java for {os} {arch}.",
+      "unknownComponent": "Mojang's list has no runtime \"{id}\" for this computer."
     }
   },
   "settings": {
@@ -2909,7 +2941,8 @@
         "game": {
           "tray": "When a game starts",
           "serverPing": "Saved server status",
-          "gpu": "Preferred GPU for Minecraft"
+          "gpu": "Preferred GPU for Minecraft",
+          "java": "Java for instances and servers"
         },
         "integrations": {
           "curseforgeKey": "CurseForge key",
@@ -2953,7 +2986,8 @@
         "game": {
           "tray": "tray minimize minimise hide playing background launcher window close",
           "serverPing": "server ping status online players multiplayer ip privacy",
-          "gpu": "gpu graphics video performance discrete card nvidia amd intel integrated"
+          "gpu": "gpu graphics video performance discrete card nvidia amd intel integrated",
+          "java": "java jre jdk runtime path default version openjdk adoptium temurin zulu oracle"
         },
         "integrations": {
           "curseforgeKey": "curseforge api key token",
@@ -3122,7 +3156,14 @@
       "notSaved": "This setting wasn't saved: {error}",
       "saveUnconfirmed": "Couldn't confirm the change was saved: {error}",
       "loadFailed": "Couldn't read your settings: {error}",
-      "retryBtn": "Retry"
+      "retryBtn": "Retry",
+      "java": {
+        "title": "Java",
+        "intro": "The Java for instances and servers that need each Java version. One that chose its own Java in its settings keeps it.",
+        "rowLabel": "Java {major}",
+        "empty": "No instance needs a Java yet. Rows appear here once an instance is installed.",
+        "majorsFailed": "Couldn't read which Java versions the installed instances need."
+      }
     },
     "storage": {
       "cacheLabel": "Size:",
@@ -3772,7 +3813,9 @@
       "removeManyGhostNote": "{count, plural, one {# of them is only a leftover entry: its file is gone, and Minecraft would drop it by itself the next time the server saves the world.} other {# of them are only leftover entries: their files are gone, and Minecraft would drop them by itself the next time the server saves the world.}}"
     },
     "settings": {
-      "launchSection": "Launch"
+      "launchSection": "Launch",
+      "java": "Java",
+      "javaRestart": "Restart the server to run it on the newly chosen Java."
     },
     "propsUi": {
       "title": "Server properties",

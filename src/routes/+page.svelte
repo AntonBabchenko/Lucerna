@@ -8,6 +8,7 @@
     type InstanceWithStatus,
     type OptimisePlan,
   } from '$lib/ipc/bindings';
+  import { isJavaProblem, type JavaProblem } from '$lib/java/JavaRescuePanel.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import { drainDeferredRepairs } from '$lib/logs/deferred-repairs.svelte';
   import { refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
@@ -291,6 +292,14 @@
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
+  // The typed error behind `installError` when the Java rescue answers it (the
+  // runtime cannot be had, or is not downloaded). Written only through
+  // `setInstallError`, so it never outlives the message it belongs to.
+  let javaProblem = $state<JavaProblem | null>(null);
+  function setInstallError(message: string | null, error: IpcError | null = null) {
+    installError = message;
+    javaProblem = isJavaProblem(error) ? error : null;
+  }
   // Client (game) processes, keyed by instance_id — multiple instances can run
   // at once. `exited` mirrors it: the LAST exit per instance (crash / exit
   // status + diagnosis), retained per-instance so switching context shows the
@@ -600,7 +609,7 @@
     untrack(() => {
       if (newId !== lastActiveId) {
         lastActiveId = newId;
-        installError = null;
+        setInstallError(null);
         modsError = null;
         crashReport = null;
         // Per-instance: the previous instance's pre-flight tells us nothing
@@ -1167,7 +1176,7 @@
     if (!instances.some((i) => i.id === instanceId)) {
       // Renamed or deleted instance: say so plainly instead of failing silently.
       // The shortcut file itself is left alone — it is the user's to delete.
-      installError = $t('shortcut.instanceMissing');
+      setInstallError($t('shortcut.instanceMissing'));
       return;
     }
     if (activeInstance?.id !== instanceId) {
@@ -1284,11 +1293,11 @@
     if (activeInstance.mc_version === '') return;
     if (dataLocation.fellBack) return;
     installing = true;
-    installError = null;
+    setInstallError(null);
     const result = await installGame(activeInstance.id, activeInstance.name);
     installing = false;
     if (result.status === 'error') {
-      installError = formatError(result.error);
+      setInstallError(formatError(result.error), result.error);
     } else {
       // Refresh so `activeInstance.ready` flips to true and the button
       // swaps from blue Install to green Play. No auto-launch — the
@@ -1301,10 +1310,10 @@
   // the gate dialog's "Launch anyway" / post-update path.
   async function doLaunch() {
     if (!activeInstance) return;
-    installError = null;
+    setInstallError(null);
     const result = await commands.launchInstance(activeInstance.id, null);
     if (result.status === 'error') {
-      installError = formatError(result.error);
+      setInstallError(formatError(result.error), result.error);
     }
     // processSpawned event sets `running` once MC starts; processExited
     // clears it. No need to refresh state here.
@@ -1479,13 +1488,13 @@
     // instance switching while the warning dialog is open, so it can't drift.
     await startLaunch(async () => {
       if (!activeInstance) return;
-      installError = null;
+      setInstallError(null);
       const result = await commands.launchInstance(activeInstance.id, {
         kind: 'singleplayer',
         world: folderName,
       });
       if (result.status === 'error') {
-        installError = formatError(result.error);
+        setInstallError(formatError(result.error), result.error);
       }
     });
   }
@@ -1508,14 +1517,14 @@
     await startLaunch(
       async () => {
         if (!activeInstance) return;
-        installError = null;
+        setInstallError(null);
         const result = await commands.launchInstance(activeInstance.id, {
           kind: 'multiplayer',
           address,
         });
         quickJoinBusy = false;
         if (result.status === 'error') {
-          installError = formatError(result.error);
+          setInstallError(formatError(result.error), result.error);
         } else {
           quickJoinOpen = false;
         }
@@ -1529,11 +1538,11 @@
   async function onServerSave(name: string, address: string): Promise<boolean> {
     if (!activeInstance) return false;
     quickJoinBusy = true;
-    installError = null;
+    setInstallError(null);
     const r = await commands.addSavedServer(activeInstance.id, name, address);
     quickJoinBusy = false;
     if (r.status === 'error') {
-      installError = formatError(r.error);
+      setInstallError(formatError(r.error), r.error);
       return false;
     }
     await loadSavedServers();
@@ -1543,11 +1552,11 @@
   async function onServerSaveAndConnect(name: string, address: string): Promise<boolean> {
     if (!activeInstance) return false;
     quickJoinBusy = true;
-    installError = null;
+    setInstallError(null);
     const r = await commands.addSavedServer(activeInstance.id, name, address);
     if (r.status === 'error') {
       quickJoinBusy = false;
-      installError = formatError(r.error);
+      setInstallError(formatError(r.error), r.error);
       return false;
     }
     await loadSavedServers();
@@ -1559,11 +1568,11 @@
   async function onServerDelete(index: number, address: string) {
     if (!activeInstance) return;
     quickJoinBusy = true;
-    installError = null;
+    setInstallError(null);
     const r = await commands.removeSavedServer(activeInstance.id, index, address);
     quickJoinBusy = false;
     if (r.status === 'error') {
-      installError = formatError(r.error);
+      setInstallError(formatError(r.error), r.error);
     }
     await loadSavedServers();
   }
@@ -1572,7 +1581,7 @@
     if (!activeInstance) return;
     const result = await commands.stopInstance(activeInstance.id);
     if (result.status === 'error') {
-      installError = formatError(result.error);
+      setInstallError(formatError(result.error), result.error);
     }
   }
 
@@ -1820,7 +1829,13 @@
                 if (key === 'versions') void mcv.load();
               }}
               versionsRetrying={mcv.loading}
-              onDismissInstallError={() => (installError = null)}
+              onDismissInstallError={() => setInstallError(null)}
+              {javaProblem}
+              onJavaProblem={(e) => setInstallError(formatError(e), e)}
+              onJavaResolved={() => {
+                setInstallError(null);
+                void onInstall();
+              }}
               onDismissModsError={() => (modsError = null)}
               onOpenLogs={() => {
                 logsInitialPath = null;

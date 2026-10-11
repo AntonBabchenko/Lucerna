@@ -150,6 +150,24 @@ pub fn update_runtime_config(
     Ok(file)
 }
 
+/// Store a server's Java choice (already probed by the command). Like the
+/// heap and JVM arguments it applies from the next start.
+pub fn set_java(
+    base: &Path,
+    id: &str,
+    java: Option<crate::java::JavaChoice>,
+    major: Option<u32>,
+) -> Result<ServerFile> {
+    let json = crate::paths::server_paths(base, id).json;
+    let mut file = read_server_json(&json)?;
+    file.java = java;
+    if file.java_major.is_none() {
+        file.java_major = major;
+    }
+    write_server_json(&json, &file)?;
+    Ok(file)
+}
+
 /// Delete the server's SFTP password from the OS keyring — the last thing
 /// Delete server does, after the directory is gone. Reported, not swallowed:
 /// server ids are name slugs, so only a server recreated under the SAME name
@@ -214,6 +232,8 @@ mod tests {
             created_from_instance: None,
             handled_log_sig: None,
             java_component: None,
+            java_major: None,
+            java: None,
             upload: None,
         }
     }

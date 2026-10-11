@@ -27,6 +27,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   Javas found on this computer and has a Browse button. Lucerna checks the
   chosen Java before every launch and refuses one that cannot run the game,
   saying why, rather than starting it on its own Java instead.
+- **One Java for every instance on a Java version, and a Java for servers.**
+  Settings → Game → Java picks the Java that instances and own servers needing
+  each Java version run on, and a server's settings can pick its own. When
+  Lucerna can't get its Java for a version, it offers a Java found on this
+  computer instead, for that instance or for every instance on that version.
 
 ### Changed
 
