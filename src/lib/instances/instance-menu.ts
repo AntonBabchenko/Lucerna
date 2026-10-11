@@ -1,5 +1,5 @@
 // The per-instance action menu, built once for every surface that shows it
-// (the Manage list and the sidebar dropdown) so the two cannot drift apart.
+// (the sidebar list and the Settings tab's Delete) so they cannot drift apart.
 //
 // Labels follow the app's menu convention: an item that mirrors a control
 // reuses that control's key (as the mod-card and log-row menus do), so the
@@ -10,14 +10,22 @@ import type { InstanceWithStatus } from '$lib/ipc/bindings';
 import type { IconName } from '$lib/ui/icons';
 import type { ContextMenuItem } from '$lib/ui/menu-item';
 
-export type DeleteBlock = 'running' | 'last' | null;
+export type DeleteBlock = 'running' | 'busy' | 'last' | null;
 
-/** Why an instance cannot be deleted right now. Running outranks last: it is
- *  the one the user can act on immediately. The Manage Delete button and the
- *  menu item both ask here, so they cannot disagree. */
-export function deleteBlockedReason(isRunning: boolean, isLast: boolean): DeleteBlock {
-  if (isRunning) return 'running';
-  if (isLast) return 'last';
+/** Why an instance cannot be deleted right now. Running outranks busy outranks
+ *  last: the first two the user can wait out, the last needs another instance.
+ *  `busy` is a task scoped to the instance (install, verify, mod install, pack
+ *  update, world migration) — the backend's delete gate does not see those. The
+ *  Settings tab's Delete button and the menu item both ask here, so they cannot
+ *  disagree. */
+export function deleteBlockedReason(s: {
+  running: boolean;
+  busy: boolean;
+  last: boolean;
+}): DeleteBlock {
+  if (s.running) return 'running';
+  if (s.busy) return 'busy';
+  if (s.last) return 'last';
   return null;
 }
 
@@ -38,6 +46,8 @@ export interface InstanceMenuContext {
   instance: Pick<InstanceWithStatus, 'id' | 'loader'>;
   isActive: boolean;
   isRunning: boolean;
+  /** A task runs on the instance; blocks Delete. Defaults to false. */
+  isBusy?: boolean;
   isLast: boolean;
   /** `manage-ctx` / `sidebar-ctx` — keeps each surface's test ids stable. */
   testIdPrefix: string;
@@ -63,6 +73,7 @@ const blocked = (t: Translate, reason: TranslationKey | null): Extra =>
 
 function deleteReasonKey(block: DeleteBlock): TranslationKey | null {
   if (block === 'running') return 'instance.manage.runningBlocked';
+  if (block === 'busy') return 'instance.settings.busyBlocked';
   if (block === 'last') return 'instance.menu.reasonLast';
   return null;
 }
@@ -98,7 +109,12 @@ export function buildInstanceMenuItems(ctx: InstanceMenuContext): ContextMenuIte
   // Vanilla loads no mods: nothing to export, no mods folder worth opening.
   const modded = instance.loader !== 'vanilla';
   const whileRunning = blocked(t, isRunning ? 'instance.manage.runningBlocked' : null);
-  const deleteBlock = blocked(t, deleteReasonKey(deleteBlockedReason(isRunning, isLast)));
+  const deleteBlock = blocked(
+    t,
+    deleteReasonKey(
+      deleteBlockedReason({ running: isRunning, busy: ctx.isBusy ?? false, last: isLast }),
+    ),
+  );
   const activate = isActive ? undefined : h.onActivate;
 
   return joinGroups([
