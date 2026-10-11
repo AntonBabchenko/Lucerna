@@ -163,6 +163,18 @@ describe('AppearancePanel', () => {
     }
   });
 
+  it('says only "System" when the OS language is no language tag at all', () => {
+    const real = navigator.language;
+    Object.defineProperty(navigator, 'language', { value: 'not a tag!', configurable: true });
+    try {
+      langPref.value = 'system';
+      render(AppearancePanel);
+      expect(screen.getByTestId('language-select').textContent).not.toMatch(/currently/i);
+    } finally {
+      Object.defineProperty(navigator, 'language', { value: real, configurable: true });
+    }
+  });
+
   it('shows System, not an empty box, when the saved language is no longer shipped', () => {
     langPref.value = 'de';
     try {

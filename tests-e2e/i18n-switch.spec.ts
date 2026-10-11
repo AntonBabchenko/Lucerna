@@ -57,7 +57,7 @@ test('language picker switches labels live without a page reload', async ({ page
     (window as Window & { __noReload?: boolean }).__noReload = true;
   });
 
-  // --- Switch to Russian (LOCALE_LABELS['ru'] === 'Русский') ---
+  // --- Switch to Russian (the option is the language's endonym, «Русский») ---
   await languageSelect.click();
   await page.getByRole('option', { name: 'Русский', exact: true }).click();
 

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { matchSystemLocale, pickerValue, resolveLocale } from '../src/lib/i18n/resolve';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getOsLang, matchSystemLocale, pickerValue, resolveLocale } from '../src/lib/i18n/resolve';
 
 const AVAILABLE = ['en', 'ru'];
 const SYSTEM = ['en', 'ru'];
@@ -88,6 +88,50 @@ describe('matchSystemLocale', () => {
     expect(matchSystemLocale('pt_BR', ['pt-BR'])).toBe('pt-BR');
     expect(matchSystemLocale('', ['en'])).toBeNull();
     expect(matchSystemLocale('not a tag!', ['en'])).toBeNull();
+  });
+});
+
+describe('matchSystemLocale without Intl.Locale (system WebKit before Safari 14)', () => {
+  const realLocale = Intl.Locale;
+  beforeEach(() => {
+    // biome-ignore lint/suspicious/noExplicitAny: removing a built-in to emulate an old engine
+    (Intl as any).Locale = undefined;
+  });
+  afterEach(() => {
+    // biome-ignore lint/suspicious/noExplicitAny: restoring the built-in
+    (Intl as any).Locale = realLocale;
+  });
+
+  it('still matches a regional OS language to its language', () => {
+    expect(matchSystemLocale('ru-RU', ['en', 'ru'])).toBe('ru');
+    expect(matchSystemLocale('de-AT', ['de', 'en'])).toBe('de');
+    expect(matchSystemLocale('pt-BR', ['en', 'pt-BR'])).toBe('pt-BR');
+  });
+
+  it('without likely subtags, never guesses across a script', () => {
+    expect(matchSystemLocale('zh-TW', ['en', 'zh-Hans'])).toBeNull();
+    expect(matchSystemLocale('zh-CN', ['en', 'zh-Hans'])).toBeNull();
+  });
+
+  it('still gives up on an unreadable OS language', () => {
+    expect(matchSystemLocale('not a tag!', ['en'])).toBeNull();
+  });
+});
+
+describe('getOsLang', () => {
+  const real = navigator.language;
+  afterEach(() => {
+    Object.defineProperty(navigator, 'language', { value: real, configurable: true });
+  });
+
+  it('reports the OS language as the webview gives it', () => {
+    Object.defineProperty(navigator, 'language', { value: 'de-AT', configurable: true });
+    expect(getOsLang()).toBe('de-AT');
+  });
+
+  it('treats a value that is no language tag as unreadable, like a missing one', () => {
+    Object.defineProperty(navigator, 'language', { value: 'not a tag!', configurable: true });
+    expect(getOsLang()).toBe('');
   });
 });
 

@@ -52,6 +52,7 @@ interface Tag {
 
 function parseTag(code: string): Tag | null {
   if (code === '') return null;
+  if (typeof Intl.Locale !== 'function') return splitTag(code);
   try {
     const own = new Intl.Locale(canonicalLocaleCode(code));
     const max = own.maximize();
@@ -67,6 +68,38 @@ function parseTag(code: string): Tag | null {
     if (e instanceof RangeError) return null;
     throw e;
   }
+}
+
+/**
+ * The same facts without `Intl.Locale` (system WebKit before Safari 14, i.e.
+ * macOS 10.13): the subtags as written, with no likely ones filled in. `ru-RU`
+ * still meets `ru` and `de-AT` meets `de` (same language, no script on either);
+ * `zh-CN` no longer reaches `zh-Hans`, which is the restrictive answer —
+ * English — rather than a guess across scripts.
+ */
+function splitTag(code: string): Tag | null {
+  const canonical = canonicalLocaleCode(code);
+  try {
+    // canonicalLocaleCode hands a non-tag back unchanged; refuse it here.
+    Intl.getCanonicalLocales(canonical);
+  } catch (e) {
+    if (e instanceof RangeError) return null;
+    throw e;
+  }
+  const [language, ...rest] = canonical.split('-');
+  // Stop at the first singleton (`-u-`, `-x-`): what follows is no script or region.
+  const singleton = rest.findIndex((p) => p.length === 1);
+  const subtags = singleton === -1 ? rest : rest.slice(0, singleton);
+  const script = subtags.find((p) => /^[A-Za-z]{4}$/.test(p)) ?? '';
+  const region = subtags.find((p) => /^(?:[A-Za-z]{2}|\d{3})$/.test(p)) ?? '';
+  return {
+    code,
+    exact: canonical.toLowerCase(),
+    language: language.toLowerCase(),
+    script,
+    region,
+    hasRegion: region !== '',
+  };
 }
 
 /** A generic `de` before a regional `de-CH`; then the first by code. */
@@ -108,10 +141,16 @@ export function pickerValue(pref: string, available: readonly string[]): string 
   return pref === 'system' || available.includes(pref) ? pref : 'system';
 }
 
-/** The OS / browser UI language as reported to the webview. */
+/**
+ * The OS / browser UI language as reported to the webview, or '' when it
+ * cannot be read. A value that is no language tag counts as unreadable too:
+ * it matches nothing either way, and the System label must not say "currently
+ * English" as if Lucerna had found the OS to be English.
+ */
 export function getOsLang(): string {
   if (typeof navigator === 'undefined') return '';
-  return navigator.language ?? '';
+  const lang = navigator.language ?? '';
+  return parseTag(lang) === null ? '' : lang;
 }
 
 /** Read the persisted preference mirrored into localStorage (anti-FOUC). */
