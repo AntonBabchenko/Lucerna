@@ -21,6 +21,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Changed
+
+- **A language added by translators shows up properly.** The language picker
+  names every language in that language and says how much of a partly
+  translated one is done; System switches to the system's language once at
+  least 90% of it is translated, where it used to know only Russian.
+
 ## [0.27.0] — 2026-10-09
 
 ### Added

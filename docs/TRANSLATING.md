@@ -19,7 +19,12 @@ same platform Prism Launcher uses). Everything happens in your browser:
    **Settings → Appearance → Language** automatically.
 
 Partial translations are fine for a **new** language — any untranslated string
-falls back to English.
+falls back to English. The language picker names every language in that
+language, and one that is not complete says how much of it is done
+("Deutsch · 42% translated"), so nobody picks it expecting a whole interface.
+On **System**, Lucerna switches to the system's language by itself once at
+least 90% of its strings are translated; below that, anyone can still choose
+it by hand.
 
 Russian is the exception: because it ships alongside English, `tests/i18n-parity.test.ts`
 requires `ru.json` to carry exactly the same keys as `en.json`, with no empty values
@@ -28,17 +33,21 @@ and matching `{placeholders}`. A partial `ru.json` fails `pnpm test` and CI.
 ## The manual way — edit JSON + PR
 
 1. Copy `src/lib/i18n/locales/en.json` to `src/lib/i18n/locales/<code>.json`
-   (BCP-47 code, e.g. `de.json`, `pt-BR.json`).
+   (BCP-47 code, e.g. `de.json`, `pt-BR.json`; Weblate's `pt_BR.json` spelling
+   works too).
 2. Translate the values. Keep the keys and any `{placeholders}` unchanged.
+   **Delete every key you have not translated yet** (or leave its value
+   empty). A value left in English counts as translated, so a half-done copy
+   of `en.json` would claim to be complete — and System would pick it.
 3. Open a pull request. The file is auto-discovered — no registration needed.
+
+Lucerna uses the canonical form of the code: `pt_BR.json` is `pt-BR`, and an
+old alias becomes its current code (`iw.json` is Hebrew, `he`). Two files for
+one language fail the tests.
 
 > If you edited `en.json` (rather than only adding a new language file), run
 > `pnpm i18n:keys` to regenerate `src/lib/i18n/keys.generated.ts` and commit the
 > result — CI runs `pnpm i18n:keys:check` and fails if it is stale.
-
-> Add a display label for your language in `LOCALE_LABELS` in
-> `src/lib/settings/AppearancePanel.svelte` (otherwise the picker shows the raw
-> code). Optional but nice.
 
 ## Translating the changelog
 
