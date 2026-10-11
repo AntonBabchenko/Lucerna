@@ -487,6 +487,15 @@ describe('InstalledAssetsView', () => {
     expect(screen.getAllByTestId('asset-row')).toHaveLength(1);
   });
 
+  it('an unreadable folder with no rows does not claim the list is empty', async () => {
+    spies.assetsList.mockResolvedValue(listing([], null));
+    const onEmptyChange = vi.fn();
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader', onEmptyChange });
+    expect(await screen.findByTestId('asset-folder-unreadable')).toBeTruthy();
+    expect(screen.queryByTestId('list-empty')).toBeNull();
+    expect(onEmptyChange).not.toHaveBeenCalledWith(true);
+  });
+
   it('re-reads when the window regains focus, only while it is the list on screen', async () => {
     spies.assetsList.mockResolvedValue(listing([makeAsset()]));
     const view = render(InstalledAssetsView, {

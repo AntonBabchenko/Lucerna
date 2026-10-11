@@ -188,10 +188,11 @@
     updateStates = new Map([...updateStates].filter(([f]) => listed.has(f)));
   }
 
-  // Empty is reported, never assumed: no profile, a list still loading or a read that failed is
-  // not an empty list — the host keeps its strip until the list says it is empty.
+  // Empty is reported, never assumed: no profile, a list still loading, a read that failed or a
+  // folder that could not be read is not an empty list — the host keeps its strip until the list
+  // says it is empty.
   const listEmpty = $derived(
-    instanceId !== null && !loading && rows.length === 0 && error === null,
+    instanceId !== null && !loading && rows.length === 0 && error === null && !folderUnreadable,
   );
   $effect(() => {
     onEmptyChange(listEmpty);

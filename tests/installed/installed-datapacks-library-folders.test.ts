@@ -48,9 +48,12 @@ describe('InstalledDatapacksView — folders in the library', () => {
     expect(screen.queryByTestId('datapack-library-unreadable')).toBeNull();
   });
 
-  it('says when the library could not be read', async () => {
+  it('says when the library could not be read, and does not call it empty', async () => {
     library(null);
-    render(InstalledDatapacksView, { props: { instanceId: 'inst-1' } });
+    const onEmptyChange = vi.fn();
+    render(InstalledDatapacksView, { props: { instanceId: 'inst-1', onEmptyChange } });
     expect(await screen.findByTestId('datapack-library-unreadable')).toBeTruthy();
+    expect(screen.queryByTestId('list-empty')).toBeNull();
+    expect(onEmptyChange).not.toHaveBeenCalledWith(true);
   });
 });

@@ -1258,7 +1258,7 @@
       "bulkHint": "Select data packs to update or remove several at once",
       "bulkUpdateKeptOld": "The old version was kept so a retry can finish",
       "blockedRunning": "Quit Minecraft to change this instance's datapacks",
-      "libraryFolders": "Folders in the library aren't used: zip them, or put each in a world's datapacks folder. {names}",
+      "libraryFolders": "Folders in the library aren't used: {names}. Zip them, or put each in a world's datapacks folder.",
       "libraryUnreadable": "Couldn't read the library folder, so packs added to it by hand may be missing."
     },
     "install": {

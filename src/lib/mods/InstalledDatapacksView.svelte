@@ -239,8 +239,13 @@
 
   // Empty is reported, never assumed: no profile, a library still loading or one that could not
   // be read (`view` null) is not empty — the host keeps its strip until the library says so.
+  // A library folder that could not be read (`library_folders: null`) is not an empty library.
   const listEmpty = $derived(
-    instanceId !== null && !loading && view !== null && view.entries.length === 0,
+    instanceId !== null &&
+      !loading &&
+      view !== null &&
+      view.entries.length === 0 &&
+      view.library_folders !== null,
   );
   $effect(() => {
     onEmptyChange(listEmpty);
@@ -682,7 +687,7 @@
   {:else if (view?.entries.length ?? 0) === 0}
     <!-- A library that could not be read shows its error above, never «no datapacks». The host's
          full drop area replaces its strip once the read says empty (DESIGN.md §14). -->
-    {#if view !== null}
+    {#if view !== null && view.library_folders !== null}
       <!-- Focus lands here after the last removal (`refocusAfterRemoval`): a parking place that
            reads the message, not a control. -->
       <div
