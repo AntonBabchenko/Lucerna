@@ -24,8 +24,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 ### Added
 
 - **A folder button for every kind of add-on.** Add-ons shows "Mods folder",
-  "Resource packs folder", "Shaders folder" or "Data packs folder" next to the
-  source picker, on Browse and Installed alike; the data packs one opens the
+  "Resource packs folder", "Shaders folder" or "Data packs folder" above the
+  list, beside the source picker while browsing; the data packs one opens the
   profile's library.
 - **Packs you put in a folder yourself show up.** Resource packs and shaders
   dropped into their folder, zipped or unpacked, are listed and can be removed
