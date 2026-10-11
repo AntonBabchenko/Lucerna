@@ -8,8 +8,9 @@ import { ERROR_CLASS, formatError } from '$lib/ipc/format-error';
 // import key opens with "Import failed" and says "inside saves" with no
 // instance — read from the source's Worlds tab, that points at the user's
 // original world. These tests pin what each sentence must carry, in both
-// locales, across a live language switch (svelte-i18n memoises its formatter
-// by message string, so a mid-session switch is what catches a locked one).
+// locales, across a live language switch (a mid-session switch is what catches
+// a formatter locked to the first locale, as svelte-i18n's own message-only
+// memo did before $t got its per-locale cache in typed.ts).
 describe('formatError — world migration variants', () => {
   beforeAll(() => locale.set('en'));
   afterAll(() => locale.set('en'));

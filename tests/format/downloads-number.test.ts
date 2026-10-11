@@ -78,8 +78,9 @@ describe('formatCount', () => {
     // and ru values were byte-identical ("{n, number}"), and svelte-i18n
     // memoizes message formatters on the message STRING alone — so whichever
     // locale rendered first won for the whole process and Russian kept
-    // printing "12,345". Both directions are asserted in one test on purpose:
-    // the bug was only visible in the SECOND call.
+    // printing "12,345" ($t now keeps its own per-locale cache, typed.ts).
+    // Both directions are asserted in one test on purpose: the bug was only
+    // visible in the SECOND call.
     expect(formatCount('en', 12345)).toBe('12,345');
     expect(spaces(formatCount('ru', 12345))).toBe('12 345');
     expect(formatCount('en', 12345)).toBe('12,345');
