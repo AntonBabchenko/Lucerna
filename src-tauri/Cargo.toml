@@ -129,9 +129,12 @@ russh-sftp = "2.3.0"
 # dep surface. `ico = ["bmp", "png"]`, both internal, so it adds no new crate.
 # cargo-deny justification: MIT/Apache-2.0; pure-Rust codecs, no system libs.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
-# Screenshot viewer: move deleted screenshots to the OS recycle bin (reversible)
-# instead of unlink. cargo-deny justification: `trash` is MIT/Apache-2.0; on
-# Windows it uses the already-present windows-sys shell APIs — no new license class.
+# Move deleted screenshots and removed folder packs to the OS recycle bin
+# (reversible) instead of unlink. Called only from `platform::recycle_bin`
+# (structural_no_raw_spawn.rs), which on macOS selects NSFileManager: the
+# crate's default spawns `osascript` to ask Finder. cargo-deny justification:
+# `trash` is MIT/Apache-2.0; on Windows it reaches the shell APIs through the
+# `windows` crate (0.56, MIT/Apache-2.0) — no new license class.
 trash = "5"
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process has

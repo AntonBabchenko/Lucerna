@@ -125,6 +125,8 @@ Whether the binarypatcher and installertools Java steps could be returned to pur
 
 The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary watchdog, no helper process. By default the Java runtime is exactly the one Mojang publishes via the JRE manifest (slice 5). A user may point an instance, an own server, or every instance and server on a Java version (Settings) at another Java; Lucerna probes it (above), refuses one that cannot run the game, and never substitutes its own runtime for a chosen one that fails. An instance that runs on such a Java does not download the bundled JRE, unless a Forge or NeoForge install step above needs it. The Minecraft jar is exactly the one Mojang serves at `piston-data.mojang.com` (slice 4).
 
+**Moving a file to the recycle bin starts no process.** Deleting a screenshot and removing a folder resource pack or shader move the item to the OS recycle bin in-process, through `platform::recycle_bin`. On macOS that module selects `NSFileManager` (`trashItemAtURL`), because the `trash` crate's default asks Finder to delete through an `osascript` process, which can also raise an Automation permission prompt. The trade-off: on some macOS versions the Trash offers no "Put Back" for the item; it can still be dragged out of the Trash. `structural_no_raw_spawn.rs` fails the build if the crate is named anywhere else, and if that module stops selecting `NSFileManager`.
+
 ### Appendix B — structural guards
 
 The commitments above are not honour-system rules; most are enforced by tests in `src-tauri/tests/` that fail the build when bypassed. The full set:
@@ -132,7 +134,7 @@ The commitments above are not honour-system rules; most are enforced by tests in
 | Guard | Enforces |
 |---|---|
 | `structural_no_raw_http.rs` | No HTTP client construction outside `network::` (Part A commitment 1) |
-| `structural_no_raw_spawn.rs` | No subprocess `Command` outside `process::`, plus an allowlist for `tauri_plugin_opener` call sites (Hard rule 3) |
+| `structural_no_raw_spawn.rs` | No subprocess `Command` outside `process::`; an allowlist for `tauri_plugin_opener` call sites; and the `trash` crate, whose macOS default spawns `osascript`, named only in `platform::recycle_bin`, which must select `NSFileManager` (Hard rule 3) |
 | `structural_no_raw_sftp.rs` | No SFTP session construction outside `servers_runtime::transfer` (Part A commitment 3) |
 | `structural_consented_dial.rs` | No TCP dialing outside `network::consent`, no raw UDP anywhere, and the consent check still present in `ConsentedTcp::open` (Part A commitment 4) |
 | `structural_loopback_confined.rs` | No call into the `127.0.0.1` seam (`network::loopback`) outside `l10n::prefill` (Part A commitment 5) |
