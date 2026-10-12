@@ -23,13 +23,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
-- **Run an instance on your own Java.** Manage → Advanced → Java lists the
-  Javas found on this computer and has a Browse button. Lucerna checks the
+- **Run an instance on your own Java.** Advanced → Java on the instance's
+  Settings tab lists the Javas found on this computer and has a Browse button. Lucerna checks the
   chosen Java before every launch and refuses one that cannot run the game,
   saying why, rather than starting it on its own Java instead.
 
 ### Changed
 
+- **Instance settings are a tab.** An instance's version, loader, memory, Java
+  and the rest moved from the Manage window to a Settings tab next to
+  Screenshots; New instance in the sidebar creates one, and right-clicking an
+  instance in the sidebar list offers every action on it.
 - **A language added by translators shows up properly.** The language picker
   shows each language under its own name where the system knows it, and how
   much of a partly translated one is done; System switches to the system's
