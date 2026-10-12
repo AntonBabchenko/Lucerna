@@ -113,6 +113,7 @@ These distill the principles from `docs/PRINCIPLES.md` and `docs/SECURITY.md` in
 - Any code path that modifies the Minecraft client at runtime (main menu injection, splash override, default-bundled mods).
 - Any HTTP client construction outside the `network::` module (caught by `src-tauri/tests/structural_no_raw_http.rs`).
 - Any subprocess spawn outside the `process::` module (caught by `src-tauri/tests/structural_no_raw_spawn.rs`).
+- Calling the `trash` crate outside `platform::recycle_bin` — its macOS default spawns `osascript` to ask Finder; the chokepoint selects `NSFileManager` (same guard).
 - Any write into an instance's or world's content directories outside the `mods::store` chokepoint — instance mod jars and world datapack links are hardlinks to one shared physical file, so an in-place write (including `fs::copy`, which truncates its destination) corrupts every instance or world using it (caught by `src-tauri/tests/structural_no_inplace_mods_write.rs`, which scans `src/mods/`, `src/datapacks/`, and `src/worlds/`).
 - An `Err` arm whose block is empty. Add a match guard naming the error you mean (`Err(e) if e.kind() == NotFound => {}` is fine — that is discrimination), or put the reason **inside** the block (caught by `src-tauri/tests/structural_no_blind_err_swallow.rs`).
 - Discarding the result of a filesystem `rename` or `write` — via `let _ =` or `.ok()` — without a justification comment. Same rule as `unwrap()`: a discarded rename means the move may not have happened and nobody will know (same guard).

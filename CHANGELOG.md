@@ -77,6 +77,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A folder in the data pack library is named instead of ignored.** The library
   takes zip files only, and the Installed list now says which folders it cannot
   use.
+- **Deleting a screenshot on macOS no longer asks to control Finder.** The
+  launcher asked Finder to delete it, which could bring up a permission prompt,
+  froze the window while that prompt was open, and kept failing if you said no;
+  the file now goes to the Trash directly. On some macOS versions the Trash then
+  offers no "Put Back" for it, so drag it out instead.
 - **The shader-loader hint offers only loaders that have a version for your
   profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
   profile without a mod loader, where neither works; now it checks the

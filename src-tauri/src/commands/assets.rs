@@ -60,9 +60,11 @@ pub async fn asset_uninstall(
     let path = crate::mods::install::safe_asset_remove_path(&inst_root, kind, &filename)?;
     // Resolve the display name before the registry row goes away.
     let name = asset_display_name(&inst_root, kind, &filename).await;
-    let removed =
-        crate::mods::asset_folder::remove_entry(&path, crate::mods::asset_folder::to_recycle_bin)
-            .await?;
+    let removed = crate::mods::asset_folder::remove_entry(
+        &path,
+        crate::platform::recycle_bin::to_recycle_bin,
+    )
+    .await?;
     // A folder pack never has a row, and a failed rewrite of the registry must
     // not report a removal that already happened as failed.
     if removed != crate::mods::asset_folder::Removed::Folder {

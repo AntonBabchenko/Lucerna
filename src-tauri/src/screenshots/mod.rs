@@ -140,12 +140,20 @@ pub fn screenshot_path(
     Ok(path)
 }
 
-/// Move a screenshot to the OS recycle bin (reversible).
-pub fn delete_screenshot(app: &tauri::AppHandle, instance_id: &str, file_name: &str) -> Result<()> {
+/// Move a screenshot to the OS recycle bin (reversible), off the executor —
+/// through `platform::recycle_bin`, which on macOS never asks Finder.
+pub async fn delete_screenshot(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    file_name: &str,
+) -> Result<()> {
+    use crate::platform::recycle_bin::{off_thread, to_recycle_bin};
     let path = screenshot_path(app, instance_id, file_name)?;
     // Capture mtime before deletion so the matching cache entries can be evicted.
     let mtime = fs::file_mtime_ms(&path);
-    trash::delete(&path).map_err(|e| Error::io(path.display().to_string(), e))?;
+    off_thread(path.clone(), to_recycle_bin)
+        .await
+        .map_err(|e| Error::io(path.display().to_string(), e))?;
     // Best-effort: drop this file's cached thumbnail/preview so the disposable
     // cache doesn't retain entries for files the user has removed.
     thumb::evict(app, &path, mtime);
