@@ -69,6 +69,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A folder in the data pack library is named instead of ignored.** The library
   takes zip files only, and the Installed list now says which folders it cannot
   use.
+- **The shader-loader hint offers only loaders that have a version for your
+  profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
+  profile without a mod loader, where neither works; now it checks the
+  profile's Minecraft version and says so when nothing fits.
 
 ## [0.27.0] — 2026-10-09
 
