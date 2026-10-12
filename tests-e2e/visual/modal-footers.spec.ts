@@ -12,8 +12,6 @@ const offlineAccount = {
   expires_at: null,
 };
 
-const baseInstance = makeInstance({ id: 'inst-1', name: 'Default' });
-
 // ImportedDetailDrawer: role="dialog" aria-label="Imported pack details"
 // (ImportedDetailDrawer.svelte).
 const IMPORTED_DRAWER = '[role="dialog"][aria-label="Imported pack details"]';
