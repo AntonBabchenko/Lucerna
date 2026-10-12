@@ -49,6 +49,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   Screenshots; New instance in the sidebar creates one, and right-clicking an
   instance in the sidebar list offers every action on it. Add-ons keeps the
   Browse search and sort when you switch tabs.
+- **Deleting an instance asks once.** No more typing Delete: as when deleting a
+  world or a server, one confirmation warns that it cannot be undone.
 - **A language added by translators shows up properly.** The language picker
   shows each language under its own name where the system knows it, and how
   much of a partly translated one is done; System switches to the system's

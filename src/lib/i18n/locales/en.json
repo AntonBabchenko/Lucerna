@@ -1798,7 +1798,6 @@
     "delete": {
       "title": "Delete \"{world}\"?",
       "description": "This will permanently delete the world folder and all its contents. The backups for this world will also be removed. This cannot be undone.",
-      "typeToConfirm": "Type {word} to confirm:",
       "deleteBtn": "Delete"
     },
     "migrate": {

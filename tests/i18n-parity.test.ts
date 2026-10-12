@@ -109,6 +109,13 @@ describe('i18n locale parity (en vs ru)', () => {
     ).toEqual([]);
   });
 
+  it('carries none of the keys retired with the typed delete word', () => {
+    // Deleting an instance asks once, like a world or a server (2026-10-12);
+    // the instance dialog was the word's last user.
+    const retired = ['worlds.delete.typeToConfirm'];
+    expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
+  });
+
   it('carries none of the keys retired by the NeoForge 26.x fix', () => {
     // The New-profile footer said "{loader} does not support Minecraft {mc}"
     // for ANY missing loader version, a network error included. It now says

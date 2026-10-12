@@ -46,30 +46,32 @@ function mount() {
 }
 
 const confirm = () => screen.getByTestId('instance-delete-confirm') as HTMLButtonElement;
-const typeWord = (word: string) =>
-  fireEvent.input(screen.getByTestId('instance-delete-confirm-input'), {
-    target: { value: word },
-  });
 
 describe('DeleteInstanceDialog', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => vi.clearAllMocks());
 
-  it('names the instance and stays off until the word is typed exactly', async () => {
+  // One warning, no word to type (maintainer, 2026-10-12) — as deleting a world
+  // or a server asks.
+  it('asks once: names the instance, warns it cannot be undone, Delete is on at once', () => {
     mount();
     expect(screen.getByText(/Other/)).toBeTruthy();
-    expect(confirm().disabled).toBe(true);
-    await typeWord('delete');
-    expect(confirm().disabled).toBe(true);
-    await typeWord('Delete');
+    expect(screen.getByText(/cannot be undone/)).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
     expect(confirm().disabled).toBe(false);
+  });
+
+  it('starts on Cancel, so Enter on open does not delete', async () => {
+    mount();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' })),
+    );
   });
 
   it('deletes once and cannot be cancelled while it runs', async () => {
     let resolve!: (v: unknown) => void;
     m.deleteInstance.mockReturnValue(new Promise((r) => (resolve = r)));
     const p = mount();
-    await typeWord('Delete');
     await fireEvent.click(confirm());
     await fireEvent.click(confirm());
     expect(m.deleteInstance).toHaveBeenCalledTimes(1);
@@ -89,7 +91,6 @@ describe('DeleteInstanceDialog', () => {
       error: { kind: 'io', path: 'C:/x/mods/a.jar', message: 'in use' },
     });
     const p = mount();
-    await typeWord('Delete');
     await fireEvent.click(confirm());
     await waitFor(() => expect(p.refresh).toHaveBeenCalled());
     expect(p.onClose).not.toHaveBeenCalled();

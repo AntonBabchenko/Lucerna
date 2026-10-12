@@ -3526,7 +3526,6 @@ export type TranslationKey =
   | 'worlds.delete.deleteBtn'
   | 'worlds.delete.description'
   | 'worlds.delete.title'
-  | 'worlds.delete.typeToConfirm'
   | 'worlds.detail.tabsLabel'
   | 'worlds.import.dropzoneLabel'
   | 'worlds.import.fromFolder'
