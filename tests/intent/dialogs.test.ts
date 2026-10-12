@@ -11,7 +11,7 @@
 //   WorldDetailDialog     — src/lib/worlds/      (worlds group)
 //   DeleteWorldDialog     — src/lib/worlds/      (worlds group)
 //   RestoreBackupDialog   — src/lib/worlds/      (worlds group)
-//   ManageInstancesModal  — src/lib/instances/   (instance-mgmt group)
+//   CreateInstanceDialog / DeleteInstanceDialog — src/lib/instances/ (instance-mgmt group)
 //   SettingsModal         — src/lib/settings/    (settings group)
 //
 // Additionally, DependencyDialog has dedicated unit coverage in

@@ -1,19 +1,15 @@
 // Instance-mgmt group intent coverage: LoaderPicker variant/label classes,
-// ManageInstancesModal rows not already covered by the cluster-D
-// button-intents-destructive.test.ts (+ New instance, Delete, Done).
+// Instance-management rows not already covered by the cluster-D
+// button-intents-destructive.test.ts (the Settings tab's Danger zone Delete).
 //
 // Rows covered here per inventory:
 //   LoaderPicker:    active loader → btn-primary btn-sm
 //                    inactive loader → btn-secondary btn-sm
 //                    "Loader" label — uppercase text-secondary
 //                    "Loader version" label — uppercase text-secondary (non-vanilla)
-//   ManageInstancesModal:
-//                    CloseButton (header) → btn-icon
-//                    instance list-item buttons — bare classes + bg-accent-soft when selected
-//                    Cancel (create form) → btn-secondary btn-sm
-//                    Create → btn-primary btn-sm
-//                    Open folder → btn-secondary btn-sm
-//                    Cancel (delete confirm) → btn-secondary btn-sm
+//   CreateInstanceDialog: Cancel → btn-secondary btn-sm, Create → btn-primary btn-sm
+//   Settings tab action row: Open folder → btn-secondary btn-sm
+//   DeleteInstanceDialog: Cancel → btn-secondary btn-sm
 
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
@@ -29,7 +25,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     listQuiltLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listForgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listNeoforgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
-    // ManageInstancesModal fetches memory bounds on first open
+    // The create dialog's memory slider fetches its bounds on mount
     instanceMemoryBounds: vi.fn().mockResolvedValue({
       min_mb: 1024,
       max_mb: 8192,
@@ -38,7 +34,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       step_mb: 256,
       ram_known: false,
     }),
-    // ManageInstancesModal calls these on user interaction only
+    // Called on user interaction only
     createInstance: vi.fn(),
     setActiveInstance: vi.fn(),
     setInstanceName: vi.fn(),
@@ -61,8 +57,10 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/webview', () => ({}));
 
+import CreateInstanceDialog from '$lib/instances/CreateInstanceDialog.svelte';
+import DeleteInstanceDialog from '$lib/instances/DeleteInstanceDialog.svelte';
 import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
-import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
+import InstanceIdentitySection from '$lib/instances/settings/InstanceIdentitySection.svelte';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -96,15 +94,6 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
 function makeVersion(id = '1.20.4'): VersionEntry {
   return { id, version_type: 'release', release_date: '2024-01-01T00:00:00+00:00', url: '' };
 }
-
-// Two instances so the Delete button is enabled (disabled when length <= 1).
-const manageProps = {
-  open: true,
-  instances: [makeInstance(), makeInstance({ id: 'inst-2', name: 'Second' })],
-  activeInstance: makeInstance(),
-  versions: [makeVersion()],
-  onChanged: () => {},
-};
 
 // ── LoaderPicker — variant per loader option ──────────────────────────────────
 
@@ -175,109 +164,66 @@ describe('LoaderPicker — "Loader" label classes (uppercase text-secondary)', (
   });
 });
 
-// ── ManageInstancesModal — CloseButton header ────────────────────────────────
+// ── CreateInstanceDialog — Cancel + Create ───────────────────────────────────
 
-describe('ManageInstancesModal — CloseButton (header) is btn-icon', () => {
-  it('header CloseButton has btn-icon class', () => {
-    render(ManageInstancesModal, { props: manageProps });
-    const closeBtn = screen.getByRole('button', { name: /close manage instances/i });
-    expect(closeBtn).toHaveBtnVariant('icon');
-  });
-});
+const createProps = {
+  versions: [makeVersion()],
+  activate: async () => null,
+  onCreated: () => {},
+  onClose: () => {},
+};
 
-// ── ManageInstancesModal — instance list-item buttons ────────────────────────
-
-describe('ManageInstancesModal — instance list-item buttons', () => {
-  it('all list-item buttons have text-left rounded text-sm hover:bg-subtle classes', () => {
-    const { container } = render(ManageInstancesModal, { props: manageProps });
-    // List-item buttons are in the <aside> (w-[220px] border-r); exclude the
-    // "+ New instance" btn-primary which shares the same aside.
-    const aside = container.querySelector('aside');
-    expect(aside).not.toBeNull();
-    const listBtns = Array.from(aside?.querySelectorAll('button') ?? []).filter(
-      (b) => !b.classList.contains('btn-primary'),
-    );
-    expect(listBtns.length).toBeGreaterThanOrEqual(2);
-    for (const btn of listBtns) {
-      const cls = btn.className;
-      expect(cls).toContain('text-left');
-      expect(cls).toContain('rounded');
-      expect(cls).toContain('text-sm');
-    }
-  });
-
-  it('selected instance list-item button has bg-accent-soft class', () => {
-    const { container } = render(ManageInstancesModal, { props: manageProps });
-    // On open, selectedId is set to activeInstance.id = 'inst-1'.
-    const aside = container.querySelector('aside');
-    const listBtns = Array.from(aside?.querySelectorAll('button') ?? []).filter(
-      (b) => !b.classList.contains('btn-primary'),
-    );
-    // The first button corresponds to inst-1 (the active instance)
-    const selectedBtn = listBtns.find((b) => b.classList.contains('bg-accent-soft'));
-    expect(selectedBtn).not.toBeUndefined();
-  });
-
-  it('non-selected instance list-item button does not have bg-accent-soft class', () => {
-    const { container } = render(ManageInstancesModal, { props: manageProps });
-    const aside = container.querySelector('aside');
-    const listBtns = Array.from(aside?.querySelectorAll('button') ?? []).filter(
-      (b) => !b.classList.contains('btn-primary'),
-    );
-    // "Second" (inst-2) is not the active instance, so it should not have bg-accent-soft
-    const secondBtn = listBtns.find((b) => b.textContent?.includes('Second'));
-    expect(secondBtn).not.toBeUndefined();
-    expect(secondBtn?.classList.contains('bg-accent-soft')).toBe(false);
-  });
-});
-
-// ── ManageInstancesModal — create-form buttons (Cancel + Create) ─────────────
-
-describe('ManageInstancesModal — create-form Cancel is btn-secondary btn-sm', () => {
-  it('Cancel (create form) has btn-secondary and btn-sm', async () => {
-    // The create form is shown when createMode=true. We can trigger openCreate
-    // by clicking "+ New instance".
-    render(ManageInstancesModal, { props: manageProps });
-    const newBtn = screen.getByRole('button', { name: /\+ new instance/i });
-    newBtn.click();
-    // After click, createMode=true → Cancel and Create buttons render
+describe('CreateInstanceDialog — Cancel is btn-secondary btn-sm', () => {
+  it('Cancel has btn-secondary and btn-sm', async () => {
+    render(CreateInstanceDialog, { props: createProps });
     const cancelBtn = await screen.findByRole('button', { name: /^cancel$/i });
     expect(cancelBtn).toHaveBtnVariant('secondary');
     expect(cancelBtn).toHaveBtnSize('sm');
   });
 });
 
-describe('ManageInstancesModal — create-form Create is btn-primary btn-sm', () => {
+describe('CreateInstanceDialog — Create is btn-primary btn-sm', () => {
   it('Create button has btn-primary and btn-sm', async () => {
-    render(ManageInstancesModal, { props: manageProps });
-    const newBtn = screen.getByRole('button', { name: /\+ new instance/i });
-    newBtn.click();
-    const createBtn = await screen.findByRole('button', { name: /^create$/i });
+    render(CreateInstanceDialog, { props: createProps });
+    const createBtn = await screen.findByTestId('create-instance-submit');
     expect(createBtn).toHaveBtnVariant('primary');
     expect(createBtn).toHaveBtnSize('sm');
   });
 });
 
-// ── ManageInstancesModal — detail-panel footer buttons ───────────────────────
+// ── Settings tab — the action row ───────────────────────────────────────────
 
-describe('ManageInstancesModal — detail footer: Open folder is btn-secondary btn-sm', () => {
+describe('Settings tab action row: Open folder is btn-secondary btn-sm', () => {
   it('"Open folder" button has btn-secondary and btn-sm', () => {
-    render(ManageInstancesModal, { props: manageProps });
+    render(InstanceIdentitySection, {
+      props: {
+        instance: makeInstance(),
+        running: false,
+        busy: false,
+        onChanged: () => {},
+        onClone: () => {},
+        onTranslations: () => {},
+        onOpenFolder: () => {},
+      },
+    });
     const btn = screen.getByRole('button', { name: /open folder/i });
     expect(btn).toHaveBtnVariant('secondary');
     expect(btn).toHaveBtnSize('sm');
   });
 });
 
-// ── ManageInstancesModal — delete-confirm overlay buttons ────────────────────
+// ── DeleteInstanceDialog — Cancel ────────────────────────────────────────────
 
-describe('ManageInstancesModal — delete-confirm Cancel is btn-secondary btn-sm', () => {
-  it('Cancel in delete-confirm overlay has btn-secondary and btn-sm', async () => {
-    render(ManageInstancesModal, { props: manageProps });
-    // Open the delete-confirm overlay by clicking "Delete instance"
-    const deleteBtn = screen.getByRole('button', { name: /delete instance/i });
-    deleteBtn.click();
-    // The overlay renders Cancel + Delete buttons
+describe('DeleteInstanceDialog — Cancel is btn-secondary btn-sm', () => {
+  it('Cancel in the delete confirm has btn-secondary and btn-sm', async () => {
+    render(DeleteInstanceDialog, {
+      props: {
+        instance: makeInstance(),
+        refresh: async () => {},
+        onDeleted: () => {},
+        onClose: () => {},
+      },
+    });
     const cancelBtn = await screen.findByRole('button', { name: /^cancel$/i });
     expect(cancelBtn).toHaveBtnVariant('secondary');
     expect(cancelBtn).toHaveBtnSize('sm');

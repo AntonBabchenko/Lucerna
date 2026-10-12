@@ -54,8 +54,8 @@ export function compatScanEntries(): ModLocalCompat[] {
 /**
  * Whether a single scanned mod will not load, on either offline-decidable
  * axis — the file-level verdict that both `offlineMismatchCount` and
- * `compatSummaryFromScan` (the post-version-change summary in the Manage
- * modal) report on. Exported so both call the same predicate
+ * `compatSummaryFromScan` (the post-version-change summary in the Settings
+ * tab's Game section) report on. Exported so both call the same predicate
  * instead of each re-deriving it: two answers to this one question is
  * exactly the defect this shared scan exists to eliminate.
  *

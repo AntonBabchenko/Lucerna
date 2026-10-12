@@ -8,8 +8,8 @@
   // flush pass, before any effect re-runs, so a guard that only reads the DOM
   // attribute is blind to the sibling that just claimed the screen.
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
-  import { LOGS_STEPS, MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
+  import { LOGS_STEPS, INSTANCE_SETTINGS_STEPS } from '$lib/onboarding/contextual-tours';
 </script>
 
-<ContextualTour id="manage" steps={MANAGE_STEPS} />
+<ContextualTour id="instanceSettings" steps={INSTANCE_SETTINGS_STEPS} />
 <ContextualTour id="logs" steps={LOGS_STEPS} />

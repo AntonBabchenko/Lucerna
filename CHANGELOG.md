@@ -31,10 +31,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   dropped into their folder, zipped or unpacked, are listed and can be removed
   (an unpacked one goes to the recycle bin), and an Installed list re-reads
   itself when you come back to the launcher.
-- **Run an instance on your own Java.** Manage → Advanced → Java lists the
-  Javas found on this computer and has a Browse button. Lucerna checks the
-  chosen Java before every launch and refuses one that cannot run the game,
-  saying why, rather than starting it on its own Java instead.
+- **Run an instance on your own Java.** Advanced → Java on the instance's
+  Settings tab lists the Javas found on this computer and has a Browse button.
+  Lucerna checks the chosen Java before every launch and refuses one that
+  cannot run the game, saying why, rather than starting it on its own Java
+  instead.
 - **One Java for every instance on a Java version, and a Java for servers.**
   Settings → Game → Java picks the Java that instances and own servers needing
   each Java version run on, and a server's settings can pick its own. When
@@ -43,6 +44,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Changed
 
+- **Instance settings are a tab.** An instance's version, loader, memory, Java
+  and the rest moved from the Manage window to a Settings tab next to
+  Screenshots; New instance in the sidebar creates one, and right-clicking an
+  instance in the sidebar list offers every action on it. Add-ons keeps the
+  Browse search and sort when you switch tabs.
+- **Deleting an instance asks once.** No more typing Delete: as when deleting a
+  world or a server, one confirmation warns that it cannot be undone.
 - **A language added by translators shows up properly.** The language picker
   shows each language under its own name where the system knows it, and how
   much of a partly translated one is done; System switches to the system's

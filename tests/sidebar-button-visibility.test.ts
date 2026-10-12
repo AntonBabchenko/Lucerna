@@ -64,7 +64,7 @@ const baseProps = {
   onOpenCosmetics: () => {},
   onAddOffline: () => {},
   onSelectInstance: () => {},
-  onOpenManage: () => {},
+  onCreateInstance: () => {},
   onOpenMods: () => {},
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
@@ -87,9 +87,9 @@ const baseProps = {
 const ALL_IDS = [
   'skin',
   'account_actions',
-  'manage',
   'mods',
   'quick_join',
+  'new_instance',
   'browse_modpacks',
   'import_launcher',
   'gallery',
@@ -150,11 +150,12 @@ describe('Sidebar button visibility', () => {
     expect(screen.queryByTestId('sidebar-open-gallery')).toBeNull();
   });
 
-  it('keeps Mods when only Manage is hidden (row does not fully collapse)', () => {
-    initSidebarButtons(['manage']);
+  it('hides New instance on its own and keeps its Content neighbours', () => {
+    initSidebarButtons(['new_instance']);
     render(Sidebar, { props: baseProps });
-    expect(screen.getByRole('button', { name: /mods/i })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /manage/i })).toBeNull();
+    expect(screen.queryByTestId('sidebar-new-instance')).toBeNull();
+    expect(screen.getByTestId('sidebar-open-modpacks')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-section-content')).toBeTruthy();
   });
 
   it('renders the Content and View section headings by default', () => {
@@ -163,8 +164,8 @@ describe('Sidebar button visibility', () => {
     expect(screen.getByTestId('sidebar-section-view')).toBeTruthy();
   });
 
-  it('suppresses the Content heading when both its buttons are hidden', () => {
-    initSidebarButtons(['browse_modpacks', 'import_launcher']);
+  it('suppresses the Content heading when all its buttons are hidden', () => {
+    initSidebarButtons(['new_instance', 'browse_modpacks', 'import_launcher']);
     render(Sidebar, { props: baseProps });
     expect(screen.queryByTestId('sidebar-section-content')).toBeNull();
     expect(screen.getByTestId('sidebar-section-view')).toBeTruthy();

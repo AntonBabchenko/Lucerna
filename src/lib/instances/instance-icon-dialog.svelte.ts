@@ -1,5 +1,5 @@
 // Shared state + command hub for the instance-picture flow. There is no
-// viewer modal: entry points (Overview avatar, Manage modal) call `pick()` to
+// viewer modal: entry points (Overview avatar, Settings tab) call `pick()` to
 // open the OS file picker directly, or `requestRemove()` to delete the
 // picture. The single <InstanceIconDialog> at the page root registers the
 // concrete handlers on mount — it owns the hidden file input, the IPC

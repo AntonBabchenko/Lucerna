@@ -11,7 +11,7 @@ import type { ServerAddonsKind } from '$lib/settings/state.svelte';
 
 export type DropContext = {
   // Only the topmost surface takes a drop (DESIGN.md §14). A dialog that takes
-  // no files — Settings, Manage, a mod's details, the skin editor, a confirm —
+  // no files — Settings, a mod's details, the skin editor, a confirm —
   // covers the whole window under its scrim, the surfaces below included: while
   // it is the topmost modal nothing takes a drop, whatever popover or tour sits
   // over it (`modalBlocksFileDrops()`, layer-stack.svelte.ts).

@@ -24,7 +24,7 @@ function baseProps() {
     onOpenCosmetics: vi.fn(),
     onAddOffline: vi.fn(),
     onSelectInstance: vi.fn(),
-    onOpenManage: vi.fn(),
+    onCreateInstance: vi.fn(),
     onOpenMods: vi.fn(),
     onOpenLogs: vi.fn(),
     onOpenModpacks: vi.fn(),

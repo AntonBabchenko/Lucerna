@@ -2,7 +2,7 @@
   // The Java an instance runs on (spec 2026-10-11-custom-java §6). A thin host
   // for `JavaChoiceField`: the need comes from the instance's installed version,
   // the write is `setInstanceJava`, and «Default» follows Settings' row for that
-  // need. Mounted in one line, under Manage → Advanced.
+  // need. Mounted in one line, under the Settings tab's Launch → Advanced.
   import { t } from '$lib/i18n';
   import { commands, type InstanceWithStatus, type JavaChoice } from '$lib/ipc/bindings';
   import JavaChoiceField, {
@@ -31,7 +31,7 @@
     onChanged: (instance: InstanceWithStatus) => void;
   } = $props();
 
-  // By value: Manage replaces its instance list wholesale on every refresh,
+  // By value: the page replaces its instance list wholesale on every refresh,
   // and a new object with the same values is not a new instance.
   const reloadKey = $derived(JSON.stringify([instanceId, mcVersion, loader, loaderVersion, ready]));
 

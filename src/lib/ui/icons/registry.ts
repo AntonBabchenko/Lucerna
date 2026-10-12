@@ -120,7 +120,7 @@ export const ICONS = {
   pin: Pin, // updates held for a mod (Installed row + menu)
   // i18n tier — nav/action + status.
   settings: Settings, // ⚙ Settings (gear) — app settings entry point
-  sliders: SlidersHorizontal, // 🎚 Manage instances (tune/adjust a profile)
+  sliders: SlidersHorizontal, // 🎚 an instance's settings (tune/adjust a profile)
   folderOpen: FolderOpen, // 📁 Open folder (instance dir, mods folder)
   trash: Trash2, // 🗑 Delete
   eraser: Eraser, // ✏ Clear / wipe log content
@@ -156,7 +156,7 @@ export const ICONS = {
   eye: Eye, // reveal password / show secret
   eyeOff: EyeOff, // hide password / conceal secret
   aiTranslate: Sparkles, // AI pre-fill of missing translations (l10n)
-  languages: Languages, // translations entry point (Manage instances → Translations)
+  languages: Languages, // translations entry point (Settings tab → Translations)
   edit: Pencil, // edit-in-place affordance (instance avatar hover overlay)
   copy: Copy, // copy image to clipboard (screenshots lightbox)
   gallery: Images, // screenshots gallery (sidebar entry + gallery header)

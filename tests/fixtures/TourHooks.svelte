@@ -18,4 +18,4 @@
 <div data-tour-ctx="hook-a">Anchor A</div>
 {#if open}<div data-tour-ctx="hook-b">Anchor B</div>{/if}
 <button type="button" onclick={() => (open = !open)}>Toggle B</button>
-<ContextualTour id="manage" {steps} {onStep} />
+<ContextualTour id="instanceSettings" {steps} {onStep} />

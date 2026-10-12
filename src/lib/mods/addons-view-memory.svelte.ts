@@ -1,3 +1,4 @@
+import type { ModSort } from '$lib/ipc/bindings';
 import type { InstanceContentKind } from './content-kind';
 
 export type AddonsView = 'browse' | 'installed';
@@ -24,7 +25,25 @@ export function initialAddonsView(
   );
 }
 
+// What the Browse catalogue last searched, per content kind, for the session.
+// The Settings tab replaced a dialog that opened OVER Add-ons, so a trip to
+// change the loader now unmounts the catalogue; without this the typed search
+// was gone on the way back. Only the query and the sort: the MC / loader
+// filters re-seed from the instance on purpose (a loader change is often the
+// reason for the trip), and the page and results reload.
+export type BrowseMemory = { query: string; sort: ModSort };
+const browse = new Map<InstanceContentKind, BrowseMemory>();
+
+export function rememberBrowse(kind: InstanceContentKind, memory: BrowseMemory): void {
+  browse.set(kind, memory);
+}
+
+export function initialBrowse(kind: InstanceContentKind): BrowseMemory {
+  return browse.get(kind) ?? { query: '', sort: 'downloads' };
+}
+
 /** Tests only. */
 export function resetAddonsViewMemory(): void {
   remembered.clear();
+  browse.clear();
 }

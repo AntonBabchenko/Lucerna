@@ -2,8 +2,8 @@
   // The instance's on-disk folder name, and the warning when that name stops
   // the game from launching.
   //
-  // Lives in its own component rather than inline in ManageInstancesModal.svelte,
-  // which is already 1300+ lines against the 800-line ceiling in CLAUDE.md.
+  // Lives in its own component so the Settings tab's identity section stays
+  // small.
   //
   // Why the folder name is surfaced at all: it can diverge from the display name
   // (renaming the instance never renamed its directory), and on Windows an
@@ -18,10 +18,15 @@
     instance,
     formatIpcError,
     onRenamed,
+    disabledReason = null,
   }: {
     instance: InstanceWithStatus;
     formatIpcError: (e: IpcError) => string;
     onRenamed: (updated: InstanceWithStatus) => void;
+    /** Why the folder cannot be renamed right now (the game runs, a task runs on
+     *  the instance) — the backend would refuse; shown under the row, and the
+     *  rename buttons are off. Null = renamable. */
+    disabledReason?: string | null;
   } = $props();
 
   let pathStatus = $state<PathStatus>('ok');
@@ -32,8 +37,7 @@
   $effect(() => {
     const id = instance.id;
     // Cancellation flag rather than re-reading `instance` after the await: the
-    // modal can close (or the selection clear) while the call is in flight, and
-    // by then `instance` is null — reading `.id` off it threw a TypeError.
+    // tab can unmount (or the instance change) while the call is in flight.
     let cancelled = false;
     void (async () => {
       const result = await commands.instancePathStatus(id);
@@ -58,7 +62,12 @@
     <p class="text-sm font-medium text-primary">{$t('instance.manage.folderBrokenTitle')}</p>
     <p class="text-xs text-secondary">{$t('instance.manage.folderBrokenBody')}</p>
     <div>
-      <button type="button" class="btn-primary btn-sm" onclick={() => void openFixDialog()}>
+      <button
+        type="button"
+        class="btn-primary btn-sm"
+        disabled={disabledReason !== null}
+        onclick={() => void openFixDialog()}
+      >
         {$t('instance.manage.folderBrokenFix')}
       </button>
     </div>
@@ -68,7 +77,7 @@
        the data-root path itself (e.g. the Windows user name under %APPDATA%).
        Deliberately NO rename button — offering one would send the user in a
        circle. The copy names the remedy (move the data folder); wiring a jump
-       into the data-root setting from inside this modal is a follow-up. -->
+       into the data-root setting from here is a follow-up. -->
   <div class="rounded border border-danger/40 bg-danger/10 p-3 mb-3 flex flex-col gap-2">
     <p class="text-sm font-medium text-primary">{$t('instance.manage.dataRootBrokenTitle')}</p>
     <p class="text-xs text-secondary">{$t('instance.manage.dataRootBrokenBody')}</p>
@@ -82,11 +91,16 @@
     <button
       type="button"
       class="btn-secondary btn-sm shrink-0"
+      disabled={disabledReason !== null}
+      aria-describedby={disabledReason !== null ? 'instance-folder-locked' : undefined}
       onclick={() => (dialogSeed = instance.id)}
     >
       {$t('instance.manage.folderChange')}
     </button>
   </div>
+  {#if disabledReason !== null}
+    <p id="instance-folder-locked" class="text-xs text-secondary">{disabledReason}</p>
+  {/if}
   <p class="text-xs text-muted">{$t('instance.manage.folderHint')}</p>
 </div>
 

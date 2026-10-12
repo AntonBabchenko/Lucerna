@@ -29,7 +29,7 @@ export const settingsOpen = $state<{ value: { tab: SettingsTab } | null }>({
 // Which settings control the Settings modal should scroll to and flash. Set by
 // the in-modal search when the user picks a result; consumed by SettingsField
 // (which wraps each searchable control) via the fieldFlash action. Mirrors the
-// manage-focus.ts + focusField flow used by ManageInstancesModal. `null` = no
+// manage-focus.ts + focusField flow used by the instance Settings tab. `null` = no
 // pending jump.
 export const settingsSearchFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
 
@@ -209,7 +209,7 @@ export const datapacksChanged = $state<{ value: number }>({ value: 0 });
 
 // Mojang's Minecraft version list — fetched once at app startup
 // (+page.svelte onMount) and consumed by both the McVersionCombobox in
-// the mod / modpack browsers and the Manage modal's version picker.
+// the mod / modpack browsers and the Settings tab's version picker.
 // Stored in a rune so the leaf components don't need a 3+ level prop
 // drill through MainTabs / ModpacksTab. Empty until startup fetch
 // completes; combobox shows just the "Any version" entry until then.

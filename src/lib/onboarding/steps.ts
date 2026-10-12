@@ -69,10 +69,10 @@ export const STEPS: ReadonlyArray<TourStep> = [
     anchor: 'right',
   },
   {
-    titleKey: 'onboarding.tour.manageInstances.title',
-    bodyKey: 'onboarding.tour.manageInstances.body',
-    targetSelector: '[data-tour="manage-btn"]',
-    anchor: 'right',
+    titleKey: 'onboarding.tour.instanceSettings.title',
+    bodyKey: 'onboarding.tour.instanceSettings.body',
+    targetSelector: '[data-tour="tab-settings"]',
+    anchor: 'below',
   },
   {
     titleKey: 'onboarding.tour.installPlay.title',

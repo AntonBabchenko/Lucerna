@@ -85,7 +85,7 @@ const baseProps = {
   installError: null,
   modsError: null,
   errors: noErrors,
-  onManage: () => {},
+  onOpenSettings: () => {},
   onExport: () => {},
   onOpenPackDrawer: () => {},
   onNavInstalled: () => {},
@@ -253,13 +253,13 @@ describe('OverviewTab', () => {
     expect(getAllByText('no runtime')).toHaveLength(1);
   });
 
-  it('sends each Configuration row to its own Manage field', async () => {
+  it('sends each Configuration row to its own Settings field', async () => {
     const seen: (string | null | undefined)[] = [];
     const { getByTestId } = render(OverviewTab, {
       props: {
         ...baseProps,
         activeInstance: fabricInst,
-        onManage: (field?: string | null) => seen.push(field),
+        onOpenSettings: (field?: string | null) => seen.push(field),
       },
     });
     await fireEvent.click(getByTestId('overview-config-header'));
@@ -271,7 +271,7 @@ describe('OverviewTab', () => {
 
   // A Configuration row's label overrides its visible text, so it has to carry
   // the current value — otherwise a screen-reader user hears "Edit Minecraft in
-  // Manage" and never learns which version is set.
+  // the instance settings" and never learns which version is set.
   it('names each Configuration row with its current value', () => {
     const { getByTestId } = render(OverviewTab, {
       props: { ...baseProps, activeInstance: fabricInst },
@@ -287,11 +287,26 @@ describe('OverviewTab', () => {
       props: {
         ...baseProps,
         activeInstance: fabricInst,
-        onManage: (field?: string | null) => seen.push(field),
+        onOpenSettings: (field?: string | null) => seen.push(field),
       },
     });
     await fireEvent.click(getByTestId('overview-integrity'));
     expect(seen).toEqual(['integrity']);
+  });
+
+  it('sends the attention panel’s version and integrity items to Settings', async () => {
+    const seen: (string | null | undefined)[] = [];
+    const { getAllByRole } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: { ...fabricInst, mc_version: '' },
+        onOpenSettings: (field?: string | null) => seen.push(field),
+      },
+    });
+    const pick = getAllByRole('button').find((b) => /version/i.test(b.textContent ?? ''));
+    expect(pick).toBeTruthy();
+    await fireEvent.click(pick as HTMLElement);
+    expect(seen).toContain('mc');
   });
 
   it('drops the secondary navigation buttons the cards used to carry', () => {
