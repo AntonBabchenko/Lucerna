@@ -87,7 +87,26 @@ describe('runChecks — mod loader install checks', () => {
   });
 });
 
+describe('runChecks — a loader Lucerna does not offer', () => {
+  it('reads loader_builds_not_offered as not installable, loader_versions_unreadable as unknown', async () => {
+    ipc.listNeoforgeLoaders.mockResolvedValue(err('loader_builds_not_offered'));
+    ipc.listForgeLoaders.mockResolvedValue(err('loader_versions_unreadable'));
+    expect((await runChecks(checkPlan('vanilla'), '26.4-snapshot-3')).install).toMatchObject({
+      neoforge: 'not_installable',
+      forge: 'unknown',
+    });
+  });
+});
+
 describe('the success cache', () => {
+  it('never remembers an install check it could not answer', async () => {
+    ipc.listForgeLoaders.mockResolvedValue(err('forge_promotions_unavailable'));
+    await runChecks(checkPlan('vanilla'), '1.21.1');
+    await runChecks(checkPlan('vanilla'), '1.21.1');
+    expect(ipc.listForgeLoaders).toHaveBeenCalledTimes(2);
+    expect(ipc.listFabricLoaders).toHaveBeenCalledTimes(1);
+  });
+
   it('serves a remembered answer without asking again, but asks for another MC', async () => {
     ipc.modsVersions.mockResolvedValue(ok([VERSION]));
     await runChecks(checkPlan('fabric'), '1.21.1');

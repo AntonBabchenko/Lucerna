@@ -1863,11 +1863,6 @@
           {quickPlayDisabledReason}
           running={selectedRunning}
           hasInstalledMods={stats.hasInstalledMods(activeInstance?.id ?? null)}
-          onManageLoader={() => {
-            manageInitialId = null;
-            manageFocus = 'loader';
-            manageOpen = true;
-          }}
         >
           {#snippet settings()}
             <InstanceSettingsTab

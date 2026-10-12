@@ -113,7 +113,6 @@ const props = {
   instanceName: 'Test',
   mcVersion: '1.20.1',
   loader: 'fabric' as const,
-  onManageLoader: () => {},
 };
 
 const IRIS = 'YL57xq9U';
@@ -216,16 +215,23 @@ describe('AddonsTab', () => {
   });
 
   it('on vanilla names the mod loaders that would work instead of offering OptiFine', async () => {
+    const { instanceSettingsNav } = await import(
+      '$lib/instances/settings/instance-settings-nav.svelte'
+    );
     vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${IRIS}:fabric`) as never);
-    const onManageLoader = vi.fn();
-    render(AddonsTab, { props: { ...props, loader: 'vanilla', onManageLoader } });
+    render(AddonsTab, { props: { ...props, loader: 'vanilla' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     expect(await screen.findByText('Fabric: Iris')).toBeTruthy();
     // 1.20.1 has a released Forge OptiFine; Oculus has no version here in this mock.
     expect(screen.getByText('Forge: OptiFine')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /OptiFine/ })).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: 'Choose a mod loader' }));
-    expect(onManageLoader).toHaveBeenCalledOnce();
+    try {
+      await fireEvent.click(screen.getByRole('button', { name: 'Choose a mod loader' }));
+      // Asks for this profile's Settings tab at the loader field.
+      expect(instanceSettingsNav.value).toEqual({ instanceId: 'i', field: 'loader' });
+    } finally {
+      instanceSettingsNav.value = null;
+    }
   });
 
   it('with no profile explains the shader loaders without offering any', async () => {

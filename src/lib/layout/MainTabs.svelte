@@ -29,7 +29,6 @@
     quickPlayDisabledReason = null,
     running = false,
     hasInstalledMods = false,
-    onManageLoader = () => {},
   }: {
     overview?: Snippet;
     /** The active instance's settings (the page renders InstanceSettingsTab, which
@@ -50,8 +49,6 @@
     running?: boolean;
     /** Forwarded to AddonsTab (sub-tab default, D10); null = not counted yet. */
     hasInstalledMods?: boolean | null;
-    /** Opens Manage profiles on the loader field (the Shaders hint's «Choose a mod loader»). */
-    onManageLoader?: () => void;
   } = $props();
 
   // A pending request for the Settings tab (instance-settings-nav) decides where
@@ -249,7 +246,6 @@
         {loader}
         {loaderVersion}
         {hasInstalledMods}
-        {onManageLoader}
       />
     {:else if active === 'worlds'}
       <WorldsTab

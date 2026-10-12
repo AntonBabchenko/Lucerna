@@ -222,14 +222,7 @@ describe('the world picker receives the library listing’s worlds at every moun
   });
 
   it('AddonsTab: the picker after a local install gets the listing’s worlds', async () => {
-    render(AddonsTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.21.1',
-        loader: 'fabric',
-      },
-    });
+    render(AddonsTab, { props: { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' } });
     await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
     await fireEvent.click(await screen.findByTestId('file-dropzone'));
     const beta = await pickerRow('Beta');
@@ -283,14 +276,7 @@ describe('a library listing that cannot be read opens no picker and says so', ()
       }
       return { status: 'ok', data: library };
     });
-    render(AddonsTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.21.1',
-        loader: 'fabric',
-      },
-    });
+    render(AddonsTab, { props: { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' } });
     await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
     await fireEvent.click(await screen.findByTestId('file-dropzone'));
     await waitFor(() => expect(warnings()).toHaveLength(1));
@@ -310,14 +296,7 @@ describe('a library listing that cannot be read opens no picker and says so', ()
         ? listingFailure
         : { status: 'ok', data: library },
     );
-    render(AddonsTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.21.1',
-        loader: 'fabric',
-      },
-    });
+    render(AddonsTab, { props: { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' } });
     await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
     await fireEvent.click(await screen.findByTestId('file-dropzone'));
     await waitFor(() => expect(warnings().length).toBeGreaterThan(0));
@@ -372,14 +351,7 @@ describe('a local reinstall whose world refresh failed says which worlds', () =>
         ],
       },
     });
-    render(AddonsTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.21.1',
-        loader: 'fabric',
-      },
-    });
+    render(AddonsTab, { props: { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' } });
     await fireEvent.click(await screen.findByRole('tab', { name: /data packs/i }));
     await fireEvent.click(await screen.findByTestId('file-dropzone'));
     await waitFor(() =>

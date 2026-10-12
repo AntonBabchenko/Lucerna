@@ -6,6 +6,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// The mod-event listeners the hint registers, so a test can fire one.
+const listeners = vi.hoisted(() => [] as Array<() => void>);
 const ipc = vi.hoisted(() => ({
   modsListInstalled: vi.fn(),
   modsVersions: vi.fn(),
@@ -18,7 +20,12 @@ vi.mock('$lib/ipc/bindings', () => ({
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
     modUninstalled: { listen: () => Promise.resolve(() => {}) },
-    modToggle: { listen: () => Promise.resolve(() => {}) },
+    modToggle: {
+      listen: (cb: () => void) => {
+        listeners.push(cb);
+        return Promise.resolve(() => {});
+      },
+    },
   },
 }));
 
@@ -172,8 +179,39 @@ describe('ShaderLoaderHint — modded profiles', () => {
   });
 });
 
+describe('ShaderLoaderHint — a failed re-read of the installed mods', () => {
+  it('keeps the last good list, so the hint stays hidden next to an installed Iris', async () => {
+    listeners.length = 0;
+    ipc.modsVersions.mockImplementation(versionsFor(`${IRIS}:fabric`));
+    ipc.modsListInstalled.mockResolvedValueOnce(
+      ok([
+        {
+          filename: 'iris.jar',
+          sha1: 'x',
+          source: 'modrinth',
+          project_id: IRIS,
+          version_id: null,
+          name: 'Iris',
+          version_number: null,
+          installed_at: '2026-10-12T00:00:00Z',
+          enabled: true,
+        },
+      ]),
+    );
+    renderHint('fabric', '1.21.1');
+    await waitFor(() => expect(ipc.modsVersions).toHaveBeenCalled());
+    await waitFor(() => expect(listeners.length).toBeGreaterThan(0));
+    // A toggle triggers a re-read, and that read fails.
+    ipc.modsListInstalled.mockResolvedValue(err('io'));
+    for (const cb of listeners) cb();
+    await waitFor(() => expect(ipc.modsListInstalled).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    await new Promise((r) => setTimeout(r, 350));
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+});
+
 describe('ShaderLoaderHint — vanilla profiles', () => {
-  it('names the mod loaders that would work and opens Manage on the loader field', async () => {
+  it('names the mod loaders that would work and asks for the loader field', async () => {
     ipc.modsVersions.mockImplementation(versionsFor(`${IRIS}:fabric`, `${IRIS}:neoforge`));
     const { h } = renderHint('vanilla', '1.21.1');
     expect(await screen.findByText('Fabric: Iris')).toBeTruthy();

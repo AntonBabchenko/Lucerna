@@ -86,7 +86,6 @@ const props = {
   instanceName: 'Test',
   mcVersion: '1.20.1',
   loader: 'fabric' as const,
-  onManageLoader: () => {},
 };
 
 describe('AddonsTab — local install busy state', () => {

@@ -246,12 +246,7 @@ beforeEach(() => markSeen('addons'));
 describe('ModBrowserTab — Browse tab is active by default (underline pattern)', () => {
   it('Browse tab has border-b-2 -mb-px border-accent text-primary font-semibold when active', () => {
     render(ModBrowserTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.20.1',
-        loader: 'fabric',
-      },
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const browseTab = screen.getByRole('tab', { name: 'Browse' });
     const cls = browseTab.className;
@@ -264,12 +259,7 @@ describe('ModBrowserTab — Browse tab is active by default (underline pattern)'
 
   it('Installed tab has border-transparent text-muted when inactive', () => {
     render(ModBrowserTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.20.1',
-        loader: 'fabric',
-      },
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const installedTab = screen.getByRole('tab', { name: 'Installed' });
     const cls = installedTab.className;
@@ -282,12 +272,7 @@ describe('ModBrowserTab — Browse tab is active by default (underline pattern)'
 
   it('both sub-tabs have aria-selected attribute', () => {
     render(ModBrowserTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.20.1',
-        loader: 'fabric',
-      },
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const tabs = screen.getAllByRole('tab');
     const subTabs = tabs.filter(
@@ -301,12 +286,7 @@ describe('ModBrowserTab — Browse tab is active by default (underline pattern)'
 
   it('sub-tab bar container has correct structural classes', () => {
     const { container } = render(ModBrowserTab, {
-      props: {
-        onManageLoader: () => {},
-        instanceId: 'inst-1',
-        mcVersion: '1.20.1',
-        loader: 'fabric',
-      },
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     // The outer flex row wrapping the sub-tab tablist and SourcePicker. Exclude
     // the content-kind switch tablist (which sits in its own row above).

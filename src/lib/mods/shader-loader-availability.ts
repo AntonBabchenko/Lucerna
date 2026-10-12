@@ -79,8 +79,14 @@ async function askInstall(target: InstallTarget, mc: string): Promise<InstallAva
     const r = await listLoaders(target, mc);
     if (r.status === 'ok') return r.data.length > 0 ? 'installable' : 'not_installable';
     // `loader_unavailable` is the list coming back empty — the picker's own
-    // "no <loader> for this Minecraft". Any other error is "could not tell".
-    return r.error.kind === 'loader_unavailable' ? 'not_installable' : 'unknown';
+    // "no <loader> for this Minecraft"; `loader_builds_not_offered` is Lucerna
+    // deliberately not offering that loader for it (e.g. NeoForge on a
+    // snapshot). Any other error — `loader_versions_unreadable` included — is
+    // "could not tell".
+    const kind = r.error.kind;
+    return kind === 'loader_unavailable' || kind === 'loader_builds_not_offered'
+      ? 'not_installable'
+      : 'unknown';
   } catch {
     // A thrown call means we could not tell.
     return 'unknown';

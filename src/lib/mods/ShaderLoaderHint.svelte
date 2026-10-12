@@ -36,16 +36,24 @@
   let installed = $state<{ instanceId: string; mods: InstalledMod[] } | null>(null);
 
   async function readInstalled(id: string) {
-    let mods: InstalledMod[] = [];
+    let mods: InstalledMod[] | null = null;
     try {
       const r = await commands.modsListInstalled(id);
       if (r.status === 'ok') mods = r.data;
     } catch {
-      // A failed read counts as "no shader loader detected" (below): the hint
-      // may then show next to an installed loader. The other way round it
-      // would hide for good on a list we never got.
+      // A thrown read is a failed read, handled below.
     }
-    if (instanceId === id) installed = { instanceId: id, mods };
+    if (instanceId !== id) return;
+    if (mods !== null) {
+      installed = { instanceId: id, mods };
+      return;
+    }
+    // A failed re-read keeps the last good list for this profile: one bad read
+    // must not tell a user who has Iris to install it. A first read that fails
+    // counts as "no shader loader detected", so the hint may show next to an
+    // installed loader; the other way round it would hide for good on a list we
+    // never got.
+    if (installed === null || installed.instanceId !== id) installed = { instanceId: id, mods: [] };
   }
 
   $effect(() => {

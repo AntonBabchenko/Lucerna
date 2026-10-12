@@ -30,7 +30,8 @@
   import { CONTENT_KINDS, canInstallContent, type InstanceContentKind } from './content-kind';
   import { IRIS_MODRINTH_PROJECT_ID, OCULUS_MODRINTH_PROJECT_ID } from './shader-loader-hint';
   import ShaderLoaderHint from './ShaderLoaderHint.svelte';
-  import { commands, events } from '$lib/ipc/bindings';
+  import { requestInstanceSettings } from '$lib/instances/settings/instance-settings-nav.svelte';
+  import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { libraryReadSucceeded, warnLibraryReadBlockedPicker } from './datapack-library-warning';
@@ -281,7 +282,6 @@
     loader,
     loaderVersion = null,
     hasInstalledMods = false,
-    onManageLoader,
   }: {
     instanceId: string | null;
     instanceName?: string | null;
@@ -292,9 +292,6 @@
      *  = not counted yet, which opens Installed too: it shows what is there — an empty list its
      *  full drop area — where Browse would guess "none". */
     hasInstalledMods?: boolean | null;
-    /** Opens Manage profiles on the loader field — the Shaders hint's «Choose a mod loader» on a
-     *  profile without one. Required, so a render site that forgets it does not compile. */
-    onManageLoader: () => void;
   } = $props();
 
   // Seed the sub-view once (D10). `untrack`: a later stats refresh must not yank the view.
@@ -688,7 +685,7 @@
       onOpenIris={openIris}
       onOpenOculus={openOculus}
       onOpenOptifine={openOptifine}
-      {onManageLoader}
+      onManageLoader={() => requestInstanceSettings(instanceId, 'loader')}
     />
   {/if}
 

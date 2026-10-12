@@ -38,7 +38,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   worlds: 'v4', // bumped 2026-08-12 — the row now opens the Backups | Datapacks dialog
   servers: 'v2', // bumped 2026-07-10 — the modal became the servers mode; steps re-anchored
   serverManage: 'v3', // bumped 2026-07-31 — step 1 re-anchored to the sidebar Start/Stop
-  addons: 'v2', // bumped 2026-08-12 — 4th kind (datapacks) + new library step; subtabs copy corrected. NOT bumped 2026-09-29 for the (i)-pointer copy or the Browse-only subtabs clause (see STEPS_FINGERPRINT)
+  addons: 'v2', // bumped 2026-08-12 — 4th kind (datapacks) + new library step; subtabs copy corrected. NOT bumped 2026-09-29 for the (i)-pointer copy or the Browse-only subtabs clause, nor 2026-10-12 for the shader-loader promise (see STEPS_FINGERPRINT)
   serverAddons: 'v1', // added 2026-08-12 — server Add-ons tab: kinds + drag-and-drop install
   l10n: 'v1', // added 2026-08-12 — mod-localization surface: coverage, find-string, actions
   overview: 'v1', // added 2026-08-12 — points at the localization row on the instance Overview
@@ -99,7 +99,11 @@ export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
   // users learn of the (i) from the changelog); and the source picker shows on
   // Browse only now, so the subtabs step says so (one clause scoped, nothing new
   // to show a user who has seen v2).
-  addons: '2f654ce8',
+  // Moved again 2026-10-12, copy-only, not bumped: kindSwitch promised Lucerna
+  // always points to the right shader loader; the version-aware hint can say
+  // none fits, so the step now says that too (a false promise fixed, nothing new
+  // to show a user who has seen v2).
+  addons: '5923dce3',
   serverAddons: '5c634610',
   l10n: '49ee796e',
   overview: 'bbc47533',

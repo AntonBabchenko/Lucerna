@@ -21,6 +21,8 @@ vi.mock('$lib/ipc/bindings', () => ({
       .fn()
       .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, page_size: 20 } }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // The Shaders tab's shader-loader hint asks which loaders have a version.
+    modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
     instanceDependencyPreflight: vi
@@ -78,9 +80,7 @@ describe('AddonsTab manual asset install', () => {
     vi.mocked(commands.assetInstallLocal)
       .mockResolvedValueOnce({ status: 'ok', data: null } as never)
       .mockResolvedValueOnce({ status: 'error', error: 'boom' } as never);
-    render(AddonsTab, {
-      props: { onManageLoader: () => {}, instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
-    });
+    render(AddonsTab, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     await fireEvent.click(screen.getByTestId('file-dropzone'));
     await waitFor(() => {
@@ -102,9 +102,7 @@ describe('AddonsTab manual asset install', () => {
   });
 
   it('consumes a droppedAssets payload matching the active kind', async () => {
-    render(AddonsTab, {
-      props: { onManageLoader: () => {}, instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
-    });
+    render(AddonsTab, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     const s = await import('$lib/settings/state.svelte');
     s.droppedAssets.value = { kind: 'shader', paths: ['/x/BSL.zip'] };
@@ -119,9 +117,7 @@ describe('AddonsTab manual asset install', () => {
   });
 
   it('the dropzone is disabled when no instance is selected', async () => {
-    render(AddonsTab, {
-      props: { onManageLoader: () => {}, instanceId: null, mcVersion: null, loader: null },
-    });
+    render(AddonsTab, { props: { instanceId: null, mcVersion: null, loader: null } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     const zone = screen.getByTestId('file-dropzone');
     expect(zone.getAttribute('aria-disabled')).toBe('true');
