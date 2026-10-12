@@ -156,7 +156,7 @@
       {#if preview.mods.length === 0}
         <!-- Export is disabled below for exactly this reason; say so. The
              Overview hides its entry point for a mod-less instance, but the
-             Manage row menu cannot know the count before opening. -->
+             sidebar row menu cannot know the count before opening. -->
         <p class="text-sm text-warning-text" role="status" data-testid="export-nothing">
           {$t('modpacks.export.nothingToExport')}
         </p>

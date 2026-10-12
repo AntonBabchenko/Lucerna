@@ -951,7 +951,8 @@
     {/if}
     {#if coverage && coverage.namespaces.length > 0}
       <!-- Mounted only once coverage resolved non-empty: the modal is reachable
-           from Manage → Translations for a zero-mod instance, where the tour
+           from the Settings tab and the sidebar row menu for a zero-mod
+           instance, where the tour
            would burn its one shot teaching percentages over an empty state.
            Inside the Modal, which hosts it in the layer stack
            (layer-stack.svelte.ts): PrefillDialog or any other sub-dialog

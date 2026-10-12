@@ -146,7 +146,7 @@ export async function finishOrSkip(): Promise<boolean> {
 
 export function replayTour(): void {
   // Replay restarts the main tour AND re-arms the per-surface contextual
-  // tours — otherwise the Logs/Manage/Modpacks/Worlds tours stay suppressed
+  // tours — otherwise the Logs/Settings/Modpacks/Worlds tours stay suppressed
   // by their localStorage flags and never reappear.
   resetAllContextualTours();
   // The main tour's anchors (instance picker, play button, modpacks) exist

@@ -66,9 +66,8 @@
   // the committed option when no filter is set (value === '').
   const anyOptionId = `${listboxId}-any`;
 
-  // Snapshots / pre-releases would bury the stable list. The Manage
-  // modal already excludes them from the version picker — same call
-  // here.
+  // Snapshots / pre-releases would bury the stable list. The Settings
+  // tab's version picker already excludes them — same call here.
   const releases = $derived(
     mcVersions.value.filter((v) => v.version_type === 'release').map((v) => v.id),
   );

@@ -209,7 +209,7 @@ export const datapacksChanged = $state<{ value: number }>({ value: 0 });
 
 // Mojang's Minecraft version list — fetched once at app startup
 // (+page.svelte onMount) and consumed by both the McVersionCombobox in
-// the mod / modpack browsers and the Manage modal's version picker.
+// the mod / modpack browsers and the Settings tab's version picker.
 // Stored in a rune so the leaf components don't need a 3+ level prop
 // drill through MainTabs / ModpacksTab. Empty until startup fetch
 // completes; combobox shows just the "Any version" entry until then.

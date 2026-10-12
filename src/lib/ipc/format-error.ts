@@ -727,7 +727,7 @@ export function formatError(e: IpcError): string {
       return translate('errors.instanceDirLocked', { name: e.name });
     case 'path_not_launchable':
       // Two remedies, two messages: rename the instance folder, or move the
-      // data root. Same distinction the Manage banner draws.
+      // data root. Same distinction the Settings tab's folder row draws.
       return e.data_root
         ? translate('errors.pathNotLaunchableDataRoot')
         : translate('errors.pathNotLaunchableInstance');

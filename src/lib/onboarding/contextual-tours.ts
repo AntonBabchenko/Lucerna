@@ -365,7 +365,7 @@ export const SERVER_ADDONS_STEPS: ReadonlyArray<TourStep> = [
 ];
 
 // Mod-localization surface. Mounted gated on the coverage fetch resolving
-// non-empty, so a zero-mod instance (reachable via Manage → Translations)
+// non-empty, so a zero-mod instance (reachable via Settings → Translations)
 // never burns the tour over the empty state — its first step anchors the
 // coverage list, which is exactly what an empty result does not render.
 export const L10N_STEPS: ReadonlyArray<TourStep> = [
