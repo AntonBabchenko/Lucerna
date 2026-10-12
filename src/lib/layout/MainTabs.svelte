@@ -23,6 +23,7 @@
     quickPlayDisabledReason = null,
     running = false,
     hasInstalledMods = false,
+    onManageLoader = () => {},
   }: {
     overview?: Snippet;
     instanceId?: string | null;
@@ -40,6 +41,8 @@
     running?: boolean;
     /** Forwarded to AddonsTab (sub-tab default, D10); null = not counted yet. */
     hasInstalledMods?: boolean | null;
+    /** Opens Manage profiles on the loader field (the Shaders hint's «Choose a mod loader»). */
+    onManageLoader?: () => void;
   } = $props();
 
   let active = $state<Tab>('overview');
@@ -192,6 +195,7 @@
         {loader}
         {loaderVersion}
         {hasInstalledMods}
+        {onManageLoader}
       />
     {:else if active === 'worlds'}
       <WorldsTab
