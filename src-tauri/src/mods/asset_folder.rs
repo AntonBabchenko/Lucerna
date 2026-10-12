@@ -282,38 +282,17 @@ where
         });
     }
     if meta.is_dir() {
-        let owned = path.to_path_buf();
-        // The thread may panic (the `trash` crate unwraps a COM call on
-        // Windows): that is a failed removal, never a crashed command.
-        return match tokio::task::spawn_blocking(move || recycle(owned)).await {
-            Ok(result) => result
-                .map(|()| Removed::Folder)
-                .map_err(|e| io_err(path, e)),
-            Err(join) => Err(io_err(path, std::io::Error::other(join.to_string()))),
-        };
+        // Off the executor; a panicking move is a failed removal, never a
+        // crashed command (`off_thread`).
+        return crate::platform::recycle_bin::off_thread(path.to_path_buf(), recycle)
+            .await
+            .map(|()| Removed::Folder)
+            .map_err(|e| io_err(path, e));
     }
     match fs::remove_file(path).await {
         Ok(()) => Ok(Removed::File),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Removed::Nothing),
         Err(e) => Err(io_err(path, e)),
-    }
-}
-
-/// Move `path` to the OS recycle bin. On macOS through `NSFileManager`: the
-/// crate's default asks Finder through an `osascript` process, which may prompt
-/// for Automation permission and is not a process PRINCIPLES Appendix A lists.
-pub fn to_recycle_bin(path: PathBuf) -> std::io::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        use trash::macos::{DeleteMethod, TrashContextExtMacos};
-        let mut ctx = trash::TrashContext::default();
-        ctx.set_delete_method(DeleteMethod::NsFileManager);
-        ctx.delete(&path)
-            .map_err(|e| std::io::Error::other(e.to_string()))
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        trash::delete(&path).map_err(|e| std::io::Error::other(e.to_string()))
     }
 }
 

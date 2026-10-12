@@ -4,8 +4,9 @@
 //! Boundary: subprocess spawning stays in `process::` (the documented
 //! chokepoint — Windows `taskkill` is a subprocess and lives there). This
 //! module owns the NON-subprocess OS calls (chmod, POSIX signals, Win32
-//! window detection) plus the dispatch entry points the launcher calls.
-//! Enforced by `tests/structural_platform_chokepoint.rs`.
+//! window detection, recycle-bin moves) plus the dispatch entry points the
+//! launcher calls. Enforced by `tests/structural_platform_chokepoint.rs`
+//! (and, for the recycle bin, `tests/structural_no_raw_spawn.rs`).
 
 pub mod encoding;
 pub mod gpu;

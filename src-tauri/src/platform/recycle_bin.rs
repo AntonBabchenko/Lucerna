@@ -17,8 +17,20 @@ pub fn to_recycle_bin(path: PathBuf) -> std::io::Result<()> {
         .map_err(|e| std::io::Error::other(e.to_string()))
 }
 
+/// Exactly one cfg arm compiles per target, each the function's tail
+/// expression.
 fn context() -> trash::TrashContext {
-    trash::TrashContext::new()
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        let mut ctx = trash::TrashContext::new();
+        ctx.set_delete_method(DeleteMethod::NsFileManager);
+        ctx
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        trash::TrashContext::new()
+    }
 }
 
 /// Run a recycle-bin move on the blocking pool. A panic in it (the `trash`
@@ -27,7 +39,9 @@ pub async fn off_thread<F>(path: PathBuf, recycle: F) -> std::io::Result<()>
 where
     F: FnOnce(PathBuf) -> std::io::Result<()> + Send + 'static,
 {
-    recycle(path)
+    tokio::task::spawn_blocking(move || recycle(path))
+        .await
+        .unwrap_or_else(|join| Err(std::io::Error::other(join.to_string())))
 }
 
 #[cfg(test)]

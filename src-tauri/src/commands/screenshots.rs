@@ -63,14 +63,16 @@ pub async fn screenshot_preview(
     .map_err(|e| crate::error::Error::io("<screenshot_preview>", format!("join: {e}")))?
 }
 
+// Async: the recycle-bin move runs on the blocking pool, never on the main
+// thread a sync command would hold (on macOS it once waited there on Finder).
 #[tauri::command]
 #[specta::specta]
-pub fn delete_screenshot(
+pub async fn delete_screenshot(
     app: tauri::AppHandle,
     instance_id: String,
     file_name: String,
 ) -> Result<(), crate::error::Error> {
-    crate::screenshots::delete_screenshot(&app, &instance_id, &file_name)
+    crate::screenshots::delete_screenshot(&app, &instance_id, &file_name).await
 }
 
 /// Copy a screenshot to a destination the user picked in the save dialog.
