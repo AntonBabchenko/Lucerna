@@ -272,8 +272,8 @@ pub const INLINE_PATTERNS: &[Pattern] = &[
         explanation: "Java refused to start because one of the custom JVM arguments \
              isn't recognized — often a typo or a flag from a different Java \
              version.",
-        recommendation: "Open the instance's Java settings and fix or remove the argument \
-             named in this line.",
+        recommendation: "Open the instance's Settings tab and fix or remove the argument \
+             this line names in Extra JVM args.",
         source_hint: SourceHint::Any,
         side: Side::Any,
     },

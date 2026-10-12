@@ -142,11 +142,9 @@ pub const PATTERNS: &[Pattern] = &[
         id: "java-version-too-old",
         matcher: Matcher::Regex(&JAVA_VERSION_RE),
         title: "Java version is too old for this modpack",
-        explanation:
-            "One of your mods was built for a newer version of Java than the instance is \
+        explanation: "One of your mods was built for a newer version of Java than the instance is \
              currently running. Minecraft launched the game, but the mod's classes failed to load.",
-        recommendation:
-            "Bump the instance's Minecraft version under Manage → Minecraft version — newer \
+        recommendation: "Bump the instance's Minecraft version on its Settings tab — newer \
              MC versions install a newer JRE automatically. If your modpack is locked to this \
              MC version, the mod itself likely needs an update from its author.",
         source_hint: SourceHint::Any,
@@ -175,8 +173,8 @@ pub const PATTERNS: &[Pattern] = &[
              classpath. This usually means the instance was created vanilla and Fabric wasn't \
              chosen, or the loader install failed.",
         recommendation:
-            "Open Manage for this instance, set the loader to Fabric, pick a loader version, and \
-             let the launcher reinstall before launching.",
+            "Open the instance's Settings tab, set the loader to Fabric, pick a loader version, \
+             and let the launcher reinstall before launching.",
         source_hint: SourceHint::LauncherStdout,
         side: Side::Client,
     },
@@ -202,8 +200,7 @@ pub const PATTERNS: &[Pattern] = &[
         // failure. server_mods.rs parses the mod-ids from whichever appears.
         matcher: Matcher::Regex(&SERVER_MISSING_MODS_RE),
         title: "The server needs mods you don't have",
-        explanation:
-            "The server rejected the connection because your client is missing mods it \
+        explanation: "The server rejected the connection because your client is missing mods it \
              requires, or has them at the wrong version. Minecraft listed them before \
              disconnecting.",
         recommendation:
@@ -243,7 +240,7 @@ pub const PATTERNS: &[Pattern] = &[
             "The instance's allotted memory (heap) wasn't enough — typical for heavy modpacks or \
              when many chunks are loaded.",
         recommendation:
-            "Open Manage for this instance, raise the Max heap value (try 4096 MB for a vanilla-ish \
+            "Open the instance's Settings tab, raise its memory (try 4096 MB for a vanilla-ish \
              modpack, 6144 MB or more for heavy packs), then try again. Don't exceed half of your \
              system RAM.",
         source_hint: SourceHint::Any,
@@ -285,12 +282,10 @@ pub const PATTERNS: &[Pattern] = &[
         // crash — but the log fills with this error and the overlay flickers.
         matcher: Matcher::Substring("Error rendering overlay 'create:goggle_info'"),
         title: "Create goggles are spamming errors",
-        explanation:
-            "While wearing Create goggles and looking at a mob or other entity, a Create \
+        explanation: "While wearing Create goggles and looking at a mob or other entity, a Create \
              add-on (The Factory Must Grow / Big Cannons) throws an error every frame. The \
              game keeps running, but the log fills up and the goggle overlay flickers.",
-        recommendation:
-            "Lucerna can install a small community fix mod that resolves this. It's a \
+        recommendation: "Lucerna can install a small community fix mod that resolves this. It's a \
              third-party mod, not an official patch — review it before installing.",
         source_hint: SourceHint::GameLog,
         side: Side::Client,

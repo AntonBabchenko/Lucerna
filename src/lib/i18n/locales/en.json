@@ -235,7 +235,6 @@
     "noInstancesFallback": "Your instances are in the data folder, which is unavailable right now.",
     "createInstance": "+ Create",
     "pickMcVersion": "(pick MC)",
-    "manage": "Manage",
     "mods": "Mods folder",
     "plugins": "Plugins folder",
     "stop": "Stop",
@@ -275,7 +274,6 @@
       "body": "{label} will be removed from the sidebar. You can restore it in Settings under Appearance.",
       "confirm": "Hide"
     },
-    "manageInstanceLabel": "Manage {name}",
     "accountRequired": {
       "title": "Add an account first",
       "body": "You need an account to launch the game, so this button can't be hidden yet. Add an account, then you can hide it.",
@@ -296,16 +294,6 @@
   },
   "instance": {
     "manage": {
-      "title": "Manage Instances",
-      "closeLabel": "Close manage instances",
-      "activeBadge": "Active",
-      "pickMc": "(pick MC)",
-      "newInstanceBtn": "+ New instance",
-      "filterPlaceholder": "Filter instances…",
-      "filterNoMatches": "No instances match.",
-      "listRegionLabel": "Instances",
-      "resizeList": "Resize the instance list",
-      "iconReady": "Assets downloaded",
       "iconDownloadNeeded": "Download needed",
       "createHeading": "New instance",
       "nameLabel": "Name",
@@ -320,7 +308,6 @@
       "folderRenameUnusable": "This name leaves nothing usable — try adding some Latin letters.",
       "folderRenameShortcutWarning": "Desktop shortcuts to this instance created before now may stop working.",
       "folderRenameConfirm": "Rename",
-      "folderRenamed": "Folder renamed",
       "folderBrokenTitle": "This instance will not launch",
       "folderBrokenBody": "Its folder name contains characters Java cannot read on this system. Rename the folder to fix it.",
       "folderBrokenFix": "Fix folder name",
@@ -335,13 +322,11 @@
       "createBtn": "Create",
       "createdActiveToast": "Created {name} and switched to it",
       "saved": "Saved",
-      "closeBtn": "Close",
       "openFolderBtn": "Open folder",
       "importedFromLabel": "Imported from {launcher}",
       "fromServerLabel": "Created from server {name}",
       "openSourceFolderBtn": "Open source folder",
       "deleteBtn": "Delete instance",
-      "emptyState": "Pick an instance on the left, or click + New instance.",
       "memoryLabel": "Memory (max heap): {value}",
       "memoryWarnHigh": "Allocating more than {recommended} may leave little memory for the OS and Minecraft itself.",
       "memoryInputLabel": "Memory in MiB",
@@ -381,7 +366,7 @@
         "statusNewer": "Java {found} is newer than the Java {required} this Minecraft version was made for. It usually works; if the game crashes on start, switch back to Lucerna's Java.",
         "statusNewerLegacy": "Java {found} is newer than Java 8. Vanilla may start, but Forge for this version will not.",
         "statusUnknown": "This instance isn't installed yet, so the Java it needs is unknown. Lucerna checks it at launch.",
-        "gpuNote": "The graphics card choice in Settings applies to Lucerna's Java only. For this Java, set it in Windows Settings → System → Display → Graphics.",
+        "gpuNote": "The graphics card choice in Lucerna's Settings → Game applies to Lucerna's Java only. For this Java, set it in Windows Settings → System → Display → Graphics.",
         "fileFilter": "Java executable",
         "savedMark": "Saved"
       }
@@ -453,7 +438,7 @@
       "loaderUpdated": "{loader} updated to {version} for Minecraft {mc}",
       "loaderResetToVanilla": "No {loader} build for Minecraft {mc} — loader reset to Vanilla",
       "compatWarning": "{incompatible} of {total} installed mods have no version for this configuration. Review in the Mods tab.",
-      "vanillaModsWarning": "No mod loader selected — {count} installed mods will not load. Pick a loader in profile management.",
+      "vanillaModsWarning": "No mod loader selected — {count} installed mods will not load. Pick a loader on the instance's Settings tab.",
       "heading": "Integrity",
       "subtitle": "Verify the instance's game files against their checksums.",
       "verifyBtn": "Verify",
@@ -795,7 +780,7 @@
       "errorRetry": "Reload",
       "allInstalledOnPage": "Every mod on this page is already installed. Use the pager to see more, or turn on “Show installed”.",
       "vanillaHeading": "This instance is vanilla Minecraft",
-      "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance via the Manage panel in the sidebar.",
+      "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, pick Fabric, Quilt, Forge or NeoForge on this instance's Settings tab, or make an instance with one from New instance in the sidebar.",
       "errorNoInstance": "No active instance",
       "errorNoCompatibleVersion": "No compatible version found",
       "errorNoVersionForMc": "{mod} has no version for Minecraft {mcVersion} (instance “{profile}”). Latest supported: {list}",
@@ -1895,7 +1880,7 @@
         "javaVersionTooOld": {
           "title": "Java version is too old for this instance",
           "explanation": "One of your mods was built for a newer version of Java than the instance is currently running. Minecraft launched the game, but the mod's classes failed to load.",
-          "recommendation": "Bump the instance's Minecraft version under Manage → Minecraft version — newer MC versions install a newer JRE automatically. If your modpack is locked to this MC version, the mod itself likely needs an update from its author."
+          "recommendation": "Bump the instance's Minecraft version on its Settings tab — newer MC versions install a newer JRE automatically. If your modpack is locked to this MC version, the mod itself likely needs an update from its author."
         },
         "modResolutionConflict": {
           "title": "Two mods conflict with each other",
@@ -1905,7 +1890,7 @@
         "fabricLoaderMissingMain": {
           "title": "Fabric loader wasn't installed for this instance",
           "explanation": "The launcher asked Java to start Fabric, but the Fabric loader files aren't on the classpath. This usually means the instance was created vanilla and Fabric wasn't chosen, or the loader install failed.",
-          "recommendation": "Open Manage for this instance, set the loader to Fabric, pick a loader version, and let the launcher reinstall before launching."
+          "recommendation": "Open the instance's Settings tab, set the loader to Fabric, pick a loader version, and let the launcher reinstall before launching."
         },
         "corruptModJar": {
           "title": "A mod file is corrupt",
@@ -1915,7 +1900,7 @@
         "outOfMemory": {
           "title": "Minecraft ran out of memory",
           "explanation": "The instance's allotted memory (heap) wasn't enough — typical for heavy modpacks or when many chunks are loaded.",
-          "recommendation": "Open Manage for this instance, raise the Max heap value (try 4096 MB for a vanilla-ish modpack, 6144 MB or more for heavy packs), then try again. Don't exceed half of your system RAM."
+          "recommendation": "Open the instance's Settings tab, raise its memory (try 4096 MB for a vanilla-ish modpack, 6144 MB or more for heavy packs), then try again. Don't exceed half of your system RAM."
         },
         "portAlreadyInUse": {
           "title": "Network port is already taken",
@@ -2005,7 +1990,7 @@
         "badJvmArg": {
           "title": "A custom Java argument is invalid",
           "explanation": "Java refused to start because one of the custom JVM arguments isn't recognized — often a typo or a flag from a different Java version.",
-          "recommendation": "Open the instance's Java settings and fix or remove the argument named in this line."
+          "recommendation": "Open the instance's Settings tab and fix or remove the argument this line names in Extra JVM args."
         },
         "nativesLinkError": {
           "title": "A native library failed to load",
@@ -2277,12 +2262,6 @@
         "titleBasic": "Pick an instance",
         "bodyBasic": "An instance is one Minecraft setup of its own. Lucerna gives you one to start, called Default. This menu picks which instance is active, so the Play button, your mods, and your logs all follow the one you choose."
       },
-      "manageInstances": {
-        "title": "Manage your instances",
-        "body": "Manage is where you set an instance's Minecraft version and loader, tweak memory and JVM arguments, and create, rename or delete instances. A new instance starts with no version. Pick one here before you can play.",
-        "titleBasic": "Set up your instances",
-        "bodyBasic": "Manage is where you choose an instance's Minecraft version and its mod system, change how much memory it uses, and create, rename, or delete instances. A brand-new instance has no version yet. Pick one here before you can play."
-      },
       "installPlay": {
         "title": "Install, then Play",
         "body": "The first click downloads Minecraft and your chosen loader, once per version, then verifies every asset and library against Mojang's hashes. After that the button reads Play, and Stop while the game runs. Once an instance is ready and has saved worlds, hover Play to jump straight into one.",
@@ -2309,32 +2288,6 @@
       }
     },
     "contextual": {
-      "manage": {
-        "yourInstances": {
-          "title": "Your instances",
-          "body": "Each row is one instance. Click a row to edit it, or hit \"+ New instance\" below to add one.",
-          "titleBasic": "Your instances",
-          "bodyBasic": "Each row is one instance. Click a row to change it, or use \"+ New instance\" below to add one."
-        },
-        "editAndSave": {
-          "title": "Edit and save",
-          "body": "Name, MC version, loader, memory, and JVM args live here. Done saves and closes.",
-          "titleBasic": "Change and save",
-          "bodyBasic": "Here you set the name, Minecraft version, mod system, memory, and some advanced options. Done saves your changes and closes this window."
-        },
-        "openFolderDelete": {
-          "title": "Open folder, delete",
-          "body": "Open folder jumps to the instance's directory on disk. Delete wipes the instance and all its files, after a confirmation.",
-          "titleBasic": "Open folder, delete",
-          "bodyBasic": "Open folder shows the instance's files on your computer. Delete removes the instance and everything in it, and asks you to confirm first."
-        },
-        "verifyRepair": {
-          "title": "Verify and repair",
-          "body": "Verify checks this instance's files (client jar, libraries, assets, Java runtime, profile) against Mojang's hashes. If anything is missing or corrupt, Repair re-downloads just the bad files.",
-          "titleBasic": "Check the files",
-          "bodyBasic": "Verify checks that this instance's files are all present and intact. If something is missing or broken, Repair downloads just the parts that need fixing."
-        }
-      },
       "logs": {
         "threeLogSources": {
           "title": "Three log sources",
@@ -2718,7 +2671,7 @@
     "instanceDirNameTaken": "A folder named {name} already exists.",
     "instanceDirNameReserved": "{name} is a name Windows reserves for devices.",
     "instanceDirLocked": "The folder {name} is open in another program (Explorer, for example). Close it and try again.",
-    "pathNotLaunchableInstance": "This instance will not launch: its folder name contains characters Java cannot read on this system. Rename the folder in Manage to fix it.",
+    "pathNotLaunchableInstance": "This instance will not launch: its folder name contains characters Java cannot read on this system. Rename the folder on the instance's Settings tab to fix it.",
     "pathNotLaunchableDataRoot": "This instance will not launch: the data folder path contains characters Java cannot read on this system. The data folder has to move.",
     "mcLogsUpload": "Couldn't upload log to mclo.gs",
     "modsNetwork": "Couldn't reach the mod service — check your internet connection (or VPN / antivirus).",
@@ -3055,7 +3008,6 @@
           "description": "Hide buttons you don't use. Applies in both normal and compact mode.",
           "skin": "Skin and cape",
           "accountActions": "Add account",
-          "manage": "Manage",
           "mods": "Mods folder",
           "quickJoin": "Servers",
           "browseModpacks": "Browse modpacks",
@@ -3357,7 +3309,7 @@
       "modelHintCloudNamed": "Leave this empty to use {model}.",
       "getKey": "Get a key",
       "localExpects": "Expects an OpenAI-compatible server on 127.0.0.1 at this port — Ollama listens on 11434 by default.",
-      "usedFrom": "Used from Overview → Mod translations and from Manage → Translations."
+      "usedFrom": "Used from Overview → Mod translations and from an instance's Settings tab → Translations."
     },
     "curseforge": {
       "statusLabel": "Status:",
@@ -3532,8 +3484,8 @@
       "statsProblems": "Problems:",
       "statsUpdates": "Updates:",
       "exportModpack": "Export modpack…",
-      "openManageAria": "Open Manage for this instance",
-      "editFieldAria": "Edit {field} in Manage — currently {value}",
+      "openManageAria": "Open this instance's settings",
+      "editFieldAria": "Edit {field} in the instance settings — currently {value}",
       "openInstalledAria": "Open the installed mods list",
       "openBrowseAria": "Open the mod browser",
       "sectionPlaytime": "Playtime",
