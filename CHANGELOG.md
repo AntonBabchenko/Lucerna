@@ -23,10 +23,24 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **A folder button for every kind of add-on.** Add-ons shows "Mods folder",
+  "Resource packs folder", "Shaders folder" or "Data packs folder" above the
+  list, beside the source picker while browsing; the data packs one opens the
+  profile's library.
+- **Packs you put in a folder yourself show up.** Resource packs and shaders
+  dropped into their folder, zipped or unpacked, are listed and can be removed
+  (an unpacked one goes to the recycle bin), and an Installed list re-reads
+  itself when you come back to the launcher.
 - **Run an instance on your own Java.** Advanced → Java on the instance's
-  Settings tab lists the Javas found on this computer and has a Browse button. Lucerna checks the
-  chosen Java before every launch and refuses one that cannot run the game,
-  saying why, rather than starting it on its own Java instead.
+  Settings tab lists the Javas found on this computer and has a Browse button.
+  Lucerna checks the chosen Java before every launch and refuses one that
+  cannot run the game, saying why, rather than starting it on its own Java
+  instead.
+- **One Java for every instance on a Java version, and a Java for servers.**
+  Settings → Game → Java picks the Java that instances and own servers needing
+  each Java version run on, and a server's settings can pick its own. When
+  Lucerna can't get its Java for a version, it offers a Java found on this
+  computer instead, for that instance or for every instance on that version.
 
 ### Changed
 
@@ -39,6 +53,27 @@ behaviour is worth knowing, it is stated as a property of the feature under
   much of a partly translated one is done; System switches to the system's
   language once at least 90% of it is translated, where it used to know only
   Russian.
+
+### Fixed
+
+- **Import, clone and export say when a folder is a link.** A content folder
+  that is really a symbolic link or junction (XMCL's shared resource packs, or
+  one made with `mklink`) is marked with where it points; the files it points
+  to are what gets copied, or packed into the modpack.
+- **A folder that can't be read is shown instead of quietly skipped.** Import,
+  clone and export now list such a folder, or a link whose folder is gone, with
+  the reason, and don't copy it.
+- **A broken link to the mods folder no longer erases the mod list.** If the
+  mods folder linked to a place that was missing, such as an unplugged drive,
+  the launcher forgot where every mod came from; it now reports the broken link
+  and keeps the list.
+- **A pack deleted from its folder by hand leaves the list, and one still on
+  disk stays in it.** Removing or updating a pack the running game holds open
+  now says the file stayed instead of dropping its row, and packs a modpack
+  update installs are listed too.
+- **A folder in the data pack library is named instead of ignored.** The library
+  takes zip files only, and the Installed list now says which folders it cannot
+  use.
 
 ## [0.27.0] — 2026-10-09
 

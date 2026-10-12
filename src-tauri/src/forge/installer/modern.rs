@@ -114,8 +114,10 @@ pub async fn install(
     //    FART consumes {MINECRAFT_JAR}; FART + DOWNLOAD_MOJMAPS both need
     //    the JRE on disk + a working network for the Mojang manifest.
     let vanilla_jre_component;
+    let vanilla_major;
     {
         let vanilla_details = crate::versions::install::ensure_version_json(mc, app).await?;
+        vanilla_major = crate::java::required_major(&vanilla_details);
         vanilla_jre_component = vanilla_details
             .java_version
             .as_ref()
@@ -134,7 +136,21 @@ pub async fn install(
         // builds no install report.
         let _ = crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
     }
-    crate::jre::ensure_jre(&vanilla_jre_component, app, |_, _, _| {}).await?;
+    // The processors write the shared libraries cache and their output is not
+    // checksummed, so they run on Lucerna's runtime only — never on a Java the
+    // user chose. When that runtime cannot be had, the error says this step
+    // needed it (spec 2026-10-11-custom-java §7.1).
+    crate::jre::ensure_jre(&vanilla_jre_component, app, |_, _, _| {})
+        .await
+        .map_err(|e| {
+            crate::jre::unavailable(
+                e,
+                &vanilla_jre_component,
+                vanilla_major,
+                crate::error::JreStage::InstallerTools,
+                app,
+            )
+        })?;
     let java_bin = crate::jre::java_executable_path(&vanilla_jre_component, app)?;
 
     // 5. Extract maven/ subtree from installer (the shim jar for modern era).

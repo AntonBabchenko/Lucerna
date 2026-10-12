@@ -301,7 +301,8 @@
     }
     const r = await commands.assetsList(reqId, kind);
     if (instanceId !== reqId || r.status !== 'ok') return;
-    installedAssets = r.data;
+    // Folder packs carry no project to match a card against: the badges read the files only.
+    installedAssets = r.data.files;
   }
 
   // The datapack twin of `installedAssets`: library entries (registry ∪

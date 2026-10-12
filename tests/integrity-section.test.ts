@@ -93,4 +93,25 @@ describe('IntegritySection', () => {
     });
     expect((getByRole('button', { name: /Repair/ }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  // A Java the user chose is not Lucerna's to check (spec 2026-10-11
+  // custom-java §7): the section says it is checked at launch instead of
+  // passing it over in silence.
+  it("says a Java of the instance's own is checked at every launch", () => {
+    const { getByTestId } = render(IntegritySection, {
+      props: {
+        instanceId: 'inst-1',
+        name: 'Inst',
+        java: { kind: 'custom', path: '/opt/jdk-21/bin/java' },
+      },
+    });
+    expect(getByTestId('integrity-own-java').textContent).toMatch(/checked at every launch/);
+  });
+
+  it("says nothing of the kind for Lucerna's Java", () => {
+    const { queryByTestId } = render(IntegritySection, {
+      props: { instanceId: 'inst-1', name: 'Inst', java: { kind: 'bundled' } },
+    });
+    expect(queryByTestId('integrity-own-java')).toBeNull();
+  });
 });

@@ -112,6 +112,8 @@ function makeServer(overrides: Partial<ServerWithStatus> = {}): ServerWithStatus
     upload_password_set: false,
     last_exit_code: null,
     diagnosis_status: 'none',
+    java: null,
+    java_major: null,
     ...overrides,
   };
 }

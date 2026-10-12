@@ -3,6 +3,7 @@ pub mod cancel_registry;
 pub mod cli;
 pub mod close;
 mod commands;
+pub mod content_root;
 pub mod data_root;
 pub mod datapacks;
 pub mod deeplink;
@@ -104,6 +105,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::execute_repair,
             commands::share_log_to_mclogs,
             commands::open_mods_folder,
+            commands::open_addon_folder,
             commands::mods_reveal_file,
             commands::list_worlds,
             commands::list_world_names,
@@ -167,6 +169,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::instance_java_requirement,
             commands::java_detect,
             commands::java_check,
+            commands::java_required_majors,
+            commands::set_java_default,
+            commands::ensure_instance_jre,
             commands::instance_memory_bounds,
             commands::detach_instance_pack,
             commands::open_instance_folder,
@@ -288,6 +293,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_delete,
             commands::server_rename,
             commands::server_update_runtime_config,
+            commands::server_set_java,
             // Own server (Plan 2: process management):
             commands::server_start,
             commands::server_stop,

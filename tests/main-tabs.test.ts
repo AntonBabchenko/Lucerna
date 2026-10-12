@@ -37,7 +37,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     assetInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } }),
     // The world-list commands that used to be stubbed here are gone with the
     // real WorldsTab: it is replaced by the prop-capturing stub below, so
     // nothing in this file reaches them any more.

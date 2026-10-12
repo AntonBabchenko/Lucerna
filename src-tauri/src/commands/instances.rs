@@ -21,7 +21,12 @@ pub async fn install_instance(
 ) -> Result<Vec<crate::tasks::TaskDetail>, crate::error::Error> {
     crate::data_root::reject_if_root_unusable(&app)?;
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-    crate::versions::install_version(&effective_id, &app).await
+    crate::versions::install_version(
+        &effective_id,
+        &app,
+        crate::versions::JreFor::Instance(&instance_id),
+    )
+    .await
 }
 
 /// Launch the given instance. Assumes it is already installed (the UI
@@ -676,10 +681,53 @@ pub async fn open_mods_folder(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<(), crate::error::Error> {
-    use tauri_plugin_opener::OpenerExt;
     let dir = crate::paths::mods_dir(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<mods_dir>", e))?;
-    tokio::fs::create_dir_all(&dir)
+    open_dir(&app, &dir).await
+}
+
+/// The folder the Add-ons tab's «<Kind> folder» button opens: the three
+/// `.minecraft` content folders, and for data packs the instance's library —
+/// the folder the Installed list shows — never a world's `datapacks/`. A
+/// client instance has no plugins folder.
+pub(crate) fn addon_folder(
+    instance_root: &std::path::Path,
+    kind: crate::mods::platform::ContentKind,
+) -> Result<std::path::PathBuf, crate::error::Error> {
+    use crate::mods::platform::ContentKind;
+    let mc = instance_root.join(".minecraft");
+    match kind {
+        ContentKind::Mod => Ok(crate::mods::installed::mods_dir(instance_root)),
+        ContentKind::ResourcePack => Ok(mc.join("resourcepacks")),
+        ContentKind::Shader => Ok(mc.join("shaderpacks")),
+        ContentKind::Datapack => Ok(crate::datapacks::library_dir_at(instance_root)),
+        ContentKind::Plugin => Err(crate::error::Error::ModpackOverridesPathEscape {
+            entry: "plugins (a client instance has no plugins folder)".to_string(),
+        }),
+    }
+}
+
+/// Ensure the add-on kind's folder exists (see [`addon_folder`]), then open
+/// it in the OS file manager. Idempotent — safe to click repeatedly.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_addon_folder(
+    app: tauri::AppHandle,
+    instance_id: String,
+    kind: crate::mods::platform::ContentKind,
+) -> Result<(), crate::error::Error> {
+    let dir = addon_folder(&instance_root(&app, &instance_id)?, kind)?;
+    open_dir(&app, &dir).await
+}
+
+/// Create `dir` if it is missing and open it in the file manager — the one
+/// opener call the two folder commands above share.
+async fn open_dir(
+    app: &tauri::AppHandle,
+    dir: &std::path::Path,
+) -> Result<(), crate::error::Error> {
+    use tauri_plugin_opener::OpenerExt;
+    tokio::fs::create_dir_all(dir)
         .await
         .map_err(|e| crate::error::Error::io(dir.display().to_string(), e))?;
     app.opener()
@@ -900,5 +948,45 @@ mod tests {
         let path = dir.path().join("1.21.json");
         std::fs::create_dir(&path).unwrap();
         assert!(quick_play_support_at(&path).is_err());
+    }
+}
+
+#[cfg(test)]
+mod addon_folder_tests {
+    use super::addon_folder;
+    use crate::mods::platform::ContentKind;
+    use std::path::Path;
+
+    #[test]
+    fn each_kind_opens_its_own_folder() {
+        let root = Path::new("/inst/A");
+        let mc = root.join(".minecraft");
+        assert_eq!(
+            addon_folder(root, ContentKind::Mod).unwrap(),
+            mc.join("mods")
+        );
+        assert_eq!(
+            addon_folder(root, ContentKind::ResourcePack).unwrap(),
+            mc.join("resourcepacks")
+        );
+        assert_eq!(
+            addon_folder(root, ContentKind::Shader).unwrap(),
+            mc.join("shaderpacks")
+        );
+        // The datapack library, never a world's datapacks/.
+        assert_eq!(
+            addon_folder(root, ContentKind::Datapack).unwrap(),
+            root.join("datapacks")
+        );
+    }
+
+    #[test]
+    fn a_client_instance_has_no_plugins_folder() {
+        match addon_folder(Path::new("/inst/A"), ContentKind::Plugin) {
+            Err(crate::error::Error::ModpackOverridesPathEscape { entry }) => {
+                assert!(entry.contains("no plugins folder"), "{entry}");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 }

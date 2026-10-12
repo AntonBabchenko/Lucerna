@@ -271,26 +271,43 @@ pub async fn resolve_vanilla_jar(mc_version: &str) -> Result<(String, String)> {
 /// version JSON has no `javaVersion`. A blank or unlisted version fails with
 /// `ServerSavedMcVersionMissing` / `ServerSavedMcVersionUnknown` (a blank one before any
 /// network request, so an offline Start still names the real problem).
-pub async fn resolve_server_java_component(mc_version: &str) -> Result<String> {
+pub async fn resolve_server_java_component(mc_version: &str) -> Result<ServerJava> {
     crate::servers_runtime::mc_version::saved_recorded(mc_version)?;
     let manifest = crate::versions::manifest::list_manifest().await?;
     let entry = crate::servers_runtime::mc_version::saved_entry(mc_version, &manifest)?;
     let json = crate::network::get_text(&entry.url, "servers").await?;
     let details = crate::versions::version_json::parse(&json)
         .map_err(|e| Error::io("<version_json>", format!("parse: {e}")))?;
-    Ok(crate::servers_runtime::runtime::java_component_or_legacy(
-        details.java_version.as_ref().map(|j| j.component.as_str()),
-    ))
+    Ok(ServerJava {
+        component: crate::servers_runtime::runtime::java_component_or_legacy(
+            details.java_version.as_ref().map(|j| j.component.as_str()),
+        ),
+        major: crate::java::required_major(&details),
+    })
+}
+
+/// The Java a server's Minecraft version names: Lucerna's runtime component
+/// and its major (what a chosen Java is judged against, and which Settings
+/// row applies). Servers keep no version JSON on disk, so both are cached in
+/// `server.json`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerJava {
+    pub component: String,
+    pub major: u32,
 }
 
 /// Скопировать модовые файлы (`.jar`, `.jar.disabled`) из `src` в `dest`.
 /// Отсутствующий `src` — не ошибка (0 скопировано). Возвращает число файлов.
+/// A `src` that is a link has its target read (see [`crate::content_root`]);
+/// one that cannot be read, or links to a missing folder, is an error — never
+/// "0 copied".
 pub fn copy_instance_mods(src: &Path, dest: &Path) -> Result<usize> {
-    let entries = match std::fs::read_dir(src) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-        Err(e) => return Err(Error::io(src.display().to_string(), e)),
-    };
+    if !crate::content_root::has_content(src, crate::content_root::Expect::Dir)
+        .map_err(|e| Error::io(src.display().to_string(), e))?
+    {
+        return Ok(0);
+    }
+    let entries = std::fs::read_dir(src).map_err(|e| Error::io(src.display().to_string(), e))?;
     std::fs::create_dir_all(dest).map_err(|e| Error::io(dest.display().to_string(), e))?;
     let mut copied = 0;
     for entry in entries.flatten() {
@@ -337,6 +354,26 @@ mod tests {
         assert!(dest.join("a.jar").exists());
         assert!(dest.join("b.jar.disabled").exists());
         assert!(!dest.join("notes.txt").exists());
+    }
+
+    #[test]
+    fn copy_instance_mods_refuses_a_broken_link_root() {
+        // mods/ is a junction/symlink to a folder that is gone (an unplugged
+        // drive): `read_dir` says NotFound, which used to read as "no mods".
+        let dir = tempdir().unwrap();
+        let pool = dir.path().join("pool");
+        std::fs::create_dir_all(&pool).unwrap();
+        std::fs::write(pool.join("a.jar"), b"a").unwrap();
+        std::fs::create_dir_all(dir.path().join("inst")).unwrap();
+        let src = dir.path().join("inst/mods");
+        crate::content_root::test_links::link_dir(&pool, &src);
+        std::fs::remove_dir_all(&pool).unwrap();
+
+        let res = copy_instance_mods(&src, &dir.path().join("srv/runtime/mods"));
+        assert!(
+            res.is_err(),
+            "a broken mods/ link is could-not-tell, not zero mods: {res:?}"
+        );
     }
 
     #[test]

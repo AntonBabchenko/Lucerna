@@ -808,27 +808,6 @@ pub(crate) fn latest_newer(
 }
 
 // =========================================================================
-// Modpack-update helpers (used by modpack.rs domain file)
-// =========================================================================
-
-/// Best-effort recursive byte total; returns 0 on any error or missing dir.
-fn dir_size_bytes(dir: &std::path::Path) -> u64 {
-    let mut total = 0u64;
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    for entry in rd.flatten() {
-        let Ok(meta) = entry.metadata() else { continue };
-        if meta.is_dir() {
-            total += dir_size_bytes(&entry.path());
-        } else if meta.is_file() {
-            total += meta.len();
-        }
-    }
-    total
-}
-
-// =========================================================================
 // Tests (verbatim from original commands.rs)
 // =========================================================================
 

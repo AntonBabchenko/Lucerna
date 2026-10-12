@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ExportModInfo, ExportPreview } from '$lib/ipc/bindings';
+import type { ContentEntry, ExportModInfo, ExportPreview } from '$lib/ipc/bindings';
 
 // --- module mocks -----------------------------------------------------------
 // exportPreview / exportModpack are reset per test via mockResolvedValue.
@@ -40,13 +40,17 @@ function mod(overrides: Partial<ExportModInfo> = {}): ExportModInfo {
 function preview(overrides: Partial<ExportPreview> = {}): ExportPreview {
   return {
     mods: [mod()],
-    has_config: false,
-    has_resourcepacks: false,
-    has_shaderpacks: false,
-    has_saves: false,
-    saves_size_bytes: null,
+    content: [],
     ...overrides,
   };
+}
+
+function entry(
+  category: ContentEntry['category'],
+  location: ContentEntry['location'] = { kind: 'local' },
+  total_bytes = 10,
+): ContentEntry {
+  return { category, file_count: 1, total_bytes, location };
 }
 
 const ok = <T>(data: T) => ({ status: 'ok', data }) as const;
@@ -88,10 +92,7 @@ describe('ExportPackDialog', () => {
     exportPreview.mockResolvedValue(
       ok(
         preview({
-          has_config: true,
-          has_resourcepacks: true,
-          has_shaderpacks: true,
-          has_saves: true,
+          content: [entry('config'), entry('resource_packs'), entry('shaderpacks'), entry('saves')],
         }),
       ),
     );
@@ -152,7 +153,7 @@ describe('ExportPackDialog', () => {
   });
 
   it('shows the worlds warning only once worlds are checked', async () => {
-    exportPreview.mockResolvedValue(ok(preview({ has_saves: true })));
+    exportPreview.mockResolvedValue(ok(preview({ content: [entry('saves')] })));
     renderDialog();
     const worlds = (await screen.findByText('Worlds')).closest('label')?.querySelector('input');
     expect(screen.queryByText(/Worlds may contain personal builds/)).toBeNull();
@@ -248,5 +249,43 @@ describe('ExportPackDialog', () => {
     const options = exportModpack.mock.calls[0][1];
     expect(options.mode).toBe('full');
     expect(options.bundle_shas).toEqual([]);
+  });
+
+  // ---- a linked, broken or unreadable folder -----------------------------
+
+  it('marks a linked folder and still lets it be included', async () => {
+    exportPreview.mockResolvedValue(
+      ok(preview({ content: [entry('resource_packs', { kind: 'linked', target: '/pool' })] })),
+    );
+    renderDialog();
+    const box = (await screen.findByText('Resource packs'))
+      .closest('label')
+      ?.querySelector('input') as HTMLInputElement;
+    expect(box.disabled).toBe(false);
+    expect(box.checked).toBe(true);
+    expect(screen.getByTestId('location-note-resource_packs').textContent).toContain('/pool');
+  });
+
+  it('a folder that cannot be read is shown, unticked, disabled and not sent', async () => {
+    exportPreview.mockResolvedValue(
+      ok(
+        preview({
+          content: [entry('config', { kind: 'unreadable', reason: 'Access is denied.' }, 0)],
+        }),
+      ),
+    );
+    exportModpack.mockResolvedValue(ok(null));
+    save.mockResolvedValue('/out/my-pack-1.0.0.mrpack');
+    renderDialog();
+    const box = (await screen.findByText('Configs'))
+      .closest('label')
+      ?.querySelector('input') as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(box.checked).toBe(false);
+    expect(screen.getByTestId('location-note-config').textContent).toContain('Access is denied.');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() => expect(exportModpack).toHaveBeenCalledTimes(1));
+    expect(exportModpack.mock.calls[0][1].include_config).toBe(false);
   });
 });

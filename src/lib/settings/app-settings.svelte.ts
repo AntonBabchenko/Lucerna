@@ -5,7 +5,12 @@
 // not be saved, so the control that failed can say so.
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
-import { type AppFile, commands, type GeneralSettings } from '$lib/ipc/bindings';
+import {
+  type AppFile,
+  commands,
+  type GeneralSettings,
+  type Error as IpcError,
+} from '$lib/ipc/bindings';
 import { describeStoreError, formatError } from '$lib/ipc/format-error';
 
 export type Field = keyof GeneralSettings;
@@ -141,6 +146,31 @@ export function patchGeneral(patch: Partial<GeneralSettings>): Promise<PatchOutc
       mark(patch, 'unconfirmed', error);
       void refreshConfirmed();
       return { ok: false, kind: 'unconfirmed', error };
+    }
+  });
+}
+
+/** Run a command that writes `app.json` itself and answers with the block AS
+ *  PERSISTED — `setJavaDefault`, which probes a Java before it writes — in the
+ *  same queue as the patches, and adopt its answer as the confirmed block. A
+ *  call the transport lost re-reads the disk, as a lost patch does. */
+export function writeGeneralVia<T>(
+  call: () => Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
+  settingsOf: (data: T) => GeneralSettings,
+): Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }> {
+  return enqueue(async () => {
+    try {
+      const r = await call();
+      if (r.status === 'ok' && appSettings.loaded.kind === 'ok') {
+        appSettings.loaded = {
+          kind: 'ok',
+          file: { ...appSettings.loaded.file, general: settingsOf(r.data) },
+        };
+      }
+      return r;
+    } catch (e) {
+      void refreshConfirmed();
+      throw e;
     }
   });
 }

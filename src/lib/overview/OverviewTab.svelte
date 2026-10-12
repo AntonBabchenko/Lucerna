@@ -5,6 +5,7 @@
   import { relativeTime } from '$lib/format/relative-time';
   import { formatDateTime } from '$lib/format/date-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
+  import JavaRescuePanel, { type JavaProblem } from '$lib/java/JavaRescuePanel.svelte';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -54,6 +55,10 @@
     onRetryError = () => {},
     versionsRetrying = false,
     onDismissInstallError,
+    javaProblem = null,
+    onJavaProblem = () => {},
+    onJavaSaved = () => {},
+    onRuntimeReady = () => {},
     onDismissModsError,
     onOpenLogs,
     onOpenServers,
@@ -97,6 +102,14 @@
     onRetryError?: (key: ErrorKey) => void;
     versionsRetrying?: boolean;
     onDismissInstallError: () => void;
+    /** The typed error behind `installError` when the Java rescue answers it;
+     *  the rescue then stands in for the plain line. */
+    javaProblem?: JavaProblem | null;
+    onJavaProblem?: (e: JavaProblem) => void;
+    /** A Java was saved for that instance: the page retries its install. */
+    onJavaSaved?: (instanceId: string) => void;
+    /** Lucerna's runtime was downloaded for that instance. */
+    onRuntimeReady?: (instanceId: string) => void;
     onDismissModsError: () => void;
     onOpenLogs: () => void;
     onOpenServers: () => void;
@@ -559,7 +572,18 @@
     <!-- Footer notices: install/mods errors + last exit code -->
     {#if installError || modsError || (exited && !running)}
       <div class="flex flex-col gap-1">
-        {#if installError}
+        {#if installError && javaProblem && activeInstance}
+          <JavaRescuePanel
+            problem={javaProblem}
+            message={installError}
+            instanceId={activeInstance.id}
+            followsSettings={activeInstance.java === null}
+            {onJavaSaved}
+            {onRuntimeReady}
+            onProblem={onJavaProblem}
+            onDismiss={onDismissInstallError}
+          />
+        {:else if installError}
           <span class="text-xs text-danger flex items-center gap-1">
             {installError}
             <CloseButton

@@ -80,6 +80,8 @@ function makeServer(
     upload_password_set: false,
     last_exit_code: null,
     diagnosis_status: 'none',
+    java: null,
+    java_major: null,
   };
 }
 

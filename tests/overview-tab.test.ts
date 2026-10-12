@@ -233,6 +233,26 @@ describe('OverviewTab', () => {
     expect(onDismissInstallError).toHaveBeenCalledOnce();
   });
 
+  it("stands the Java rescue in for the line when Lucerna's Java could not be had", () => {
+    const { getByTestId, getAllByText } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installError: 'no runtime',
+        javaProblem: {
+          kind: 'jre_unavailable',
+          component: 'java-runtime-delta',
+          major: 21,
+          stage: 'installer_tools',
+          reason: { kind: 'download', details: 'offline' },
+        },
+      },
+    });
+    expect(getByTestId('java-rescue-installer')).toBeTruthy();
+    // Said once, inside the rescue — not again as the plain line.
+    expect(getAllByText('no runtime')).toHaveLength(1);
+  });
+
   it('sends each Configuration row to its own Settings field', async () => {
     const seen: (string | null | undefined)[] = [];
     const { getByTestId } = render(OverviewTab, {

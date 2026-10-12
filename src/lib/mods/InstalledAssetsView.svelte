@@ -4,9 +4,12 @@
   // dependency/orphan graph — just list, Remove, and Check-updates +
   // per-row Update, and the shared bulk bar (Update / Remove over a
   // selection). AddonsTab (Task 11) chooses between this and
-  // InstalledModsView by `kind`.
+  // InstalledModsView by `kind`. The list is what the pack folder holds: the
+  // registry's files (hand-placed zips adopted by the backend) and the unpacked
+  // pack folders, which carry nothing but their name.
   import {
     commands,
+    type AssetListing,
     type AssetUpdateState,
     type ContentKind,
     type InstalledAsset,
@@ -36,6 +39,8 @@
   import { bulkNameLines, reportBulk, runBulk } from '$lib/ui/bulk-run';
   import { createListSelection } from '$lib/ui/list-selection.svelte';
   import { refocusAfterRemoval } from '$lib/ui/refocus-after-removal';
+  import { serversUi } from '$lib/servers/servers-ui.svelte';
+  import { rereadOnReturn } from '$lib/ui/reread-on-return.svelte';
 
   let {
     instanceId,
@@ -44,6 +49,7 @@
     loader = null,
     emptyDropzone,
     onEmptyChange = () => {},
+    visible = false,
   }: {
     instanceId: string | null;
     kind: ContentKind;
@@ -53,6 +59,9 @@
     emptyDropzone?: Snippet;
     /** Loaded and empty — the host hides its strip meanwhile (DESIGN.md §14). */
     onEmptyChange?: (empty: boolean) => void;
+    /** This list is the one on screen (Add-ons shows Installed): only then does a return to the
+     *  window re-read it. False by default — restrictive. */
+    visible?: boolean;
   } = $props();
 
   // Project summaries (icon_url) for assets that have a platform identity,
@@ -84,6 +93,28 @@
   }
 
   let assets = $state<InstalledAsset[]>([]);
+  // Unpacked pack folders in the pack folder, by name — read from disk on every listing, never
+  // stored. `folderUnreadable`: the folder could not be read, so hand-placed packs may be missing.
+  let folders = $state<string[]>([]);
+  let folderUnreadable = $state(false);
+  // One list for the rows, the selection and the bulk bar: files in registry order, then folders.
+  // Keys never collide — the backend never lets a directory hold a file's row.
+  // `key` is the name on disk, which the commands take; `id` keys the rows and the selection. A
+  // reconciled list never holds a file and a folder of one name, but a list read without the
+  // reconcile (another operation holds the profile) can: the form keeps them apart.
+  type Row =
+    | { form: 'file'; id: string; key: string; name: string; asset: InstalledAsset }
+    | { form: 'folder'; id: string; key: string; name: string };
+  const rows = $derived<Row[]>([
+    ...assets.map((a) => ({
+      form: 'file' as const,
+      id: `file:${a.filename}`,
+      key: a.filename,
+      name: a.name,
+      asset: a,
+    })),
+    ...folders.map((f) => ({ form: 'folder' as const, id: `folder:${f}`, key: f, name: f })),
+  ]);
   let loading = $state(false);
   let busy = $state(false);
   let checking = $state(false);
@@ -122,6 +153,8 @@
     lastKey = key;
     if (id === null) {
       assets = [];
+      folders = [];
+      folderUnreadable = false;
       loading = false;
       error = null;
       return;
@@ -138,14 +171,22 @@
       if (res.status === 'error') {
         error = formatError(res.error);
         assets = [];
+        folders = [];
+        folderUnreadable = false;
       } else {
-        assets = res.data;
-        keepListedStates(res.data);
-        void enrich(res.data, gen);
+        apply(res.data, gen);
       }
       loading = false;
     })();
   });
+
+  function apply(l: AssetListing, gen: number): void {
+    assets = l.files;
+    folders = l.folders ?? [];
+    folderUnreadable = l.folders === null;
+    keepListedStates(l.files);
+    void enrich(l.files, gen);
+  }
 
   // A re-read keeps the badges (above), but only of packs still installed: a pack removed
   // elsewhere (the Browse view) must not linger as a pending update that «Update all» counts and
@@ -156,10 +197,11 @@
     updateStates = new Map([...updateStates].filter(([f]) => listed.has(f)));
   }
 
-  // Empty is reported, never assumed: no profile, a list still loading or a read that failed is
-  // not an empty list — the host keeps its strip until the list says it is empty.
+  // Empty is reported, never assumed: no profile, a list still loading, a read that failed or a
+  // folder that could not be read is not an empty list — the host keeps its strip until the list
+  // says it is empty.
   const listEmpty = $derived(
-    instanceId !== null && !loading && assets.length === 0 && error === null,
+    instanceId !== null && !loading && rows.length === 0 && error === null && !folderUnreadable,
   );
   $effect(() => {
     onEmptyChange(listEmpty);
@@ -205,11 +247,22 @@
     if (gen !== generation) return;
     if (res.status === 'error') error = formatError(res.error);
     else {
-      assets = res.data;
-      keepListedStates(res.data);
-      void enrich(res.data, gen);
+      // A read that now succeeds clears an earlier one's error.
+      error = null;
+      apply(res.data, gen);
     }
+    // This read may have superseded the first one, which then never clears its loading panel.
+    loading = false;
   }
+
+  // The user is back from the folder the Add-ons button opened, maybe with packs dropped in —
+  // perhaps opened from Browse, with this list hidden: it reads them as soon as it shows.
+  rereadOnReturn({
+    active: () => instanceId !== null && serversUi.mode === 'client',
+    visible: () => visible,
+    idle: () => !busy && !checking && bulkAction === null,
+    reread: () => void refresh(),
+  });
 
   function openDetail(asset: InstalledAsset) {
     if (!asset.source || !asset.project_id) return;
@@ -261,6 +314,25 @@
     }
   }
 
+  // A folder pack goes to the recycle bin (it may be the user's own work); the backend refuses a
+  // link and says why.
+  async function removeFolder(name: string) {
+    if (instanceId === null) return;
+    busy = true;
+    error = null;
+    try {
+      const res = await commands.assetUninstall(instanceId, kind, name);
+      if (res.status === 'error') {
+        pushWarning(get(t)('addons.installed.removeFailedToast'), [formatError(res.error)]);
+        return;
+      }
+      folders = folders.filter((f) => f !== name);
+      pushSuccess(get(t)('addons.installed.trashedToast', { name }));
+    } finally {
+      busy = false;
+    }
+  }
+
   async function checkUpdates() {
     if (instanceId === null) return;
     checking = true;
@@ -305,7 +377,14 @@
       await refresh();
       // Notify the Browse view so its badge reflects the new version.
       assetsChanged.value++;
-      pushSuccess(get(t)('addons.installed.updatedToast', { name: asset.name }));
+      // The old file may still be there (a running game holds its packs open): it stays listed,
+      // and the toast says so instead of a plain "Updated".
+      if (res.data.old_file_kept !== null)
+        pushWarning(
+          get(t)('addons.installed.oldFileKept', { name: asset.name, file: asset.filename }),
+          [res.data.old_file_kept],
+        );
+      else pushSuccess(get(t)('addons.installed.updatedToast', { name: asset.name }));
     } finally {
       busy = false;
     }
@@ -324,6 +403,7 @@
     error = null;
     let updated = 0;
     let failed = 0;
+    const kept: string[] = [];
     try {
       for (const tgt of targets) {
         const res = await commands.assetUpdateOne(instanceId, kind, tgt.filename, tgt.latest);
@@ -332,6 +412,7 @@
           continue;
         }
         updated++;
+        if (res.data.old_file_kept !== null) kept.push(tgt.filename);
         const next = new Map(updateStates);
         next.delete(tgt.filename);
         updateStates = next;
@@ -343,6 +424,8 @@
       } else {
         pushWarning(get(t)('addons.installed.toastUpdatedFailed', { count: updated, failed }), []);
       }
+      if (kept.length > 0)
+        pushWarning(get(t)('addons.installed.oldFilesKept', { count: kept.length }), kept);
     } finally {
       busy = false;
     }
@@ -363,17 +446,20 @@
   // The bulk bar (DESIGN.md §9). Keys are filenames, the row identity of this list; the selection
   // is cleared when the profile or the kind changes.
   const selection = createListSelection(
-    () => assets.map((a) => a.filename),
+    () => rows.map((r) => r.id),
     () => (instanceId === null ? null : `${instanceId}\u0000${kind}`),
   );
   onDestroy(() => selection.dispose());
   type BulkAction = 'update' | 'remove';
   let bulkAction = $state<BulkAction | null>(null);
-  let pendingBulkRemove = $state<InstalledAsset[] | null>(null);
+  let pendingBulkRemove = $state<Row[] | null>(null);
   let listEl = $state<HTMLElement | null>(null);
   let emptyListEl = $state<HTMLElement | null>(null);
 
-  const selectedAssets = $derived(assets.filter((a) => selection.selected.has(a.filename)));
+  const selectedRows = $derived(rows.filter((r) => selection.selected.has(r.id)));
+  const selectedAssets = $derived(
+    selectedRows.flatMap((r) => (r.form === 'file' ? [r.asset] : [])),
+  );
   const bulkToUpdate = $derived(
     selectedAssets.flatMap((a) => {
       const latest = updatable(a.filename);
@@ -405,10 +491,16 @@
     bulkAction = 'update';
     busy = true;
     error = null;
+    // Updates whose superseded file stayed on disk (still listed): named after the report.
+    const kept: string[] = [];
     try {
       const outcome = await runBulk(
         targets,
-        (tg) => commands.assetUpdateOne(id, k, tg.asset.filename, tg.latest),
+        async (tg) => {
+          const r = await commands.assetUpdateOne(id, k, tg.asset.filename, tg.latest);
+          if (r.status === 'ok' && r.data.old_file_kept !== null) kept.push(tg.asset.filename);
+          return r;
+        },
         formatError,
         (tg) => tg.asset.name,
         (tg) => {
@@ -419,6 +511,8 @@
       );
       // Said and cleared before the re-read: a re-read that throws must not swallow the notice.
       reportBulk(outcome, { done: 'ui.bulk.updated', partial: 'ui.bulk.updatedFailed' });
+      if (kept.length > 0)
+        pushWarning(get(t)('addons.installed.oldFilesKept', { count: kept.length }), kept);
       selection.clear();
       await refresh();
       assetsChanged.value++;
@@ -429,9 +523,9 @@
   }
 
   function requestBulkRemove(): void {
-    if (instanceId === null || selectedAssets.length === 0) return;
+    if (instanceId === null || selectedRows.length === 0) return;
     error = null;
-    pendingBulkRemove = selectedAssets;
+    pendingBulkRemove = selectedRows;
   }
 
   // N removals from one click ask first (these kinds have no undo); each success leaves the list
@@ -444,20 +538,24 @@
     if (id === null || !targets) return;
     const index = Math.max(
       0,
-      assets.findIndex((a) => selection.selected.has(a.filename)),
+      rows.findIndex((r) => selection.selected.has(r.id)),
     );
     bulkAction = 'remove';
     busy = true;
     try {
       const outcome = await runBulk(
         targets,
-        (a) => commands.assetUninstall(id, k, a.filename),
+        (r) => commands.assetUninstall(id, k, r.key),
         formatError,
-        (a) => a.name,
-        (a) => {
-          assets = assets.filter((x) => x.filename !== a.filename);
+        (r) => r.name,
+        (r) => {
+          if (r.form === 'folder') {
+            folders = folders.filter((f) => f !== r.key);
+            return;
+          }
+          assets = assets.filter((x) => x.filename !== r.key);
           const next = new Map(updateStates);
-          next.delete(a.filename);
+          next.delete(r.key);
           updateStates = next;
         },
       );
@@ -509,12 +607,18 @@
       {error}
     </div>
   {/if}
+  {#if folderUnreadable}
+    <!-- The registry's rows still list; what is missing is anything placed by hand. -->
+    <p class="text-xs text-warning-text mb-2" data-testid="asset-folder-unreadable">
+      {$t('addons.installed.folderUnreadable')}
+    </p>
+  {/if}
 
   {#if instanceId === null}
     <div class="text-muted text-sm py-6 text-center">
       {$t('addons.installed.pickInstance')}
     </div>
-  {:else if loading && assets.length === 0}
+  {:else if loading && rows.length === 0}
     <LoadingPanel label={$t('addons.installed.loading')} size="md" />
   {:else if listEmpty}
     <!-- The host's full drop area replaces its strip here (DESIGN.md §14); a list that could not
@@ -529,7 +633,7 @@
       <p class="text-muted text-sm text-center">{$t('addons.installed.empty')}</p>
       {@render emptyDropzone?.()}
     </div>
-  {:else if assets.length > 0}
+  {:else if rows.length > 0}
     <div class="border border-border-subtle rounded-lg overflow-hidden" bind:this={listEl}>
       <BulkActionBar
         allSelected={selection.allSelected}
@@ -543,86 +647,113 @@
         onAction={onBulkAction}
         onClear={selection.clear}
       />
-      {#each assets as asset (asset.filename)}
-        {@const latest = updatable(asset.filename)}
-        <CardShell variant="compact-row" accent={latest ? 'warning' : 'none'} testid="asset-row">
-          <SelectRowCheckbox
-            checked={selection.selected.has(asset.filename)}
-            name={asset.name}
-            onChange={(c) => selection.toggle(asset.filename, c)}
-          />
-          {#if asset.source && asset.project_id}
+      {#each rows as row (row.id)}
+        {#if row.form === 'folder'}
+          <!-- An unpacked pack: only its name is known — no source, no version, no update. The
+               tag says it is a folder in words, not by the icon alone. -->
+          <CardShell variant="compact-row" accent="none" testid="asset-row">
+            <SelectRowCheckbox
+              checked={selection.selected.has(row.id)}
+              name={row.name}
+              onChange={(c) => selection.toggle(row.id, c)}
+            />
+            <CardMedia iconUrl={null} placeholder="folderOpen" size="sm" />
+            <div class="min-w-0 flex-1 truncate">
+              <span class="text-sm text-primary">{row.name}</span>
+              <span class="text-xs text-muted ml-2">{$t('addons.installed.folderTag')}</span>
+            </div>
             <button
               type="button"
-              class="flex flex-1 items-center gap-2.5 min-w-0 text-left"
-              onclick={() => openDetail(asset)}
+              class="btn-icon btn-icon-sm btn-icon-danger"
+              disabled={busy}
+              onclick={() => removeFolder(row.name)}
+              aria-label={$t('addons.installed.remove')}
+              use:tooltip={$t('addons.installed.remove')}><Icon name="trash" size={15} /></button
             >
+          </CardShell>
+        {:else}
+          {@const asset = row.asset}
+          {@const latest = updatable(asset.filename)}
+          <CardShell variant="compact-row" accent={latest ? 'warning' : 'none'} testid="asset-row">
+            <SelectRowCheckbox
+              checked={selection.selected.has(row.id)}
+              name={asset.name}
+              onChange={(c) => selection.toggle(row.id, c)}
+            />
+            {#if asset.source && asset.project_id}
+              <button
+                type="button"
+                class="flex flex-1 items-center gap-2.5 min-w-0 text-left"
+                onclick={() => openDetail(asset)}
+              >
+                <CardMedia
+                  iconUrl={summaries.get(asset.filename)?.icon_url ?? null}
+                  placeholder={kind === 'shader' ? 'shader' : 'resourcePack'}
+                  size="sm"
+                />
+                <span class="min-w-0 flex-1 truncate">
+                  <span class="text-sm text-primary">{asset.name}</span>
+                  {#if asset.version_number}
+                    <span class="text-xs text-muted ml-2">{asset.version_number}</span>
+                  {/if}
+                </span>
+              </button>
+            {:else}
               <CardMedia
-                iconUrl={summaries.get(asset.filename)?.icon_url ?? null}
+                iconUrl={null}
                 placeholder={kind === 'shader' ? 'shader' : 'resourcePack'}
                 size="sm"
               />
-              <span class="min-w-0 flex-1 truncate">
+              <div class="min-w-0 flex-1 truncate">
                 <span class="text-sm text-primary">{asset.name}</span>
                 {#if asset.version_number}
                   <span class="text-xs text-muted ml-2">{asset.version_number}</span>
                 {/if}
+              </div>
+            {/if}
+            {#if checkFailed(asset.filename)}
+              {@const reason = checkFailedReason(asset.filename)}
+              <span
+                class="text-warning-text flex-shrink-0"
+                use:tooltip={reason ?? $t('addons.installed.checkFailed')}
+                aria-label={$t('addons.installed.checkFailed')}
+                role="img"
+              >
+                <Icon name="warning" size={15} />
               </span>
-            </button>
-          {:else}
-            <CardMedia
-              iconUrl={null}
-              placeholder={kind === 'shader' ? 'shader' : 'resourcePack'}
-              size="sm"
-            />
-            <div class="min-w-0 flex-1 truncate">
-              <span class="text-sm text-primary">{asset.name}</span>
-              {#if asset.version_number}
-                <span class="text-xs text-muted ml-2">{asset.version_number}</span>
-              {/if}
-            </div>
-          {/if}
-          {#if checkFailed(asset.filename)}
-            {@const reason = checkFailedReason(asset.filename)}
-            <span
-              class="text-warning-text flex-shrink-0"
-              use:tooltip={reason ?? $t('addons.installed.checkFailed')}
-              aria-label={$t('addons.installed.checkFailed')}
-              role="img"
-            >
-              <Icon name="warning" size={15} />
-            </span>
-          {/if}
-          {#if latest && asset.source && asset.project_id && changelogSupported(asset.source)}
+            {/if}
+            {#if latest && asset.source && asset.project_id && changelogSupported(asset.source)}
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm"
+                disabled={busy}
+                onclick={() => openAssetChangelog(asset, latest)}
+                aria-label={$t('mods.changelog.view')}
+                data-testid="asset-changelog-btn"
+                use:tooltip={$t('mods.changelog.view')}><Icon name="scrollText" size={15} /></button
+              >
+            {/if}
+            {#if latest}
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm btn-icon-warning"
+                disabled={busy}
+                onclick={() => update(asset, latest)}
+                aria-label={$t('addons.installed.update')}
+                use:tooltip={$t('addons.installed.update')}
+                ><Icon name="refresh" size={15} /></button
+              >
+            {/if}
             <button
               type="button"
-              class="btn-icon btn-icon-sm"
+              class="btn-icon btn-icon-sm btn-icon-danger"
               disabled={busy}
-              onclick={() => openAssetChangelog(asset, latest)}
-              aria-label={$t('mods.changelog.view')}
-              data-testid="asset-changelog-btn"
-              use:tooltip={$t('mods.changelog.view')}><Icon name="scrollText" size={15} /></button
+              onclick={() => remove(asset)}
+              aria-label={$t('addons.installed.remove')}
+              use:tooltip={$t('addons.installed.remove')}><Icon name="trash" size={15} /></button
             >
-          {/if}
-          {#if latest}
-            <button
-              type="button"
-              class="btn-icon btn-icon-sm btn-icon-warning"
-              disabled={busy}
-              onclick={() => update(asset, latest)}
-              aria-label={$t('addons.installed.update')}
-              use:tooltip={$t('addons.installed.update')}><Icon name="refresh" size={15} /></button
-            >
-          {/if}
-          <button
-            type="button"
-            class="btn-icon btn-icon-sm btn-icon-danger"
-            disabled={busy}
-            onclick={() => remove(asset)}
-            aria-label={$t('addons.installed.remove')}
-            use:tooltip={$t('addons.installed.remove')}><Icon name="trash" size={15} /></button
-          >
-        </CardShell>
+          </CardShell>
+        {/if}
       {/each}
     </div>
   {/if}
@@ -630,7 +761,12 @@
   {#if pendingBulkRemove}
     <ConfirmDialog
       title={$t('addons.installed.removeManyConfirm', { count: pendingBulkRemove.length })}
-      bodyText={bulkNameLines(pendingBulkRemove.map((a) => a.name))}
+      bodyText={[
+        ...bulkNameLines(pendingBulkRemove.map((r) => r.name)),
+        ...(pendingBulkRemove.some((r) => r.form === 'folder')
+          ? [$t('addons.installed.bulkFoldersNote')]
+          : []),
+      ]}
       confirmLabel={$t('addons.installed.remove')}
       variant="danger"
       busy={bulkAction === 'remove'}

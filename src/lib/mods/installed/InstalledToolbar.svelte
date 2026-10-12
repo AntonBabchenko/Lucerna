@@ -26,7 +26,6 @@
     onCheckUpdates,
     onUpdateAll,
     onRecheckAll,
-    onOpenModsFolder,
     issuesTone = 'danger',
   }: {
     counts: {
@@ -52,7 +51,6 @@
     // Opens the review of the pending updates; the review runs them.
     onUpdateAll: () => void;
     onRecheckAll: () => void;
-    onOpenModsFolder: () => void;
     // Danger while any mod blocks the launch, amber when only warnings remain
     // (spec D6: red means "the game won't start" and nothing else).
     issuesTone?: 'danger' | 'warning';
@@ -75,8 +73,8 @@
         : '',
   );
 
-  // The rare actions (spec D7). Re-check is the compat live check + graph + pre-flight in one;
-  // «Открыть папку модов» mirrors the Overview control and reuses its key.
+  // The rare actions (spec D7): re-check is the compat live check + graph + pre-flight in one.
+  // The mods folder opens from the Add-ons sub-tab row, one row above.
   const moreItems = $derived<ContextMenuItem[]>([
     {
       label: $t('mods.installed.recheckAll'),
@@ -87,12 +85,6 @@
         : $t('mods.installed.disabledNoMods'),
       onSelect: onRecheckAll,
       testId: 'installed-recheck-all',
-    },
-    {
-      label: $t('instance.menu.openModsFolder'),
-      icon: 'folderOpen',
-      onSelect: onOpenModsFolder,
-      testId: 'installed-open-mods-folder',
     },
   ]);
 

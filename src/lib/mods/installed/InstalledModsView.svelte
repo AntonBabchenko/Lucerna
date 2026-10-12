@@ -84,6 +84,7 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { screenOwnedElsewhere } from '$lib/onboarding/tour-presence';
   import { serversUi } from '$lib/servers/servers-ui.svelte';
+  import { rereadOnReturn } from '$lib/ui/reread-on-return.svelte';
   import { anyTourRunning } from '$lib/ui/layer-stack.svelte';
   import {
     DEPS_TOUR_IDLE,
@@ -1145,13 +1146,15 @@
       pushWarning(get(t)('mods.installed.recheckFailed'), [compat.error]);
   }
 
-  // «Открыть папку модов» (⋯) — the Overview's control, for this profile.
-  async function openModsFolder() {
-    if (!instanceId) return;
-    const r = await commands.openModsFolder(instanceId);
-    if (r.status === 'error')
-      pushWarning(get(t)('instance.manage.openModsFolderFailed'), [formatError(r.error)]);
-  }
+  // The user is back from the mods folder the Add-ons button opened, maybe with jars dropped in —
+  // perhaps opened from Browse, with this list hidden: it reads them as soon as it shows. The list
+  // announces `ModsReconciled`, whose handler deliberately does not re-list.
+  rereadOnReturn({
+    active: () => instanceId !== null && serversUi.mode === 'client',
+    visible: () => visible,
+    idle: () => !busy,
+    reread: () => void data.refresh(),
+  });
 
   // The row menu (spec §6.8). «Показать в папке»: the jar as it is on disk (`.disabled` too),
   // selected in the file manager — also the keyboard path to the file name the version's tooltip
@@ -1292,7 +1295,6 @@
     onCheckUpdates={updates.checkUpdates}
     onUpdateAll={openUpdateReview}
     onRecheckAll={() => void recheckAll()}
-    onOpenModsFolder={() => void openModsFolder()}
     issuesTone={anyBlocking ? 'danger' : 'warning'}
   />
 

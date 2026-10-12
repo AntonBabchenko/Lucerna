@@ -20,7 +20,7 @@ pub async fn install_version(
     // Discards the install report: this command installs a bare version id and
     // has no task registered against it. `install_instance` is the one that
     // returns the report, because that is the call the Operations Centre wraps.
-    crate::versions::install_version(&version_id, &app).await?;
+    crate::versions::install_version(&version_id, &app, crate::versions::JreFor::Version).await?;
     Ok(())
 }
 

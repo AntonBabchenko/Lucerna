@@ -42,6 +42,22 @@ pub async fn run_export(
     let mc_dir = instance_root.join(".minecraft");
     let mods_dir = mc_dir.join("mods");
 
+    // An included folder that cannot be read (or links to a missing one)
+    // fails now, before the Resolving phase spends time on the network.
+    // `collect_dir_entries` checks again when it walks; this is the early exit.
+    for (included, rel) in [
+        (opts.include_config, "config"),
+        (opts.include_resourcepacks, "resourcepacks"),
+        (opts.include_shaderpacks, "shaderpacks"),
+        (opts.include_worlds, "saves"),
+    ] {
+        if included {
+            let dir = mc_dir.join(rel);
+            crate::content_root::has_content(&dir, crate::content_root::Expect::Dir)
+                .map_err(|e| Error::io(dir.display().to_string(), e))?;
+        }
+    }
+
     let (referenced, unresolvable) = classify::classify(opts.format, opts.mode, enabled_mods);
 
     // Decide which unresolvable mods get bundled. Full mode -> all; otherwise
@@ -232,4 +248,68 @@ pub async fn run_export(
         path: dest.display().to_string(),
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mods::platform::ModSource;
+
+    #[tokio::test]
+    async fn run_export_refuses_an_unreadable_root_before_resolving() {
+        let td = tempfile::tempdir().unwrap();
+        let root = crate::content_root::test_links::unstattable(td.path());
+        let m = InstalledMod {
+            filename: "jei.jar".into(),
+            sha1: "a".repeat(40),
+            source: Some(ModSource::Curseforge),
+            project_id: Some("238222".into()),
+            version_id: Some("5101366".into()),
+            name: "JEI".into(),
+            version_number: None,
+            installed_at: "2026-10-11T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        };
+        let opts = ExportOptions {
+            format: ModpackFormat::Curseforge,
+            mode: ExportMode::Lightweight,
+            include_config: true,
+            include_resourcepacks: false,
+            include_shaderpacks: false,
+            include_worlds: false,
+            bundle_shas: vec![],
+            metadata: ExportMetadata {
+                name: "P".into(),
+                version: "1".into(),
+                author: String::new(),
+                summary: String::new(),
+            },
+        };
+        let seen = std::sync::Mutex::new(Vec::<String>::new());
+        let sink = |p: ModpackExportProgress| seen.lock().unwrap().push(format!("{p:?}"));
+
+        let res = run_export(
+            &root,
+            "1.20.1",
+            LoaderKind::Forge,
+            None,
+            &[m],
+            &opts,
+            &td.path().join("out.zip"),
+            &sink,
+        )
+        .await;
+
+        assert!(
+            res.is_err(),
+            "an included root that cannot be read fails the export"
+        );
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "it must fail before the Resolving phase: {:?}",
+            seen.lock().unwrap()
+        );
+    }
 }

@@ -4,15 +4,23 @@ use super::*;
 // Add-on (resource pack / shader) commands — install/list/uninstall/updates
 // =========================================================================
 
-/// List installed resource packs or shaders for an instance, filtered by
-/// `kind`. Reads the per-instance assets registry; never touches mods.
+/// The Installed list of resource packs or shaders: the per-instance assets
+/// registry reconciled with the pack folder (a hand-placed zip adopted, a row
+/// whose file is gone dropped), and the unpacked pack folders in it. Never
+/// touches mods.
+///
+/// Reconciling writes the registry, so it runs under the per-item writer's
+/// shared claim. Refused — a pack update, a clone or a migration holds the
+/// instance and may be swapping its pack files — the list is the registry as
+/// it is: never a reconcile against files in flux.
 #[tauri::command]
 #[specta::specta]
 pub async fn assets_list(
     app: tauri::AppHandle,
     instance_id: String,
     kind: crate::mods::platform::ContentKind,
-) -> crate::error::Result<Vec<crate::mods::platform::InstalledAsset>> {
+) -> crate::error::Result<crate::mods::platform::AssetListing> {
+    let claim = crate::instances::maintenance::claim_shared_write(&instance_id).ok();
     crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     // Retro-fit instances imported before assets were tracked (no-op once the
@@ -21,11 +29,15 @@ pub async fn assets_list(
     if let Err(e) = crate::mods::assets::backfill_from_pack_origin_if_missing(&inst_root).await {
         crate::diag!("[assets_list] backfill failed (non-fatal): {e}");
     }
-    crate::mods::assets::list(&inst_root, kind).await
+    let listing = crate::mods::assets::listing(&inst_root, kind, claim.is_some()).await?;
+    drop(claim);
+    Ok(listing)
 }
 
-/// Remove an asset's file from disk (best-effort) and drop its registry
-/// entry. The registry is the source of truth, so a missing file is fine.
+/// Remove a pack — its file, or a folder pack to the OS recycle bin — and
+/// then its registry row. The folder is the truth: a file that stays would be
+/// listed again, so a removal that fails keeps the row and says why; a file
+/// already gone is fine (a ghost row's repair).
 ///
 /// Every asset writer here runs under the instance's SHARED maintenance claim
 /// (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
@@ -48,8 +60,14 @@ pub async fn asset_uninstall(
     let path = crate::mods::install::safe_asset_remove_path(&inst_root, kind, &filename)?;
     // Resolve the display name before the registry row goes away.
     let name = asset_display_name(&inst_root, kind, &filename).await;
-    let _ = tokio::fs::remove_file(&path).await; // best-effort; registry is source of truth
-    crate::mods::assets::remove(&inst_root, kind, &filename).await?;
+    let removed =
+        crate::mods::asset_folder::remove_entry(&path, crate::mods::asset_folder::to_recycle_bin)
+            .await?;
+    // A folder pack never has a row, and a failed rewrite of the registry must
+    // not report a removal that already happened as failed.
+    if removed != crate::mods::asset_folder::Removed::Folder {
+        crate::mods::assets::remove(&inst_root, kind, &filename).await?;
+    }
     crate::journal::record(
         &inst_root,
         crate::journal::content(crate::journal::ContentAction::AssetRemoved, name),
@@ -216,8 +234,10 @@ pub async fn assets_check_updates(
 
 /// Apply one asset update with replace semantics: install `target` (fetch →
 /// verify → copy → registry add), then — when the filename moved — remove the
-/// superseded file (best-effort) and its registry row. A download or
-/// verification failure leaves the currently installed asset fully intact.
+/// superseded file and its registry row. A superseded file that cannot be
+/// removed (a running game holds its packs open) stays, with its row, and the
+/// outcome says so. A download or verification failure leaves the currently
+/// installed asset fully intact.
 #[tauri::command]
 #[specta::specta]
 pub async fn asset_update_one(
@@ -226,11 +246,11 @@ pub async fn asset_update_one(
     kind: crate::mods::platform::ContentKind,
     old_filename: String,
     target: crate::mods::platform::ModVersion,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<crate::mods::platform::AssetUpdateOutcome> {
     // Shared maintenance claim, see `asset_uninstall` — held across the
     // download and the replace.
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
-    let updated: crate::error::Result<()> =
+    let updated: crate::error::Result<crate::mods::platform::AssetUpdateOutcome> =
         crate::network::throttle::with_interactive(async move {
             crate::mods::assets::require_asset_kind(kind)?;
             let inst_root = instance_root(&app, &instance_id)?;
@@ -247,7 +267,7 @@ pub async fn asset_update_one(
                 });
             let name = target.name.clone();
             let to_version = target.version_number.clone();
-            crate::mods::install::update_asset(
+            let outcome = crate::mods::install::update_asset(
                 &dd,
                 &inst_root,
                 kind,
@@ -265,7 +285,7 @@ pub async fn asset_update_one(
                     Some(to_version),
                 ),
             );
-            Ok(())
+            Ok(outcome)
         })
         .await;
     drop(write);

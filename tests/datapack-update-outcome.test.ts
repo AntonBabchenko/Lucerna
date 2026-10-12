@@ -71,6 +71,7 @@ const library: DatapackLibraryView = {
     },
   ],
   worlds: [{ world: 'Alpha', level_dat: 'present' }],
+  library_folders: [],
 };
 
 function version(id: string, n: string): ModVersion_Serialize {
@@ -170,7 +171,7 @@ beforeEach(() => {
   c.modsProjects.mockResolvedValue({ status: 'ok', data: [] });
   c.modsGetCurseforgeKeyStatus.mockResolvedValue({ status: 'ok', data: 'set' });
   c.modsListInstalled.mockResolvedValue({ status: 'ok', data: [] });
-  c.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+  c.assetsList.mockResolvedValue({ status: 'ok', data: { files: [], folders: [] } });
 });
 
 afterEach(() => {

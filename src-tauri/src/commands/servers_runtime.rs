@@ -387,15 +387,19 @@ pub async fn server_create(
         created_from_instance,
         handled_log_sig: None,
         java_component: None,
+        java_major: None,
+        java: None,
         upload: None,
     };
     // Cache the MC Java component now (create is online — it downloads the jar)
     // so repeat launches start offline. Best-effort: a miss leaves None and
     // start() resolves + persists it on the next online launch.
-    file.java_component =
-        crate::servers_runtime::create::resolve_server_java_component(&file.mc_version)
-            .await
-            .ok();
+    if let Ok(j) =
+        crate::servers_runtime::create::resolve_server_java_component(&file.mc_version).await
+    {
+        file.java_component = Some(j.component);
+        file.java_major = Some(j.major);
+    }
     provision_loader(&app, &base, &mut file).await?;
     let mut quarantined: Vec<String> = Vec::new();
     if let Some(inst_id) = &file.created_from_instance {
@@ -590,6 +594,66 @@ pub fn server_update_runtime_config(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let file = store::update_runtime_config(&base, &id, max_heap_mb, &extra_jvm_args)?;
     Ok(status_of(&base, &file))
+}
+
+/// What `server_set_java` saved, and the probe's report for a chosen Java.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerJavaSaved {
+    pub server: ServerWithStatus,
+    pub report: Option<crate::java::JavaReport>,
+}
+
+/// Store a server's Java. A chosen Java is normalised and probed against the
+/// server's Java major FIRST (looked up when not cached yet; unknown offline,
+/// then only its architecture is checked); an unusable one is refused and
+/// nothing is written. «Default» and «Lucerna's Java» need no lookup, so they
+/// save offline at once. Applies from the next start.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_set_java(
+    app: AppHandle,
+    id: String,
+    choice: Option<crate::java::JavaChoice>,
+) -> Result<ServerJavaSaved> {
+    use crate::java::{JavaChoice, JavaOrigin};
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let current = store::read_server_json(&crate::paths::server_paths(&base, &id).json)?;
+    let mut major = current.java_major;
+    let (stored, report) = match choice {
+        Some(JavaChoice::Custom { path }) => {
+            if major.is_none() {
+                match crate::servers_runtime::create::resolve_server_java_component(
+                    &current.mc_version,
+                )
+                .await
+                {
+                    Ok(j) => major = Some(j.major),
+                    Err(e) => crate::diag!("servers: Java major unknown for {id} ({e})"),
+                }
+            }
+            let refuse = |p: &str, reason| Error::JavaUnusable {
+                path: p.to_string(),
+                origin: JavaOrigin::Server,
+                reason,
+            };
+            let exe = crate::java::path::normalize(&path).map_err(|r| refuse(&path, r))?;
+            let report = crate::java::check(&exe, major)
+                .await
+                .map_err(|r| refuse(&exe.to_string_lossy(), r))?;
+            (
+                Some(JavaChoice::Custom {
+                    path: exe.to_string_lossy().into_owned(),
+                }),
+                Some(report),
+            )
+        }
+        other => (other, None),
+    };
+    let file = store::set_java(&base, &id, stored, major)?;
+    Ok(ServerJavaSaved {
+        server: status_of(&base, &file),
+        report,
+    })
 }
 
 /// Прочитать `server.properties` сервера как сырой текст. Возвращает пустую
@@ -1996,7 +2060,11 @@ async fn provision_loader(
             let bytes =
                 crate::forge::meta::fetch_installer_bytes(flavor, &file.mc_version, &lv, app)
                     .await?;
-            let component = create::resolve_server_java_component(&file.mc_version).await?;
+            // installServer runs at create time, before any Java choice
+            // exists, on Lucerna's runtime (spec 2026-10-11-custom-java §7.1).
+            let component = create::resolve_server_java_component(&file.mc_version)
+                .await?
+                .component;
             crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
             let java_bin = crate::jre::java_executable_path(&component, app)?;
             create::create_installer_server(base, file, &bytes, &java_bin, label).await?;

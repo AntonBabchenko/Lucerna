@@ -445,6 +445,15 @@ pub struct GeneralSettings {
     /// later versions stay forward/backward compatible.
     #[serde(default)]
     pub hidden_sidebar_buttons: Vec<String>,
+    /// Settings → Game → Java: the Java each Java major runs on for every
+    /// instance and server that chose nothing of its own. Empty = Lucerna's
+    /// runtime everywhere. Plain `default` and always serialised — a
+    /// `skip_serializing_if` would blind `every_general_field_has_a_patch_counterpart`.
+    /// Rows are written only by `commands::java::set_java_default`, which
+    /// probes them; a launch normalises and probes a row again, since app.json
+    /// is a file anyone can edit.
+    #[serde(default)]
+    pub java_defaults: Vec<crate::java::JavaDefault>,
     /// Opt-in permission to send a Server List Ping to the user's OWN saved
     /// multiplayer servers so their status / player count can be shown.
     /// `#[serde(default)]` → every app.json written before this field existed
@@ -513,6 +522,8 @@ pub struct GeneralSettingsPatch {
     pub sftp_upload_concurrency: Option<u32>,
     #[serde(default)]
     pub hidden_sidebar_buttons: Option<Vec<String>>,
+    #[serde(default)]
+    pub java_defaults: Option<Vec<crate::java::JavaDefault>>,
     #[serde(default)]
     pub allow_server_ping: Option<bool>,
     #[serde(default)]
@@ -591,6 +602,7 @@ impl GeneralSettings {
             hidden_sidebar_buttons: p
                 .hidden_sidebar_buttons
                 .unwrap_or(self.hidden_sidebar_buttons),
+            java_defaults: p.java_defaults.unwrap_or(self.java_defaults),
             allow_server_ping: p.allow_server_ping.unwrap_or(self.allow_server_ping),
             register_url_scheme: p.register_url_scheme.unwrap_or(self.register_url_scheme),
             allow_ai_translation: p.allow_ai_translation.unwrap_or(self.allow_ai_translation),
@@ -616,6 +628,7 @@ impl Default for GeneralSettings {
             mod_metadata_ttl_days: default_mod_metadata_ttl_days(),
             sftp_upload_concurrency: default_sftp_upload_concurrency(),
             hidden_sidebar_buttons: Vec::new(),
+            java_defaults: Vec::new(),
             allow_server_ping: false,
             register_url_scheme: false,
             allow_ai_translation: false,

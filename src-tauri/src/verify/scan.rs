@@ -378,7 +378,13 @@ pub async fn verify_instance_report(
         .as_ref()
         .map(|jv| jv.component.clone())
         .unwrap_or_else(|| crate::jre::DEFAULT_LEGACY_COMPONENT.to_string());
-    let jre_ok = jre_present(&jre_component, app).await;
+    // An instance that runs on a Java of its own (or of Settings) does not use
+    // Lucerna's runtime, and an install skips it: its absence is no problem
+    // here. The chosen Java is the launch probe's to judge, not this scan's
+    // (spec 2026-10-11-custom-java §7.1). Anything that cannot be told checks
+    // the runtime as before.
+    let needs_managed_jre = instance_needs_managed_jre(instance_id, &details, app);
+    let jre_ok = !needs_managed_jre || jre_present(&jre_component, app).await;
 
     let mut problems: Vec<ProblemArtifact> = Vec::new();
     for ((p, _abs), status) in planned.iter().zip(statuses.iter()) {
@@ -402,7 +408,7 @@ pub async fn verify_instance_report(
         });
     }
 
-    let totals = category_totals(&planned, 1);
+    let totals = category_totals(&planned, needs_managed_jre.then_some(1));
     let report = VerifyReport::build(
         instance_id.to_string(),
         effective_id.to_string(),
@@ -413,6 +419,30 @@ pub async fn verify_instance_report(
 
     emit(app, instance_id, VerifyPhase::Complete, 1, 1, None);
     Ok(report)
+}
+
+/// Whether this instance launches on Lucerna's runtime. `true` whenever it
+/// cannot be told (unreadable instance or Settings) — the restrictive answer
+/// for a scan is to check the runtime.
+fn instance_needs_managed_jre(
+    instance_id: &str,
+    details: &crate::versions::version_json::VersionDetails,
+    app: &tauri::AppHandle,
+) -> bool {
+    let Ok(instance) = crate::instances::read_instance(app, instance_id) else {
+        return true;
+    };
+    let Ok(defaults) = crate::java::defaults_for(instance.java.as_ref(), || {
+        crate::java::settings_defaults(app)
+    }) else {
+        return true;
+    };
+    crate::java::resolve(
+        instance.java.as_ref(),
+        crate::java::Owner::Instance,
+        &defaults,
+        crate::java::required_major(details),
+    ) == crate::java::JavaSource::Managed
 }
 
 /// Marker present + parseable + the java executable exists.
@@ -434,24 +464,29 @@ async fn jre_present(component: &str, app: &tauri::AppHandle) -> bool {
     }
 }
 
+/// `jre_total: None` leaves the runtime out of the report — an instance on its
+/// own Java has no runtime of Lucerna's to count (a 0/0 row would say nothing).
 fn category_totals(
     planned: &[(PlannedArtifact, PathBuf)],
-    jre_total: u32,
+    jre_total: Option<u32>,
 ) -> Vec<(VerifyCategory, u32)> {
     use VerifyCategory::*;
     let count = |c: VerifyCategory| planned.iter().filter(|(p, _)| p.category == c).count() as u32;
-    vec![
+    let mut totals = vec![
         (Client, count(Client)),
         (Libraries, count(Libraries)),
         (Assets, count(Assets)),
-        (Jre, jre_total),
+    ];
+    totals.extend(jre_total.map(|t| (Jre, t)));
+    totals.extend([
         // ProfileJson is one artefact, total always 1. It is presence/parse-checked
         // only — it has no authoritative SHA — so a JSON that parses but is
         // semantically wrong reads as OK here; a missing/unparseable one is caught
         // earlier via the manifest_recoverable early-return (so it never reaches here
         // showing green). The 1/1 OK in the happy path means "parsed", not "SHA-verified".
         (ProfileJson, 1),
-    ]
+    ]);
+    totals
 }
 
 fn emit(

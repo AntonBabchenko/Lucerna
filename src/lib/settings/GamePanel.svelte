@@ -27,6 +27,7 @@
     saveFailureKind,
   } from './app-settings.svelte';
   import SettingsField from './SettingsField.svelte';
+  import JavaDefaultsSection from '$lib/java/JavaDefaultsSection.svelte';
   import { onMount } from 'svelte';
 
   // null while pending or failed: nothing is claimed, every control is disabled.
@@ -327,4 +328,5 @@
       </div>
     </SettingsField>
   {/if}
+  <JavaDefaultsSection />
 </section>

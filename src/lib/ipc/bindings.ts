@@ -238,6 +238,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	openModsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder", { instanceId })),
 	/**
+	 *  Ensure the add-on kind's folder exists (see [`addon_folder`]), then open
+	 *  it in the OS file manager. Idempotent — safe to click repeatedly.
+	 */
+	openAddonFolder: (instanceId: string, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("open_addon_folder", { instanceId, kind })),
+	/**
 	 *  Show an installed mod's jar in the OS file manager, selected — the file as
 	 *  it is on disk, `<file>` or `<file>.disabled`; `reveal_screenshot`'s shape.
 	 * 
@@ -606,10 +611,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  applies from the next launch.
 	 */
 	setInstanceJava: (id: string, choice: 
-/**
- *  Always Lucerna's own runtime. Distinct from "absent" once Settings can
- *  name a default per Java version; until then the two behave the same.
- */
+/**  Always Lucerna's own runtime, whatever Settings names as the default. */
 { kind: "bundled" } | 
 /**  This executable. */
 { kind: "custom"; path: string } | null) => typedError<JavaSaved, Error>(__TAURI_INVOKE("set_instance_java", { id, choice })),
@@ -621,8 +623,31 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	instanceJavaRequirement: (id: string) => typedError<number | null, Error>(__TAURI_INVOKE("instance_java_requirement", { id })),
 	/**  The Javas installed on this machine, Lucerna's own runtimes excluded. */
 	javaDetect: (refresh: boolean) => typedError<DetectedJava[], Error>(__TAURI_INVOKE("java_detect", { refresh })),
-	/**  Probe a path against an optional requirement, without saving it. */
+	/**
+	 *  Probe a path against an optional requirement, without saving it. The
+	 *  origin on a refusal is nominal: the UI shows the reason, not the origin.
+	 */
 	javaCheck: (path: string, requiredMajor: number | null) => typedError<JavaReport, Error>(__TAURI_INVOKE("java_check", { path, requiredMajor })),
+	/**
+	 *  The Java majors the installed instances need, for Settings' rows. Reads
+	 *  the version JSONs on disk only. An instance that is not installed, or whose
+	 *  JSON cannot be read, contributes nothing (logged): this lists rows to offer,
+	 *  and a saved row is shown whatever this returns.
+	 */
+	javaRequiredMajors: () => typedError<number[], Error>(__TAURI_INVOKE("java_required_majors")),
+	/**
+	 *  Replace (or with `None`, remove) one row of Settings' per-major Java. A
+	 *  path is normalised and probed against `major` FIRST, outside the
+	 *  `app.json` lock (its closure is synchronous); an unusable one is refused and
+	 *  nothing is written. Returns the settings as they are after the write.
+	 */
+	setJavaDefault: (major: number, path: string | null) => typedError<JavaDefaultSaved_Serialize, Error>(__TAURI_INVOKE("set_java_default", { major, path })),
+	/**
+	 *  Download Lucerna's runtime for an instance's version — the action behind
+	 *  `Error::ManagedJavaMissing`. Only the runtime: not a full install, which
+	 *  would re-hash every library and asset.
+	 */
+	ensureInstanceJre: (id: string) => typedError<null, Error>(__TAURI_INVOKE("ensure_instance_jre", { id })),
 	instanceMemoryBounds: () => __TAURI_INVOKE<MemoryBounds>("instance_memory_bounds"),
 	/**
 	 *  Clear all modpack provenance fields (`mrpack_*`) from an instance,
@@ -880,13 +905,22 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	assetInstall: (instanceId: string, version: ModVersion_Deserialize, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("asset_install", { instanceId, version, kind })),
 	/**
-	 *  List installed resource packs or shaders for an instance, filtered by
-	 *  `kind`. Reads the per-instance assets registry; never touches mods.
+	 *  The Installed list of resource packs or shaders: the per-instance assets
+	 *  registry reconciled with the pack folder (a hand-placed zip adopted, a row
+	 *  whose file is gone dropped), and the unpacked pack folders in it. Never
+	 *  touches mods.
+	 * 
+	 *  Reconciling writes the registry, so it runs under the per-item writer's
+	 *  shared claim. Refused — a pack update, a clone or a migration holds the
+	 *  instance and may be swapping its pack files — the list is the registry as
+	 *  it is: never a reconcile against files in flux.
 	 */
-	assetsList: (instanceId: string, kind: ContentKind) => typedError<InstalledAsset[], Error>(__TAURI_INVOKE("assets_list", { instanceId, kind })),
+	assetsList: (instanceId: string, kind: ContentKind) => typedError<AssetListing, Error>(__TAURI_INVOKE("assets_list", { instanceId, kind })),
 	/**
-	 *  Remove an asset's file from disk (best-effort) and drop its registry
-	 *  entry. The registry is the source of truth, so a missing file is fine.
+	 *  Remove a pack — its file, or a folder pack to the OS recycle bin — and
+	 *  then its registry row. The folder is the truth: a file that stays would be
+	 *  listed again, so a removal that fails keeps the row and says why; a file
+	 *  already gone is fine (a ghost row's repair).
 	 * 
 	 *  Every asset writer here runs under the instance's SHARED maintenance claim
 	 *  (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
@@ -916,10 +950,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Apply one asset update with replace semantics: install `target` (fetch →
 	 *  verify → copy → registry add), then — when the filename moved — remove the
-	 *  superseded file (best-effort) and its registry row. A download or
-	 *  verification failure leaves the currently installed asset fully intact.
+	 *  superseded file and its registry row. A superseded file that cannot be
+	 *  removed (a running game holds its packs open) stays, with its row, and the
+	 *  outcome says so. A download or verification failure leaves the currently
+	 *  installed asset fully intact.
 	 */
-	assetUpdateOne: (instanceId: string, kind: ContentKind, oldFilename: string, target: ModVersion_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("asset_update_one", { instanceId, kind, oldFilename, target })),
+	assetUpdateOne: (instanceId: string, kind: ContentKind, oldFilename: string, target: ModVersion_Deserialize) => typedError<AssetUpdateOutcome, Error>(__TAURI_INVOKE("asset_update_one", { instanceId, kind, oldFilename, target })),
 	/**
 	 *  For each installed mod in `id`, report whether any platform version
 	 *  exists for the given target `mc` + `loader` — asked in one hash batch
@@ -1609,6 +1645,18 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  следующем старте (баннер «перезапусти» показывает фронт, если запущен).
 	 */
 	serverUpdateRuntimeConfig: (id: string, maxHeapMb: number, extraJvmArgs: string) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_update_runtime_config", { id, maxHeapMb, extraJvmArgs })),
+	/**
+	 *  Store a server's Java. A chosen Java is normalised and probed against the
+	 *  server's Java major FIRST (looked up when not cached yet; unknown offline,
+	 *  then only its architecture is checked); an unusable one is refused and
+	 *  nothing is written. «Default» and «Lucerna's Java» need no lookup, so they
+	 *  save offline at once. Applies from the next start.
+	 */
+	serverSetJava: (id: string, choice: 
+/**  Always Lucerna's own runtime, whatever Settings names as the default. */
+{ kind: "bundled" } | 
+/**  This executable. */
+{ kind: "custom"; path: string } | null) => typedError<ServerJavaSaved_Serialize, Error>(__TAURI_INVOKE("server_set_java", { id, choice })),
 	/**  Запустить сервер. Возвращает PID запущенного процесса. */
 	serverStart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_start", { id })),
 	/**  Остановить сервер (graceful stop, затем принудительное завершение при необходимости). */
@@ -2783,6 +2831,20 @@ export type ArtifactStatus = "ok" | "missing" |
  */
 "corrupt";
 
+/**
+ *  What `assets_list` answers: the registry rows of one kind, reconciled with
+ *  its folder, and the unpacked pack folders in it — read from disk every time
+ *  and never stored, so `installed-assets.json` keeps its format.
+ */
+export type AssetListing = {
+	files: InstalledAsset[],
+	/**
+	 *  Sorted case-insensitively. `None`: the folder could not be read, so
+	 *  packs placed in it by hand may be missing — the UI says so.
+	 */
+	folders: string[] | null,
+};
+
 /**  One installed resource-pack/shader's update-check result. */
 export type AssetUpdateCheck = AssetUpdateCheck_Serialize | AssetUpdateCheck_Deserialize;
 
@@ -2798,6 +2860,15 @@ export type AssetUpdateCheck_Serialize = {
 	filename: string,
 	name: string,
 	state: AssetUpdateState_Serialize,
+};
+
+/**  What an asset update did with the file it replaced. */
+export type AssetUpdateOutcome = {
+	/**
+	 *  `Some(reason)`: the superseded file could not be removed and stays on
+	 *  disk under its old row. `None`: it is gone, or the name did not change.
+	 */
+	old_file_kept: string | null,
 };
 
 /**  The per-asset update classification (mirrors `ModUpdateState` for mods). */
@@ -3187,6 +3258,7 @@ export type ContentEntry = {
 	category: ContentCategory,
 	file_count: number,
 	total_bytes: number | null,
+	location: ContentLocation,
 };
 
 /**
@@ -3213,6 +3285,26 @@ export type ContentKind = "mod" | "resource_pack" | "shader" |
  *  through `crate::datapacks::*` instead of the asset commands.
  */
 "datapack";
+
+/**  Where a category's content is, as the preview shows it. */
+export type ContentLocation = 
+/**  A real folder (or file, for `options.txt`) inside the instance. */
+{ kind: "local" } | 
+/**
+ *  The root is a symbolic link or junction. The counts are the target's
+ *  content, which is what gets copied, as real files.
+ */
+{ kind: "linked"; target: string } | 
+/**
+ *  The root is a link whose target is missing. Counts are 0; the row
+ *  cannot be selected and a copy refuses.
+ */
+{ kind: "broken_link"; target: string } | 
+/**
+ *  The root could not be inspected or listed. Counts are 0; `reason` is
+ *  the OS error.
+ */
+{ kind: "unreadable"; reason: string };
 
 /**  Cosmetics snapshot the modal loads on open. */
 export type Cosmetics = {
@@ -3345,6 +3437,14 @@ export type DatapackLibraryView = {
 	 *  picker then shows it as unknown.
 	 */
 	worlds: DatapackWorldView[],
+	/**
+	 *  Directories at the top of the library, sorted case-insensitively. A
+	 *  folder pack cannot be hardlinked into worlds, so the library never uses
+	 *  one: the UI names them instead of ignoring them in silence.
+	 *  `Some(vec![])` when the library does not exist; `None` when it could not
+	 *  be read.
+	 */
+	library_folders: string[] | null,
 };
 
 export type DatapackMigration = {
@@ -3778,12 +3878,30 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "keyring"; op: KeyringOp; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | 
 /**
- *  A Java the user chose for an instance cannot run this game, or could
- *  not be checked. Never answered by launching Lucerna's own Java instead
- *  (CLAUDE.md, Fallback discipline). `reason` is typed so the UI can say
- *  it in the user's language.
+ *  A Java the user chose — for an instance, a server, or in Settings for
+ *  a Java major — cannot run this game, or could not be checked. Never
+ *  answered by launching Lucerna's own Java instead (CLAUDE.md, Fallback
+ *  discipline). `origin` says which setting to fix; `reason` is typed so
+ *  the UI can say it in the user's language.
  */
-{ kind: "java_unusable"; path: string; reason: JavaUnusableReason } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
+{ kind: "java_unusable"; path: string; origin: JavaOrigin; reason: JavaUnusableReason } | 
+/**
+ *  A launch whose Java defers to Settings could not read Settings, so it
+ *  cannot tell which Java to use. A refusal, never "no default".
+ */
+{ kind: "java_settings_unreadable"; details: string } | 
+/**
+ *  Lucerna's runtime for this version is not on disk — the shared version
+ *  was installed for an instance that uses its own Java. The UI offers to
+ *  download it; launch never downloads it silently.
+ */
+{ kind: "managed_java_missing"; component: string } | 
+/**
+ *  Lucerna's runtime for this version could not be obtained. `stage`
+ *  says whether the game itself needs it (a Java on this computer can stand
+ *  in) or a Forge/NeoForge install step does (it cannot).
+ */
+{ kind: "jre_unavailable"; component: string; major: number; stage: JreStage; reason: JreUnavailableReason } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
 /**  The proposed folder name reduced to nothing once normalised to ASCII. */
 { kind: "instance_dir_name_empty" } | 
 /**  Another directory already occupies that name. */
@@ -3828,6 +3946,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  row's display name.
  */
 { kind: "mods_already_installed"; name: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | 
+/**
+ *  An entry of a resource-pack or shader folder is a link (a symlink, or a
+ *  junction on Windows): the launcher neither deletes nor recycles through
+ *  one — the user removes it in the file manager.
+ */
+{ kind: "addon_entry_is_link"; name: string } | 
 /**
  *  A modpack update stopped in phase 2 and was undone: nothing was changed.
  *  `file_name` is the file it stopped at — the old file it was setting aside
@@ -4303,15 +4427,13 @@ export type ExportOptions = {
 export type ExportPreview = {
 	/**  Enabled mods only — disabled mods are never exported. */
 	mods: ExportModInfo[],
-	has_config: boolean,
-	has_resourcepacks: boolean,
-	has_shaderpacks: boolean,
-	has_saves: boolean,
 	/**
-	 *  Total bytes under `saves/`, for the privacy/size warning. f64 per
-	 *  the specta no-BigInt rule.
+	 *  The instance's content categories, from the same scanner the import
+	 *  and clone dialogs use: counts, sizes (the saves total feeds the
+	 *  privacy/size warning), and whether each is a linked, broken or
+	 *  unreadable folder.
 	 */
-	saves_size_bytes: number | null,
+	content: ContentEntry[],
 };
 
 /**
@@ -4491,6 +4613,7 @@ export type GeneralSettingsPatch = {
 	mod_metadata_ttl_days?: number | null,
 	sftp_upload_concurrency?: number | null,
 	hidden_sidebar_buttons?: string[] | null,
+	java_defaults?: JavaDefault[] | null,
 	allow_server_ping?: boolean | null,
 	register_url_scheme?: boolean | null,
 	allow_ai_translation?: boolean | null,
@@ -4575,6 +4698,16 @@ export type GeneralSettings_Deserialize = {
 	 *  later versions stay forward/backward compatible.
 	 */
 	hidden_sidebar_buttons?: string[],
+	/**
+	 *  Settings → Game → Java: the Java each Java major runs on for every
+	 *  instance and server that chose nothing of its own. Empty = Lucerna's
+	 *  runtime everywhere. Plain `default` and always serialised — a
+	 *  `skip_serializing_if` would blind `every_general_field_has_a_patch_counterpart`.
+	 *  Rows are written only by `commands::java::set_java_default`, which
+	 *  probes them; a launch normalises and probes a row again, since app.json
+	 *  is a file anyone can edit.
+	 */
+	java_defaults?: JavaDefault[],
 	/**
 	 *  Opt-in permission to send a Server List Ping to the user's OWN saved
 	 *  multiplayer servers so their status / player count can be shown.
@@ -4694,6 +4827,16 @@ export type GeneralSettings_Serialize = {
 	 *  later versions stay forward/backward compatible.
 	 */
 	hidden_sidebar_buttons: string[],
+	/**
+	 *  Settings → Game → Java: the Java each Java major runs on for every
+	 *  instance and server that chose nothing of its own. Empty = Lucerna's
+	 *  runtime everywhere. Plain `default` and always serialised — a
+	 *  `skip_serializing_if` would blind `every_general_field_has_a_patch_counterpart`.
+	 *  Rows are written only by `commands::java::set_java_default`, which
+	 *  probes them; a launch normalises and probes a row again, since app.json
+	 *  is a file anyone can edit.
+	 */
+	java_defaults: JavaDefault[],
 	/**
 	 *  Opt-in permission to send a Server List Ping to the user's OWN saved
 	 *  multiplayer servers so their status / player count can be shown.
@@ -5162,18 +5305,58 @@ export type IntegrityStatus = {
 };
 
 /**
- *  What an instance says about its Java. Stored in `instance.json` as
- *  `{"kind": "bundled"}` / `{"kind": "custom", "path": "…"}`; absent = the
- *  default (Lucerna's runtime).
+ *  What an instance or a server says about its Java. Stored as
+ *  `{"kind": "bundled"}` / `{"kind": "custom", "path": "…"}`; absent = follow
+ *  Settings' default for the Java major the version needs, else Lucerna's
+ *  runtime.
  */
 export type JavaChoice = 
-/**
- *  Always Lucerna's own runtime. Distinct from "absent" once Settings can
- *  name a default per Java version; until then the two behave the same.
- */
+/**  Always Lucerna's own runtime, whatever Settings names as the default. */
 { kind: "bundled" } | 
 /**  This executable. */
 { kind: "custom"; path: string };
+
+/**
+ *  One row of Settings → Game → Java: the Java every instance and server
+ *  whose Minecraft version needs `major` uses, unless it chose another.
+ */
+export type JavaDefault = {
+	major: number,
+	path: string,
+};
+
+/**
+ *  What `set_java_default` saved: the settings as persisted, and the probe's
+ *  report for the row's Java (`None` when the row was removed).
+ */
+export type JavaDefaultSaved = JavaDefaultSaved_Serialize | JavaDefaultSaved_Deserialize;
+
+/**
+ *  What `set_java_default` saved: the settings as persisted, and the probe's
+ *  report for the row's Java (`None` when the row was removed).
+ */
+export type JavaDefaultSaved_Deserialize = {
+	settings: GeneralSettings_Deserialize,
+	report: JavaReport | null,
+};
+
+/**
+ *  What `set_java_default` saved: the settings as persisted, and the probe's
+ *  report for the row's Java (`None` when the row was removed).
+ */
+export type JavaDefaultSaved_Serialize = {
+	settings: GeneralSettings_Serialize,
+	report: JavaReport | null,
+};
+
+/**  Where a chosen Java came from — so a refusal can say which setting to fix. */
+export type JavaOrigin = 
+/**  The instance's own choice. */
+{ kind: "instance" } | 
+/**  Settings → Game → Java, the row for this major. */
+{ kind: "default"; major: number } | 
+/**  The server's own choice. */
+{ kind: "server" };
 
 /**  What the UI and the log are told about a usable Java. */
 export type JavaReport = {
@@ -5360,6 +5543,29 @@ exit_code: number | null; duration_seconds: number | null;
  *  deep-link into the log viewer.
  */
 log_path: string | null }) & { action?: never; affected?: never; from_version?: never; report_id?: never; subject?: never; to_version?: never };
+
+/**  Which step needed Lucerna's Java runtime when it could not be obtained. */
+export type JreStage = 
+/**  The game itself — a Java chosen on this computer can run it instead. */
+"game_runtime" | 
+/**
+ *  A Forge/NeoForge install processor. Those write the shared libraries
+ *  cache and their output is not checksummed, so only Lucerna's runtime
+ *  runs them.
+ */
+"installer_tools";
+
+/**
+ *  Why Lucerna's runtime could not be obtained. Typed so the UI can say it in
+ *  the user's language.
+ */
+export type JreUnavailableReason = 
+/**  It is not on disk and fetching it failed. */
+{ kind: "download"; details: string } | 
+/**  Mojang publishes no runtime for this system. */
+{ kind: "unsupported_platform"; os: string; arch: string } | 
+/**  Mojang's runtime list has no such component for this system. */
+{ kind: "unknown_component"; id: string };
 
 /**
  *  One key's editor row: what the mod ships (English + its own target-language
@@ -8038,6 +8244,21 @@ export type ServerInstalledRecord = {
 	enrich_attempted?: boolean,
 };
 
+/**  What `server_set_java` saved, and the probe's report for a chosen Java. */
+export type ServerJavaSaved = ServerJavaSaved_Serialize | ServerJavaSaved_Deserialize;
+
+/**  What `server_set_java` saved, and the probe's report for a chosen Java. */
+export type ServerJavaSaved_Deserialize = {
+	server: ServerWithStatus_Deserialize,
+	report: JavaReport | null,
+};
+
+/**  What `server_set_java` saved, and the probe's report for a chosen Java. */
+export type ServerJavaSaved_Serialize = {
+	server: ServerWithStatus_Serialize,
+	report: JavaReport | null,
+};
+
 /**  One log file shown to the UI. */
 export type ServerLogInfo = {
 	file_name: string,
@@ -8205,6 +8426,10 @@ export type ServerWithStatus_Deserialize = {
 	last_exit_code: number | null,
 	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
 	diagnosis_status: DiagnosisStatus,
+	/**  The server's own Java choice; `None` = Settings' default, else Lucerna's. */
+	java: JavaChoice | null,
+	/**  The Java major its Minecraft version needs, once known. */
+	java_major: number | null,
 };
 
 /**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */
@@ -8236,6 +8461,10 @@ export type ServerWithStatus_Serialize = {
 	last_exit_code: number | null,
 	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
 	diagnosis_status: DiagnosisStatus,
+	/**  The server's own Java choice; `None` = Settings' default, else Lucerna's. */
+	java: JavaChoice | null,
+	/**  The Java major its Minecraft version needs, once known. */
+	java_major: number | null,
 };
 
 /**

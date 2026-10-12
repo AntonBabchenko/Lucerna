@@ -252,6 +252,8 @@ pub(crate) fn build_file(
         created_from_instance: None,
         handled_log_sig: None,
         java_component: None,
+        java_major: None,
+        java: None,
         upload: None,
     }
 }

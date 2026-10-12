@@ -582,6 +582,25 @@ pub struct InstalledAsset {
     pub installed_at: String, // RFC 3339
 }
 
+/// What `assets_list` answers: the registry rows of one kind, reconciled with
+/// its folder, and the unpacked pack folders in it — read from disk every time
+/// and never stored, so `installed-assets.json` keeps its format.
+#[derive(Debug, Clone, Serialize, Type, PartialEq)]
+pub struct AssetListing {
+    pub files: Vec<InstalledAsset>,
+    /// Sorted case-insensitively. `None`: the folder could not be read, so
+    /// packs placed in it by hand may be missing — the UI says so.
+    pub folders: Option<Vec<String>>,
+}
+
+/// What an asset update did with the file it replaced.
+#[derive(Debug, Clone, Serialize, Type, PartialEq)]
+pub struct AssetUpdateOutcome {
+    /// `Some(reason)`: the superseded file could not be removed and stays on
+    /// disk under its old row. `None`: it is gone, or the name did not change.
+    pub old_file_kept: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstalledMod {
     pub filename: String,

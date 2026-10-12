@@ -232,6 +232,13 @@
               isRunning={anyRunning}
               name={instance.name}
               status={instance.integrity}
+              java={instance.java}
+              requirementKey={JSON.stringify([
+                instance.mc_version,
+                instance.loader,
+                instance.loader_version,
+                instance.ready,
+              ])}
             />
           </div>
         </div>
