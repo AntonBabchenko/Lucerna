@@ -1310,7 +1310,7 @@
   {#if loader === 'vanilla' && enabledModsCount > 0}
     <!-- Instance-level condition, not a per-jar verdict (spec D9): Vanilla
          has no family for compat_verdict to mismatch, yet it loads NO mods
-         at all. No fix button — the fix is picking a loader in Manage. -->
+         at all. No fix button — the fix is picking a loader in the Settings tab. -->
     <div
       class="rounded-lg border border-warning-text bg-warning-bg px-3 py-2 text-sm text-warning-text mb-2"
       data-testid="vanilla-mods-banner"

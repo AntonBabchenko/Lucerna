@@ -14,10 +14,10 @@
   // onDestroy sees `active === true` with the main tour up, which is exactly
   // the case the guard exists for.
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
-  import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
+  import { INSTANCE_SETTINGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { tourState } from '$lib/onboarding/state.svelte';
 </script>
 
 {#if !tourState.active}
-  <ContextualTour id="manage" steps={MANAGE_STEPS} />
+  <ContextualTour id="instanceSettings" steps={INSTANCE_SETTINGS_STEPS} />
 {/if}

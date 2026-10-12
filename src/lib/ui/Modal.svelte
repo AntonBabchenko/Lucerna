@@ -150,8 +150,8 @@
     if (!closeOnBackdrop) return;
     if (!startedOnBackdrop || e.target !== e.currentTarget) return;
     // A click outside leaves the focused field, as the press did before it
-    // kept the focus: a field that saves when it is left (the instance name in
-    // Manage) saves, then the dialog closes.
+    // kept the focus: a field that saves when it is left saves, then the
+    // dialog closes.
     const scrim = e.currentTarget as HTMLElement;
     const active = document.activeElement;
     if (active instanceof HTMLElement && scrim.contains(active)) active.blur();

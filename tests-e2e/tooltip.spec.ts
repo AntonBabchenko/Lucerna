@@ -158,12 +158,14 @@ test.describe('shared tooltip placement', () => {
     await expectPlacedBy(page, help, 'Why a new instance?');
   });
 
-  test('in another dialog, keyboard focus shows the tooltip by its control', async ({ page }) => {
-    await page.getByRole('button', { name: 'Manage', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Manage Instances' });
-    await expect(dialog).toBeVisible();
+  test('on the Settings tab, keyboard focus shows the tooltip by its control', async ({
+    page,
+  }) => {
+    await page.locator('[data-tour="tab-settings"]').click();
+    const tab = page.getByTestId('instance-settings-tab');
+    await expect(tab).toBeVisible();
 
-    const picture = dialog.getByRole('button', { name: 'Change instance picture' });
+    const picture = tab.getByRole('button', { name: 'Change instance picture' });
     await tabTo(page, picture);
     await expectPlacedBy(page, picture, 'Change instance picture');
   });

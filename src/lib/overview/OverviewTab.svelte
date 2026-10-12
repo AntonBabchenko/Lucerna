@@ -45,7 +45,7 @@
     installError,
     modsError,
     errors,
-    onManage,
+    onOpenSettings,
     onExport,
     onOpenPackDrawer,
     onPackUpdated,
@@ -91,7 +91,8 @@
     installError: string | null;
     modsError: string | null;
     errors: Record<ErrorKey, string | null>;
-    onManage: (field?: ManageFocusField | null) => void;
+    /** Open the instance Settings tab, at that field when one is given. */
+    onOpenSettings: (field?: ManageFocusField | null) => void;
     onExport: () => void;
     onOpenPackDrawer: () => void;
     onPackUpdated?: () => void;
@@ -199,8 +200,8 @@
     // Installed tab, and opening it re-attempts the pre-flight.
     else if (kind === 'preflight_unknown') onNavInstalled();
     else if (kind === 'server_log_fix') onOpenServers();
-    else if (kind === 'integrity') onManage('integrity');
-    else onManage('mc'); // pick_version
+    else if (kind === 'integrity') onOpenSettings('integrity');
+    else onOpenSettings('mc'); // pick_version
   }
 
   const ERROR_ORDER: ErrorKey[] = ['listAccounts', 'remove', 'instances', 'versions'];
@@ -271,7 +272,7 @@
           class="card-zone px-3.5 pt-3.5 pb-2 text-[10px] uppercase tracking-wider text-muted"
           aria-label={$t('page.overview.openManageAria')}
           data-testid="overview-config-header"
-          onclick={() => onManage(null)}
+          onclick={() => onOpenSettings(null)}
         >
           {$t('page.overview.sectionConfiguration')}
         </button>
@@ -283,7 +284,7 @@
             value: activeInstance.mc_version || $t('page.overview.notSet'),
           })}
           data-testid="overview-config-mc"
-          onclick={() => onManage('mc')}
+          onclick={() => onOpenSettings('mc')}
         >
           <span class="text-muted">{$t('page.overview.labelMinecraft')}</span>
           <span class="font-mono">{activeInstance.mc_version || $t('page.overview.notSet')}</span>
@@ -296,7 +297,7 @@
             value: loaderDisplay,
           })}
           data-testid="overview-config-loader"
-          onclick={() => onManage('loader')}
+          onclick={() => onOpenSettings('loader')}
         >
           <span class="text-muted">{$t('page.overview.labelLoader')}</span>
           <span class="font-mono">{loaderDisplay}</span>
@@ -309,7 +310,7 @@
             value: `${activeInstance.max_heap_mb} ${$t('format.unit.megabyte')}`,
           })}
           data-testid="overview-config-memory"
-          onclick={() => onManage('memory')}
+          onclick={() => onOpenSettings('memory')}
         >
           <span class="text-muted">{$t('page.overview.labelMemory')}</span>
           <span class="font-mono">{activeInstance.max_heap_mb} {$t('format.unit.megabyte')}</span>
@@ -525,7 +526,7 @@
 
       <!--
         Integrity. One zone for the whole card in all three states — the repair
-        action itself lives in IntegritySection inside Manage, and unhealthy
+        action itself lives in IntegritySection on the Settings tab, and unhealthy
         instances are additionally surfaced by AttentionPanel. Children are
         <span>s: a <button> may only contain phrasing content.
 
@@ -538,7 +539,7 @@
         type="button"
         class="card-zone rounded-xl border border-border-subtle bg-surface p-3.5 flex flex-col items-start gap-2"
         data-testid="overview-integrity"
-        onclick={() => onManage('integrity')}
+        onclick={() => onOpenSettings('integrity')}
       >
         <span class="text-[10px] uppercase tracking-wider text-muted">
           {$t('instance.integrity.heading')}

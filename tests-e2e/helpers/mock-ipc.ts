@@ -55,7 +55,7 @@ function resolveTourVersion(): string {
 // The per-surface *contextual* tours (ContextualTour.svelte) are gated by
 // versioned localStorage keys (`ftl.tour.<id>.<version>.done`), independent of
 // the main tour above. In a fresh browser those keys are absent, so opening any
-// toured surface (Manage, Add-ons, …) auto-fires its tour and its popover can
+// toured surface (the Settings tab, Add-ons, …) auto-fires its tour and its popover can
 // sit over the control a click-driven spec is trying to reach. Seed every key
 // as "done" so contextual tours never fire in e2e. Derived from the app's
 // `TOUR_VERSION` map (same don't-hard-code rationale as resolveTourVersion) so a
@@ -353,7 +353,7 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         list_instances: () => m.instances,
         get_active_instance: () =>
           m.instances.find((i: { id: string }) => i.id === m.active_instance_id) ?? null,
-        // Heap-slider bounds (the Manage modal's memory slider renders from them) —
+        // Heap-slider bounds (the Settings tab's memory slider renders from them) —
         // the backend's policy on a 16 GB machine (src-tauri/src/instances/memory.rs).
         instance_memory_bounds: () => ({
           min_mb: 1024,

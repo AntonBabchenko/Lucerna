@@ -79,25 +79,28 @@ test('Tab with the focus on nothing lands in the dialog, not the page behind it'
   await expect(first).toBeFocused();
 });
 
-test('a click on the scrim leaves the field first: the name being typed is saved', async ({
+// The instance name lives on the Settings tab now (it was the Manage window's,
+// where a click on the scrim left the field and closed the window in one go).
+// The same press-then-unmount happens on the tab: a click on another tab blurs
+// the field first and unmounts the Settings tab right after.
+test('a click on another tab leaves the field first: the name being typed is saved', async ({
   page,
 }) => {
-  await page.locator('[data-tour="manage-btn"]').click();
-  const dialog = page.getByRole('dialog');
-  const name = dialog.locator('#detail-name');
+  await page.locator('[data-tour="tab-settings"]').click();
+  const name = page.locator('#detail-name');
   await name.fill('Vanilla Plus');
   await expect(name).toBeFocused();
 
-  await page.mouse.click(4, 4); // press and release on the scrim
+  await page.getByRole('tab', { name: 'Overview' }).click();
 
-  await expect(dialog).toBeHidden();
+  await expect(name).toBeHidden();
   await expect
     .poll(
       async () => (await ipcCalls(page)).find((c) => c.cmd === 'set_instance_name')?.args ?? null,
     )
     .toEqual({ id: 'inst-1', name: 'Vanilla Plus' });
-  // The save was still on its way when the dialog closed. The profile list is read again after
-  // it all the same, so the sidebar shows the new name.
+  // The save was still on its way when the tab went. The profile list is read again after it
+  // all the same, so the sidebar shows the new name.
   await expect
     .poll(async () => {
       const calls = await ipcCalls(page);

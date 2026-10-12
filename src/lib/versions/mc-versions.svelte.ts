@@ -68,7 +68,7 @@ export function createMcVersions() {
     if (r.status === 'ok') {
       value = r.data;
       // Publish to the shared rune so the McVersionCombobox in the mod / modpack
-      // browsers and the Manage modal read the list without prop drilling.
+      // browsers and the Settings tab read the list without prop drilling.
       mcVersions.value = r.data;
       error = null;
       backoffStep = 0; // recovered — reset the schedule

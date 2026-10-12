@@ -4,13 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // InstanceIconDialog must join Modal's shared open-stack instead of
 // hand-rolling its own backdrop + `<svelte:window onkeydown>` Escape handler.
-// Regression: previously, opening this dialog from inside another modal (e.g.
-// ManageInstancesModal) and pressing Escape closed BOTH dialogs, because this
+// Regression: previously, opening this dialog from inside another modal (then
+// the Manage window, since retired) and pressing Escape closed BOTH dialogs, because this
 // dialog never registered in Modal.svelte's topmost-open-stack, so the
 // underlying modal's own Escape handler believed itself topmost and closed
-// too. This test mounts an "underlying" Modal layer first (mirroring
-// ManageInstancesModal, which is rendered before <InstanceIconDialog> in
-// +page.svelte), opens the icon dialog on top of it, and asserts a single
+// too. This test mounts an "underlying" Modal layer first, opens the icon
+// dialog on top of it, and asserts a single
 // Escape keypress closes only the topmost (icon) dialog.
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -56,9 +55,8 @@ describe('InstanceIconDialog Modal-stack participation', () => {
   it('a single Escape closes only the topmost (icon) dialog, leaving the underlying modal open', async () => {
     const onCloseUnderlying = vi.fn();
 
-    // Mount the underlying modal first — mirrors ManageInstancesModal being
-    // rendered before <InstanceIconDialog> at the page root, so DOM order
-    // (== mount order) matches production.
+    // Mount the underlying modal first, so DOM order (== mount order) puts the
+    // icon dialog on top, as any dialog opened over another is.
     render(Modal, {
       props: {
         onClose: onCloseUnderlying,

@@ -76,11 +76,13 @@ beforeEach(() => markSeen('addons'));
 afterEach(() => resetAddonsViewMemory());
 
 describe('MainTabs', () => {
-  it('renders the three tab labels', () => {
+  it('renders every tab label', () => {
     const { getByText } = render(MainTabs, { props: {} });
     expect(getByText('Overview')).toBeTruthy();
     expect(getByText('Add-ons')).toBeTruthy();
     expect(getByText('Worlds')).toBeTruthy();
+    expect(getByText('Screenshots')).toBeTruthy();
+    expect(getByText('Settings')).toBeTruthy();
   });
 
   it('forwards hasInstalledMods, so the Add-ons tab opens on Installed', async () => {

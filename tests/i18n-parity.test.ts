@@ -79,6 +79,43 @@ describe('i18n locale parity (en vs ru)', () => {
     expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
   });
 
+  it('carries none of the keys retired with the Manage window', () => {
+    // Instance settings became a tab (site feedback #4, 2026-10-12): the
+    // window, its list, its sidebar button and its tour went with it.
+    const retired = [
+      'instance.manage.title',
+      'instance.manage.closeLabel',
+      'instance.manage.activeBadge',
+      'instance.manage.pickMc',
+      'instance.manage.newInstanceBtn',
+      'instance.manage.filterPlaceholder',
+      'instance.manage.filterNoMatches',
+      'instance.manage.listRegionLabel',
+      'instance.manage.resizeList',
+      'instance.manage.iconReady',
+      'instance.manage.folderRenamed', // dead before, swept with its neighbours
+      'instance.manage.closeBtn',
+      'instance.manage.emptyState',
+      'sidebar.manage',
+      'sidebar.manageInstanceLabel',
+      'settings.general.appearance.sidebarButtons.manage',
+    ];
+    const retiredTrees = ['onboarding.tour.manageInstances.', 'onboarding.contextual.manage.'];
+    expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
+    expect(
+      Object.keys({ ...flatEn, ...flatRu }).filter((k) =>
+        retiredTrees.some((t) => k.startsWith(t)),
+      ),
+    ).toEqual([]);
+  });
+
+  it('carries none of the keys retired with the typed delete word', () => {
+    // Deleting an instance asks once, like a world or a server (2026-10-12);
+    // the instance dialog was the word's last user.
+    const retired = ['worlds.delete.typeToConfirm'];
+    expect(retired.filter((k) => k in flatEn || k in flatRu)).toEqual([]);
+  });
+
   it('carries none of the keys retired by the NeoForge 26.x fix', () => {
     // The New-profile footer said "{loader} does not support Minecraft {mc}"
     // for ANY missing loader version, a network error included. It now says

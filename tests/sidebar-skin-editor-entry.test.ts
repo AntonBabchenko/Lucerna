@@ -60,7 +60,7 @@ function handlers() {
     onOpenSkinEditor: vi.fn(),
     onAddOffline: () => {},
     onSelectInstance: () => {},
-    onOpenManage: () => {},
+    onCreateInstance: () => {},
     onOpenMods: () => {},
     onOpenLogs: () => {},
     onOpenModpacks: () => {},

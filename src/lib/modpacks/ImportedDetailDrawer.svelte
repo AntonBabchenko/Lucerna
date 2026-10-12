@@ -78,7 +78,7 @@
   // are silent — a transient lookup error keeps the registry name.
   //
   // Delete confirm overlay copy spells out the consequences (worlds,
-  // configs, screenshots) — matches the ManageInstancesModal delete
+  // configs, screenshots) — matches the DeleteInstanceDialog
   // dialog wording so the user gets the same warning regardless of
   // where they trigger the delete from. LastInstance errors from the
   // backend are surfaced via formatError; the button stays clickable

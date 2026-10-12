@@ -294,7 +294,7 @@
       {:else}
         <!-- Mod-loader cores (incl. vanilla): LoaderPicker renders its own
              internal "Loader" group label, so no wrapping field label here
-             (mirrors ManageInstancesModal's single-label mount). The
+             (as the instance Settings tab mounts it). The
              unknown-vanilla warn belongs on this branch: coreToLoaderKind
              ('vanilla') is 'vanilla' (non-null), so this is where it fires. -->
         {#if loaderUnknown && loader === 'vanilla'}

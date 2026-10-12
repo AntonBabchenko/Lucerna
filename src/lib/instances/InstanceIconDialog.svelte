@@ -53,7 +53,7 @@
   }
 
   // This component owns the picture mutations; the entry points (Overview
-  // avatar, Manage modal) only call iconDialog.pick()/requestRemove(). The
+  // avatar, Settings tab) only call iconDialog.pick()/requestRemove(). The
   // handler registration returns its cleanup so a (hypothetical) second mount
   // cannot leave a stale file-input reference behind.
   $effect(() =>

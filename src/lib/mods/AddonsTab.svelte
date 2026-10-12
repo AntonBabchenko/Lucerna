@@ -147,7 +147,7 @@
   // tab entirely (the whole feature is inert there: the game would read none
   // of it).
   //
-  // Keyed on BOTH instance and mc version: the Manage modal changes an
+  // Keyed on BOTH instance and mc version: the Settings tab changes an
   // instance's Minecraft IN PLACE (directory-as-identity — the id never
   // changes), so an id-only dependency would leave the gate stale after a
   // 1.21 → 1.12.2 downgrade with the tab still mounted.

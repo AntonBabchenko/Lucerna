@@ -4,8 +4,8 @@
   // picker + Apply action in the header, and the key editor (KeyTable) on
   // the right once a namespace is picked.
   //
-  // Own module rather than a section of ManageInstancesModal.svelte, which is
-  // already at this project's 800-line file ceiling.
+  // Own module rather than a section of the instance settings, which keep each
+  // file under this project's 800-line ceiling.
   import {
     commands,
     type ApplyGate,
@@ -77,11 +77,11 @@
   } = $props();
 
   // Draggable list/detail split. Not persisted — reopening starts from the
-  // default, same as ManageInstancesModal and the skin editor.
+  // default, same as the skin editor.
   //
   // The floor is a constant (a namespace name has to stay readable); the
   // ceiling is DERIVED, so the list may grow on a wide window until the
-  // detail pane hits its own minimum. Mirrors ManageInstancesModal.
+  // detail pane hits its own minimum.
   const LIST_MIN_WIDTH = 220;
   const LIST_FALLBACK_MAX = 420;
   // Enough for the search row plus one wrapped chip row.
@@ -94,7 +94,7 @@
 
   // Owned here rather than by SplitterHandle: the shared handle takes bounds
   // as props and stays observer-free, which keeps it safe to render in
-  // component tests. Mirrors ManageInstancesModal's observeRow.
+  // component tests.
   function observeRow(node: HTMLElement) {
     if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
@@ -951,7 +951,8 @@
     {/if}
     {#if coverage && coverage.namespaces.length > 0}
       <!-- Mounted only once coverage resolved non-empty: the modal is reachable
-           from Manage → Translations for a zero-mod instance, where the tour
+           from the Settings tab and the sidebar row menu for a zero-mod
+           instance, where the tour
            would burn its one shot teaching percentages over an empty state.
            Inside the Modal, which hosts it in the layer stack
            (layer-stack.svelte.ts): PrefillDialog or any other sub-dialog

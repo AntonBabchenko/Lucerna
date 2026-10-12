@@ -136,6 +136,14 @@ describe('buildInstanceMenuItems', () => {
     expect(del?.disabledReason).toBeUndefined();
   });
 
+  it('disables Delete with the busy reason while a task runs on the instance', () => {
+    const del = byId(build({ isBusy: true, isLast: true }), 'x-delete');
+    expect(del?.disabled).toBe(true);
+    expect(del?.disabledReason).toBe('instance.settings.busyBlocked');
+    // A task on the instance does not stop a clone of it.
+    expect(byId(build({ isBusy: true }), 'x-clone-instance')?.disabled).toBeUndefined();
+  });
+
   it('passes the instance id to the handler', () => {
     const handlers = allHandlers();
     byId(build({ handlers }), 'x-export')?.onSelect();
@@ -144,9 +152,10 @@ describe('buildInstanceMenuItems', () => {
 });
 
 describe('deleteBlockedReason', () => {
-  it('ranks running over last', () => {
-    expect(deleteBlockedReason(true, true)).toBe('running');
-    expect(deleteBlockedReason(false, true)).toBe('last');
-    expect(deleteBlockedReason(false, false)).toBeNull();
+  it('ranks running over busy over last', () => {
+    expect(deleteBlockedReason({ running: true, busy: true, last: true })).toBe('running');
+    expect(deleteBlockedReason({ running: false, busy: true, last: true })).toBe('busy');
+    expect(deleteBlockedReason({ running: false, busy: false, last: true })).toBe('last');
+    expect(deleteBlockedReason({ running: false, busy: false, last: false })).toBeNull();
   });
 });

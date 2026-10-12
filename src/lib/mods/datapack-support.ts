@@ -4,7 +4,7 @@ import { commands } from '$lib/ipc/bindings';
 // 1.13), shared by AddonsTab's kind switch and WorldsTab's world detail
 // dialog. Keyed by instance id and Minecraft version joined with a newline —
 // a character neither half can contain. The version is in the key because
-// the Manage modal changes an instance's Minecraft IN PLACE (the id never
+// the Settings tab changes an instance's Minecraft IN PLACE (the id never
 // changes). Module-level so it survives the remounts both tabs go through:
 // without it a pre-1.13 instance would paint the Datapacks surface for one
 // frame on every visit before the IPC answer lands.
