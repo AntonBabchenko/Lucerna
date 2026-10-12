@@ -376,6 +376,27 @@ describe('loader changes are serialized (last click wins)', () => {
   // After a remount the pickers show the SAVED config, not the change about to
   // land: the section says a change is still being applied, until it lands.
   // A change started in this mount needs no line — the picker shows the click.
+  // The version field is the saved value until the change lands (unlike the
+  // loader picker, which shows the click), so a version change in this mount
+  // says it is being applied too.
+  it('a version change says it is being applied until it lands', async () => {
+    let resolve!: (v: unknown) => void;
+    m.changeInstanceMc.mockReturnValue(new Promise((r) => (resolve = r)));
+    render(InstanceGameSection, {
+      props: props({ versions: [makeVersion(), makeVersion('1.21.1')] }),
+    });
+    await pickMc('1.21.1');
+    expect(await screen.findByTestId('settings-game-applying')).toBeTruthy();
+    resolve({
+      status: 'ok',
+      data: {
+        instance: makeInstance({ ...forgeInstance, mc_version: '1.21.1' }),
+        loader_outcome: { kind: 'unchanged' },
+      },
+    });
+    await waitFor(() => expect(screen.queryByTestId('settings-game-applying')).toBeNull());
+  });
+
   it('a remounted section says a change is still being applied, until it lands', async () => {
     const release: Array<(v: unknown) => void> = [];
     m.setInstanceLoader.mockImplementation(() => new Promise((res) => release.push(res)));

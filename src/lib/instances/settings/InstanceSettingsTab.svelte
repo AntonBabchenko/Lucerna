@@ -156,7 +156,7 @@
 >
   {#if instance}
     <div class={twoColumn ? 'w-full' : 'mx-auto max-w-[720px]'}>
-      <div class={twoColumn ? 'grid grid-cols-2 items-start gap-x-8' : 'flex flex-col'}>
+      <div class={twoColumn ? 'grid grid-cols-2 items-start gap-x-8' : 'flex flex-col gap-4'}>
         <div class="flex flex-col gap-4">
           <InstanceIdentitySection
             {instance}

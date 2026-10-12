@@ -105,10 +105,10 @@
   }
 </script>
 
-<section class="pt-3 border-t" data-tour-ctx="settings-integrity">
+<section data-tour-ctx="settings-integrity">
   <div class="flex items-start justify-between gap-3">
     <div>
-      <h3 class="text-xs uppercase text-secondary mb-1">{$t('instance.integrity.heading')}</h3>
+      <h3 class="mb-1 text-sm font-medium text-primary">{$t('instance.integrity.heading')}</h3>
       <p class="text-xs text-muted max-w-xs">{$t('instance.integrity.subtitle')}</p>
     </div>
     <span class="inline-flex" use:tooltip={{ text: blockTitle, describe: false }}>

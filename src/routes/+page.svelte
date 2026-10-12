@@ -1342,10 +1342,6 @@
     }
   }
 
-  // After a delete. If the active instance was the one deleted, the backend
-  // made another active: say which. Focus goes to the instance picker, which
-  // names it — the control that opened the dialog is gone or about another
-  // instance now.
   // The active instance as the delete returned, read before the refresh moves
   // the list on. Not the one when the confirm opened: a toast action or a
   // shortcut can switch the active instance while it is open.
@@ -1354,6 +1350,11 @@
     activeBeforeDelete = activeInstance?.id ?? null;
     await refreshInstances();
   }
+
+  // After a delete. If the active instance was the one deleted, the backend
+  // made another active: say which. Focus goes to the instance picker, which
+  // names it — the control that opened the dialog is gone or about another
+  // instance now.
   async function afterDelete(deleted: InstanceWithStatus) {
     const other = nowActiveAfterDelete(deleted.id, activeBeforeDelete, activeInstance);
     if (other !== null) {

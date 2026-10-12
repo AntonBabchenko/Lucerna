@@ -112,8 +112,13 @@
 
   // The reason a click on Create announced. It moves from beside the button
   // into the alert while it still holds — said once, not twice — and once the
-  // form moves past it the current reason is back beside the button.
+  // form moves past it the current reason is back beside the button, for good:
+  // the same cause coming back later is not announced again unasked.
   let announcedReason = $state<string | null>(null);
+  $effect(() => {
+    if (announcedReason !== null && createDisabledReason !== announcedReason)
+      announcedReason = null;
+  });
   const reasonAnnounced = $derived(
     createDisabledReason !== '' && announcedReason === createDisabledReason,
   );

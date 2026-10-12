@@ -117,6 +117,10 @@ describe('CreateInstanceDialog', () => {
     await fillName();
     expect(errorText()).toBe('');
     expect(screen.queryAllByText('Pick a Minecraft version first')).toHaveLength(1);
+    // Its cause coming back does not bring the alert back unasked.
+    await fillName('');
+    expect(errorText()).toBe('');
+    expect(screen.queryAllByText('Name is required')).toHaveLength(1);
   });
 
   it('creates once on a double click, then makes the new instance active and says so', async () => {

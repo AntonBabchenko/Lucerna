@@ -49,11 +49,13 @@
 
   const locked = $derived(running || busy);
 
-  // A version or loader change started before this mount (on an earlier visit
-  // to the tab) can still be in flight. The pickers then show the SAVED config,
-  // not the one about to land, so the section says a change is being applied.
-  // Not a lock: a click queues behind it and the last click wins. A change
-  // started in this mount needs no line — the picker already shows the click.
+  // A version or loader change can still be in flight while the fields show
+  // the SAVED config, not the one about to land: the section says a change is
+  // being applied. That is every version change (the version field shows the
+  // saved value until the change lands) and a loader change started before
+  // this mount (an earlier visit to the tab). Not a lock: a click queues behind
+  // it and the last click wins. A loader change the user clicked in this mount
+  // needs no line — the picker already shows the click.
   let startedHere = $state(false);
   const joinedInFlight = $derived(cfgBusy(instance.id) && !startedHere);
   $effect(() => {
@@ -187,7 +189,6 @@
   // even after the tab unmounted — toasts are page-level; only this section's
   // own UI (error slot, compat summary) needs it still here, on this instance.
   async function applyMcChange(id: string, name: string, mc: string) {
-    if (!isStale(id)) startedHere = true;
     await enqueueCfgChange(id, async () => {
       if (!isStale(id)) error = null;
       const fail = (message: string) => {
@@ -240,7 +241,6 @@
     kind: LoaderKind,
     version: string | null,
   ): Promise<boolean> {
-    if (!isStale(id)) startedHere = true;
     return new Promise<boolean>((resolve) => {
       void enqueueCfgChange(
         id,
@@ -292,7 +292,11 @@
       return Promise.resolve(false);
     }
     const { id, name } = instance;
-    if (!instance.mrpack_name) return applyLoaderChange(id, name, kind, version);
+    if (!instance.mrpack_name) {
+      // Not the picker correcting a saved version by itself: that shows no click.
+      if (origin === 'user') startedHere = true;
+      return applyLoaderChange(id, name, kind, version);
+    }
     // A modpack instance changes only on the user's say-so. `auto` is the
     // picker correcting a saved version the loader no longer offers: rewriting a
     // pack-pinned build silently is wrong, and so is raising an irreversible
@@ -319,6 +323,7 @@
       await applyMcChange(change.instanceId, change.name, change.value);
       return;
     }
+    if (!isStale(change.instanceId)) startedHere = true;
     change.settle(
       await applyLoaderChange(
         change.instanceId,
