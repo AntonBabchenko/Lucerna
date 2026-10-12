@@ -163,7 +163,8 @@ starts (stay open, minimise, or hide to the tray) with auto-restore on game
 exit, a compact mini-window mode,
 light/dark/system theme picker, an English / Russian interface language
 switch, a relocatable data root, and a guided tour the first time you visit
-Manage / Add-ons / Logs / Modpacks / Worlds / Servers / server management.
+an instance's Settings tab / Add-ons / Logs / Modpacks / Worlds / Servers /
+server management.
 Desktop shortcuts can be created for an instance — or straight into a world
 or onto a saved server — carrying the instance's own picture as their icon.
 Showing player counts for your saved servers is a separate permission, off by
@@ -204,7 +205,7 @@ To run the launcher:
   Once a version is installed, offline play works without one.
 - Java is **not** a prerequisite — the launcher downloads the correct Java
   runtime straight from Mojang for each Minecraft version. If you prefer your
-  own (GraalVM, a tuned JDK), point an instance at it under Manage → Advanced.
+  own (GraalVM, a tuned JDK), point an instance at it under its Settings tab → Advanced.
 
 To actually play Minecraft (these are Minecraft's own requirements, not the
 launcher's):
