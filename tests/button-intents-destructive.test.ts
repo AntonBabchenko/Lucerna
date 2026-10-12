@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus, ModSource, VersionEntry } from '$lib/ipc/bindings';
 
-// ManageInstancesModal renders LoaderPicker, which calls commands.list*Loaders
+// The Settings tab renders LoaderPicker, which calls commands.list*Loaders
 // when loader !== 'vanilla'. We use vanilla in all fixtures here so no loader
 // IPC fires, but the module still needs to be mockable.
 vi.mock('$lib/ipc/bindings', () => ({
@@ -18,7 +18,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     modpackStatus: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
-    // ManageInstancesModal fetches memory bounds on first open
+    // The Settings tab's memory slider fetches its bounds on mount
     instanceMemoryBounds: vi.fn().mockResolvedValue({
       min_mb: 1024,
       max_mb: 8192,
@@ -27,7 +27,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       step_mb: 256,
       ram_known: false,
     }),
-    // ManageInstancesModal calls these on user interaction only; mocked
+    // The Settings tab calls these on user interaction only; mocked
     // here so imports don't throw at resolve time.
     createInstance: vi.fn(),
     setActiveInstance: vi.fn(),
@@ -52,7 +52,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
+import InstanceSettingsTab from '$lib/instances/settings/InstanceSettingsTab.svelte';
 import ImportedDetailDrawer from '$lib/modpacks/ImportedDetailDrawer.svelte';
 
 function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
@@ -86,45 +86,36 @@ function makeVersion(id = '1.20.4'): VersionEntry {
   return { id, version_type: 'release', release_date: '2024-01-01T00:00:00+00:00', url: '' };
 }
 
-// Modal renders the detail panel only when instances has a match for
-// activeInstance.id. Two instances so the Delete button is enabled
-// (it's disabled when instances.length <= 1).
-const manageProps = {
-  open: true,
+// Two instances, so Delete is not blocked as the last one.
+const settingsProps = {
+  instance: makeInstance(),
   instances: [makeInstance(), makeInstance({ id: 'inst-2', name: 'Second' })],
-  activeInstance: makeInstance(),
+  instancesLoaded: true,
+  listError: null,
+  fellBack: false,
   versions: [makeVersion()],
+  running: false,
+  anyRunning: false,
   onChanged: () => {},
+  onCreate: () => {},
+  onDelete: () => {},
+  onClone: () => {},
+  onTranslations: () => {},
+  onOpenFolder: () => {},
 };
 
-describe('ManageInstancesModal — destructive footer pattern', () => {
-  it('+ New instance is btn-primary btn-sm', () => {
-    render(ManageInstancesModal, { props: manageProps });
-    const btn = screen.getByRole('button', { name: /\+ new instance/i });
-    expect(btn).toHaveBtnVariant('primary');
-    expect(btn).toHaveBtnSize('sm');
-  });
-
-  it('footer Delete instance is btn-ghost-danger (LEFT) and Close is btn-secondary (RIGHT)', () => {
-    render(ManageInstancesModal, { props: manageProps });
-    // Label is "Delete instance" (a trash <Icon> sits beside it) — match the text part
-    const deleteBtn = screen.getByRole('button', { name: /delete instance/i });
-    // Footer dismiss button is a plain "Close" (the header CloseButton's name is
-    // "Close manage instances", excluded by the anchored regex). It auto-saves
-    // each field, so it must NOT read as primary/commit.
-    const closeBtn = screen.getByRole('button', { name: /^\s*close\s*$/i });
-    expect(deleteBtn).toHaveBtnVariant('ghost-danger');
-    expect(closeBtn).toHaveBtnVariant('secondary');
-
-    // The footer row uses justify-between; Close sits inside a nested flex
-    // div alongside "Open folder". querySelectorAll still returns all buttons
-    // in document order, so deleteBtn must precede closeBtn.
-    const footer = closeBtn.closest('[class*="justify-between"]') as HTMLElement;
-    expect(footer).not.toBeNull();
-    const buttons = Array.from(footer.querySelectorAll<HTMLButtonElement>('button'));
-    expect(buttons.indexOf(deleteBtn as HTMLButtonElement)).toBeLessThan(
-      buttons.indexOf(closeBtn as HTMLButtonElement),
-    );
+// The Settings tab puts Delete in a Danger zone of its own, after everything
+// else — the server Settings tab's pattern — not beside harmless buttons.
+describe('Settings tab — Danger zone', () => {
+  it('Delete instance is btn-danger btn-sm, alone in the last section', () => {
+    render(InstanceSettingsTab, { props: settingsProps });
+    const deleteBtn = screen.getByTestId('settings-delete-instance');
+    expect(deleteBtn).toHaveBtnVariant('danger');
+    expect(deleteBtn).toHaveBtnSize('sm');
+    const zone = deleteBtn.closest('[data-tour-ctx="settings-danger"]') as HTMLElement;
+    expect(zone.querySelectorAll('button')).toHaveLength(1);
+    // Nothing of the tab follows the zone.
+    expect(zone.nextElementSibling).toBeNull();
   });
 });
 

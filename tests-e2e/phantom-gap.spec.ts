@@ -70,8 +70,8 @@ test('the sidebar-button rows are spaced by the list gap only', async ({ page })
   const dialog = await openSettings(page);
   const row = (id: string) => dialog.getByTestId(`sidebar-button-toggle-${id}`).locator('xpath=..');
   const above = await row('account_actions').boundingBox();
-  const below = await row('manage').boundingBox();
-  const gap = await row('manage').evaluate((el) =>
+  const below = await row('mods').boundingBox();
+  const gap = await row('mods').evaluate((el) =>
     Number.parseFloat(getComputedStyle(el.parentElement as HTMLElement).rowGap),
   );
   expect(above && below).toBeTruthy();

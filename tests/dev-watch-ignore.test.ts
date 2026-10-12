@@ -105,7 +105,7 @@ describe('createRootDirIgnore — Windows paths', () => {
     });
 
     test.each([
-      ['src/lib/instances/ManageInstanceList.svelte'],
+      ['src/lib/instances/settings/InstanceSettingsTab.svelte'],
       ['src/routes/+page.svelte'],
       ['src/app.css'],
       ['vite.config.js'],

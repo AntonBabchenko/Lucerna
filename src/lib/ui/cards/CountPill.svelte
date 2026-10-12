@@ -14,8 +14,7 @@
   // re-guessed per call site.
   //
   // There is no tone: a COUNT is always the success tone. A pill carrying a
-  // WORD is a status, and belongs in StatusBadge (§9) — see the
-  // ManageInstancesModal "Active" marker, migrated in the same pass.
+  // WORD is a status, and belongs in StatusBadge (§9).
   export type CountPillSize = 'sm' | 'md';
 
   const BASE =

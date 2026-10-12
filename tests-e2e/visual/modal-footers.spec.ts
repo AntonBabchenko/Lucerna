@@ -14,47 +14,9 @@ const offlineAccount = {
 
 const baseInstance = makeInstance({ id: 'inst-1', name: 'Default' });
 
-// ManageInstancesModal: inner div identified by the h2 "Manage Instances" heading.
-// DOM tree: fixed-backdrop > div.bg-surface > header > h2
-// xpath=../.. from h2 reaches the bg-surface inner modal div.
-const MANAGE_H2 = 'h2:has-text("Manage Instances")';
-const MANAGE_MODAL = `xpath=h2[contains(text(),'Manage Instances')]/../../..`;
-
 // ImportedDetailDrawer: role="dialog" aria-label="Imported pack details"
 // (ImportedDetailDrawer.svelte).
 const IMPORTED_DRAWER = '[role="dialog"][aria-label="Imported pack details"]';
-
-test.describe('Manage instances modal footer', () => {
-  test('destructive footer: Delete LEFT + Done RIGHT — light', async ({ page }) => {
-    // Two instances are required so the Delete button is enabled
-    // (instances.length <= 1 disables it — ManageInstancesModal.svelte line ~413).
-    await installMockIpc(page, {
-      accounts: [offlineAccount],
-      active_account_id: 'of-1',
-      instances: [
-        baseInstance,
-        { ...baseInstance, id: 'inst-2', name: 'Second' },
-      ],
-      active_instance_id: 'inst-1',
-      theme: 'light',
-    });
-    await page.goto('/');
-    await setTheme(page, 'light');
-
-    // Open the Manage modal via the sidebar "⚙ Manage" button.
-    await page.locator('button:has-text("Manage")').first().click();
-
-    // Wait for the modal heading to appear before snapshotting.
-    await page.waitForSelector(MANAGE_H2);
-
-    // Snapshot the inner modal div (two levels above the h2 heading:
-    // h2 < header < div.bg-surface).
-    const h2 = page.locator(MANAGE_H2).first();
-    const innerModal = h2.locator('xpath=../../..');
-
-    await expect(innerModal).toHaveScreenshot('manage-modal-light.png');
-  });
-});
 
 test.describe('Imported modpack drawer footer', () => {
   test('destructive footer: Delete pack LEFT + Open instance RIGHT — light', async ({ page }) => {

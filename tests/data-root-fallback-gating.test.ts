@@ -10,10 +10,10 @@
 // across tests within this file. Each test calls `dataLocation.refresh()`
 // (not `init()`, which no-ops after the first successful load) to force a
 // fresh fetch against that test's mock before rendering.
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
-import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
+import type { VersionEntry } from '$lib/ipc/bindings';
 
 const m = vi.hoisted(() => ({
   instancePathStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'ok' }),
@@ -62,36 +62,9 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/webview', () => ({}));
 vi.mock('$lib/servers/server-state.svelte', () => ({ serverState: { list: [] } }));
 
-import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
+import CreateInstanceDialog from '$lib/instances/CreateInstanceDialog.svelte';
 import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
-
-function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
-  return {
-    id: 'inst-1',
-    name: 'Default',
-    mc_version: '1.20.1',
-    loader: 'vanilla',
-    loader_version: null,
-    max_heap_mb: 2048,
-    min_heap_mb: null,
-    extra_jvm_args: '',
-    created_unix_ms: null,
-    ready: true,
-    has_icon: false,
-    mrpack_name: null,
-    mrpack_version: null,
-    mrpack_project_id: null,
-    mrpack_source: null,
-    mrpack_summary: null,
-    mrpack_version_id: null,
-    integrity: null,
-    imported_from: null,
-    created_from_server: null,
-    java: null,
-    ...over,
-  };
-}
 
 const version: VersionEntry = {
   id: '1.20.1',
@@ -104,7 +77,7 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => locale.set('en'));
 
 describe('data-root fallback gating (§7)', () => {
-  it('disables "New instance" with an explanatory tooltip when fell_back is true', async () => {
+  it('refuses to create, and says why, when fell_back is true', async () => {
     m.getDataLocation.mockResolvedValue({
       status: 'ok',
       data: {
@@ -115,24 +88,26 @@ describe('data-root fallback gating (§7)', () => {
     });
     await dataLocation.refresh();
 
-    const inst = makeInstance();
-    render(ManageInstancesModal, {
+    render(CreateInstanceDialog, {
       props: {
-        open: true,
-        instances: [inst],
-        activeInstance: inst,
         versions: [version],
-        onChanged: () => {},
+        activate: vi.fn().mockResolvedValue(null),
+        onCreated: () => {},
+        onClose: () => {},
       },
     });
 
-    const newInstanceBtn = (await screen.findByRole('button', {
-      name: '+ New instance',
-    })) as HTMLButtonElement;
-    expect(newInstanceBtn.disabled).toBe(true);
+    // The reason shows before anything is filled in, and Create writes nothing.
+    expect(
+      screen.getByText(
+        'Creating and moving instance data is disabled while the data folder is unavailable.',
+      ),
+    ).toBeTruthy();
+    await fireEvent.click(screen.getByTestId('create-instance-submit'));
+    expect(m.createInstance).not.toHaveBeenCalled();
   });
 
-  it('leaves "New instance" enabled when fell_back is false', async () => {
+  it('gives no data-folder reason when fell_back is false', async () => {
     m.getDataLocation.mockResolvedValue({
       status: 'ok',
       data: {
@@ -143,21 +118,16 @@ describe('data-root fallback gating (§7)', () => {
     });
     await dataLocation.refresh();
 
-    const inst = makeInstance();
-    render(ManageInstancesModal, {
+    render(CreateInstanceDialog, {
       props: {
-        open: true,
-        instances: [inst],
-        activeInstance: inst,
         versions: [version],
-        onChanged: () => {},
+        activate: vi.fn().mockResolvedValue(null),
+        onCreated: () => {},
+        onClose: () => {},
       },
     });
 
-    const newInstanceBtn = (await screen.findByRole('button', {
-      name: '+ New instance',
-    })) as HTMLButtonElement;
-    expect(newInstanceBtn.disabled).toBe(false);
+    expect(screen.queryByText(/data folder is unavailable/i)).toBeNull();
   });
 
   it('renders the persistent fallback banner with the configured path', async () => {

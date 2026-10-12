@@ -412,6 +412,22 @@ describe('a change that finishes after the tab is gone', () => {
 });
 
 describe('the Game section', () => {
+  it('says the version list is unavailable when there are no versions at all', () => {
+    render(InstanceGameSection, { props: props({ versions: [] }) });
+    expect(screen.getByText(/version list unavailable/i)).toBeTruthy();
+  });
+
+  it('nudges to show snapshots when only snapshot versions exist', () => {
+    const snapshot: VersionEntry = {
+      id: '24w01a',
+      version_type: 'snapshot',
+      release_date: '2024-01-01T00:00:00+00:00',
+      url: '',
+    };
+    render(InstanceGameSection, { props: props({ versions: [snapshot] }) });
+    expect(screen.getByText(/no release versions available/i)).toBeTruthy();
+  });
+
   it("clears a refused change's message once the next change works", async () => {
     m.changeInstanceMc
       .mockResolvedValueOnce({ status: 'error', error: { kind: 'instance_busy' } })

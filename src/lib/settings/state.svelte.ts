@@ -29,7 +29,7 @@ export const settingsOpen = $state<{ value: { tab: SettingsTab } | null }>({
 // Which settings control the Settings modal should scroll to and flash. Set by
 // the in-modal search when the user picks a result; consumed by SettingsField
 // (which wraps each searchable control) via the fieldFlash action. Mirrors the
-// manage-focus.ts + focusField flow used by ManageInstancesModal. `null` = no
+// manage-focus.ts + focusField flow used by the instance Settings tab. `null` = no
 // pending jump.
 export const settingsSearchFocus = $state<{ value: SettingsAnchor | null }>({ value: null });
 
