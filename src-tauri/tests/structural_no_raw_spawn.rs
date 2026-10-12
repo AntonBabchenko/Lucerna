@@ -147,15 +147,26 @@ const TRASH_CHOKEPOINT: &str = "platform/recycle_bin.rs";
 /// True for a reference to the external `trash` crate. Matched by its API
 /// names, not by a bare `trash::` path: Lucerna's own `mods::trash` module is
 /// reached as `trash::parse_token(..)` after `use super::trash`, and must not
-/// match. `trash::delete` also covers `delete_all`; an unqualified import is
-/// itself a hit, so the call-site needles keep seeing every call.
+/// match. `trash::delete` also covers `delete_all`. Any import of the crate is
+/// itself a hit — `use trash::..`, `use trash;`, `use trash as t;` — so an
+/// alias cannot hide a call from the API-name needles.
 fn names_trash_crate(line: &str) -> bool {
     line.contains("trash::delete")
         || line.contains("TrashContext")
         || line.contains("trash::os_limited")
-        || line.contains("use trash::")
-        || line.contains("use ::trash")
-        || line.contains("extern crate trash")
+        || imports_trash_crate(line)
+}
+
+/// `use trash`, `use ::trash` or `extern crate trash`, followed by anything
+/// but more of an identifier (`use trash_bin::..` is another crate).
+fn imports_trash_crate(line: &str) -> bool {
+    ["use trash", "use ::trash", "extern crate trash"]
+        .iter()
+        .any(|pat| {
+            line.match_indices(pat).any(|(i, _)| {
+                !line[i + pat.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+            })
+        })
 }
 
 /// Files under `src/` that name the `trash` crate on a non-comment line,
@@ -274,9 +285,21 @@ mod matchers {
             "    ::trash::delete_all(&paths)?;",
             "use trash::{delete, TrashContext};",
             "    let items = trash::os_limited::list()?;",
+            // An alias would hide `t::delete(..)` from the API-name needles,
+            // so the import itself is the hit.
+            "use trash as t;",
+            "use trash;",
+            "pub use trash::delete;",
+            "extern crate trash;",
         ] {
             assert!(names_trash_crate(line), "should match: {line}");
         }
+    }
+
+    #[test]
+    fn another_crate_whose_name_starts_with_trash_is_not_it() {
+        assert!(!names_trash_crate("use trash_bin::Bin;"));
+        assert!(!names_trash_crate("extern crate trashcan;"));
     }
 
     #[test]
