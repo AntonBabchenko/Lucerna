@@ -35,9 +35,10 @@
     icon?: IconName;
     /** Optional bold, tone-coloured heading rendered above the body. */
     title?: string;
-    /** 'alert' for banners that appear after an event (diagnosis); omit for
-        always-present gate banners. */
-    role?: 'alert' | 'status';
+    /** 'alert' for banners that appear after an event (diagnosis); 'note' for
+        advisory content beside the page's subject (the Shaders tab's
+        shader-loader hint); omit for always-present gate banners. */
+    role?: 'alert' | 'status' | 'note';
     /** When set, a top-right × is rendered that calls this. The caller owns what
         "dismiss" means (e.g. signature-keyed acknowledgement). */
     onDismiss?: () => void;
