@@ -445,8 +445,8 @@ describe('MainTabs — tablist role', () => {
   it('each tab has role="tab" and aria-selected', () => {
     render(MainTabs, { props: {} });
     const tabs = screen.getAllByRole('tab');
-    // Overview, Add-ons, Worlds, Screenshots.
-    expect(tabs).toHaveLength(4);
+    // Overview, Add-ons, Worlds, Screenshots, Settings.
+    expect(tabs).toHaveLength(5);
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-selected')).not.toBeNull();
     }

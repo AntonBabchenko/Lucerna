@@ -1,16 +1,22 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import AddonsTab from '$lib/mods/AddonsTab.svelte';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
   import ScreenshotsTab from '$lib/screenshots/ScreenshotsTab.svelte';
   import { modBrowserNav, clientActiveTab } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
+  import {
+    clearInstanceSettingsNav,
+    instanceSettingsNav,
+    requestIsFor,
+  } from '$lib/instances/settings/instance-settings-nav.svelte';
 
-  type Tab = 'overview' | 'mod_browser' | 'worlds' | 'screenshots';
+  type Tab = 'overview' | 'mod_browser' | 'worlds' | 'screenshots' | 'settings';
 
   let {
     overview,
+    settings,
     instanceId = null,
     instanceName = null,
     mcVersion = null,
@@ -25,6 +31,9 @@
     hasInstalledMods = false,
   }: {
     overview?: Snippet;
+    /** The active instance's settings (the page renders InstanceSettingsTab, which
+     *  needs data and handlers MainTabs has no business carrying). */
+    settings?: Snippet;
     instanceId?: string | null;
     instanceName?: string | null;
     mcVersion?: string | null;
@@ -42,11 +51,24 @@
     hasInstalledMods?: boolean | null;
   } = $props();
 
-  let active = $state<Tab>('overview');
+  // A pending request for the Settings tab (instance-settings-nav) decides where
+  // a freshly mounted MainTabs starts: mounting on Overview only to leave it
+  // would run Overview's first-visit tour for a frame and mark it seen.
+  let active = $state<Tab>(
+    untrack(() => requestIsFor(instanceSettingsNav.value, instanceId)) ? 'settings' : 'overview',
+  );
 
   // Tab order for roving-tabindex arrow-key navigation (WAI-ARIA tabs
   // pattern). Kept in render order so ArrowLeft/Right map to visual order.
-  const TAB_ORDER: Tab[] = ['overview', 'mod_browser', 'worlds', 'screenshots'];
+  const TAB_ORDER: Tab[] = ['overview', 'mod_browser', 'worlds', 'screenshots', 'settings'];
+
+  // Every user choice of a tab goes through here. Choosing another tab drops a
+  // Settings request still waiting on an activation: it would otherwise pull the
+  // user back to Settings, unasked, once that activation lands.
+  function selectTab(tab: Tab) {
+    if (tab !== 'settings') clearInstanceSettingsNav();
+    active = tab;
+  }
   let tabEls = $state<(HTMLButtonElement | null)[]>([]);
 
   function onTablistKeydown(e: KeyboardEvent) {
@@ -59,7 +81,7 @@
     else if (e.key === 'End') next = TAB_ORDER.length - 1;
     else return;
     e.preventDefault();
-    active = TAB_ORDER[next];
+    selectTab(TAB_ORDER[next]);
     tabEls[next]?.focus();
   }
 
@@ -71,6 +93,13 @@
     if (modBrowserNav.value !== null) {
       active = 'mod_browser';
     }
+  });
+
+  // A request for the Settings tab (an Overview card, the sidebar, Rename) is
+  // delivered once it is about the active instance; the tab itself takes the
+  // field it asks for and clears the request.
+  $effect(() => {
+    if (requestIsFor(instanceSettingsNav.value, instanceId)) active = 'settings';
   });
 
   // Mirror the active tab for the window-level drop router in +page.svelte
@@ -112,7 +141,7 @@
       class:font-semibold={active === 'overview'}
       class:border-transparent={active !== 'overview'}
       class:text-muted={active !== 'overview'}
-      onclick={() => (active = 'overview')}
+      onclick={() => selectTab('overview')}
     >
       {$t('nav.overview')}
     </button>
@@ -131,7 +160,7 @@
       class:font-semibold={active === 'mod_browser'}
       class:border-transparent={active !== 'mod_browser'}
       class:text-muted={active !== 'mod_browser'}
-      onclick={() => (active = 'mod_browser')}
+      onclick={() => selectTab('mod_browser')}
     >
       {$t('nav.addons')}
     </button>
@@ -149,7 +178,7 @@
       class:font-semibold={active === 'worlds'}
       class:border-transparent={active !== 'worlds'}
       class:text-muted={active !== 'worlds'}
-      onclick={() => (active = 'worlds')}
+      onclick={() => selectTab('worlds')}
     >
       {$t('nav.worlds')}
     </button>
@@ -167,14 +196,36 @@
       class:font-semibold={active === 'screenshots'}
       class:border-transparent={active !== 'screenshots'}
       class:text-muted={active !== 'screenshots'}
-      onclick={() => (active = 'screenshots')}
+      onclick={() => selectTab('screenshots')}
     >
       {$t('nav.screenshots')}
     </button>
+    <button
+      bind:this={tabEls[4]}
+      type="button"
+      role="tab"
+      id="maintab-settings"
+      aria-controls="maintabpanel"
+      aria-label={$t('instance.settings.tabAria')}
+      data-tour="tab-settings"
+      aria-selected={active === 'settings'}
+      tabindex={active === 'settings' ? 0 : -1}
+      class="px-3 py-2 text-base border-b-2 -mb-px"
+      class:border-accent={active === 'settings'}
+      class:text-primary={active === 'settings'}
+      class:font-semibold={active === 'settings'}
+      class:border-transparent={active !== 'settings'}
+      class:text-muted={active !== 'settings'}
+      onclick={() => selectTab('settings')}
+    >
+      {$t('nav.settings')}
+    </button>
   </div>
 
+  <!-- The Settings tab owns its scroll container (like Add-ons owns its list's),
+       so the panel does not scroll a second time around it. -->
   <div
-    class="flex-1 overflow-y-auto relative"
+    class="flex-1 relative {active === 'settings' ? 'overflow-hidden' : 'overflow-y-auto'}"
     role="tabpanel"
     id="maintabpanel"
     aria-labelledby="maintab-{active}"
@@ -206,6 +257,10 @@
       />
     {:else if active === 'screenshots'}
       <ScreenshotsTab {instanceId} />
+    {:else if active === 'settings'}
+      {#if settings}
+        {@render settings()}
+      {/if}
     {/if}
   </div>
 </div>
