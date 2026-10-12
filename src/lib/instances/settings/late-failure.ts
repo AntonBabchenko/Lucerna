@@ -8,7 +8,5 @@ import { t } from '$lib/i18n';
 import { pushWarning } from '$lib/toasts/toasts.svelte';
 
 export function reportLateFailure(instanceName: string, field: string, message: string): void {
-  pushWarning(get(t)('instance.settings.saveFailedLate', { name: instanceName, field }), [
-    message,
-  ]);
+  pushWarning(get(t)('instance.settings.saveFailedLate', { name: instanceName, field }), [message]);
 }

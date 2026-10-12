@@ -201,14 +201,15 @@ describe('InstanceIdentitySection — folder and actions', () => {
   });
 
   it('the actions act on the shown instance; Clone waits for the game to stop', async () => {
-    const p = props({ onShortcut: vi.fn() });
+    const onShortcut = vi.fn();
+    const p = props({ onShortcut });
     const { unmount } = render(InstanceIdentitySection, { props: p });
     await fireEvent.click(screen.getByTestId('clone-instance-btn'));
     await fireEvent.click(screen.getByTestId('create-shortcut-btn'));
     await fireEvent.click(screen.getByTestId('manage-translations-btn'));
     await fireEvent.click(screen.getByTestId('settings-open-folder-btn'));
     expect(p.onClone).toHaveBeenCalledWith('inst-1');
-    expect(p.onShortcut).toHaveBeenCalledWith('inst-1');
+    expect(onShortcut).toHaveBeenCalledWith('inst-1');
     expect(p.onTranslations).toHaveBeenCalledWith('inst-1');
     expect(p.onOpenFolder).toHaveBeenCalledWith('inst-1');
     const row = screen

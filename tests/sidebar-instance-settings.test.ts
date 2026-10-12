@@ -111,11 +111,11 @@ describe('Sidebar without the Manage window', () => {
 
   it('has no Manage button any more', () => {
     mount();
-    expect(screen.queryByRole('button', { name: 'Manage', exact: true })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Manage' })).toBeNull();
     expect(document.querySelector('[data-tour="manage-btn"]')).toBeNull();
   });
 
-  it('offers New instance in the Content section', async () => {
+  it('offers New instance in the New instances section', async () => {
     const h = mount();
     await fireEvent.click(screen.getByTestId('sidebar-new-instance'));
     expect(h.onCreateInstance).toHaveBeenCalledTimes(1);
