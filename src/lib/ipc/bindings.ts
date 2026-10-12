@@ -116,8 +116,8 @@ export const commands = {
 	 *  re-run install_version — earlier attempts to add it as a safety net
 	 *  re-hashed every library and asset on every click, surfacing as a
 	 *  visible "Downloading…" flash. If launch fails on missing files, the
-	 *  error surfaces and the user can click Install (Manage → re-pick the
-	 *  loader, or the Install button reappears once ready_status flips).
+	 *  error surfaces and the user can click Install (the Settings tab → re-pick
+	 *  the loader, or the Install button reappears once ready_status flips).
 	 */
 	launchInstance: (instanceId: string, quickPlay: { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string } | null) => typedError<number, Error>(__TAURI_INVOKE("launch_instance", { instanceId, quickPlay })),
 	/**
@@ -587,7 +587,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	previewInstanceDirName: (name: string) => __TAURI_INVOKE<string>("preview_instance_dir_name", { name }),
 	/**
 	 *  Whether this instance's path can be handed to the JVM, and if not, which
-	 *  part is at fault. Drives the Manage warning banner, so the user learns
+	 *  part is at fault. Drives the Settings tab's folder warning, so the user learns
 	 *  before pressing Play rather than from a Fabric crash window.
 	 */
 	instancePathStatus: (id: string) => typedError<PathStatus, Error>(__TAURI_INVOKE("instance_path_status", { id })),
@@ -2021,7 +2021,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  hide the feature.
 	 * 
 	 *  Version-keyed rather than id-keyed, unlike its instance twin above. That
-	 *  one reads `instance.json` because the Manage modal changes an instance's
+	 *  one reads `instance.json` because the Settings tab changes an instance's
 	 *  Minecraft IN PLACE, so a list row can be stale. A server has no such flow —
 	 *  `mc_version` is written at create/import and no command edits it — and
 	 *  `ServerWithStatus.mc_version` is already on the object the caller holds. So
