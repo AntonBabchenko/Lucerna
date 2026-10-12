@@ -17,6 +17,8 @@
   import CloneInstanceDialog from '$lib/instances/CloneInstanceDialog.svelte';
   import CreateInstanceDialog from '$lib/instances/CreateInstanceDialog.svelte';
   import DeleteInstanceDialog from '$lib/instances/DeleteInstanceDialog.svelte';
+  import { findDeleteTarget, nowActiveAfterDelete } from '$lib/instances/delete-target';
+  import { latestRead } from '$lib/instances/latest-read';
   import {
     openInstanceFolderReporting,
     openModsFolderReporting,
@@ -167,7 +169,7 @@
   );
 
   // Self-healing owner of the MC version manifest (fetch + online/backoff
-  // recovery). Powers the Manage modal's version picker and publishes to the
+  // recovery). Powers the Settings tab's version picker and publishes to the
   // shared `mcVersions` rune for the browsers' version combobox.
   const mcv = createMcVersions();
 
@@ -200,7 +202,12 @@
   // The instance the delete confirm is about (null = closed). Page-level, like
   // the clone target: the Settings tab's Danger zone and the sidebar row menu
   // both open it, the latter for an instance that need not be the active one.
-  let deleteTargetId = $state<string | null>(null);
+  // Taken when it opens, not looked up in the list: the delete refreshes the
+  // list, and the deleted instance is not in it when the dialog reports back.
+  let deleteTarget = $state.raw<InstanceWithStatus | null>(null);
+  function openDelete(id: string) {
+    deleteTarget = findDeleteTarget(id, instances, activeInstance);
+  }
   // Opened from the Overview Mods card's translation row.
   let l10nOpen = $state(false);
   // Why the AI pre-fill is or is not usable, handed to LocalizationModal as a
@@ -213,9 +220,9 @@
   // l10nCoverage call counts), and this page already reads settings.
   let l10nAiReady = $state<PrefillReadiness>('no_consent');
   // Which instance LocalizationModal shows. Null = follow the active instance,
-  // which is what the Overview row's entry point wants. The Manage modal's
-  // entry point sets it, because its selection is independent of the active
-  // instance and would otherwise open a different instance's translations
+  // which is what the Overview row's entry point wants. The sidebar row menu
+  // sets it, because its row is independent of the active instance and would
+  // otherwise open a different instance's translations
   // than the one whose row the user just clicked.
   let l10nTargetId = $state<string | null>(null);
   // The tray menu and the native close dialog are built by the backend, which
@@ -235,8 +242,8 @@
   });
   // The instance the modal is actually reporting on, resolved once so the
   // `instanceId` it receives and the Minecraft version handed to its share
-  // export can never come from two different instances — the Manage entry
-  // point routinely points somewhere other than the active instance, and a
+  // export can never come from two different instances — the sidebar row
+  // menu routinely points somewhere other than the active instance, and a
   // shared file's resource-pack half is built for ONE version.
   const l10nInstanceId = $derived(l10nTargetId ?? activeInstance?.id ?? null);
   const l10nInstance = $derived(
@@ -278,7 +285,7 @@
   let shortcutSupported = $state(false);
   let msSigningIn = $state(false);
   // Instance the export dialog reports on (null = closed). An id, not a flag:
-  // the Manage row menu exports instances other than the active one.
+  // the sidebar row menu exports instances other than the active one.
   let exportTargetId = $state<string | null>(null);
   const exportTarget = $derived(instances.find((i) => i.id === exportTargetId) ?? null);
 
@@ -638,7 +645,7 @@
   });
 
   // The compatibility scan keys on (instance, mc, loader), so it must be
-  // refreshed on a Manage edit too — not only on an instance switch. Without
+  // refreshed on a Settings-tab edit too — not only on an instance switch. Without
   // this the Overview kept the count from before the loader change while the
   // Installed tab, whose own effect does track mc/loader, showed the new one.
   // Separate from the effect above precisely because its guard is id-only.
@@ -718,7 +725,7 @@
 
   // When a background integrity verify/repair finishes, the store bumps
   // `completionTick`. Refresh the instance list so the persisted status
-  // (badge + Overview + the Manage section's reactive `status`) updates,
+  // (badge + Overview + the Settings tab's Integrity section) updates,
   // independent of any modal/section lifecycle. Skip the very first run
   // (mount) so this doesn't double-fetch alongside onMount's refresh.
   let integritySettled = false;
@@ -764,7 +771,7 @@
   $effect(() => {
     const anyWideOverlay =
       createInstanceOpen ||
-      deleteTargetId !== null ||
+      deleteTarget !== null ||
       l10nOpen ||
       instanceSettingsNav.value !== null ||
       modpacksModalOpen ||
@@ -1272,17 +1279,19 @@
   // A blur-saved field on the Settings tab refreshes the list, and that can
   // now overlap an activation (the sidebar stays live beside the tab): only the
   // newest read may land, or an older one would put back the previous active
-  // instance.
-  let refreshSeq = 0;
-  async function refreshInstances() {
-    const seq = ++refreshSeq;
+  // instance. An overtaken call still waits for the newest read: its caller
+  // reads the page state right after (activateInstance's settle, a delete's
+  // "now active").
+  const refreshInstances = latestRead(
     // Independent reads — runs on startup AND after every process exit /
     // instance switch, so the serial second hop was paid constantly.
-    const [list, active] = await Promise.all([
-      commands.listInstances(),
-      commands.getActiveInstance(),
-    ]);
-    if (seq !== refreshSeq) return;
+    () => Promise.all([commands.listInstances(), commands.getActiveInstance()]),
+    ([list, active]) => applyInstancesRead(list, active),
+  );
+  function applyInstancesRead(
+    list: Awaited<ReturnType<typeof commands.listInstances>>,
+    active: Awaited<ReturnType<typeof commands.getActiveInstance>>,
+  ) {
     instancesError = null;
     if (list.status === 'ok') {
       instances = list.data;
@@ -1337,14 +1346,18 @@
   // made another active: say which. Focus goes to the instance picker, which
   // names it — the control that opened the dialog is gone or about another
   // instance now.
-  async function afterDelete(deleted: InstanceWithStatus, wasActive: boolean) {
-    if (wasActive && activeInstance && activeInstance.id !== deleted.id) {
-      pushSuccess(
-        get(t)('instance.settings.deletedNowActive', {
-          name: deleted.name,
-          other: activeInstance.name,
-        }),
-      );
+  // The active instance as the delete returned, read before the refresh moves
+  // the list on. Not the one when the confirm opened: a toast action or a
+  // shortcut can switch the active instance while it is open.
+  let activeBeforeDelete: string | null = null;
+  async function refreshAfterDelete() {
+    activeBeforeDelete = activeInstance?.id ?? null;
+    await refreshInstances();
+  }
+  async function afterDelete(deleted: InstanceWithStatus) {
+    const other = nowActiveAfterDelete(deleted.id, activeBeforeDelete, activeInstance);
+    if (other !== null) {
+      pushSuccess(get(t)('instance.settings.deletedNowActive', { name: deleted.name, other }));
     }
     await tick();
     document.querySelector<HTMLElement>('[data-tour="instance-picker"] [role="combobox"]')?.focus();
@@ -1727,7 +1740,7 @@
       onExportInstance={(id) => (exportTargetId = id)}
       onOpenInstanceFolder={(id) => void openInstanceFolderReporting(id)}
       onOpenInstanceModsFolder={(id) => void openModsFolderReporting(id)}
-      onDeleteInstance={(id) => (deleteTargetId = id)}
+      onDeleteInstance={openDelete}
       isBusy={(id) => taskFor({ instanceId: id }) !== null}
       {onOpenMods}
       onOpenLogs={() => {
@@ -1862,7 +1875,7 @@
               anyRunning={runningCount > 0}
               onChanged={refreshInstances}
               onCreate={() => (createInstanceOpen = true)}
-              onDelete={(id) => (deleteTargetId = id)}
+              onDelete={openDelete}
               onClone={(id) => (cloneTargetId = id)}
               onShortcut={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
               onTranslations={(id) => {
@@ -1984,17 +1997,14 @@
     />
   {/if}
 
-  {#if deleteTargetId !== null}
-    {@const deleteTarget = instances.find((i) => i.id === deleteTargetId)}
-    {#if deleteTarget}
-      {@const wasActive = deleteTarget.id === activeInstance?.id}
-      <DeleteInstanceDialog
-        instance={deleteTarget}
-        refresh={refreshInstances}
-        onClose={() => (deleteTargetId = null)}
-        onDeleted={() => void afterDelete(deleteTarget, wasActive)}
-      />
-    {/if}
+  {#if deleteTarget}
+    {@const target = deleteTarget}
+    <DeleteInstanceDialog
+      instance={target}
+      refresh={refreshAfterDelete}
+      onClose={() => (deleteTarget = null)}
+      onDeleted={() => void afterDelete(target)}
+    />
   {/if}
 
   <LocalizationModal
