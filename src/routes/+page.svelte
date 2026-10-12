@@ -14,8 +14,22 @@
   import { repairCompletionTick } from '$lib/logs/repair-ops.svelte';
   import InstanceIconDialog from '$lib/instances/InstanceIconDialog.svelte';
   import CloneInstanceDialog from '$lib/instances/CloneInstanceDialog.svelte';
-  import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
-  import type { ManageFocusField } from '$lib/instances/manage-focus';
+  import CreateInstanceDialog from '$lib/instances/CreateInstanceDialog.svelte';
+  import DeleteInstanceDialog from '$lib/instances/DeleteInstanceDialog.svelte';
+  import {
+    openInstanceFolderReporting,
+    openModsFolderReporting,
+    reportActivationFailure,
+  } from '$lib/instances/instance-actions';
+  import {
+    abandonInstanceSettingsFor,
+    clearInstanceSettingsNav,
+    instanceSettingsNav,
+    requestInstanceSettings,
+    settleInstanceSettingsNav,
+  } from '$lib/instances/settings/instance-settings-nav.svelte';
+  import InstanceSettingsTab from '$lib/instances/settings/InstanceSettingsTab.svelte';
+  import { taskFor } from '$lib/tasks/registry.svelte';
   import LocalizationModal from '$lib/l10n/LocalizationModal.svelte';
   import {
     needsStoredKey,
@@ -91,7 +105,7 @@
   import { initLocale } from '$lib/i18n/state.svelte';
   import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { debounceTrailing } from '$lib/ui/debounce';
   import { modalBlocksFileDrops } from '$lib/ui/layer-stack.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
@@ -159,6 +173,10 @@
   let instances = $state<InstanceWithStatus[]>([]);
   let activeInstance = $state<InstanceWithStatus | null>(null);
   let instancesError = $state<string | null>(null);
+  // The list itself could not be read — narrower than `instancesError`, which
+  // a failed activation also writes. The Settings tab tells "no instances"
+  // apart from "could not read them" with it.
+  let instancesListError = $state<string | null>(null);
   // False until the FIRST refreshInstances() settles — Sidebar shows a
   // spinner instead of the empty state while this is false.
   let instancesLoaded = $state(false);
@@ -176,7 +194,12 @@
     void modpackUpdates.sweep(packIds, { force });
   }
 
-  let manageOpen = $state(false);
+  // The create-instance dialog (New instance in the sidebar, the empty states).
+  let createInstanceOpen = $state(false);
+  // The instance the delete confirm is about (null = closed). Page-level, like
+  // the clone target: the Settings tab's Danger zone and the sidebar row menu
+  // both open it, the latter for an instance that need not be the active one.
+  let deleteTargetId = $state<string | null>(null);
   // Opened from the Overview Mods card's translation row.
   let l10nOpen = $state(false);
   // Why the AI pre-fill is or is not usable, handed to LocalizationModal as a
@@ -245,17 +268,8 @@
         : false;
     l10nAiReady = prefillReadiness({ consent, provider, keyStored });
   }
-  // Which Manage field the modal should scroll to and flash when it opens.
-  // Set by whichever entry point opened it; every site that flips manageOpen
-  // sets this too, so a stale highlight can never survive into the next open.
-  let manageFocus = $state<ManageFocusField | null>(null);
-  // Seeds ManageInstancesModal's detail selection. Set to a specific instance id
-  // when opened via a per-row "manage this profile" action (the active-instance
-  // switch is async, so the modal can't rely on `activeInstance` at open time);
-  // null when opened via the generic Manage button (defaults to the active one).
-  let manageInitialId = $state<string | null>(null);
   // Source instance for the clone dialog (null = closed). Shared by the
-  // sidebar right-click menu and the Manage modal's Clone button.
+  // sidebar right-click menu and the Settings tab's Clone button.
   let cloneTargetId = $state<string | null>(null);
   let shortcutTargetId = $state<string | null>(null);
   // Whether this OS can write desktop shortcuts at all; the entry points are
@@ -740,7 +754,10 @@
   // persists compact_mode=false; the user re-collapses with the toggle.
   $effect(() => {
     const anyWideOverlay =
-      manageOpen ||
+      createInstanceOpen ||
+      deleteTargetId !== null ||
+      l10nOpen ||
+      instanceSettingsNav.value !== null ||
       modpacksModalOpen ||
       launcherImportOpen ||
       logsOpen ||
@@ -752,7 +769,11 @@
     // untrack idiom above): we react to overlays opening, not to our own
     // setCompact(false) flipping the rune.
     if (anyWideOverlay && untrack(() => compactState.value)) {
-      void setCompact(false);
+      // An expand the OS refused leaves the window compact: a Settings request
+      // waiting for MainTabs to mount would then fire later, unasked.
+      void setCompact(false).then(() => {
+        if (compactState.value) clearInstanceSettingsNav();
+      });
     }
   });
 
@@ -1239,18 +1260,27 @@
     }
   }
 
+  // A blur-saved field on the Settings tab refreshes the list, and that can
+  // now overlap an activation (the sidebar stays live beside the tab): only the
+  // newest read may land, or an older one would put back the previous active
+  // instance.
+  let refreshSeq = 0;
   async function refreshInstances() {
-    instancesError = null;
+    const seq = ++refreshSeq;
     // Independent reads — runs on startup AND after every process exit /
     // instance switch, so the serial second hop was paid constantly.
     const [list, active] = await Promise.all([
       commands.listInstances(),
       commands.getActiveInstance(),
     ]);
+    if (seq !== refreshSeq) return;
+    instancesError = null;
     if (list.status === 'ok') {
       instances = list.data;
+      instancesListError = null;
     } else {
       instancesError = formatError(list.error);
+      instancesListError = instancesError;
       instances = [];
     }
     if (active.status === 'ok') {
@@ -1262,21 +1292,53 @@
     instancesLoaded = true;
   }
 
-  // One activation path for the sidebar dropdown and the Manage row menu.
+  // One activation path for the sidebar list, its row menu and the create dialog.
   // Returns the formatted failure (or null) so a caller shown ABOVE the page's
   // own banner can surface it where the user is looking.
   async function activateInstance(id: string): Promise<string | null> {
+    // Choosing an instance some other way drops a Settings request that waits
+    // on a different one.
+    abandonInstanceSettingsFor(id);
     const result = await commands.setActiveInstance(id);
-    if (result.status === 'error') return formatError(result.error);
+    if (result.status === 'error') {
+      settleInstanceSettingsNav(id, activeInstance?.id ?? null);
+      return formatError(result.error);
+    }
     await refreshInstances();
+    // A request that waited on this activation and did not get it is dropped,
+    // else the tab would switch later, unasked.
+    settleInstanceSettingsNav(id, activeInstance?.id ?? null);
     // The $effect watching activeInstance.id clears per-instance error
     // banners (installError, modsError, crashReport) automatically.
     return null;
   }
 
+  // The sidebar's picks (the list, its row menu). A failure is a toast as well
+  // as the Overview banner: the list is used from every tab and from the
+  // compact strip, and the banner renders on the Overview only.
   async function onSelectInstance(id: string) {
     const failure = await activateInstance(id);
-    if (failure) instancesError = failure;
+    if (failure) {
+      instancesError = failure;
+      reportActivationFailure(instances.find((i) => i.id === id)?.name ?? id, failure);
+    }
+  }
+
+  // After a delete. If the active instance was the one deleted, the backend
+  // made another active: say which. Focus goes to the instance picker, which
+  // names it — the control that opened the dialog is gone or about another
+  // instance now.
+  async function afterDelete(deleted: InstanceWithStatus, wasActive: boolean) {
+    if (wasActive && activeInstance && activeInstance.id !== deleted.id) {
+      pushSuccess(
+        get(t)('instance.settings.deletedNowActive', {
+          name: deleted.name,
+          other: activeInstance.name,
+        }),
+      );
+    }
+    await tick();
+    document.querySelector<HTMLElement>('[data-tour="instance-picker"] [role="combobox"]')?.focus();
   }
 
   async function onInstall() {
@@ -1640,18 +1702,24 @@
         addOfflineOpen = true;
       }}
       {onSelectInstance}
-      onOpenManage={() => {
-        manageInitialId = null;
-        manageFocus = null;
-        manageOpen = true;
-      }}
-      onManageInstance={(id) => {
-        manageInitialId = id;
-        manageFocus = null;
-        manageOpen = true;
+      onCreateInstance={() => (createInstanceOpen = true)}
+      onOpenInstanceSettings={(id) => requestInstanceSettings(id)}
+      onActivateInstance={(id) => void onSelectInstance(id)}
+      onRenameInstance={(id) => {
+        requestInstanceSettings(id, 'name');
+        if (id !== activeInstance?.id) void onSelectInstance(id);
       }}
       onCloneInstance={(id) => (cloneTargetId = id)}
       onCreateShortcut={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
+      onTranslationsInstance={(id) => {
+        l10nTargetId = id;
+        void openLocalization();
+      }}
+      onExportInstance={(id) => (exportTargetId = id)}
+      onOpenInstanceFolder={(id) => void openInstanceFolderReporting(id)}
+      onOpenInstanceModsFolder={(id) => void openModsFolderReporting(id)}
+      onDeleteInstance={(id) => (deleteTargetId = id)}
+      isBusy={(id) => taskFor({ instanceId: id }) !== null}
       {onOpenMods}
       onOpenLogs={() => {
         // Plain "Logs" open is not a deep-link — clear any stale crash path so
@@ -1773,6 +1841,28 @@
           running={selectedRunning}
           hasInstalledMods={stats.hasInstalledMods(activeInstance?.id ?? null)}
         >
+          {#snippet settings()}
+            <InstanceSettingsTab
+              instance={activeInstance}
+              {instances}
+              {instancesLoaded}
+              listError={instancesListError}
+              fellBack={dataLocation.fellBack}
+              versions={mcv.value}
+              running={selectedRunning}
+              anyRunning={runningCount > 0}
+              onChanged={refreshInstances}
+              onCreate={() => (createInstanceOpen = true)}
+              onDelete={(id) => (deleteTargetId = id)}
+              onClone={(id) => (cloneTargetId = id)}
+              onShortcut={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
+              onTranslations={(id) => {
+                l10nTargetId = id;
+                void openLocalization();
+              }}
+              onOpenFolder={(id) => void openInstanceFolderReporting(id)}
+            />
+          {/snippet}
           {#snippet overview()}
             <OverviewTab
               {activeInstance}
@@ -1795,11 +1885,8 @@
                 instances: instancesError,
                 versions: mcv.error,
               }}
-              onManage={(field) => {
-                manageInitialId = null;
-                manageFocus = field ?? null;
-                manageOpen = true;
-              }}
+              onOpenSettings={(field) =>
+                requestInstanceSettings(activeInstance?.id ?? null, field ?? null)}
               onExport={() => (exportTargetId = activeInstance?.id ?? null)}
               onOpenPackDrawer={() => {
                 if (activeInstance)
@@ -1866,25 +1953,27 @@
     gameRunning={selectedRunning}
   />
 
-  <ManageInstancesModal
-    bind:open={manageOpen}
-    bind:instances
-    bind:activeInstance
-    versions={mcv.value}
-    onChanged={refreshInstances}
-    isInstanceRunning={isRunning}
-    anyRunning={runningCount > 0}
-    initialSelectedId={manageInitialId}
-    focusField={manageFocus}
-    onCloneRequest={(id) => (cloneTargetId = id)}
-    onShortcutRequest={shortcutSupported ? (id) => (shortcutTargetId = id) : undefined}
-    onTranslationsRequest={(id) => {
-      l10nTargetId = id;
-      void openLocalization();
-    }}
-    onActivateRequest={activateInstance}
-    onExportRequest={(id) => (exportTargetId = id)}
-  />
+  {#if createInstanceOpen}
+    <CreateInstanceDialog
+      versions={mcv.value}
+      activate={activateInstance}
+      onCreated={() => void refreshInstances()}
+      onClose={() => (createInstanceOpen = false)}
+    />
+  {/if}
+
+  {#if deleteTargetId !== null}
+    {@const deleteTarget = instances.find((i) => i.id === deleteTargetId)}
+    {#if deleteTarget}
+      {@const wasActive = deleteTarget.id === activeInstance?.id}
+      <DeleteInstanceDialog
+        instance={deleteTarget}
+        refresh={refreshInstances}
+        onClose={() => (deleteTargetId = null)}
+        onDeleted={() => void afterDelete(deleteTarget, wasActive)}
+      />
+    {/if}
+  {/if}
 
   <LocalizationModal
     bind:open={l10nOpen}
