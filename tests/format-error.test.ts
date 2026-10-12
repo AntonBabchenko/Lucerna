@@ -72,10 +72,12 @@ describe('formatError', () => {
     const msg = formatError({
       kind: 'network',
       url: 'https://piston-meta.mojang.com/v1/version.json',
+      failure: { kind: 'unreachable' },
       details: 'connection refused',
     });
     expect(msg).not.toContain('https://piston-meta.mojang.com/v1/version.json');
     expect(msg).not.toContain('connection refused');
+    expect(msg).toContain('piston-meta.mojang.com');
     expect(msg.toLowerCase()).toContain('internet');
   });
 
@@ -182,10 +184,12 @@ describe('formatError', () => {
     const msg = formatError({
       kind: 'mods_network',
       url: 'https://api.modrinth.com/v2/search',
+      failure: { kind: 'unreachable' },
       details: 'error sending request for url (https://api.modrinth.com/v2/search)',
     });
     expect(msg).not.toContain('https://api.modrinth.com/v2/search');
     expect(msg).not.toContain('error sending request');
+    expect(msg).toContain('api.modrinth.com');
     expect(msg.toLowerCase()).toContain('internet');
   });
 
@@ -334,7 +338,12 @@ describe('formatError', () => {
     beforeAll(() => locale.set('en'));
 
     const samples: Record<IpcError['kind'], IpcError> = {
-      network: { kind: 'network', url: 'https://leak.test/net', details: 'RAW_TRANSPORT_DETAIL' },
+      network: {
+        kind: 'network',
+        url: 'https://leak.test/net',
+        failure: { kind: 'other' },
+        details: 'RAW_TRANSPORT_DETAIL',
+      },
       host_not_allowed: { kind: 'host_not_allowed', url: 'https://x/y' },
       consented_channel_disabled: { kind: 'consented_channel_disabled', channel: 'server_ping' },
       update_check_failed: { kind: 'update_check_failed', details: 'd' },
@@ -357,7 +366,15 @@ describe('formatError', () => {
         component: 'java-runtime-delta',
         major: 21,
         stage: 'game_runtime',
-        reason: { kind: 'download', details: 'connection refused' },
+        reason: {
+          kind: 'download',
+          cause: {
+            kind: 'network',
+            url: 'https://piston-meta.mojang.com/x',
+            failure: { kind: 'unreachable' },
+            details: 'RAW_TRANSPORT_DETAIL',
+          },
+        },
       },
       already_running: { kind: 'already_running', instance_id: 'abc' },
       account_not_set: { kind: 'account_not_set' },
@@ -397,6 +414,11 @@ describe('formatError', () => {
         fv: '47.0.0',
         details: 'd',
       },
+      forge_installer_unverifiable: {
+        kind: 'forge_installer_unverifiable',
+        mc: '1.20.1',
+        fv: '47.0.0',
+      },
       forge_unsupported_processor: { kind: 'forge_unsupported_processor', coord: 'a:b:c' },
       forge_patcher_failed: { kind: 'forge_patcher_failed', processor: 'ss', details: 'd' },
       forge_mappings_missing: { kind: 'forge_mappings_missing', mc: '1.20.1' },
@@ -410,6 +432,7 @@ describe('formatError', () => {
       mods_network: {
         kind: 'mods_network',
         url: 'https://leak.test/mods',
+        failure: { kind: 'other' },
         details: 'RAW_TRANSPORT_DETAIL',
       },
       mods_platform_auth: { kind: 'mods_platform_auth', kind_detail: 'missing' },

@@ -154,10 +154,7 @@ pub async fn search_ids(base: &str, query: &str, limit: u32) -> Result<Vec<u64>,
         .await
         .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     // Note: FTB returns HTTP 200 with `{"status":"error","message":"Search
     // term too short."}` for empty/too-short terms. That body has no `packs`,
@@ -183,10 +180,7 @@ pub async fn popular_ids(base: &str, limit: u32) -> Result<Vec<u64>, Error> {
         .await
         .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     let r: FtbSearchResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "ftb".into(),
@@ -204,10 +198,7 @@ pub async fn pack_detail(base: &str, id: u64) -> Result<FtbPackDetail, Error> {
         .await
         .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "ftb".into(),
@@ -224,10 +215,7 @@ pub async fn version_manifest(base: &str, id: u64, version_id: u64) -> Result<Ft
         .await
         .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "ftb".into(),

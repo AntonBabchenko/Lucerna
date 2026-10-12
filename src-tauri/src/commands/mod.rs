@@ -713,10 +713,7 @@ pub(crate) async fn fetch_modpack_versions(
         });
     }
     if !(200..300).contains(&resp.status) {
-        return Err(crate::error::Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(crate::error::Error::mods_http_status(url, resp.status));
     }
     serde_json::from_slice(&resp.body).map_err(|e| crate::error::Error::ModsDecode {
         platform: "modrinth".into(),
@@ -758,10 +755,7 @@ pub(crate) async fn fetch_modrinth_modpack_project(
         });
     }
     if !(200..300).contains(&resp.status) {
-        return Err(crate::error::Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(crate::error::Error::mods_http_status(url, resp.status));
     }
     let p: MrModpackProject =
         serde_json::from_slice(&resp.body).map_err(|e| crate::error::Error::ModsDecode {

@@ -432,7 +432,7 @@
       "loadingVersions": "Loading versions…",
       "recommended": "{version} (recommended)",
       "errorUnavailable": "{loader} does not support Minecraft {mc}",
-      "errorNetwork": "Network error fetching {url}: {details}",
+      "errorVersionList": "Couldn't load the {loader} version list.",
       "errorForgePromotions": "Forge promotions feed for {flavor} is unavailable"
     },
     "integrity": {
@@ -2694,7 +2694,20 @@
     }
   },
   "errors": {
-    "network": "Couldn't reach the server — check your internet connection.",
+    "networkFailure": {
+      "unreachable": "Couldn't connect to {host} — check your internet connection, VPN or proxy.",
+      "unreachableLocal": "Nothing is answering at {host} — check that the local server is running.",
+      "timeout": "{host} didn't respond in time — try again.",
+      "tls": "Couldn't set up a secure connection to {host}. This usually happens when an antivirus scans HTTPS traffic, behind a proxy, or when the computer's date and time are wrong.",
+      "interrupted": "The connection to {host} dropped — try again.",
+      "rateLimited": "{host} is limiting requests — wait a minute and try again.",
+      "serverError": "{host} is having problems (error {status}) — try again later.",
+      "notFound": "{host} doesn't have the requested file (error 404).",
+      "refused": "{host} refused the request (error {status}).",
+      "unexpectedStatus": "{host} gave an unexpected answer (code {status}).",
+      "badResponse": "{host} sent an answer Lucerna couldn't read — try again later.",
+      "other": "The connection to {host} failed (details are in Logs)."
+    },
     "openUrlRefused": "Only https:// links can be opened from Lucerna.",
     "openUrlFailed": "Couldn't open the link in your browser.",
     "hostNotAllowed": "Network request to {url} is not on the allowed-host list",
@@ -2725,6 +2738,7 @@
     "forgeMavenMetadataParseFailed": "Failed to parse Forge maven-metadata.xml",
     "forgeNoBuildFor": "No Forge build exists for Minecraft {mc} — pick a different Minecraft version or loader.",
     "forgeInstallerCorrupted": "Forge installer for {mc}-{fv} is corrupted",
+    "forgeInstallerUnverifiable": "Lucerna can't verify the Forge installer for {mc}-{fv}: the site publishes no checksum for it, so it won't be installed.",
     "forgeUnsupportedProcessor": "This Forge version uses an unsupported processor: {coord}",
     "forgePatcherFailed": "Forge patcher \"{processor}\" failed",
     "forgeMappingsMissing": "Forge mappings for {mc} are not available",
@@ -2737,7 +2751,6 @@
     "pathNotLaunchableInstance": "This instance will not launch: its folder name contains characters Java cannot read on this system. Rename the folder on the instance's Settings tab to fix it.",
     "pathNotLaunchableDataRoot": "This instance will not launch: the data folder path contains characters Java cannot read on this system. The data folder has to move.",
     "mcLogsUpload": "Couldn't upload log to mclo.gs",
-    "modsNetwork": "Couldn't reach the mod service — check your internet connection (or VPN / antivirus).",
     "modsPlatformAuthInvalid": "CurseForge API key is invalid — please enter a new one in Settings",
     "modsPlatformAuthMissing": "CurseForge requires an API key — set it in Settings",
     "modsPlatformUnreachable": "CurseForge appears blocked on this network or region. Try a VPN, or disable HTTPS/SSL scanning in your antivirus.",
@@ -2952,7 +2965,6 @@
     "jreUnavailable": "Lucerna couldn't get Java {major} for this version. {reason}",
     "jreUnavailableInstaller": "Lucerna couldn't get Java {major}, which the Forge or NeoForge installer runs on. {reason}",
     "jreUnavailableReason": {
-      "download": "The download failed ({details}).",
       "unsupportedPlatform": "Mojang publishes no Java for {os} {arch}.",
       "unknownComponent": "Mojang's list has no runtime \"{id}\" for this computer."
     },

@@ -20,11 +20,14 @@
 //! take minutes to produce its first token. The caller's total timeout is the
 //! only bound.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::network::request::HttpResponse;
 use std::time::Duration;
 
 const LOOPBACK_HOST: &str = "127.0.0.1";
+
+/// The log tag for this seam's failures; its only caller is `l10n::prefill`.
+const INITIATOR: &str = "l10n/prefill";
 
 fn loopback_url(port: u16, path: &str) -> String {
     format!("http://{LOOPBACK_HOST}:{port}{path}")
@@ -46,9 +49,12 @@ pub async fn post_json(
         .body(body.to_vec())
         .send()
         .await
-        .map_err(|e| Error::network(url.clone(), e))?;
+        .map_err(|e| crate::network::failure::transport(INITIATOR, "POST", &url, e))?;
     let status = resp.status().as_u16();
-    let bytes = resp.bytes().await.map_err(|e| Error::network(url, e))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| crate::network::failure::transport(INITIATOR, "POST", &url, e))?;
     Ok(HttpResponse {
         status,
         body: bytes.to_vec(),

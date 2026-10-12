@@ -105,10 +105,7 @@ pub(crate) async fn fetch_modrinth_mrpack(
     .await
     .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
 
     #[derive(serde::Deserialize)]

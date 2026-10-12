@@ -145,7 +145,12 @@ describe('ModpackBrowseView', () => {
   it('shows a Reload button on a failed modpack search and re-runs the search when clicked', async () => {
     mockSearch.mockResolvedValue({
       status: 'error',
-      error: { kind: 'network', url: 'https://api.modrinth.com', details: 'HTTP 427' },
+      error: {
+        kind: 'network',
+        url: 'https://api.modrinth.com',
+        failure: { kind: 'http_status', status: 427 },
+        details: 'HTTP 427',
+      },
     });
 
     render(ModpackBrowseView, { props: { onPickHit: () => {} } });

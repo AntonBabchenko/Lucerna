@@ -79,7 +79,12 @@ const props = () => ({
 
 const NETWORK_ERROR = {
   status: 'error' as const,
-  error: { kind: 'mods_network' as const, url: 'https://x', details: 'HTTP 503' },
+  error: {
+    kind: 'mods_network' as const,
+    url: 'https://x',
+    failure: { kind: 'http_status' as const, status: 503 },
+    details: 'HTTP 503',
+  },
 };
 
 beforeEach(() => {

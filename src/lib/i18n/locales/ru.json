@@ -432,7 +432,7 @@
       "loadingVersions": "Загрузка версий…",
       "recommended": "{version} (рекомендуется)",
       "errorUnavailable": "{loader} не поддерживает Minecraft {mc}",
-      "errorNetwork": "Ошибка сети при запросе {url}: {details}",
+      "errorVersionList": "Не удалось загрузить список версий {loader}.",
       "errorForgePromotions": "Лента релизов Forge для {flavor} недоступна"
     },
     "integrity": {
@@ -2694,7 +2694,20 @@
     }
   },
   "errors": {
-    "network": "Не удалось связаться с сервером — проверьте интернет-соединение.",
+    "networkFailure": {
+      "unreachable": "Не удалось подключиться к {host} — проверьте интернет-соединение, VPN или прокси.",
+      "unreachableLocal": "На {host} никто не отвечает — проверьте, что локальный сервер запущен.",
+      "timeout": "Сайт {host} не ответил вовремя — попробуйте ещё раз.",
+      "tls": "Не удалось установить защищённое соединение с {host}. Обычно так бывает, когда антивирус проверяет HTTPS-трафик, при работе через прокси или если на компьютере неверные дата и время.",
+      "interrupted": "Соединение с {host} оборвалось — попробуйте ещё раз.",
+      "rateLimited": "Сайт {host} ограничил число запросов — подождите минуту и попробуйте снова.",
+      "serverError": "У сайта {host} неполадки (ошибка {status}) — попробуйте позже.",
+      "notFound": "На сайте {host} нет запрошенного файла (ошибка 404).",
+      "refused": "Сайт {host} отклонил запрос (ошибка {status}).",
+      "unexpectedStatus": "Сайт {host} ответил неожиданно (код {status}).",
+      "badResponse": "Сайт {host} прислал ответ, который Lucerna не смогла прочитать, — попробуйте позже.",
+      "other": "Сбой соединения с {host} (подробности — в «Логах»)."
+    },
     "openUrlRefused": "Lucerna открывает только ссылки https://.",
     "openUrlFailed": "Не удалось открыть ссылку в браузере.",
     "hostNotAllowed": "Запрос к {url} не разрешён списком допустимых хостов",
@@ -2725,6 +2738,7 @@
     "forgeMavenMetadataParseFailed": "Не удалось разобрать maven-metadata.xml Forge",
     "forgeNoBuildFor": "Нет версии Forge для Minecraft {mc} — выберите другую версию Minecraft или загрузчик.",
     "forgeInstallerCorrupted": "Установщик Forge для {mc}-{fv} повреждён",
+    "forgeInstallerUnverifiable": "Lucerna не может проверить установщик Forge для {mc}-{fv}: сайт не публикует для него контрольную сумму, поэтому он не будет установлен.",
     "forgeUnsupportedProcessor": "Эта версия Forge использует неподдерживаемый процессор: {coord}",
     "forgePatcherFailed": "Патчер Forge «{processor}» завершился с ошибкой",
     "forgeMappingsMissing": "Маппинги Forge для {mc} недоступны",
@@ -2737,7 +2751,6 @@
     "pathNotLaunchableInstance": "Этот профиль не запустится: в имени его папки есть символы, которые Java не понимает на этой системе. Переименуйте папку во вкладке «Настройки» профиля.",
     "pathNotLaunchableDataRoot": "Этот профиль не запустится: в пути к папке данных есть символы, которые Java не понимает на этой системе. Папку данных нужно перенести.",
     "mcLogsUpload": "Не удалось загрузить лог на mclo.gs",
-    "modsNetwork": "Не удалось связаться с сервисом модов — проверьте интернет-соединение (или VPN / антивирус).",
     "modsPlatformAuthInvalid": "API-ключ CurseForge недействителен — введите новый в настройках",
     "modsPlatformAuthMissing": "CurseForge требует API-ключ — укажите его в настройках",
     "modsPlatformUnreachable": "CurseForge, похоже, заблокирован в этой сети или регионе. Попробуйте VPN или отключите проверку HTTPS/SSL в антивирусе.",
@@ -2952,7 +2965,6 @@
     "jreUnavailable": "Lucerna не смогла получить Java {major} для этой версии. {reason}",
     "jreUnavailableInstaller": "Lucerna не смогла получить Java {major}, на которой работает установщик Forge или NeoForge. {reason}",
     "jreUnavailableReason": {
-      "download": "Скачать не удалось ({details}).",
       "unsupportedPlatform": "Mojang не выпускает Java для {os} {arch}.",
       "unknownComponent": "В списке Mojang нет среды «{id}» для этого компьютера."
     },

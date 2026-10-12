@@ -119,10 +119,7 @@ pub async fn all_packs(base: &str) -> Result<Vec<AtlPack>, Error> {
         .await
         .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     let r: AtlPacksResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "atlauncher".into(),
@@ -139,10 +136,7 @@ pub async fn configs(cdn_base: &str, safe_name: &str, version: &str) -> Result<A
         .await
         .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "atlauncher".into(),

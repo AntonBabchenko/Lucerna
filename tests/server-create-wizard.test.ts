@@ -324,7 +324,15 @@ describe('ServerCreateWizard', () => {
 
   it('blocks Create with the fetch error when the Paper catalogue fails to load', async () => {
     serverCoreVersionsMock.mockReset();
-    serverCoreVersionsMock.mockResolvedValue({ status: 'error', error: { kind: 'network' } });
+    serverCoreVersionsMock.mockResolvedValue({
+      status: 'error',
+      error: {
+        kind: 'network',
+        url: 'https://api.papermc.io/v2/projects/paper',
+        failure: { kind: 'unreachable' },
+        details: 'offline',
+      },
+    });
 
     render(ServerCreateWizard, baseProps({ versions: RELEASES }));
     const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
@@ -335,7 +343,7 @@ describe('ServerCreateWizard', () => {
     // The blocked reason surfaces the formatted fetch error, not a loader prompt.
     await vi.waitFor(() =>
       expect(screen.getByTestId('wizard-disabled-reason').textContent).toContain(
-        "Couldn't reach the server",
+        "Couldn't connect to api.papermc.io",
       ),
     );
     expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(

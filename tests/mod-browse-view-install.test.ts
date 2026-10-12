@@ -429,17 +429,23 @@ describe('ModBrowseView install flow', () => {
     searchReturns([hit()]);
     modsVersions.mockResolvedValue({
       status: 'error',
-      error: { kind: 'mods_network', url: 'https://api', details: 'timeout' },
+      error: {
+        kind: 'mods_network',
+        url: 'https://api.modrinth.com/v2/project/x/version',
+        failure: { kind: 'timeout' },
+        details: 'RAW_TIMEOUT_DETAIL',
+      },
     });
     render(ModBrowseView, { props: { ...full } });
 
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
 
     await waitFor(() => expect(modsVersions).toHaveBeenCalled());
-    // mods_network is a Transport-class error: the raw transport detail
-    // ('timeout') is intentionally kept out of the UI (it goes to the launcher
-    // log); the surfaced banner is the clean actionable message instead.
-    expect(await screen.findByText(/internet/i)).toBeTruthy();
+    // mods_network is a Transport-class error: the raw transport detail is
+    // intentionally kept out of the UI (it goes to the launcher log); the
+    // surfaced banner names the site and the typed cause instead.
+    expect(await screen.findByText(/api\.modrinth\.com didn't respond in time/i)).toBeTruthy();
+    expect(screen.queryByText(/RAW_TIMEOUT_DETAIL/)).toBeNull();
     expect(modsInstallWithDeps).not.toHaveBeenCalled();
   });
 

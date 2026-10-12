@@ -39,8 +39,11 @@ pub(super) fn log_safe(error: &Error) -> String {
         Error::L10nPrefillProvider {
             provider, status, ..
         } => format!("provider {provider}, HTTP {status}"),
-        // The URL is ours (an allowlisted endpoint or 127.0.0.1); the reqwest
-        // detail string is not worth the risk of finding out what it quotes.
+        // The URL is ours (an allowlisted endpoint or 127.0.0.1). The cause
+        // chain is already in the log, written once at the source by
+        // `network::failure::transport`: reqwest / hyper / io / rustls error
+        // text, which never quotes the request's headers or body, so never the
+        // key. It is not repeated here.
         Error::Network { url, .. } => format!("network failure for {url}"),
         other => other.to_string(),
     }
@@ -139,6 +142,7 @@ mod tests {
     fn only_failures_that_could_differ_next_time_are_retried() {
         assert!(is_retryable(&Error::Network {
             url: "https://example.com".into(),
+            failure: crate::error::NetworkFailure::Interrupted,
             details: "reset".into()
         }));
         assert!(is_retryable(&provider_error(503)));
@@ -194,6 +198,7 @@ mod tests {
     fn a_network_failure_is_logged_by_destination_only() {
         let err = Error::Network {
             url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+            failure: crate::error::NetworkFailure::Unreachable,
             details: "the transport said something we did not audit".to_string(),
         };
         let line = log_safe(&err);

@@ -14,7 +14,12 @@ describe('cfKeyErrorStatus', () => {
   });
 
   it('maps a network failure to unverified', () => {
-    const e: IpcError = { kind: 'mods_network', url: 'https://x', details: 'timeout' };
+    const e: IpcError = {
+      kind: 'mods_network',
+      url: 'https://x',
+      failure: { kind: 'timeout' },
+      details: 'timeout',
+    };
     expect(cfKeyErrorStatus(e)).toBe('unverified');
   });
 

@@ -6239,6 +6239,7 @@ mod tests {
             if self.offline {
                 return Err(crate::error::Error::ModsNetwork {
                     url: "https://api.modrinth.com/v2/versions".into(),
+                    failure: crate::error::NetworkFailure::Unreachable,
                     details: "offline".into(),
                 });
             }

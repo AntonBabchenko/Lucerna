@@ -90,10 +90,11 @@ mod tests {
     }
 
     fn offline() -> Result<Vec<VersionEntry>> {
-        Err(Error::network(
-            "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
-            "timed out",
-        ))
+        Err(Error::Network {
+            url: "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json".into(),
+            failure: crate::error::NetworkFailure::Timeout,
+            details: "timed out".into(),
+        })
     }
 
     #[test]

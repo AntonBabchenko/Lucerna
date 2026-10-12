@@ -25,7 +25,7 @@ pub async fn set_active_cape(token: &str, cape_id: &str) -> Result<()> {
         .json(&serde_json::json!({ "capeId": cape_id }))
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "PUT", &url, e))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
     map_status(status, body, "set_active_cape")
@@ -40,7 +40,7 @@ pub async fn clear_active_cape(token: &str) -> Result<()> {
         .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "DELETE", &url, e))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
     map_status(status, body, "clear_active_cape")
@@ -58,7 +58,7 @@ pub async fn upload_skin(token: &str, png: &[u8], variant: SkinVariant) -> Resul
         .body(body)
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "POST", &url, e))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
     map_status(status, body, "upload_skin")
@@ -73,7 +73,7 @@ pub async fn reset_skin(token: &str) -> Result<()> {
         .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "DELETE", &url, e))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
     map_status(status, body, "reset_skin")

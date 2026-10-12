@@ -262,7 +262,12 @@ describe('«Fix…» on a version conflict', () => {
   });
 
   it('says a look that failed failed, and why — never «no compatible version»', async () => {
-    const error = { kind: 'mods_network', url: 'https://api.modrinth.com', details: 'offline' };
+    const error = {
+      kind: 'mods_network',
+      url: 'https://api.modrinth.com',
+      failure: { kind: 'unreachable' },
+      details: 'offline',
+    };
     h.modsPlanVersionFix.mockResolvedValue({ status: 'error', error });
     render(InstalledModsView, { props: props('plan-failed') });
     const p = await panel();

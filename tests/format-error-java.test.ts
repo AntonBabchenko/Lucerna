@@ -57,11 +57,23 @@ describe('a chosen Java that cannot be used', () => {
       component: 'java-runtime-delta',
       major: 21,
       stage: 'installer_tools',
-      reason: { kind: 'download', details: `refused\n${'y'.repeat(300)}` },
+      reason: {
+        kind: 'download',
+        cause: {
+          kind: 'network',
+          url: 'https://piston-meta.mojang.com/v1/packages/x/manifest.json',
+          failure: { kind: 'timeout' },
+          details: `error sending request\n${'y'.repeat(300)}`,
+        },
+      },
     });
     expect(forInstaller).toMatch(/Forge|NeoForge/);
-    expect(forInstaller).toContain('refused');
-    expect(forInstaller).not.toContain('y'.repeat(200));
+    // The cause is worded by its own rules — the site and why, never the
+    // transport's English text.
+    expect(forInstaller).toContain('piston-meta.mojang.com');
+    expect(forInstaller).toContain("didn't respond in time");
+    expect(forInstaller).not.toContain('error sending request');
+    expect(forInstaller).not.toContain('y'.repeat(20));
   });
 
   it('cuts a long probe answer to its first line', () => {

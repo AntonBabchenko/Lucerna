@@ -2,7 +2,7 @@
 //! parsing, on-disk installer cache. See spec section "Component:
 //! Meta layer (forge::meta)".
 
-use crate::error::{Error, Result};
+use crate::error::{Error, NetworkFailure, Result};
 use quick_xml::de::from_str as xml_from_str;
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
@@ -525,9 +525,7 @@ pub async fn list_versions(
 
     // Fetch maven-metadata.xml.
     let meta_url = meta_url_for(flavor);
-    let xml = crate::network::get_text(&meta_url, "forge/meta")
-        .await
-        .map_err(|e| Error::network(meta_url.clone(), format!("{e:?}")))?;
+    let xml = crate::network::get_text(&meta_url, "forge/meta").await?;
     // NeoForge's maven layout is version-only: the Minecraft id comes from
     // `neoforge_mc_for`. Forge's `<mc>-<fv>` layout names it directly.
     let (pairs, not_offered_mc, unrecognized) = match flavor {
@@ -699,9 +697,7 @@ pub async fn fetch_installer_bytes_in(
                 None => {
                     // Fresh fetch of maven-metadata.xml for the guard only.
                     let meta_url = meta_url_for(ForgeFlavor::Forge);
-                    let xml = crate::network::get_text(&meta_url, "forge/meta")
-                        .await
-                        .map_err(|e| Error::network(meta_url.clone(), format!("{e:?}")))?;
+                    let xml = crate::network::get_text(&meta_url, "forge/meta").await?;
                     parse_maven_metadata(&xml)?
                 }
             }
@@ -732,13 +728,31 @@ pub async fn fetch_installer_bytes_in(
     // patching, so a missing or unparseable sidecar is a hard error, not a
     // skip. Both Forge and NeoForge maven publish `<artifact>.sha1`.
     let sha1_url = format!("{url}.sha1");
-    let sidecar = crate::network::get_text(&sha1_url, "forge/installer-sha1")
-        .await
-        .map_err(|e| Error::ForgeInstallerCorrupted {
-            mc: mc.to_string(),
-            fv: fv.to_string(),
-            details: format!("could not fetch SHA-1 sidecar {sha1_url}: {e:?}"),
-        })?;
+    // Either way the installer is refused, and neither way is it "corrupted":
+    // no published sidecar means it cannot be verified; a sidecar that did not
+    // load says nothing about the installer, so that fetch error goes up with
+    // its own message.
+    let sidecar = match crate::network::get_text(&sha1_url, "forge/installer-sha1").await {
+        Ok(body) => body,
+        Err(Error::Network {
+            failure: NetworkFailure::HttpStatus { status: 404 },
+            ..
+        }) => {
+            crate::diag!(
+                "forge: {sha1_url} is not published (HTTP 404); the {mc}-{fv} installer cannot be verified"
+            );
+            return Err(Error::ForgeInstallerUnverifiable {
+                mc: mc.to_string(),
+                fv: fv.to_string(),
+            });
+        }
+        Err(e) => {
+            crate::diag!(
+                "forge: cannot verify the {mc}-{fv} installer: its SHA-1 sidecar {sha1_url} did not load: {e}"
+            );
+            return Err(e);
+        }
+    };
     let expected_sha1 =
         parse_maven_sha1(&sidecar).ok_or_else(|| Error::ForgeInstallerCorrupted {
             mc: mc.to_string(),
@@ -746,9 +760,7 @@ pub async fn fetch_installer_bytes_in(
             details: format!("SHA-1 sidecar {sha1_url} is not a valid digest"),
         })?;
 
-    let bytes = crate::network::get_bytes(&url, "forge/installer")
-        .await
-        .map_err(|e| Error::network(url.clone(), format!("{e:?}")))?;
+    let bytes = crate::network::get_bytes(&url, "forge/installer").await?;
 
     let got_sha1 = hex::encode(Sha1::digest(&bytes));
     if got_sha1 != expected_sha1 {
@@ -1500,7 +1512,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_bytes(installer.to_vec()))
             .mount(&s)
             .await;
-        // No `.sha1` mock → the sidecar request 404s. No-TOFU: hard error.
+        // No `.sha1` mock → the sidecar request 404s. No-TOFU: hard error —
+        // and an honest one: unverifiable, not "corrupted".
         let td = TempDir::new().unwrap();
         let _seam = crate::test_seam::scope(&[
             ("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", &s.uri()),
@@ -1510,8 +1523,43 @@ mod tests {
             fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
         let err = result.expect_err("a missing sidecar must be a hard error");
         assert!(
-            matches!(err, Error::ForgeInstallerCorrupted { .. }),
-            "expected ForgeInstallerCorrupted, got {err:?}"
+            matches!(err, Error::ForgeInstallerUnverifiable { .. }),
+            "expected ForgeInstallerUnverifiable, got {err:?}"
+        );
+        assert!(!installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
+    }
+
+    #[tokio::test]
+    async fn a_sidecar_that_fails_to_load_is_that_failure_not_a_corrupted_installer() {
+        let installer = b"neoforge-installer-bytes";
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(wpath("/forge-1.21.1-21.1.0-installer.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(installer.to_vec()))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(wpath("/forge-1.21.1-21.1.0-installer.jar.sha1"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&s)
+            .await;
+        let td = TempDir::new().unwrap();
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", &s.uri()),
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ]);
+        let result =
+            fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
+        let err = result.expect_err("an unverified installer must never be accepted");
+        assert!(
+            matches!(
+                err,
+                Error::Network {
+                    failure: NetworkFailure::HttpStatus { status: 503 },
+                    ..
+                }
+            ),
+            "expected the sidecar's own 503, got {err:?}"
         );
         assert!(!installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
     }

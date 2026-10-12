@@ -27,7 +27,7 @@
 //!     has no promotions feed, so we treat "newest stable" as the one
 //!     recommended version, matching Forge's promotions semantic.
 
-use crate::error::{Error, Result};
+use crate::error::{Error, NetworkFailure, Result};
 use crate::network::get_json;
 use crate::versions::loaders::LoaderVersion;
 use crate::versions::version_json::{parse, Library, VersionDetails};
@@ -45,12 +45,13 @@ use serde::Deserialize;
 async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Result<T> {
     match get_json::<T>(url, initiator).await {
         Ok(v) => Ok(v),
-        Err(Error::Network { details, .. }) if details.starts_with("HTTP 404") => {
-            Err(Error::LoaderUnavailable {
-                loader: "quilt".into(),
-                mc_version: mc.into(),
-            })
-        }
+        Err(Error::Network {
+            failure: NetworkFailure::HttpStatus { status: 404 },
+            ..
+        }) => Err(Error::LoaderUnavailable {
+            loader: "quilt".into(),
+            mc_version: mc.into(),
+        }),
         Err(e) => Err(e),
     }
 }
@@ -207,13 +208,14 @@ pub(super) async fn profile(mc: &str, ver: &str) -> Result<VersionDetails> {
 pub async fn server_profile(mc: &str, ver: &str) -> Result<serde_json::Value> {
     let url = format!("{}/v3/versions/loader/{mc}/{ver}/server/json", meta_base());
     match get_json::<serde_json::Value>(&url, "servers").await {
-        Err(Error::Network { details, .. }) if details.starts_with("HTTP 404") => {
-            Err(Error::ServerJarUnavailable {
-                loader: "quilt".into(),
-                mc_version: mc.into(),
-                reason: format!("Quilt publishes no server profile for loader {ver}"),
-            })
-        }
+        Err(Error::Network {
+            failure: NetworkFailure::HttpStatus { status: 404 },
+            ..
+        }) => Err(Error::ServerJarUnavailable {
+            loader: "quilt".into(),
+            mc_version: mc.into(),
+            reason: format!("Quilt publishes no server profile for loader {ver}"),
+        }),
         other => other,
     }
 }

@@ -244,7 +244,15 @@ describe('OverviewTab', () => {
           component: 'java-runtime-delta',
           major: 21,
           stage: 'installer_tools',
-          reason: { kind: 'download', details: 'offline' },
+          reason: {
+            kind: 'download',
+            cause: {
+              kind: 'network',
+              url: 'https://piston-meta.mojang.com/x',
+              failure: { kind: 'unreachable' },
+              details: 'offline',
+            },
+          },
         },
       },
     });

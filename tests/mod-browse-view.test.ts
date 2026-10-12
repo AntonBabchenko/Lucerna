@@ -500,7 +500,12 @@ describe('ModBrowseView', () => {
     // "427" family), so the inline error bar and its Reload button stay put.
     search.mockResolvedValue({
       status: 'error',
-      error: { kind: 'network', url: 'https://api.modrinth.com', details: 'HTTP 427' },
+      error: {
+        kind: 'network',
+        url: 'https://api.modrinth.com',
+        failure: { kind: 'http_status', status: 427 },
+        details: 'HTTP 427',
+      },
     });
 
     render(ModBrowseView, {

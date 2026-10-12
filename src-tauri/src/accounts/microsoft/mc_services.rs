@@ -79,7 +79,7 @@ pub async fn login_with_xbox(userhash: &str, xsts_token: &str) -> Result<LoginRe
         .json(&body)
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "POST", &url, e))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
@@ -122,7 +122,7 @@ pub async fn fetch_profile(mc_access_token: &str) -> Result<ProfileResponse> {
         .header("Authorization", format!("Bearer {mc_access_token}"))
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "GET", &url, e))?;
     let status = resp.status();
     if status.as_u16() == 404 {
         return Err(Error::NoMinecraftProfile);

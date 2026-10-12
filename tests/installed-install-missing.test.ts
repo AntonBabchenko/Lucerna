@@ -152,7 +152,12 @@ describe('«Install» on a missing dependency', () => {
   });
 
   it('a failure a manual pick may get past still opens the search — and says why', async () => {
-    const error = { kind: 'mods_network', url: 'https://cdn.modrinth.com', details: 'reset' };
+    const error = {
+      kind: 'mods_network',
+      url: 'https://cdn.modrinth.com',
+      failure: { kind: 'interrupted' },
+      details: 'reset',
+    };
     h.modsInstallMissingRequired.mockResolvedValue({ status: 'error', error });
     const onBrowseFor = view('missing-failed');
     await installFromPanel();

@@ -11,7 +11,7 @@ use crate::network::request;
 pub async fn get_bytes(url: &str, initiator: &str) -> Result<Vec<u8>> {
     let resp = request::get(url, &[], initiator).await?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::network(url, format!("HTTP {}", resp.status)));
+        return Err(Error::http_status(url, resp.status));
     }
     Ok(resp.body)
 }

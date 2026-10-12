@@ -767,6 +767,7 @@ mod tests {
     fn propagates_network_error() {
         let err = Error::Network {
             url: "https://meta.fabricmc.net".to_string(),
+            failure: crate::error::NetworkFailure::Unreachable,
             details: "connection refused".to_string(),
         };
         let decision = decide_loader(LoaderKind::Fabric, Err(err));

@@ -18,6 +18,7 @@ describe('installFailureToast', () => {
     const err = {
       kind: 'mods_network',
       url: 'https://cdn.example/x.jar',
+      failure: { kind: 'timeout' },
       details: 'timed out',
     } as IpcError;
     const id = installFailureToast('Sodium', err, retry);

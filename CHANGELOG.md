@@ -86,6 +86,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
   profile without a mod loader, where neither works; now it checks the
   profile's Minecraft version and says so when nothing fits.
+- **Network errors say which site failed and why.** Instead of a technical dump
+  with the address three times, the message names the site and the cause: no
+  connection, no answer in time, a secure connection blocked (often by an
+  antivirus checking HTTPS), or an error on the site's side. Logs now keep the
+  full cause, and the message points there when the cause isn't recognised.
+- **A Forge installer that can't be checked is no longer called corrupted.** If
+  the site publishes no checksum for it, or the checksum didn't load, the
+  launcher says exactly that, and still won't install it.
 
 ## [0.27.0] — 2026-10-09
 

@@ -75,7 +75,15 @@ import InstalledModsView from '$lib/mods/installed/InstalledModsView.svelte';
 
 describe('a platform mismatch in «What stops the game»', () => {
   it('offers the row’s «Choose version», which opens the mod’s own version list', async () => {
-    h.modsProject.mockResolvedValue({ status: 'error', error: { kind: 'network' } });
+    h.modsProject.mockResolvedValue({
+      status: 'error',
+      error: {
+        kind: 'network',
+        url: 'https://api.modrinth.com',
+        failure: { kind: 'unreachable' },
+        details: 'offline',
+      },
+    });
     render(InstalledModsView, {
       props: { instanceId: 'platform-choose', mcVersion: '1.21.1', loader: 'fabric' as const },
     });

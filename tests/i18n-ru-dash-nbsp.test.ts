@@ -8,8 +8,6 @@ import ru from '../src/lib/i18n/locales/ru.json';
 // the other refusals a mod install or switch can meet).
 const GATE_REASON_KEYS = [
   'mods.ops.busy',
-  'errors.network',
-  'errors.modsNetwork',
   'errors.modsPlatformAuthInvalid',
   'errors.modsPlatformAuthMissing',
   'errors.modVersionNotForInstance',
@@ -32,12 +30,16 @@ describe('Russian dashes in the Play gate', () => {
     ([k]) =>
       k.startsWith('mods.preflight.') ||
       k.startsWith('mods.range.') ||
+      // Every network failure sentence: they reach the gate as a failed
+      // repair's reason, for mods and for every other download alike.
+      k.startsWith('errors.networkFailure.') ||
       GATE_REASON_KEYS.includes(k),
   );
 
   it('covers every key it names', () => {
     const keys = new Set(all.map(([k]) => k));
     expect(GATE_REASON_KEYS.filter((k) => !keys.has(k))).toEqual([]);
+    expect(all.filter(([k]) => k.startsWith('errors.networkFailure.')).length).toBeGreaterThan(0);
   });
 
   it('never lets a line start with «—»: the space before it does not break', () => {

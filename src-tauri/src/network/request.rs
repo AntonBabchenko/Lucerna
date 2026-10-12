@@ -8,7 +8,7 @@
 //! `download_with_sha` stays separate — it streams to disk rather than
 //! buffering the body.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::network::client::http;
 
 /// A received HTTP response: the status code and the fully-buffered body.
@@ -94,12 +94,11 @@ async fn send(
                 None => break,
             }
         };
-        let resp = this.send().await.map_err(|e| {
-            crate::diag!(
-                "network: {initiator} {method} {url} — request failed (source unreachable?): {e}"
-            );
-            Error::network(url, e)
-        })?;
+        // The constructor logs the failure with its whole cause chain.
+        let resp = this
+            .send()
+            .await
+            .map_err(|e| crate::network::failure::transport(initiator, method, url, e))?;
         let status = resp.status().as_u16();
         // On a 429, freeze the host gate and back off before retrying — but only
         // while we still have a builder for the next attempt. `X-Ratelimit-Reset`
@@ -118,10 +117,10 @@ async fn send(
         }
         // A body-read failure (mid-body drop, read timeout) is still a transport-level
         // failure.
-        let body = resp.bytes().await.map_err(|e| {
-            crate::diag!("network: {initiator} {method} {url} — response body read failed: {e}");
-            Error::network(url, e)
-        })?;
+        let body = resp
+            .bytes()
+            .await
+            .map_err(|e| crate::network::failure::transport(initiator, method, url, e))?;
         // Record notable non-success statuses in the launcher log (rate limits =
         // HTTP 429, auth = 401/403, server outages = 5xx). 404 is excluded — callers
         // routinely treat it as "not found / no match" (loader probes, hash
@@ -137,7 +136,8 @@ async fn send(
     // Unreachable in practice: the final attempt always takes `req` and returns
     // (success path) or propagates a transport error. Surface a clear error if
     // the loop ever exits without producing a response.
-    Err(Error::network(
+    Err(crate::network::failure::unexpected(
+        initiator,
         url,
         "retry loop exhausted without a response",
     ))
@@ -215,6 +215,7 @@ pub(crate) fn host_of(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{Error, NetworkFailure};
     use wiremock::matchers::{body_string, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -289,6 +290,74 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get("http://127.0.0.1:1/nope", &[], "test").await;
         assert!(matches!(r, Err(Error::Network { .. })), "got: {r:?}");
+    }
+
+    #[tokio::test]
+    async fn a_refused_connection_is_unreachable_and_keeps_its_cause() {
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        match get("http://127.0.0.1:1/nope", &[], "test").await {
+            Err(Error::Network {
+                failure, details, ..
+            }) => {
+                assert_eq!(failure, NetworkFailure::Unreachable);
+                // More than reqwest's top line ("error sending request for
+                // url (…)"): the cause chain below it was walked.
+                assert!(details.matches(": ").count() >= 1, "{details}");
+            }
+            other => panic!("expected Network, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn https_to_a_plain_http_server_is_a_tls_failure() {
+        // The mock speaks plain HTTP; a TLS handshake against it fails.
+        let server = MockServer::start().await;
+        let url = server.uri().replacen("http://", "https://", 1) + "/tls";
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let r = get(&url, &[], "test").await;
+        assert!(
+            matches!(
+                r,
+                Err(Error::Network {
+                    failure: NetworkFailure::Tls,
+                    ..
+                })
+            ),
+            "got: {r:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_answer_slower_than_the_budget_is_a_timeout() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/req-slow"))
+            .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(5)))
+            .mount(&server)
+            .await;
+        let url = format!("{}/req-slow", server.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let r = post_with_timeout(
+            &url,
+            &[],
+            b"{}",
+            "test",
+            std::time::Duration::from_millis(200),
+        )
+        .await;
+        assert!(
+            matches!(
+                r,
+                Err(Error::Network {
+                    failure: NetworkFailure::Timeout,
+                    ..
+                })
+            ),
+            "got: {r:?}"
+        );
     }
 
     #[tokio::test]
