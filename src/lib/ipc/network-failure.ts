@@ -17,6 +17,13 @@ export function hostOf(url: string): string {
   }
 }
 
+/** A server on this computer — in practice the user's local model server, the
+ *  only loopback destination the backend reaches (`network::loopback`). Not
+ *  answering there is a program that is not running, not the internet. */
+function isLoopback(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1';
+}
+
 function httpStatusMessage(host: string, status: number): string {
   const translate = get(t);
   if (status === 429) return translate('errors.networkFailure.rateLimited', { host });
@@ -41,7 +48,9 @@ export function networkFailureMessage(url: string, failure: NetworkFailure): str
   const host = hostOf(url);
   switch (failure.kind) {
     case 'unreachable':
-      return translate('errors.networkFailure.unreachable', { host });
+      return isLoopback(host)
+        ? translate('errors.networkFailure.unreachableLocal', { host })
+        : translate('errors.networkFailure.unreachable', { host });
     case 'timeout':
       return translate('errors.networkFailure.timeout', { host });
     case 'tls':

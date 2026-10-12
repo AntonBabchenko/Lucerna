@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { commands, type LoaderKind, type LoaderVersion, type ServerCore } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type LoaderKind,
+    type LoaderVersion,
+    type ServerCore,
+  } from '$lib/ipc/bindings';
   import { displayCore, coreToLoaderKind, pluginCapable } from '$lib/servers/core-display';
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
   import { formatLoaderListError } from '$lib/instances/loader-list-error';

@@ -414,6 +414,7 @@ export type TranslationKey =
   | 'errors.networkFailure.tls'
   | 'errors.networkFailure.unexpectedStatus'
   | 'errors.networkFailure.unreachable'
+  | 'errors.networkFailure.unreachableLocal'
   | 'errors.noMinecraftProfile'
   | 'errors.noVersionSelected'
   | 'errors.offlineNameInvalid'

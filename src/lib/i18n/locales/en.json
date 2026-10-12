@@ -2696,6 +2696,7 @@
   "errors": {
     "networkFailure": {
       "unreachable": "Couldn't connect to {host} — check your internet connection, VPN or proxy.",
+      "unreachableLocal": "Nothing is answering at {host} — check that the local server is running.",
       "timeout": "{host} didn't respond in time — try again.",
       "tls": "Couldn't set up a secure connection to {host}. This usually happens when an antivirus scans HTTPS traffic, behind a proxy, or when the computer's date and time are wrong.",
       "interrupted": "The connection to {host} dropped — try again.",

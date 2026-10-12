@@ -67,6 +67,19 @@ describe('network failures say which site failed and why', () => {
     });
   }
 
+  it('does not send the user to their internet connection for a server on this computer', () => {
+    locale.set('en');
+    const msg = formatError({
+      kind: 'network',
+      url: 'http://127.0.0.1:11434/v1/chat/completions',
+      failure: { kind: 'unreachable' },
+      details: DETAILS,
+    });
+    expect(msg).toContain('127.0.0.1');
+    expect(msg).toContain('local server');
+    expect(msg.toLowerCase()).not.toContain('internet');
+  });
+
   it('words every failure differently', () => {
     locale.set('en');
     const msgs = FAILURES.map(([, f]) => formatError(both(f)[0]));
