@@ -185,10 +185,7 @@ fn check_status(resp: &crate::network::request::HttpResponse, url: &str) -> Resu
         });
     }
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url: url.to_string(),
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url.to_string(), resp.status));
     }
     Ok(())
 }

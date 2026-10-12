@@ -139,6 +139,7 @@ mod tests {
     fn only_failures_that_could_differ_next_time_are_retried() {
         assert!(is_retryable(&Error::Network {
             url: "https://example.com".into(),
+            failure: crate::error::NetworkFailure::Interrupted,
             details: "reset".into()
         }));
         assert!(is_retryable(&provider_error(503)));
@@ -194,6 +195,7 @@ mod tests {
     fn a_network_failure_is_logged_by_destination_only() {
         let err = Error::Network {
             url: "https://api.groq.com/openai/v1/chat/completions".to_string(),
+            failure: crate::error::NetworkFailure::Unreachable,
             details: "the transport said something we did not audit".to_string(),
         };
         let line = log_safe(&err);

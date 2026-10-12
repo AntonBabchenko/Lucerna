@@ -39,7 +39,7 @@ pub fn listed(mc: &str, known: &[VersionEntry]) -> Result<()> {
 /// unchanged.
 pub fn manifest_unreachable(e: Error) -> Error {
     match e {
-        Error::Network { url, details } => {
+        Error::Network { url, details, .. } => {
             crate::diag!("versions: could not load Mojang's version list from {url}: {details}");
             Error::McVersionUnchecked
         }
@@ -96,7 +96,11 @@ mod tests {
 
     #[test]
     fn only_a_transport_failure_becomes_unchecked() {
-        let transport = Error::network("https://piston-meta.mojang.com/x.json", "timed out");
+        let transport = Error::Network {
+            url: "https://piston-meta.mojang.com/x.json".into(),
+            failure: crate::error::NetworkFailure::Timeout,
+            details: "timed out".into(),
+        };
         assert!(matches!(
             manifest_unreachable(transport),
             Error::McVersionUnchecked

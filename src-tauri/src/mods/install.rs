@@ -163,7 +163,15 @@ pub(crate) async fn fetch_to_cache(
             Error::Io { path, details } => Error::ModsCacheIo {
                 details: format!("{path}: {details}"),
             },
-            Error::Network { url, details } => Error::ModsNetwork { url, details },
+            Error::Network {
+                url,
+                failure,
+                details,
+            } => Error::ModsNetwork {
+                url,
+                failure,
+                details,
+            },
             other => other,
         })?;
         progress(ModInstallPhase::Verifying, size as u64, Some(size as u64));
@@ -215,7 +223,15 @@ pub(crate) async fn fetch_to_cache_md5(
         Error::Io { path, details } => Error::ModsCacheIo {
             details: format!("{path}: {details}"),
         },
-        Error::Network { url, details } => Error::ModsNetwork { url, details },
+        Error::Network {
+            url,
+            failure,
+            details,
+        } => Error::ModsNetwork {
+            url,
+            failure,
+            details,
+        },
         other => other,
     })?;
 

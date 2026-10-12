@@ -15,6 +15,7 @@ import type {
   LoaderKind,
   MigrationRole,
 } from '$lib/ipc/bindings';
+import { networkFailureMessage } from '$lib/ipc/network-failure';
 import { describeProviderFailure } from '$lib/l10n/provider-failure';
 
 // Detail-bearing errors are truncated to this many code points in the UI; the
@@ -105,6 +106,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   auth_failed: 'opaque',
   forge_maven_metadata_parse_failed: 'opaque',
   forge_installer_corrupted: 'opaque',
+  // Built from the version pair only — nothing to truncate.
+  forge_installer_unverifiable: 'clean',
   forge_patcher_failed: 'opaque',
   mods_decode: 'opaque',
   mods_cache_io: 'opaque',
@@ -278,8 +281,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   java_settings_unreadable: 'opaque',
   // A component name only.
   managed_java_missing: 'clean',
-  // Clean like `java_unusable`: the reason is typed, and a download's nested
-  // `details` are cut to one line by `jreUnavailableReasonText`.
+  // Clean like `java_unusable`: the reason is typed, and a download's cause
+  // is a typed error worded by its own class.
   jre_unavailable: 'clean',
   // Structured fields only (filename + two sizes) — nothing to truncate.
   datapack_too_large: 'clean',
@@ -401,9 +404,9 @@ function jreUnavailableReasonText(reason: JreUnavailableReason): string {
   const translate = get(t);
   switch (reason.kind) {
     case 'download':
-      return translate('errors.jreUnavailableReason.download', {
-        details: firstLineTruncated(reason.details),
-      });
+      // The failure itself, worded by its own rules: a network failure names
+      // the site and the reason, never its English `Display`.
+      return formatError(reason.cause);
     case 'unsupported_platform':
       return translate('errors.jreUnavailableReason.unsupportedPlatform', {
         os: reason.os,
@@ -613,7 +616,7 @@ export function formatError(e: IpcError): string {
   const translate = get(t);
   switch (e.kind) {
     case 'network':
-      return translate('errors.network');
+      return networkFailureMessage(e.url, e.failure);
     case 'host_not_allowed':
       return translate('errors.hostNotAllowed', { url: e.url });
     case 'consented_channel_disabled':
@@ -699,6 +702,8 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.forgeMavenMetadataParseFailed'), e.details);
     case 'forge_no_build_for':
       return translate('errors.forgeNoBuildFor', { mc: e.mc });
+    case 'forge_installer_unverifiable':
+      return translate('errors.forgeInstallerUnverifiable', { mc: e.mc, fv: e.fv });
     case 'forge_installer_corrupted':
       return withDetailTail(
         translate('errors.forgeInstallerCorrupted', { mc: e.mc, fv: e.fv }),
@@ -734,7 +739,7 @@ export function formatError(e: IpcError): string {
     case 'mc_logs_upload':
       return withDetailTail(translate('errors.mcLogsUpload'), e.details);
     case 'mods_network':
-      return translate('errors.modsNetwork');
+      return networkFailureMessage(e.url, e.failure);
     case 'mods_platform_auth':
       return e.kind_detail === 'invalid'
         ? translate('errors.modsPlatformAuthInvalid')

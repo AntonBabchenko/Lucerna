@@ -106,10 +106,7 @@ pub async fn fetch_project_hit(base: &str, project_ref: &str) -> Result<ModpackH
         });
     }
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     let p: MrProject = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "modrinth".into(),
@@ -185,10 +182,7 @@ pub async fn search(
         .await
         .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     let s: MrSearch = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "modrinth".into(),

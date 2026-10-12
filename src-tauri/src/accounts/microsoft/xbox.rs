@@ -64,7 +64,7 @@ pub async fn xbl_authenticate(ms_access_token: &str) -> Result<(String, String)>
         .json(&body)
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "POST", &url, e))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
@@ -108,7 +108,7 @@ pub async fn xsts_authorize(xbl_token: &str) -> Result<XstsResult> {
         .json(&body)
         .send()
         .await
-        .map_err(|e| Error::network(&url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "POST", &url, e))?;
 
     let status = resp.status();
     if status.as_u16() == 401 {

@@ -13,6 +13,7 @@ pub mod bytes;
 pub mod client;
 pub mod consent;
 pub mod download;
+pub mod failure;
 pub mod json;
 pub mod loopback;
 pub mod request;

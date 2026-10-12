@@ -31,7 +31,7 @@ pub fn classify(
         | Error::HashMismatch { .. }
         | Error::Io { .. } => match marker_present {
             Ok(false) => JreUnavailableReason::Download {
-                details: err.to_string(),
+                cause: Box::new(err.clone()),
             },
             Ok(true) => return err,
             Err(why) => {
@@ -70,6 +70,7 @@ mod tests {
     fn net() -> Error {
         Error::Network {
             url: "https://piston-meta.mojang.com/x".into(),
+            failure: crate::error::NetworkFailure::Unreachable,
             details: "dns".into(),
         }
     }
@@ -164,6 +165,22 @@ mod tests {
             Ok(false),
         );
         assert!(matches!(e, Error::InstanceBusy));
+    }
+
+    #[test]
+    fn a_download_reason_keeps_its_cause_typed() {
+        // The UI words the cause by its own rules (a network failure names the
+        // site and why), so it travels as the error, not as English text.
+        match reason(classify(
+            net(),
+            "java-runtime-delta",
+            21,
+            JreStage::GameRuntime,
+            Ok(false),
+        )) {
+            Some(JreUnavailableReason::Download { cause }) => assert_eq!(*cause, net()),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

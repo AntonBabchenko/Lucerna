@@ -156,10 +156,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
     .await
     .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     let bulk: CfBulkResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "curseforge".into(),
@@ -328,10 +325,7 @@ async fn fetch_class_ids(
     .await
     .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
+        return Err(Error::mods_http_status(url, resp.status));
     }
     let parsed: ModsResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "curseforge".into(),

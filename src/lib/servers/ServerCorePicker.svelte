@@ -1,36 +1,12 @@
 <script lang="ts">
-  import { get } from 'svelte/store';
-  import {
-    commands,
-    type LoaderKind,
-    type LoaderVersion,
-    type ServerCore,
-    type Error as IpcError,
-  } from '$lib/ipc/bindings';
+  import { commands, type LoaderKind, type LoaderVersion, type ServerCore } from '$lib/ipc/bindings';
   import { displayCore, coreToLoaderKind, pluginCapable } from '$lib/servers/core-display';
-  import { displayLoader } from '$lib/instances/loader-display';
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
-  import { formatError } from '$lib/ipc/format-error';
+  import { formatLoaderListError } from '$lib/instances/loader-list-error';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
-
-  function formatLoaderError(e: IpcError): string {
-    // Picker keeps shorter wording for the 3 variants it surfaces most
-    // often; everything else delegates so no raw JSON if e.g. a loader
-    // cache IO error reaches the picker.
-    if (e.kind === 'loader_unavailable')
-      return get(t)('instance.loader.errorUnavailable', {
-        loader: displayLoader(e.loader as LoaderKind),
-        mc: e.mc_version,
-      });
-    if (e.kind === 'network')
-      return get(t)('instance.loader.errorNetwork', { url: e.url, details: e.details });
-    if (e.kind === 'forge_promotions_unavailable')
-      return get(t)('instance.loader.errorForgePromotions', { flavor: e.flavor });
-    return formatError(e);
-  }
 
   const SERVER_CORES: ServerCore[] = [
     'vanilla',
@@ -139,7 +115,7 @@
     } else {
       versions = [];
       coreVersion = null;
-      error = formatLoaderError(result.error);
+      error = formatLoaderListError(result.error, k);
     }
   }
 

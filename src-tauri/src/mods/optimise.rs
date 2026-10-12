@@ -333,6 +333,7 @@ mod tests {
     fn err() -> Error {
         Error::ModsNetwork {
             url: "test".into(),
+            failure: crate::error::NetworkFailure::Unreachable,
             details: "boom".into(),
         }
     }

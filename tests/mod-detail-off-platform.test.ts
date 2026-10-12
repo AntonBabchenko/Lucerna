@@ -128,7 +128,12 @@ describe('ModDetailModal — a build made for another Minecraft', () => {
     versionsAnswer(
       Promise.resolve({
         status: 'error',
-        error: { kind: 'mods_network', url: 'https://api.modrinth.com', details: 'timeout' },
+        error: {
+          kind: 'mods_network',
+          url: 'https://api.modrinth.com',
+          failure: { kind: 'timeout' },
+          details: 'timeout',
+        },
       }),
     );
     render(ModDetailModal, { props: props() });

@@ -46,10 +46,7 @@ pub async fn mods_set_curseforge_key(
     let url = "https://api.curseforge.com/v1/games/432";
     let resp = crate::network::request::get(url, &[("x-api-key", key.as_str())], "mods")
         .await
-        .map_err(|e| crate::error::Error::ModsNetwork {
-            url: url.into(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| crate::error::Error::mods_network(url, e))?;
     use crate::mods::curseforge::{classify_key_check, KeyCheckOutcome};
     match classify_key_check(resp.status, &resp.body) {
         KeyCheckOutcome::Ok => {}

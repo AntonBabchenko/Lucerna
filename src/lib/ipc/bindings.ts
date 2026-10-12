@@ -3856,7 +3856,12 @@ export type EnableImpact = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | 
+export type Error = 
+/**
+ *  `details` is the whole cause chain, for the log; the UI words `failure`
+ *  and never renders `details`.
+ */
+{ kind: "network"; url: string; failure: NetworkFailure; details: string } | { kind: "host_not_allowed"; url: string } | 
 /**
  *  A user-consented outbound channel was used while its Settings
  *  permission is off. `channel` is the stable channel id (e.g.
@@ -3901,7 +3906,13 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  says whether the game itself needs it (a Java on this computer can stand
  *  in) or a Forge/NeoForge install step does (it cannot).
  */
-{ kind: "jre_unavailable"; component: string; major: number; stage: JreStage; reason: JreUnavailableReason } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
+{ kind: "jre_unavailable"; component: string; major: number; stage: JreStage; reason: JreUnavailableReason } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | 
+/**
+ *  The site publishes no SHA-1 sidecar for this installer, so it cannot be
+ *  verified and is refused (no trust on first use). Not
+ *  `ForgeInstallerCorrupted`: nothing is known to be wrong with the file.
+ */
+{ kind: "forge_installer_unverifiable"; mc: string; fv: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
 /**  The proposed folder name reduced to nothing once normalised to ASCII. */
 { kind: "instance_dir_name_empty" } | 
 /**  Another directory already occupies that name. */
@@ -3928,7 +3939,7 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  *  fixes one, and only relocating the data root fixes the other. The UI
  *  shows a different message and a different action for each.
  */
-{ kind: "path_not_launchable"; data_root: boolean } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | 
+{ kind: "path_not_launchable"; data_root: boolean } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; failure: NetworkFailure; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | 
 /**
  *  The build EXISTS on the platform, but the platform does not list it for
  *  this instance's Minecraft + loader. Deliberately not `ModsNotFound`:
@@ -5560,8 +5571,12 @@ export type JreStage =
  *  the user's language.
  */
 export type JreUnavailableReason = 
-/**  It is not on disk and fetching it failed. */
-{ kind: "download"; details: string } | 
+/**
+ *  It is not on disk and fetching it failed. `cause` is that failure,
+ *  typed, so the UI words it by its own rules (a network failure names the
+ *  site and the reason) instead of showing its English `Display`.
+ */
+{ kind: "download"; cause: Error } | 
 /**  Mojang publishes no runtime for this system. */
 { kind: "unsupported_platform"; os: string; arch: string } | 
 /**  Mojang's runtime list has no such component for this system. */
@@ -6929,6 +6944,29 @@ export type NamespaceCoverage = {
 	 */
 	overridden: number,
 };
+
+/**
+ *  Why a network exchange failed, typed so the UI can say it honestly: a site
+ *  that answered 503 is not "check your internet connection". Produced only by
+ *  `network::failure` (which writes the cause chain to the launcher log) and
+ *  `Error::http_status`; `Other` only by `network::failure`, because the UI
+ *  sends the user to Logs for it (`structural_network_failure_other.rs`).
+ */
+export type NetworkFailure = 
+/**  Could not connect: name lookup, refused, no route. */
+{ kind: "unreachable" } | 
+/**  No answer in time, while connecting or reading. */
+{ kind: "timeout" } | 
+/**  The secure connection could not be set up. */
+{ kind: "tls" } | 
+/**  The connection dropped while the answer was being read. */
+{ kind: "interrupted" } | 
+/**  The site answered with a non-2xx status. */
+{ kind: "http_status"; status: number } | 
+/**  The site answered, but the body could not be read as what was asked for. */
+{ kind: "bad_response" } | 
+/**  Not recognised; the cause chain is in the launcher log. */
+{ kind: "other" };
 
 /**
  *  A project a chosen target's required-dependency set needs, for which the

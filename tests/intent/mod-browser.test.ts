@@ -338,6 +338,7 @@ describe('ModBrowseView — error state uses semantic danger tokens', () => {
       error: {
         kind: 'mods_network',
         url: 'https://api.modrinth.com',
+        failure: { kind: 'unreachable' },
         details: 'connection refused',
       },
     });
@@ -1036,7 +1037,12 @@ describe('ModDetailModal — error block uses bg-danger-bg border-danger text-da
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
       status: 'error',
-      error: { kind: 'mods_network', url: 'https://api.modrinth.com', details: 'fetch failed' },
+      error: {
+        kind: 'mods_network',
+        url: 'https://api.modrinth.com',
+        failure: { kind: 'unreachable' },
+        details: 'fetch failed',
+      },
     });
     const { container } = render(ModDetailModal, {
       props: {

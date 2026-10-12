@@ -158,6 +158,7 @@ mod tests {
     fn offline() -> crate::error::Error {
         crate::error::Error::ModsNetwork {
             url: "u".into(),
+            failure: crate::error::NetworkFailure::Unreachable,
             details: "offline".into(),
         }
     }

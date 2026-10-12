@@ -157,7 +157,12 @@ describe('create-instance form — loader footer', () => {
   it('does not claim the loader lacks support when its version list failed to load', async () => {
     m.listNeoforgeLoaders.mockResolvedValue({
       status: 'error',
-      error: { kind: 'network', url: 'https://maven.neoforged.net', details: 'offline' },
+      error: {
+        kind: 'network',
+        url: 'https://maven.neoforged.net',
+        failure: { kind: 'unreachable' },
+        details: 'offline',
+      },
     });
     renderModal();
     await openCreateForm();

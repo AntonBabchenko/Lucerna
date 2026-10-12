@@ -139,7 +139,15 @@ describe('dependency-name store', () => {
     ).resolves.toBeUndefined();
     expect(depNameOf('i', 'a', 'x')).toBeNull();
 
-    h.modsResolveDepNames.mockResolvedValueOnce({ status: 'error', error: { kind: 'network' } });
+    h.modsResolveDepNames.mockResolvedValueOnce({
+      status: 'error',
+      error: {
+        kind: 'network',
+        url: 'https://api.modrinth.com',
+        failure: { kind: 'unreachable' },
+        details: 'offline',
+      },
+    });
     await expect(
       resolveDepNames('i', report(v('a', 'y', 'missing_required'))),
     ).resolves.toBeUndefined();

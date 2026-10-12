@@ -80,12 +80,12 @@ pub(crate) async fn download_inner(
     mut emit: impl FnMut(DownloadProgress),
 ) -> Result<String> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
-    let resp = http().get(url).send().await.map_err(|e| {
-        crate::diag!(
-            "network: {initiator} download {url} — request failed (source unreachable?): {e}"
-        );
-        Error::network(url, e)
-    })?;
+    // The constructor logs the failure with its whole cause chain.
+    let resp = http()
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| crate::network::failure::transport(initiator, "download", url, e))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -93,7 +93,7 @@ pub(crate) async fn download_inner(
         // (incl. 404 = missing file, 429 = rate-limited, 5xx = outage) is a
         // real failure worth recording.
         crate::diag!("network: {initiator} download {url} — HTTP {status}");
-        return Err(Error::network(url, format!("HTTP {status}")));
+        return Err(Error::http_status(url, status.as_u16()));
     }
 
     let bytes_total = resp.content_length().map(|n| n as f64);
@@ -196,10 +196,8 @@ async fn stream_to_part(
     let mut bytes_done: f64 = 0.0;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
-            crate::diag!("network: {initiator} download {url} — interrupted mid-stream: {e}");
-            Error::network(url, e)
-        })?;
+        let chunk =
+            chunk.map_err(|e| crate::network::failure::transport(initiator, "download", url, e))?;
         sha1_hasher.update(&chunk);
         if matches!(checksum, Checksum::Md5(_)) {
             md5_hasher.update(&chunk);
@@ -535,10 +533,11 @@ mod tests {
         let mut leftovers = Vec::new();
 
         let r = promote_or_discard(
-            Err(Error::network(
-                "https://host/x.jar",
-                "interrupted mid-stream",
-            )),
+            Err(Error::Network {
+                url: "https://host/x.jar".into(),
+                failure: crate::error::NetworkFailure::Interrupted,
+                details: "interrupted mid-stream".into(),
+            }),
             &part,
             &dest,
             |line| leftovers.push(line),

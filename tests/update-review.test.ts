@@ -76,7 +76,14 @@ describe('updatesReport', () => {
 describe('oldVersionKept', () => {
   it('holds for an error the update returned after undoing its own changes', () => {
     expect(oldVersionKept({ kind: 'mods_filename_conflict', filename: 'a.jar' })).toBe(true);
-    expect(oldVersionKept({ kind: 'network', details: 'timed out' })).toBe(true);
+    expect(
+      oldVersionKept({
+        kind: 'network',
+        url: 'https://cdn.modrinth.com/x.jar',
+        failure: { kind: 'timeout' },
+        details: 'timed out',
+      }),
+    ).toBe(true);
   });
 
   it('is not claimed for a refusal: another operation owns the profile and its files may be moving', () => {

@@ -63,7 +63,10 @@ describe('describeProviderFailure', () => {
 
   it('is null for any other error kind', () => {
     expect(
-      providerFailureOrNull({ kind: 'mods_network', url: 'u', details: 'd' }, 'test'),
+      providerFailureOrNull(
+        { kind: 'mods_network', url: 'u', failure: { kind: 'unreachable' }, details: 'd' },
+        'test',
+      ),
     ).toBeNull();
   });
 });

@@ -121,10 +121,7 @@ impl ModPlatform for HangarClient {
                 });
             }
             if !(200..300).contains(&resp.status) {
-                return Err(Error::ModsNetwork {
-                    url,
-                    details: format!("HTTP {}", resp.status),
-                });
+                return Err(Error::mods_http_status(url, resp.status));
             }
             let body: types::HangarPage<types::HangarProject> = serde_json::from_slice(&resp.body)
                 .map_err(|e| Error::ModsDecode {
@@ -162,10 +159,7 @@ impl ModPlatform for HangarClient {
             });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
+            return Err(Error::mods_http_status(url, resp.status));
         }
         let p: types::HangarProject =
             serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -220,10 +214,7 @@ impl ModPlatform for HangarClient {
             });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
+            return Err(Error::mods_http_status(url, resp.status));
         }
         let body: types::HangarPage<types::HangarVersion> = serde_json::from_slice(&resp.body)
             .map_err(|e| Error::ModsDecode {

@@ -113,10 +113,7 @@ impl ModrinthClient {
             .await
             .map_err(|e| Error::mods_network(url.clone(), e))?;
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
+            return Err(Error::mods_http_status(url, resp.status));
         }
         let raws: Vec<types::Version> =
             serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -151,10 +148,7 @@ impl ModrinthClient {
                 .await
                 .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
-                return Err(Error::ModsNetwork {
-                    url,
-                    details: format!("HTTP {}", resp.status),
-                });
+                return Err(Error::mods_http_status(url, resp.status));
             }
             let projects: Vec<Sides> =
                 serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -203,10 +197,7 @@ impl ModrinthClient {
             .await
             .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
-                return Err(Error::ModsNetwork {
-                    url,
-                    details: format!("HTTP {}", resp.status),
-                });
+                return Err(Error::mods_http_status(url, resp.status));
             }
             let map: HashMap<String, VersionLite> =
                 serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -254,10 +245,7 @@ impl ModrinthClient {
             .await
             .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
-                return Err(Error::ModsNetwork {
-                    url,
-                    details: format!("HTTP {}", resp.status),
-                });
+                return Err(Error::mods_http_status(url, resp.status));
             }
             let map: HashMap<String, VersionLite> =
                 serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -424,10 +412,7 @@ impl ModPlatform for ModrinthClient {
             });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
+            return Err(Error::mods_http_status(url, resp.status));
         }
         let body: types::SearchResponse =
             serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -453,10 +438,7 @@ impl ModPlatform for ModrinthClient {
             });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
+            return Err(Error::mods_http_status(url, resp.status));
         }
         let p: types::Project =
             serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -644,10 +626,7 @@ impl ModPlatform for ModrinthClient {
                 .await
                 .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
-                return Err(Error::ModsNetwork {
-                    url,
-                    details: format!("HTTP {}", resp.status),
-                });
+                return Err(Error::mods_http_status(url, resp.status));
             }
             let projects: Vec<types::Project> =
                 serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -688,10 +667,7 @@ impl ModPlatform for ModrinthClient {
                 .await
                 .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
-                return Err(Error::ModsNetwork {
-                    url,
-                    details: format!("HTTP {}", resp.status),
-                });
+                return Err(Error::mods_http_status(url, resp.status));
             }
             let raws: Vec<types::Version> =
                 serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -723,10 +699,7 @@ impl ModPlatform for ModrinthClient {
             });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
+            return Err(Error::mods_http_status(url, resp.status));
         }
         let mut list: Vec<types::Version> =
             serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {

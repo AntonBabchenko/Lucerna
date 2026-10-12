@@ -6,7 +6,7 @@
 //! - `https://meta.fabricmc.net/v2/versions/loader/<mc>/<loader>/profile/json` →
 //!   Mojang-format VersionDetails with `inheritsFrom`.
 
-use crate::error::{Error, Result};
+use crate::error::{Error, NetworkFailure, Result};
 use crate::network::get_json;
 use crate::versions::loaders::LoaderVersion;
 use crate::versions::version_json::{parse, VersionDetails};
@@ -20,12 +20,13 @@ use serde::Deserialize;
 async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Result<T> {
     match get_json::<T>(url, initiator).await {
         Ok(v) => Ok(v),
-        Err(Error::Network { details, .. }) if details.starts_with("HTTP 404") => {
-            Err(Error::LoaderUnavailable {
-                loader: "fabric".into(),
-                mc_version: mc.into(),
-            })
-        }
+        Err(Error::Network {
+            failure: NetworkFailure::HttpStatus { status: 404 },
+            ..
+        }) => Err(Error::LoaderUnavailable {
+            loader: "fabric".into(),
+            mc_version: mc.into(),
+        }),
         Err(e) => Err(e),
     }
 }

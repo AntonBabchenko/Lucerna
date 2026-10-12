@@ -162,7 +162,12 @@ describe('UpdatesPanel — the check result is a live region', () => {
     // every variant would leave it with no context at all.
     updateCheck.mockResolvedValueOnce({
       status: 'error',
-      error: { kind: 'network', details: 'connection reset' },
+      error: {
+        kind: 'network',
+        url: 'https://github.com/x/latest.json',
+        failure: { kind: 'interrupted' },
+        details: 'connection reset',
+      },
     });
     const { findByTestId } = render(UpdatesPanel);
     await fireEvent.click(await findByTestId('check-updates-btn'));

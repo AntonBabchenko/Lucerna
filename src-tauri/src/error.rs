@@ -30,11 +30,13 @@ pub enum JreStage {
 
 /// Why Lucerna's runtime could not be obtained. Typed so the UI can say it in
 /// the user's language.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum JreUnavailableReason {
-    /// It is not on disk and fetching it failed.
-    Download { details: String },
+    /// It is not on disk and fetching it failed. `cause` is that failure,
+    /// typed, so the UI words it by its own rules (a network failure names the
+    /// site and the reason) instead of showing its English `Display`.
+    Download { cause: Box<Error> },
     /// Mojang publishes no runtime for this system.
     UnsupportedPlatform { os: String, arch: String },
     /// Mojang's runtime list has no such component for this system.
@@ -78,13 +80,43 @@ pub enum KeyringOp {
     Delete,
 }
 
+/// Why a network exchange failed, typed so the UI can say it honestly: a site
+/// that answered 503 is not "check your internet connection". Produced only by
+/// `network::failure` (which writes the cause chain to the launcher log) and
+/// `Error::http_status`; `Other` only by `network::failure`, because the UI
+/// sends the user to Logs for it (`structural_network_failure_other.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NetworkFailure {
+    /// Could not connect: name lookup, refused, no route.
+    Unreachable,
+    /// No answer in time, while connecting or reading.
+    Timeout,
+    /// The secure connection could not be set up.
+    Tls,
+    /// The connection dropped while the answer was being read.
+    Interrupted,
+    /// The site answered with a non-2xx status.
+    HttpStatus { status: u16 },
+    /// The site answered, but the body could not be read as what was asked for.
+    BadResponse,
+    /// Not recognised; the cause chain is in the launcher log.
+    Other,
+}
+
 // `PartialEq` because per-world report types carry an `Error` of their own
 // (`datapacks::WorldMigration::Failed`) and are compared whole in tests.
 #[derive(Debug, Clone, PartialEq, ThisError, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Error {
+    /// `details` is the whole cause chain, for the log; the UI words `failure`
+    /// and never renders `details`.
     #[error("Network error fetching {url}: {details}")]
-    Network { url: String, details: String },
+    Network {
+        url: String,
+        failure: NetworkFailure,
+        details: String,
+    },
 
     #[error("Refused a request to a host that is not on the allowlist: {url}")]
     HostNotAllowed { url: String },
@@ -245,6 +277,12 @@ pub enum Error {
         details: String,
     },
 
+    /// The site publishes no SHA-1 sidecar for this installer, so it cannot be
+    /// verified and is refused (no trust on first use). Not
+    /// `ForgeInstallerCorrupted`: nothing is known to be wrong with the file.
+    #[error("Forge installer for {mc}-{fv} cannot be verified: no SHA-1 is published")]
+    ForgeInstallerUnverifiable { mc: String, fv: String },
+
     #[error("This Forge version uses an unsupported processor: {coord}")]
     ForgeUnsupportedProcessor { coord: String },
 
@@ -300,7 +338,11 @@ pub enum Error {
     },
 
     #[error("Network error talking to {url}: {details}")]
-    ModsNetwork { url: String, details: String },
+    ModsNetwork {
+        url: String,
+        failure: NetworkFailure,
+        details: String,
+    },
 
     #[error("CurseForge appears unreachable (network or region block) at {url}")]
     ModsPlatformUnreachable { url: String },
@@ -1082,28 +1124,42 @@ pub type Result<T> = std::result::Result<T, Error>;
 // context strings.
 
 impl Error {
-    pub fn network(url: impl Into<String>, cause: impl std::fmt::Display) -> Self {
+    /// A non-2xx answer from a buffered fetch or a download. Logging stays with
+    /// the caller: `network::request` logs the notable statuses, a download
+    /// logs every one. A transport failure, an unreadable answer or anything
+    /// unrecognised is built by `network::failure` instead, which logs it.
+    pub fn http_status(url: impl Into<String>, status: u16) -> Self {
         Self::Network {
             url: url.into(),
-            details: cause.to_string(),
+            failure: NetworkFailure::HttpStatus { status },
+            details: format!("HTTP {status}"),
         }
     }
 
-    /// Build a `ModsNetwork` error from a lower-level cause, carrying only the
-    /// LEAF transport detail. When `cause` is already an
-    /// `Error::Network { details, .. }` — the usual case, since it came straight
-    /// from `network::request` — take that leaf `details` instead of
-    /// re-Displaying the whole parent (which would embed the URL a second time
-    /// and leak the English `#[error(..)]` text). Any other cause falls back to
-    /// its `Display`.
-    pub fn mods_network(url: impl Into<String>, cause: Error) -> Self {
-        let details = match cause {
-            Error::Network { details, .. } => details,
-            other => other.to_string(),
-        };
+    /// The mod-platform twin of [`Error::http_status`].
+    pub fn mods_http_status(url: impl Into<String>, status: u16) -> Self {
         Self::ModsNetwork {
             url: url.into(),
-            details,
+            failure: NetworkFailure::HttpStatus { status },
+            details: format!("HTTP {status}"),
+        }
+    }
+
+    /// Lift a failure from `network::` into a mod-platform one, keeping its
+    /// typed cause and its LEAF `details` (re-Displaying the parent would embed
+    /// the URL a second time and the English `#[error(..)]` text). Any other
+    /// error passes through unchanged: a refused host or a disabled channel is
+    /// not "couldn't reach the mod service", and wrapping it would say so.
+    pub fn mods_network(url: impl Into<String>, cause: Error) -> Self {
+        match cause {
+            Error::Network {
+                failure, details, ..
+            } => Self::ModsNetwork {
+                url: url.into(),
+                failure,
+                details,
+            },
+            other => other,
         }
     }
 
@@ -1139,27 +1195,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn network_constructor_includes_context() {
-        let e = Error::network("https://example.com/x", "connection refused");
+    fn http_status_carries_the_status_typed() {
+        let e = Error::http_status("https://example.com/x", 503);
+        match &e {
+            Error::Network { url, failure, .. } => {
+                assert_eq!(url, "https://example.com/x");
+                assert_eq!(*failure, NetworkFailure::HttpStatus { status: 503 });
+            }
+            other => panic!("expected Network, got {other:?}"),
+        }
         let msg = format!("{e}");
-        assert!(msg.contains("https://example.com/x"));
-        assert!(msg.contains("connection refused"));
+        assert!(msg.contains("https://example.com/x"), "{msg}");
+        assert!(msg.contains("HTTP 503"), "{msg}");
     }
 
     #[test]
-    fn mods_network_carries_leaf_detail_from_nested_network() {
-        // The mods layer wraps a lower-level network error. The constructor must
-        // carry ONLY the leaf transport detail, not re-Display the parent (which
-        // would re-embed the URL and leak the English `#[error(..)]` text).
+    fn network_failure_serializes_nested_under_its_own_kind() {
+        let json = serde_json::to_string(&Error::http_status("https://x.test/a", 503)).unwrap();
+        assert!(json.contains(r#""kind":"network""#), "got: {json}");
+        assert!(
+            json.contains(r#""failure":{"kind":"http_status","status":503}"#),
+            "got: {json}"
+        );
+        let json = serde_json::to_string(&Error::Network {
+            url: "https://x.test/a".into(),
+            failure: NetworkFailure::Tls,
+            details: "d".into(),
+        })
+        .unwrap();
+        assert!(json.contains(r#""failure":{"kind":"tls"}"#), "got: {json}");
+    }
+
+    #[test]
+    fn mods_network_lifts_a_network_failure_with_its_cause() {
+        // The mods layer wraps a lower-level network error. It keeps the typed
+        // cause and ONLY the leaf transport detail: re-Displaying the parent
+        // would re-embed the URL and leak the English `#[error(..)]` text.
         let url = "https://api.modrinth.com/v2/search?query=x";
         let leaf = "error sending request for url (https://api.modrinth.com/v2/search?query=x)";
-        let inner = Error::network(url, leaf);
+        let inner = Error::Network {
+            url: url.into(),
+            failure: NetworkFailure::Tls,
+            details: leaf.into(),
+        };
         let e = Error::mods_network(url, inner);
         match &e {
-            Error::ModsNetwork { url: u, details } => {
+            Error::ModsNetwork {
+                url: u,
+                failure,
+                details,
+            } => {
                 assert_eq!(u, url);
+                assert_eq!(*failure, NetworkFailure::Tls);
                 assert_eq!(details, leaf);
-                // The doubled wrapper is gone.
                 let rendered = format!("{e}");
                 assert!(
                     !rendered.contains("Network error fetching"),
@@ -1171,16 +1259,23 @@ mod tests {
     }
 
     #[test]
-    fn mods_network_falls_back_to_display_for_non_network_cause() {
-        let e = Error::mods_network(
-            "https://x",
-            Error::AlreadyRunning {
-                instance_id: "abc".into(),
-            },
-        );
-        match e {
-            Error::ModsNetwork { details, .. } => {
-                assert_eq!(details, "instance abc is already running");
+    fn mods_network_passes_a_non_network_error_through() {
+        // A refused host is not "couldn't reach the mod service": it keeps its
+        // own kind, and with it its own honest message.
+        let refused = Error::HostNotAllowed {
+            url: "https://evil.test/x".into(),
+        };
+        assert_eq!(Error::mods_network("https://x", refused.clone()), refused);
+    }
+
+    #[test]
+    fn mods_http_status_carries_the_status_typed() {
+        match Error::mods_http_status("https://api.modrinth.com/v2/x", 429) {
+            Error::ModsNetwork {
+                failure, details, ..
+            } => {
+                assert_eq!(failure, NetworkFailure::HttpStatus { status: 429 });
+                assert_eq!(details, "HTTP 429");
             }
             other => panic!("expected ModsNetwork, got {other:?}"),
         }
@@ -1478,6 +1573,7 @@ mod tests {
     fn mods_network_serializes_with_tag() {
         let e = Error::ModsNetwork {
             url: "https://api.modrinth.com/v2/search".into(),
+            failure: NetworkFailure::Timeout,
             details: "timeout".into(),
         };
         let j = serde_json::to_string(&e).unwrap();

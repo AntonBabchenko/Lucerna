@@ -67,10 +67,7 @@ impl CurseForgeClient {
             });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork {
-                url,
-                details: format!("HTTP {}", resp.status),
-            });
+            return Err(Error::mods_http_status(url, resp.status));
         }
         serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
             platform: "curseforge".into(),

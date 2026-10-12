@@ -259,7 +259,12 @@ describe('InstalledModsView', () => {
     const mod = await import('$lib/ipc/bindings');
     vi.mocked(mod.commands.checkInstanceModCompat).mockResolvedValueOnce({
       status: 'error',
-      error: { kind: 'network', url: 'https://api.modrinth.com', details: 'offline' },
+      error: {
+        kind: 'network',
+        url: 'https://api.modrinth.com',
+        failure: { kind: 'unreachable' },
+        details: 'offline',
+      },
     } as never);
     render(InstalledModsView, {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },

@@ -176,7 +176,7 @@ pub async fn exchange_code_for_token(
         .body(body)
         .send()
         .await
-        .map_err(|e| Error::network(token_url, e))?;
+        .map_err(|e| crate::network::failure::transport("microsoft_auth", "POST", token_url, e))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
