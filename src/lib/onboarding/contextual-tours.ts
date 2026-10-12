@@ -12,7 +12,7 @@
 import type { TourStep } from './steps';
 
 export type ContextualTourId =
-  | 'manage'
+  | 'instanceSettings'
   | 'logs'
   | 'modpacks'
   | 'worlds'
@@ -32,7 +32,7 @@ const STORAGE_KEY_SUFFIX = '.done';
 // old key (without the version suffix or with a lower one) stays in
 // localStorage as harmless cruft.
 const TOUR_VERSION: Record<ContextualTourId, string> = {
-  manage: 'v2', // bumped 2026-06-23 — added the Verify/repair step (was an orphan anchor)
+  instanceSettings: 'v1', // added 2026-10-12 — the Settings tab replaced the Manage window (whose tour was manage v2)
   logs: 'v4', // bumped 2026-06-23 — added diagnosis + read-cap steps
   modpacks: 'v1', // NOT bumped 2026-10-04 for the filter step's copy fix (see STEPS_FINGERPRINT)
   worlds: 'v4', // bumped 2026-08-12 — the row now opens the Backups | Datapacks dialog
@@ -78,7 +78,8 @@ export function fingerprintSteps(steps: ReadonlyArray<TourStep>): string {
 // never redden CI. tests/tour-fingerprint.test.ts recomputes and prints the
 // new value on mismatch.
 export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
-  manage: '7d162c77',
+  // Computed 2026-10-12 for the new tour (Task 17 of the settings-tab plan).
+  instanceSettings: '00000000',
   logs: 'a4eac54b',
   // Moved 2026-10-04 by a copy-only fix, not bumped: the filter step pointed at
   // a «Filters» button, chips and a source filter that are gone, and named the
@@ -126,30 +127,38 @@ export function markSeen(id: ContextualTourId): void {
   }
 }
 
-export const MANAGE_STEPS: ReadonlyArray<TourStep> = [
+// The instance Settings tab. Every step reveals: the tab scrolls, and the
+// Danger zone sits at its bottom. Step 1 anchors on the Game heading, not the
+// whole Game + Launch region — an anchor taller than the panel would scroll the
+// next step's anchor away (steps.ts, `reveal`).
+export const INSTANCE_SETTINGS_STEPS: ReadonlyArray<TourStep> = [
   {
-    titleKey: 'onboarding.contextual.manage.yourInstances.title',
-    bodyKey: 'onboarding.contextual.manage.yourInstances.body',
-    targetSelector: '[data-tour-ctx="manage-list"]',
-    anchor: 'right',
-  },
-  {
-    titleKey: 'onboarding.contextual.manage.editAndSave.title',
-    bodyKey: 'onboarding.contextual.manage.editAndSave.body',
-    targetSelector: '[data-tour-ctx="manage-form"]',
-    anchor: 'right',
-  },
-  {
-    titleKey: 'onboarding.contextual.manage.openFolderDelete.title',
-    bodyKey: 'onboarding.contextual.manage.openFolderDelete.body',
-    targetSelector: '[data-tour-ctx="manage-actions"]',
+    titleKey: 'onboarding.contextual.instanceSettings.game.title',
+    bodyKey: 'onboarding.contextual.instanceSettings.game.body',
+    targetSelector: '[data-tour-ctx="settings-game"]',
     anchor: 'below',
+    reveal: true,
   },
   {
-    titleKey: 'onboarding.contextual.manage.verifyRepair.title',
-    bodyKey: 'onboarding.contextual.manage.verifyRepair.body',
-    targetSelector: '[data-tour-ctx="manage-integrity"]',
+    titleKey: 'onboarding.contextual.instanceSettings.actions.title',
+    bodyKey: 'onboarding.contextual.instanceSettings.actions.body',
+    targetSelector: '[data-tour-ctx="settings-actions"]',
     anchor: 'below',
+    reveal: true,
+  },
+  {
+    titleKey: 'onboarding.contextual.instanceSettings.integrity.title',
+    bodyKey: 'onboarding.contextual.instanceSettings.integrity.body',
+    targetSelector: '[data-tour-ctx="settings-integrity"]',
+    anchor: 'below',
+    reveal: true,
+  },
+  {
+    titleKey: 'onboarding.contextual.instanceSettings.danger.title',
+    bodyKey: 'onboarding.contextual.instanceSettings.danger.body',
+    targetSelector: '[data-tour-ctx="settings-danger"]',
+    anchor: 'below',
+    reveal: true,
   },
 ];
 
@@ -434,7 +443,7 @@ export const DEPS_STEPS: ReadonlyArray<TourStep> = [
 ];
 
 export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
-  manage: MANAGE_STEPS,
+  instanceSettings: INSTANCE_SETTINGS_STEPS,
   logs: LOGS_STEPS,
   modpacks: MODPACKS_STEPS,
   worlds: WORLDS_STEPS,

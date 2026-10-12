@@ -65,7 +65,7 @@
   }
 </script>
 
-<section class="pt-3 border-t" data-tour-ctx="manage-integrity">
+<section class="pt-3 border-t" data-tour-ctx="settings-integrity">
   <div class="flex items-start justify-between gap-3">
     <div>
       <h3 class="text-xs uppercase text-secondary mb-1">{$t('instance.integrity.heading')}</h3>
