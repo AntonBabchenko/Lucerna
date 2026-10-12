@@ -19,6 +19,7 @@ export type SettingsAnchor =
   | 'game.tray'
   | 'game.serverPing'
   | 'game.gpu'
+  | 'game.java'
   | 'integrations.curseforgeKey'
   | 'integrations.aiTranslation'
   | 'privacy.overview'
@@ -152,6 +153,13 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     labelKey: 'settings.search.labels.game.gpu',
     keywordsKey: 'settings.search.keywords.game.gpu',
     visibleKeys: ['settings.general.gpu.title', 'settings.general.gpu.label'],
+  },
+  'game.java': {
+    anchor: 'game.java',
+    tab: 'game',
+    labelKey: 'settings.search.labels.game.java',
+    keywordsKey: 'settings.search.keywords.game.java',
+    visibleKeys: ['settings.general.java.title', 'settings.general.java.intro'],
   },
   'integrations.curseforgeKey': {
     anchor: 'integrations.curseforgeKey',

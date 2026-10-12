@@ -541,6 +541,7 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
     ("commands/servers_runtime.rs", "server_create", "creates a new server; nothing else can hold its id yet"),
     ("commands/servers_runtime.rs", "server_rename", "renames the display name in server.json"),
     ("commands/servers_runtime.rs", "server_update_runtime_config", "writes heap/flags to server.json"),
+    ("commands/servers_runtime.rs", "server_set_java", "writes the Java choice to server.json"),
     ("commands/servers_runtime.rs", "server_raise_heap", "writes the heap ceiling to server.json"),
     ("commands/servers_runtime.rs", "server_lower_heap", "writes the heap ceiling to server.json"),
     ("commands/servers_runtime.rs", "server_backup_policy_set", "writes the policy to server.json and rearms the scheduler"),

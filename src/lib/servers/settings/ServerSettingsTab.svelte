@@ -13,6 +13,7 @@
   import DeleteServerDialog from '$lib/servers/DeleteServerDialog.svelte';
   import { SavedForm } from './saved-form.svelte';
   import ServerPropertiesEditor from './ServerPropertiesEditor.svelte';
+  import ServerJavaField from './ServerJavaField.svelte';
 
   // The merged Settings tab: two independent save sections (launcher-side
   // launch config vs the server.properties file) because they persist through
@@ -148,6 +149,16 @@
       {/if}
     </div>
   </section>
+
+  <!-- Java: saved on pick, apart from the launch section's Save button -->
+  {#if server}
+    <section class="border-t border-border-subtle pt-2">
+      <ServerJavaField {server} />
+      {#if running}
+        <p class="mt-1 text-xs text-warning-text">{$t('servers.settings.javaRestart')}</p>
+      {/if}
+    </section>
+  {/if}
 
   <!-- server.properties -->
   <section class="border-t border-border-subtle pt-4">

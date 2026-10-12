@@ -27,6 +27,7 @@ const WRITERS: &[&str] = &[
     "get_active_instance(",
     "delete_instance(",
     "clear_flag(",
+    "set_java_default(",
 ];
 
 fn production(src: &str) -> &str {

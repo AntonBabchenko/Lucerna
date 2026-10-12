@@ -145,9 +145,20 @@ pub struct ServerFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handled_log_sig: Option<String>,
     /// MC Java component (e.g. "java-runtime-delta") resolved at create time so
-    /// repeat launches need no network — a server that ran once starts offline.
+    /// repeat launches need no version lookup. (Lucerna's runtime still checks
+    /// Mojang's manifest on every start — `jre::ensure_jre` — so a server on it
+    /// does NOT start offline; one on a chosen Java does.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub java_component: Option<String>,
+    /// The Java major that component carries — what a chosen Java is judged
+    /// against, and which Settings row applies. Cached beside the component for
+    /// the same reason: servers keep no version JSON on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java_major: Option<u32>,
+    /// The server's own Java choice; `None` = Settings' default for its major,
+    /// else Lucerna's runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java: Option<crate::java::JavaChoice>,
     /// SFTP upload target. Password lives in the OS keyring, never here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upload: Option<UploadConfig>,
@@ -188,6 +199,10 @@ pub struct ServerWithStatus {
     pub last_exit_code: Option<i32>,
     /// Cheap last-known diagnosis status for the sidebar "needs a fix" badge.
     pub diagnosis_status: crate::logs::diagnose::DiagnosisStatus,
+    /// The server's own Java choice; `None` = Settings' default, else Lucerna's.
+    pub java: Option<crate::java::JavaChoice>,
+    /// The Java major its Minecraft version needs, once known.
+    pub java_major: Option<u32>,
 }
 
 impl ServerWithStatus {
@@ -218,6 +233,8 @@ impl ServerWithStatus {
             upload_password_set,
             last_exit_code,
             diagnosis_status,
+            java: file.java.clone(),
+            java_major: file.java_major,
         }
     }
 }
@@ -240,6 +257,8 @@ mod tests {
             created_from_instance: Some("inst-1".into()),
             handled_log_sig: None,
             java_component: None,
+            java_major: None,
+            java: None,
             upload: None,
         }
     }
@@ -259,6 +278,8 @@ mod tests {
             created_from_instance: None,
             handled_log_sig: None,
             java_component: None,
+            java_major: None,
+            java: None,
             upload: None,
         };
         assert!(!serde_json::to_string(&s)
@@ -280,6 +301,8 @@ mod tests {
             created_from_instance: None,
             handled_log_sig: Some("abc".into()),
             java_component: None,
+            java_major: None,
+            java: None,
             upload: None,
         };
         let back: ServerFile = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();

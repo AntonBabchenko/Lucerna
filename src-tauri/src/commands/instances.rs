@@ -21,7 +21,12 @@ pub async fn install_instance(
 ) -> Result<Vec<crate::tasks::TaskDetail>, crate::error::Error> {
     crate::data_root::reject_if_root_unusable(&app)?;
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-    crate::versions::install_version(&effective_id, &app).await
+    crate::versions::install_version(
+        &effective_id,
+        &app,
+        crate::versions::JreFor::Instance(&instance_id),
+    )
+    .await
 }
 
 /// Launch the given instance. Assumes it is already installed (the UI

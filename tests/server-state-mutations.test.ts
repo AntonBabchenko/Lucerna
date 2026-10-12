@@ -38,6 +38,8 @@ const srv = (over: Partial<ServerWithStatus_Serialize> = {}): ServerWithStatus_S
   upload_password_set: false,
   last_exit_code: null,
   diagnosis_status: 'none',
+  java: null,
+  java_major: null,
   ...over,
 });
 

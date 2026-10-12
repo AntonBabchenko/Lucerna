@@ -546,7 +546,12 @@ pub async fn execute_repair(
         }
         RepairChoice::ReinstallLoader => {
             let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-            crate::versions::install_version(&effective_id, &app).await?;
+            crate::versions::install_version(
+                &effective_id,
+                &app,
+                crate::versions::JreFor::Instance(&instance_id),
+            )
+            .await?;
         }
         RepairChoice::DisableMod { sha1 } => {
             let inst_root = instance_root(&app, &instance_id)?;

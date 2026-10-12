@@ -1377,6 +1377,13 @@
                       isRunning={anyRunning}
                       name={selected.name}
                       status={selected.integrity}
+                      java={selected.java}
+                      requirementKey={JSON.stringify([
+                        selected.mc_version,
+                        selected.loader,
+                        selected.loader_version,
+                        selected.ready,
+                      ])}
                     />
                   </div>
                 </div>

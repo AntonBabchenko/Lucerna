@@ -271,16 +271,29 @@ pub async fn resolve_vanilla_jar(mc_version: &str) -> Result<(String, String)> {
 /// version JSON has no `javaVersion`. A blank or unlisted version fails with
 /// `ServerSavedMcVersionMissing` / `ServerSavedMcVersionUnknown` (a blank one before any
 /// network request, so an offline Start still names the real problem).
-pub async fn resolve_server_java_component(mc_version: &str) -> Result<String> {
+pub async fn resolve_server_java_component(mc_version: &str) -> Result<ServerJava> {
     crate::servers_runtime::mc_version::saved_recorded(mc_version)?;
     let manifest = crate::versions::manifest::list_manifest().await?;
     let entry = crate::servers_runtime::mc_version::saved_entry(mc_version, &manifest)?;
     let json = crate::network::get_text(&entry.url, "servers").await?;
     let details = crate::versions::version_json::parse(&json)
         .map_err(|e| Error::io("<version_json>", format!("parse: {e}")))?;
-    Ok(crate::servers_runtime::runtime::java_component_or_legacy(
-        details.java_version.as_ref().map(|j| j.component.as_str()),
-    ))
+    Ok(ServerJava {
+        component: crate::servers_runtime::runtime::java_component_or_legacy(
+            details.java_version.as_ref().map(|j| j.component.as_str()),
+        ),
+        major: crate::java::required_major(&details),
+    })
+}
+
+/// The Java a server's Minecraft version names: Lucerna's runtime component
+/// and its major (what a chosen Java is judged against, and which Settings
+/// row applies). Servers keep no version JSON on disk, so both are cached in
+/// `server.json`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerJava {
+    pub component: String,
+    pub major: u32,
 }
 
 /// Скопировать модовые файлы (`.jar`, `.jar.disabled`) из `src` в `dest`.

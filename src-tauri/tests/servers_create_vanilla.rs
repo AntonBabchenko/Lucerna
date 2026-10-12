@@ -52,6 +52,8 @@ async fn vanilla_server_assembled_into_runtime() {
         created_from_instance: None,
         handled_log_sig: None,
         java_component: None,
+        java_major: None,
+        java: None,
         upload: None,
     };
     let jar_url = format!("{}/server.jar", server.uri());
@@ -95,6 +97,8 @@ async fn vanilla_server_eula_gate_rejects_unaccepted() {
         created_from_instance: None,
         handled_log_sig: None,
         java_component: None,
+        java_major: None,
+        java: None,
         upload: None,
     };
 

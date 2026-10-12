@@ -169,6 +169,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::instance_java_requirement,
             commands::java_detect,
             commands::java_check,
+            commands::java_required_majors,
+            commands::set_java_default,
+            commands::ensure_instance_jre,
             commands::instance_memory_bounds,
             commands::detach_instance_pack,
             commands::open_instance_folder,
@@ -290,6 +293,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_delete,
             commands::server_rename,
             commands::server_update_runtime_config,
+            commands::server_set_java,
             // Own server (Plan 2: process management):
             commands::server_start,
             commands::server_stop,

@@ -347,7 +347,17 @@ describe('formatError', () => {
       java_unusable: {
         kind: 'java_unusable',
         path: 'C:\\jdk8\\bin\\javaw.exe',
+        origin: { kind: 'instance' },
         reason: { kind: 'too_old', found: 8, required: 21 },
+      },
+      java_settings_unreadable: { kind: 'java_settings_unreadable', details: 'expected value' },
+      managed_java_missing: { kind: 'managed_java_missing', component: 'java-runtime-delta' },
+      jre_unavailable: {
+        kind: 'jre_unavailable',
+        component: 'java-runtime-delta',
+        major: 21,
+        stage: 'game_runtime',
+        reason: { kind: 'download', details: 'connection refused' },
       },
       already_running: { kind: 'already_running', instance_id: 'abc' },
       account_not_set: { kind: 'account_not_set' },

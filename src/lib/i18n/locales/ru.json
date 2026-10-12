@@ -480,7 +480,8 @@
       "toastRepaired": "{name}: восстановлен",
       "toastRepairPartial": "{name}: {count, plural, one {# файл не удалось восстановить} few {# файла не удалось восстановить} many {# файлов не удалось восстановить} other {# файла не удалось восстановить}}",
       "toastError": "{name}: {error}",
-      "statusQueued": "В очереди на проверку…"
+      "statusQueued": "В очереди на проверку…",
+      "ownJava": "Java: своя, проверяется при каждом запуске"
     },
     "compat": {
       "dialogLabel": "Предупреждение о совместимости модов",
@@ -751,6 +752,28 @@
         "recovering_identities": "Определение модов…",
         "done": "Готово."
       }
+    }
+  },
+  "java": {
+    "default": {
+      "label": "По умолчанию (как в настройках)",
+      "labelSettings": "По умолчанию (сейчас: Java {major} из настроек)",
+      "labelLucerna": "По умолчанию (сейчас: Java от Lucerna)",
+      "statusUnknownInstance": "Как в настройках: Java, выбранная там для версии, которая нужна профилю, или Java от Lucerna. Lucerna проверит её при запуске.",
+      "statusUnknownServer": "Как в настройках: Java, выбранная там для версии, которая нужна серверу, или Java от Lucerna.",
+      "statusSettings": "Java {major} из настроек: {path}. Lucerna проверяет её при каждом запуске.",
+      "statusUnread": "Как в настройках: Java, заданная там для Java {major}, если она есть, иначе Java от Lucerna."
+    },
+    "rescue": {
+      "offer": "Вместо неё игру может запустить Java {major} или новее с этого компьютера.",
+      "none": "На этом компьютере не нашлось Java {major} или новее. Установите её или укажите через «Обзор…».",
+      "pickLabel": "Какую Java использовать",
+      "forInstance": "Использовать для этого профиля",
+      "forMajor": "Использовать для всех профилей на Java {major}",
+      "installerExplain": "Установщики Forge и NeoForge работают только на Java от Lucerna, поэтому Java с этого компьютера здесь её не заменит.",
+      "missingExplain": "Скачайте её, чтобы играть на Java от Lucerna, или выберите Java с этого компьютера в настройках профиля.",
+      "download": "Скачать Java",
+      "searchFailed": "Не удалось поискать Java {major} или новее на этом компьютере. Укажите её через «Обзор…»."
     }
   },
   "launch": {
@@ -2901,6 +2924,17 @@
       "tooOld": "Это Java {found}, а этой версии Minecraft нужна Java {required} или новее.",
       "wrongArch": "Эта Java собрана под {found}, а этому компьютеру нужна {expected}."
     },
+    "javaUnusableDefault": "Java, выбранную в настройках для Java {major}, нельзя использовать ({path}). {reason}",
+    "javaUnusableServer": "Выбранную для сервера Java нельзя использовать ({path}). {reason}",
+    "javaSettingsUnreadable": "Lucerna не смогла прочитать свои настройки и не знает, какую Java запустить.",
+    "managedJavaMissing": "Java от Lucerna для этой версии не скачана.",
+    "jreUnavailable": "Lucerna не смогла получить Java {major} для этой версии. {reason}",
+    "jreUnavailableInstaller": "Lucerna не смогла получить Java {major}, на которой работает установщик Forge или NeoForge. {reason}",
+    "jreUnavailableReason": {
+      "download": "Скачать не удалось ({details}).",
+      "unsupportedPlatform": "Mojang не выпускает Java для {os} {arch}.",
+      "unknownComponent": "В списке Mojang нет среды «{id}» для этого компьютера."
+    },
     "addonEntryIsLink": "«{name}» — ссылка, а не пак. Удалите её в файловом менеджере."
   },
   "settings": {
@@ -2933,7 +2967,8 @@
         "game": {
           "tray": "Когда запускается игра",
           "serverPing": "Статус сохранённых серверов",
-          "gpu": "Предпочитаемая видеокарта для Minecraft"
+          "gpu": "Предпочитаемая видеокарта для Minecraft",
+          "java": "Java для профилей и серверов"
         },
         "integrations": {
           "curseforgeKey": "Ключ CurseForge",
@@ -2977,7 +3012,8 @@
         "game": {
           "tray": "трей свернуть скрыть фон игра лаунчер окно закрыть",
           "serverPing": "сервер пинг статус онлайн игроки мультиплеер ip конфиденциальность",
-          "gpu": "видеокарта графика gpu производительность nvidia amd intel встроенная дискретная"
+          "gpu": "видеокарта графика gpu производительность nvidia amd intel встроенная дискретная",
+          "java": "java jre jdk среда путь по умолчанию версия openjdk adoptium temurin zulu oracle"
         },
         "integrations": {
           "curseforgeKey": "curseforge апи ключ токен курсфордж",
@@ -3146,7 +3182,15 @@
       "notSaved": "Эта настройка не сохранена: {error}",
       "saveUnconfirmed": "Не удалось подтвердить, что изменение сохранено: {error}",
       "loadFailed": "Не удалось прочитать настройки: {error}",
-      "retryBtn": "Повторить"
+      "retryBtn": "Повторить",
+      "java": {
+        "title": "Java",
+        "intro": "Java для профилей и серверов, которым нужна эта версия Java. Если профилю или серверу в его настройках выбрана своя Java, он остаётся на ней.",
+        "rowLabel": "Java {major}",
+        "empty": "Пока ни одному профилю не нужна Java. Строки появятся, когда профиль будет установлен.",
+        "majorsFailed": "Не удалось узнать, какие версии Java нужны установленным профилям.",
+        "rowBundled": "Профили и серверы, которым нужна Java {major}, запускаются на Java от Lucerna, если не выбрали свою."
+      }
     },
     "storage": {
       "cacheLabel": "Размер:",
@@ -3796,7 +3840,9 @@
       "removeManyGhostNote": "{count, plural, one {# из них — только оставшаяся запись: файла нет, и Minecraft сам уберёт её при следующем сохранении мира.} few {# из них — только оставшиеся записи: файлов нет, и Minecraft сам уберёт их при следующем сохранении мира.} many {# из них — только оставшиеся записи: файлов нет, и Minecraft сам уберёт их при следующем сохранении мира.} other {# из них — только оставшиеся записи: файлов нет, и Minecraft сам уберёт их при следующем сохранении мира.}}"
     },
     "settings": {
-      "launchSection": "Запуск"
+      "launchSection": "Запуск",
+      "java": "Java",
+      "javaRestart": "Перезапустите сервер, чтобы он запустился на выбранной Java."
     },
     "propsUi": {
       "title": "Параметры сервера",

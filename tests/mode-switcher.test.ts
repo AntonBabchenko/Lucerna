@@ -41,6 +41,8 @@ function makeServer(
     upload_password_set: false,
     last_exit_code: lastExitCode,
     diagnosis_status: diagnosisStatus,
+    java: null,
+    java_major: null,
   };
 }
 
