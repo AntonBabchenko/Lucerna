@@ -39,8 +39,11 @@ pub(super) fn log_safe(error: &Error) -> String {
         Error::L10nPrefillProvider {
             provider, status, ..
         } => format!("provider {provider}, HTTP {status}"),
-        // The URL is ours (an allowlisted endpoint or 127.0.0.1); the reqwest
-        // detail string is not worth the risk of finding out what it quotes.
+        // The URL is ours (an allowlisted endpoint or 127.0.0.1). The cause
+        // chain is already in the log, written once at the source by
+        // `network::failure::transport`: reqwest / hyper / io / rustls error
+        // text, which never quotes the request's headers or body, so never the
+        // key. It is not repeated here.
         Error::Network { url, .. } => format!("network failure for {url}"),
         other => other.to_string(),
     }
