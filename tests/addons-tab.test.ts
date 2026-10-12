@@ -39,6 +39,16 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // The Shaders hint asks, on a vanilla profile, whether each mod loader is installable.
+    listFabricLoaders: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: [{ version: '1', stable: true, build: 1 }] }),
+    listNeoforgeLoaders: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: [{ version: '1', stable: true, build: 1 }] }),
+    listForgeLoaders: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: [{ version: '1', stable: true, build: 1 }] }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
     instanceDependencyPreflight: vi
@@ -93,6 +103,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue
 import { commands } from '$lib/ipc/bindings';
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
 import { resetAddonsViewMemory } from '$lib/mods/addons-view-memory.svelte';
+import { __resetShaderLoaderAvailabilityCache } from '$lib/mods/shader-loader-availability';
 import { markSeen } from '$lib/onboarding/contextual-tours';
 
 beforeEach(() => markSeen('addons'));
@@ -103,6 +114,37 @@ const props = {
   mcVersion: '1.20.1',
   loader: 'fabric' as const,
 };
+
+const IRIS = 'YL57xq9U';
+const OCULUS = 'GchcoXML';
+
+// A full ModVersion: the Iris/Oculus deep-link feeds the same mock into the detail modal.
+const modVersion = (projectId: string, loader: string, mc: string) => ({
+  source: 'modrinth',
+  project_id: projectId,
+  version_id: `${projectId}-${loader}-${mc}`,
+  name: 'v',
+  version_number: '1.0.0',
+  mc_versions: [mc],
+  loaders: [loader],
+  primary_file: {
+    filename: `${projectId}.jar`,
+    url: '',
+    sha1: '',
+    size: 0,
+    distribution_allowed: true,
+  },
+  deps: [],
+  published_at: null,
+});
+
+/** `modsVersions` answering "has a version" for the listed `project:loader` pairs. */
+const versionsFor =
+  (...pairs: string[]) =>
+  async (_source: string, id: string, mc: string | null, loader: string | null) => ({
+    status: 'ok' as const,
+    data: pairs.includes(`${id}:${loader}`) ? [modVersion(id, loader ?? '', mc ?? '')] : [],
+  });
 
 // The strip's overlay is positioned against its nearest `relative` ancestor: that must be the
 // host's content box, i.e. contain the list / catalog area under the strip.
@@ -119,6 +161,9 @@ describe('AddonsTab', () => {
     modBrowseOpenProject.value = null;
     // The sub-view is remembered per kind for the session (module state): each case starts fresh.
     resetAddonsViewMemory();
+    // The shader hint remembers answers for the session; clearAllMocks keeps implementations.
+    __resetShaderLoaderAvailabilityCache();
+    vi.mocked(commands.modsVersions).mockResolvedValue({ status: 'ok', data: [] });
     // Reset all mock call counts between tests so assertions about "not called"
     // are not poisoned by invocations from earlier tests.
     vi.clearAllMocks();
@@ -158,6 +203,7 @@ describe('AddonsTab', () => {
   });
 
   it('on Fabric shows only Iris (no OptiFine, no Oculus) plus the shader dropzone', async () => {
+    vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${IRIS}:fabric`) as never);
     render(AddonsTab, { props }); // props.loader === 'fabric'
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
@@ -168,29 +214,37 @@ describe('AddonsTab', () => {
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
-  it('on vanilla the hint offers OptiFine and names the instance MC version', async () => {
+  it('on vanilla names the mod loaders that would work instead of offering OptiFine', async () => {
+    const { instanceSettingsNav } = await import(
+      '$lib/instances/settings/instance-settings-nav.svelte'
+    );
+    vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${IRIS}:fabric`) as never);
     render(AddonsTab, { props: { ...props, loader: 'vanilla' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
-    });
-    expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
-    expect(screen.getByText(/Minecraft 1\.20\.1/)).toBeTruthy();
-    expect(screen.getByText('Shaders need a shader loader to run — install:')).toBeTruthy();
+    expect(await screen.findByText('Fabric: Iris')).toBeTruthy();
+    // 1.20.1 has a released Forge OptiFine; Oculus has no version here in this mock.
+    expect(screen.getByText('Forge: OptiFine')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /OptiFine/ })).toBeNull();
+    try {
+      await fireEvent.click(screen.getByRole('button', { name: 'Choose a mod loader' }));
+      // Asks for this profile's Settings tab at the loader field.
+      expect(instanceSettingsNav.value).toEqual({ instanceId: 'i', field: 'loader' });
+    } finally {
+      instanceSettingsNav.value = null;
+    }
   });
 
-  it('with no instance offers all three loaders and asks to pick an instance', async () => {
+  it('with no profile explains the shader loaders without offering any', async () => {
     render(AddonsTab, { props: { ...props, instanceId: null, mcVersion: null, loader: null } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
-    await waitFor(() => {
-      expect(screen.getByText(/select an instance to see which build/i)).toBeTruthy();
-    });
-    expect(screen.getByRole('button', { name: 'Iris' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Oculus' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
+    expect(await screen.findByText(/Once you select a profile/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Oculus' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /OptiFine/ })).toBeNull();
   });
 
   it('clicking Iris jumps to the Mods segment and opens the Iris detail modal', async () => {
+    vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${IRIS}:fabric`) as never);
     render(AddonsTab, { props });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     const iris = await screen.findByRole('button', { name: 'Iris' });
@@ -207,7 +261,7 @@ describe('AddonsTab', () => {
 
   it('clicking OptiFine opens the optifine.net downloads page externally', async () => {
     const { openUrl } = await import('@tauri-apps/plugin-opener');
-    render(AddonsTab, { props: { ...props, loader: 'vanilla' } });
+    render(AddonsTab, { props: { ...props, loader: 'forge' } }); // 1.20.1: a released Forge OptiFine
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     const optifine = await screen.findByRole('button', { name: /OptiFine/ });
     await fireEvent.click(optifine);
@@ -395,6 +449,7 @@ describe('AddonsTab', () => {
   });
 
   it('on Forge offers Oculus and OptiFine but not Iris', async () => {
+    vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${OCULUS}:forge`) as never);
     render(AddonsTab, { props: { ...props, loader: 'forge' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
@@ -405,17 +460,17 @@ describe('AddonsTab', () => {
     expect(screen.getByText('Shaders need a shader loader to run — install one:')).toBeTruthy();
   });
 
-  it('on NeoForge offers Iris and Oculus but not OptiFine', async () => {
-    render(AddonsTab, { props: { ...props, loader: 'neoforge' } });
+  it('on NeoForge 1.21.1 offers only Iris, since Oculus has no version for it', async () => {
+    vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${IRIS}:neoforge`) as never);
+    render(AddonsTab, { props: { ...props, loader: 'neoforge', mcVersion: '1.21.1' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Iris' })).toBeTruthy();
-    });
-    expect(screen.getByRole('button', { name: 'Oculus' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Iris' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Oculus' })).toBeNull();
     expect(screen.queryByRole('button', { name: /OptiFine/ })).toBeNull();
   });
 
   it('clicking Oculus jumps to the Mods segment and deep-links the Oculus project', async () => {
+    vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${OCULUS}:forge`) as never);
     render(AddonsTab, { props: { ...props, loader: 'forge' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     const oculus = await screen.findByRole('button', { name: 'Oculus' });
@@ -453,13 +508,14 @@ describe('AddonsTab', () => {
       ],
     });
     try {
+      // Iris HAS a version here, so a broken "installed" rule would show its button.
+      vi.mocked(commands.modsVersions).mockImplementation(versionsFor(`${IRIS}:fabric`) as never);
       render(AddonsTab, { props }); // fabric
       await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
-      // The banner shows momentarily (installed list starts empty) then hides
-      // once detection resolves — wait for the Iris button to disappear.
-      await waitFor(() => {
-        expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
-      });
+      await waitFor(() => expect(commands.modsVersions).toHaveBeenCalled());
+      await waitFor(() => expect(commands.modsListInstalled).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 350)); // past the pending delay
+      expect(screen.queryByTestId('shader-loader-hint')).toBeNull();
     } finally {
       // Restore the factory default even if an assertion throws, so a failure
       // here cannot cascade into later tests (afterEach's clearAllMocks does

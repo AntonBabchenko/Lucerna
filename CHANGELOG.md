@@ -82,6 +82,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   froze the window while that prompt was open, and kept failing if you said no;
   the file now goes to the Trash directly. On some macOS versions the Trash then
   offers no "Put Back" for it, so drag it out instead.
+- **The shader-loader hint offers only loaders that have a version for your
+  profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
+  profile without a mod loader, where neither works; now it checks the
+  profile's Minecraft version and says so when nothing fits.
 
 ## [0.27.0] — 2026-10-09
 
