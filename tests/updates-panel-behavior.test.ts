@@ -31,7 +31,12 @@ const { setGeneral, patchGeneral, updateCheck } = vi.hoisted(() => ({
             cosign_bundle?: null;
           };
         }
-      | { status: 'error'; error: { kind: string; details: string } }
+      | {
+          status: 'error';
+          // `url` / `failure`: a network failure is rendered through
+          // formatError, which words it by host and typed cause.
+          error: { kind: string; details: string; url?: string; failure?: { kind: string } };
+        }
     > => ({ status: 'ok', data: { available: false, current: '0.9.0', latest: '0.9.0' } }),
   ),
 }));

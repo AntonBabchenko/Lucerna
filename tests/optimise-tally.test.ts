@@ -6,15 +6,7 @@ describe('tallyOptimise', () => {
     const tally = tallyOptimise([
       { status: 'ok' },
       { status: 'error', error: { kind: 'mods_already_installed' } },
-      {
-        status: 'error',
-        error: {
-          kind: 'network',
-          url: 'https://api.modrinth.com',
-          failure: { kind: 'unreachable' },
-          details: 'offline',
-        },
-      },
+      { status: 'error', error: { kind: 'network' } },
       { status: 'ok' },
     ]);
     expect(tally).toEqual({ installed: 2, failed: 1, skipped: 1 });
