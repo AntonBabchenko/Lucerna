@@ -10,7 +10,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import ContextualTour from '../src/lib/onboarding/ContextualTour.svelte';
-import { hasSeen, MANAGE_STEPS } from '../src/lib/onboarding/contextual-tours';
+import { hasSeen, INSTANCE_SETTINGS_STEPS } from '../src/lib/onboarding/contextual-tours';
 import { tourState } from '../src/lib/onboarding/state.svelte';
 import { __resetLayers, insertTour, newLayerId } from '../src/lib/ui/layer-stack.svelte';
 import TourInReactiveHost from './fixtures/TourInReactiveHost.svelte';
@@ -26,14 +26,14 @@ describe('ContextualTour interplay with the main tour', () => {
   });
 
   it('yields (deactivates WITHOUT marking seen) when the main tour activates', async () => {
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     await tick();
     expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
 
     tourState.active = true;
     await tick();
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
-    expect(hasSeen('manage')).toBe(false);
+    expect(hasSeen('instanceSettings')).toBe(false);
   });
 
   it('host torn down by the main tour activating does NOT mark seen (replay burn)', async () => {
@@ -54,7 +54,7 @@ describe('ContextualTour interplay with the main tour', () => {
     // onDestroy defers its decision one microtask (destroy-phase state reads
     // are stale), so settle the queue before reading the flag.
     await tick();
-    expect(hasSeen('manage')).toBe(false);
+    expect(hasSeen('instanceSettings')).toBe(false);
   });
 
   it('unmount after the yield already drained does NOT mark seen', async () => {
@@ -63,20 +63,24 @@ describe('ContextualTour interplay with the main tour', () => {
     // `active` before the destroy. This pins the yield-then-unmount sequence
     // only — it does NOT exercise onDestroy's !tourState.active guard (with
     // `active` already false, both guard variants agree).
-    const { unmount } = render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    const { unmount } = render(ContextualTour, {
+      props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS },
+    });
     await tick();
     tourState.active = true;
     unmount();
     await tick();
-    expect(hasSeen('manage')).toBe(false);
+    expect(hasSeen('instanceSettings')).toBe(false);
   });
 
   it('unmount mid-tour with no main tour stays a soft-skip (marks seen)', async () => {
-    const { unmount } = render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    const { unmount } = render(ContextualTour, {
+      props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS },
+    });
     await tick();
     unmount();
     await tick();
-    expect(hasSeen('manage')).toBe(true);
+    expect(hasSeen('instanceSettings')).toBe(true);
   });
 
   it('two tours mounting in the SAME flush cannot both activate', async () => {
@@ -107,7 +111,7 @@ describe('ContextualTour interplay with the main tour', () => {
     unmount();
     await tick();
     // The one that showed is soft-skipped; the one that deferred is untouched.
-    expect(hasSeen('manage')).toBe(true);
+    expect(hasSeen('instanceSettings')).toBe(true);
     expect(hasSeen('logs')).toBe(false);
   });
 
@@ -116,7 +120,7 @@ describe('ContextualTour interplay with the main tour', () => {
     // it the Escape the user pressed for the MAIN tour. If it did, finish()
     // would mark a tour seen that the user never got to see (the yield
     // deliberately leaves it armed for its next visit).
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     await tick();
     expect(screen.getByTestId('contextual-tour-popover')).toBeTruthy();
 
@@ -126,14 +130,14 @@ describe('ContextualTour interplay with the main tour', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await tick();
-    expect(hasSeen('manage')).toBe(false);
+    expect(hasSeen('instanceSettings')).toBe(false);
   });
 
   it('defers when another contextual tour already runs on the page', async () => {
     insertTour(newLayerId('other'), null, () => {});
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     await tick();
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
-    expect(hasSeen('manage')).toBe(false);
+    expect(hasSeen('instanceSettings')).toBe(false);
   });
 });

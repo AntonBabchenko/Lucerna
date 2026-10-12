@@ -17,14 +17,14 @@ import TourHooks from './fixtures/TourHooks.svelte';
 
 const STEPS: TourStep[] = [
   {
-    titleKey: 'onboarding.contextual.manage.yourInstances.title',
-    bodyKey: 'onboarding.contextual.manage.yourInstances.body',
+    titleKey: 'onboarding.contextual.instanceSettings.game.title',
+    bodyKey: 'onboarding.contextual.instanceSettings.game.body',
     targetSelector: '[data-tour-ctx="hook-a"]',
     anchor: 'below',
   },
   {
-    titleKey: 'onboarding.contextual.manage.editAndSave.title',
-    bodyKey: 'onboarding.contextual.manage.editAndSave.body',
+    titleKey: 'onboarding.contextual.instanceSettings.actions.title',
+    bodyKey: 'onboarding.contextual.instanceSettings.actions.body',
     targetSelector: '[data-tour-ctx="hook-b"]',
     anchor: 'below',
     reveal: true,
@@ -65,7 +65,7 @@ describe('ContextualTour onStep', () => {
   });
 
   it('is never called for a tour already seen', async () => {
-    markSeen('manage');
+    markSeen('instanceSettings');
     const spy = vi.fn();
     render(TourHooks, { props: { steps: STEPS, spy } });
     await settle();

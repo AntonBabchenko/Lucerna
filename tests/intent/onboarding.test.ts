@@ -24,7 +24,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
-import { MANAGE_STEPS, markSeen } from '$lib/onboarding/contextual-tours';
+import { INSTANCE_SETTINGS_STEPS, markSeen } from '$lib/onboarding/contextual-tours';
 import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
 import { tourState } from '$lib/onboarding/state.svelte';
 import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
@@ -154,21 +154,21 @@ describe('InstanceConceptTooltip — popover classes (9ce0f0a regression lock)',
 describe('ContextualTour — popover button variants', () => {
   it('Back button is btn-secondary btn-sm', () => {
     // localStorage is clear so hasSeen returns false → tour auto-starts.
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     const back = screen.getByRole('button', { name: /back/i }) as HTMLElement;
     expect(back).toHaveBtnVariant('secondary');
     expect(back).toHaveBtnSize('sm');
   });
 
   it('Next button is btn-primary btn-sm', () => {
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     const next = screen.getByRole('button', { name: /next/i }) as HTMLElement;
     expect(next).toHaveBtnVariant('primary');
     expect(next).toHaveBtnSize('sm');
   });
 
   it('Skip button is btn-ghost (button-like, not a link)', () => {
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     const skip = screen.getByRole('button', { name: /skip/i }) as HTMLElement;
     expect(skip).toHaveBtnVariant('ghost');
     expect(skip).toHaveBtnSize('sm');
@@ -177,7 +177,7 @@ describe('ContextualTour — popover button variants', () => {
   });
 
   it('popover step counter is text-xs text-muted', () => {
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     const popover = screen.getByRole('dialog') as HTMLElement;
     const counter = popover.querySelector('.text-xs.text-muted') as HTMLElement;
     expect(counter).not.toBeNull();
@@ -185,7 +185,7 @@ describe('ContextualTour — popover button variants', () => {
   });
 
   it('popover title is font-semibold text-sm text-primary', () => {
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     const popover = screen.getByRole('dialog') as HTMLElement;
     const title = popover.querySelector('h3') as HTMLElement;
     expect(title.className).toContain('font-semibold');
@@ -194,7 +194,7 @@ describe('ContextualTour — popover button variants', () => {
   });
 
   it('popover body is text-sm text-secondary', () => {
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     const popover = screen.getByRole('dialog') as HTMLElement;
     const body = popover.querySelector('p') as HTMLElement;
     expect(body.className).toContain('text-sm');
@@ -202,7 +202,7 @@ describe('ContextualTour — popover button variants', () => {
   });
 
   it('popover has bg-surface rounded shadow-xl', () => {
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     const popover = screen.getByRole('dialog') as HTMLElement;
     expect(popover.className).toContain('bg-surface');
     expect(popover.className).toContain('rounded');
@@ -212,8 +212,8 @@ describe('ContextualTour — popover button variants', () => {
   it('does not render when tour has already been seen', () => {
     // Use markSeen (not a hardcoded version key) so the bump from manage v1→v2
     // can't silently desync this from the real storage key again.
-    markSeen('manage');
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    markSeen('instanceSettings');
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
@@ -318,8 +318,8 @@ describe('ContextualTour — spotlight motion (§12)', () => {
   }
 
   it('animates opacity only — never its geometry', async () => {
-    const target = anchor(MANAGE_STEPS[0].targetSelector as string);
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    const target = anchor(INSTANCE_SETTINGS_STEPS[0].targetSelector as string);
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
 
     // The mount effect measures the rect inside `tick().then(…)`, so the
     // spotlight appears a flush after render — find, don't get.

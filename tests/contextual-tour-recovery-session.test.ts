@@ -21,7 +21,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
-import { hasSeen, MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
+import { hasSeen, INSTANCE_SETTINGS_STEPS } from '$lib/onboarding/contextual-tours';
 import { tourState } from '$lib/onboarding/state.svelte';
 import { dataLocation } from '$lib/settings/data-location.svelte';
 import { __resetLayers } from '$lib/ui/layer-stack.svelte';
@@ -39,9 +39,9 @@ describe('ContextualTour in a recovery session', () => {
     // A "create a server" tour over a disabled create button is noise; the surface stays
     // un-toured this visit and fires on the next one, once the launcher runs from its folder.
     await dataLocation.refresh();
-    render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
+    render(ContextualTour, { props: { id: 'instanceSettings', steps: INSTANCE_SETTINGS_STEPS } });
     await tick();
     expect(screen.queryByTestId('contextual-tour-popover')).toBeNull();
-    expect(hasSeen('manage')).toBe(false);
+    expect(hasSeen('instanceSettings')).toBe(false);
   });
 });

@@ -34,7 +34,12 @@ export const TOUR_VERSION = '0.6.0';
 // Moved again 2026-09-29: the chooser body says "(i) explanations" instead of
 // "(?)" — the trigger is the info glyph, and the copy should name what the
 // user sees. Wording only; same call, no bump.
-export const MAIN_STEPS_FINGERPRINT = '990207f4';
+// Moved 2026-10-12: the instance step re-anchored from the sidebar's Manage
+// button (gone) to the Settings tab, and its copy was rewritten for it. NOT
+// bumping TOUR_VERSION (maintainer, 2026-10-11): re-showing all eight steps to
+// every user for one moved step is disproportionate; the tab itself, its own
+// first-visit tour and the CHANGELOG carry the move.
+export const MAIN_STEPS_FINGERPRINT = 'ed80c804';
 // Derived from STEPS so adding/removing a step can never desync the
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;

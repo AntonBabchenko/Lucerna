@@ -16,7 +16,7 @@ describe('contextual-tours storage helpers', () => {
     // Version suffix lets us invalidate the dismissed flag when steps
     // change materially (logs got v2 in 2026-05-26; v3 in 2026-06-15 — header redesign moved Share into the ⋯ menu;
     // manage got v2 in 2026-06-23 — added the Verify/repair step).
-    expect(storageKey('manage')).toBe('ftl.tour.manage.v2.done');
+    expect(storageKey('instanceSettings')).toBe('ftl.tour.instanceSettings.v1.done');
     expect(storageKey('logs')).toBe('ftl.tour.logs.v4.done');
     expect(storageKey('modpacks')).toBe('ftl.tour.modpacks.v1.done');
     expect(storageKey('worlds')).toBe('ftl.tour.worlds.v4.done');
@@ -30,15 +30,15 @@ describe('contextual-tours storage helpers', () => {
   });
 
   it('hasSeen returns false on fresh storage', () => {
-    expect(hasSeen('manage')).toBe(false);
+    expect(hasSeen('instanceSettings')).toBe(false);
     expect(hasSeen('logs')).toBe(false);
     expect(hasSeen('modpacks')).toBe(false);
     expect(hasSeen('worlds')).toBe(false);
   });
 
   it('markSeen persists, hasSeen reads it', () => {
-    markSeen('manage');
-    expect(hasSeen('manage')).toBe(true);
+    markSeen('instanceSettings');
+    expect(hasSeen('instanceSettings')).toBe(true);
     expect(hasSeen('logs')).toBe(false);
     expect(hasSeen('modpacks')).toBe(false);
     expect(hasSeen('worlds')).toBe(false);
@@ -56,9 +56,9 @@ describe('contextual-tours storage helpers', () => {
       [
         'addons',
         'deps',
+        'instanceSettings',
         'l10n',
         'logs',
-        'manage',
         'modpacks',
         'overview',
         'serverAddons',
