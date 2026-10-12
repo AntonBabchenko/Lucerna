@@ -126,14 +126,14 @@ describe('Sidebar without the Manage window', () => {
     expect((screen.getByTestId('sidebar-new-instance') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('keeps the Content heading while New instance alone is visible', () => {
+  it('keeps the New instances heading while New instance alone is visible', () => {
     initSidebarButtons(['browse_modpacks', 'import_launcher']);
     mount();
     expect(screen.getByTestId('sidebar-section-content')).toBeTruthy();
     expect(screen.getByTestId('sidebar-new-instance')).toBeTruthy();
   });
 
-  it('drops the Content heading when all three of its buttons are hidden', () => {
+  it('drops the New instances heading when all three of its buttons are hidden', () => {
     initSidebarButtons(['new_instance', 'browse_modpacks', 'import_launcher']);
     mount();
     expect(screen.queryByTestId('sidebar-section-content')).toBeNull();
@@ -175,6 +175,17 @@ describe('Sidebar instance list status', () => {
     await openList();
     await fireEvent.mouseDown(screen.getByTestId('sidebar-instance-settings-inst-2'));
     expect(h.onOpenInstanceSettings).toHaveBeenCalledWith('inst-2');
+  });
+
+  it('a right-click on the settings icon is not a Settings request', async () => {
+    // A request with no activation behind it would wait, armed, and pull the
+    // user to Settings the next time that instance is picked.
+    const h = mount();
+    await openList();
+    await fireEvent.mouseDown(screen.getByTestId('sidebar-instance-settings-inst-2'), {
+      button: 2,
+    });
+    expect(h.onOpenInstanceSettings).not.toHaveBeenCalled();
   });
 });
 

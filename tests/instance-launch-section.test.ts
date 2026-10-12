@@ -162,7 +162,7 @@ describe('InstanceLaunchSection', () => {
     resolve({ status: 'error', error: { kind: 'io', path: 'instance.json', details: 'denied' } });
     await waitFor(() => expect(vi.mocked(toasts.pushWarning)).toHaveBeenCalled());
     expect(vi.mocked(toasts.pushWarning).mock.calls[0][0]).toBe(
-      "Extra JVM args of Default wasn't saved",
+      "Couldn't save Extra JVM args for Default",
     );
     expect(onChanged).not.toHaveBeenCalled();
   });

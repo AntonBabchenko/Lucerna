@@ -30,6 +30,7 @@ const m = vi.hoisted(() => ({
     ram_known: false,
   }),
   openImportedSourceFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+  renameInstanceDir: vi.fn(),
 }));
 const tasks = vi.hoisted(() => ({ busyFor: null as string | null }));
 
@@ -153,7 +154,9 @@ describe('InstanceSettingsTab', () => {
 
     it('instances but none active (the active read failed): neutral, no Create', () => {
       render(InstanceSettingsTab, { props: props({ instance: null }) });
-      expect(screen.getByText(/no instance is selected/i)).toBeTruthy();
+      // Neutral: the active read may have failed, so it does not claim none is selected.
+      expect(screen.getByText(/pick an instance in the sidebar/i)).toBeTruthy();
+      expect(screen.queryByText(/no instance is selected/i)).toBeNull();
       expect(screen.queryByRole('button', { name: '+ Create' })).toBeNull();
     });
   });
@@ -245,6 +248,41 @@ describe('InstanceSettingsTab', () => {
       render(InstanceSettingsTab, { props: props() });
       await new Promise((r) => setTimeout(r, 0));
       expect(instanceSettingsNav.value).toEqual({ instanceId: 'inst-2', field: 'name' });
+    });
+  });
+
+  describe('the scroll position', () => {
+    const root = () => screen.getByTestId('instance-settings-tab');
+
+    it('opens another instance at the top', async () => {
+      const p = props();
+      const { rerender } = render(InstanceSettingsTab, { props: p });
+      root().scrollTop = 300;
+      await rerender({ ...p, instance: other });
+      expect(root().scrollTop).toBe(0);
+    });
+
+    it('keeps the place through a refresh of the same instance', async () => {
+      const p = props();
+      const { rerender } = render(InstanceSettingsTab, { props: p });
+      root().scrollTop = 300;
+      await rerender({ ...p, instance: makeInstance({ max_heap_mb: 4096 }) });
+      expect(root().scrollTop).toBe(300);
+    });
+
+    it('keeps the place when the shown instance’s folder is renamed (the id is the folder)', async () => {
+      const before = makeInstance({ id: 'Old-Name', name: 'My Pack' });
+      const after = makeInstance({ id: 'New-Name', name: 'My Pack' });
+      m.renameInstanceDir.mockResolvedValue({ status: 'ok', data: after });
+      const p = props({ instance: before, instances: [before, other] });
+      const { rerender } = render(InstanceSettingsTab, { props: p });
+      root().scrollTop = 300;
+      await fireEvent.click(await screen.findByRole('button', { name: 'Change' }));
+      await fireEvent.click(await screen.findByRole('button', { name: 'Rename' }));
+      await waitFor(() => expect(p.onChanged).toHaveBeenCalled());
+      // The page's refresh brings the renamed instance in as the active one.
+      await rerender({ ...p, instance: after, instances: [after, other] });
+      expect(root().scrollTop).toBe(300);
     });
   });
 

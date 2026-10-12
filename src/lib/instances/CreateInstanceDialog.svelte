@@ -110,6 +110,14 @@
     return '';
   });
 
+  // The reason a click on Create announced. It moves from beside the button
+  // into the alert while it still holds — said once, not twice — and once the
+  // form moves past it the current reason is back beside the button.
+  let announcedReason = $state<string | null>(null);
+  const reasonAnnounced = $derived(
+    createDisabledReason !== '' && announcedReason === createDisabledReason,
+  );
+
   // An error is about the attempt that raised it: a new choice clears it.
   $effect(() => {
     void draftMc;
@@ -122,7 +130,7 @@
     // Create stays enabled so it is keyboard-reachable; a click while a reason
     // shows announces that reason instead of creating anything.
     if (createDisabledReason) {
-      error = createDisabledReason;
+      announcedReason = createDisabledReason;
       return;
     }
     createPending = true;
@@ -221,12 +229,17 @@
     onInput={(mb) => (createHeapDraft = mb)}
   />
 
-  <StatusMessage tone="danger" message={error} class="mt-2" dataTestid="create-instance-error" />
+  <StatusMessage
+    tone="danger"
+    message={error ?? (reasonAnnounced ? createDisabledReason : null)}
+    class="mt-2"
+    dataTestid="create-instance-error"
+  />
 
   <div class="flex items-center justify-end gap-2 mt-4">
     <!-- A visible reason instead of a tooltip on a disabled button: Create stays
          keyboard-reachable, and a click announces the same reason. -->
-    {#if createDisabledReason}
+    {#if createDisabledReason && !reasonAnnounced}
       <span class="mr-auto text-xs text-secondary">{createDisabledReason}</span>
     {/if}
     <button type="button" class="btn-secondary btn-sm" disabled={createPending} onclick={cancel}>

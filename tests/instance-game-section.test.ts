@@ -51,6 +51,16 @@ vi.mock('$lib/ipc/bindings', () => ({
     gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));
+// The migration dialog is its own suite; here only the props the section hands
+// it matter — which instance it is for, and what its Apply does here.
+type MigrationProps = { instanceId: string; onApplied?: () => void; onClose: () => void };
+const migration = vi.hoisted(() => ({ props: null as MigrationProps | null }));
+vi.mock('$lib/mods/MigrationPlanDialog.svelte', () => ({
+  default: (_anchor: unknown, props: MigrationProps) => {
+    migration.props = props;
+    return {};
+  },
+}));
 // Keep the real toast module's other exports, spy only the push helpers.
 vi.mock('$lib/toasts/toasts.svelte', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/toasts/toasts.svelte')>();
@@ -362,6 +372,52 @@ describe('loader changes are serialized (last click wins)', () => {
     expect(m.setInstanceLoader.mock.calls[1][1]).toBe('quilt');
     release[1](okLoader('quilt'));
   });
+
+  // After a remount the pickers show the SAVED config, not the change about to
+  // land: the section says a change is still being applied, until it lands.
+  // A change started in this mount needs no line — the picker shows the click.
+  it('a remounted section says a change is still being applied, until it lands', async () => {
+    const release: Array<(v: unknown) => void> = [];
+    m.setInstanceLoader.mockImplementation(() => new Promise((res) => release.push(res)));
+    const first = render(InstanceGameSection, { props: props() });
+    await waitFor(() => expect(m.listForgeLoaders).toHaveBeenCalled());
+    await fireEvent.click(screen.getByRole('button', { name: 'Fabric' }));
+    await waitFor(() => expect(m.setInstanceLoader).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('settings-game-applying')).toBeNull();
+
+    first.unmount();
+    render(InstanceGameSection, { props: props() });
+    expect((await screen.findByTestId('settings-game-applying')).textContent).toContain(
+      'still being applied',
+    );
+    // Not a lock: last click still wins (the test above).
+    expect((screen.getByRole('button', { name: 'Quilt' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+
+    release[0](okLoader('fabric'));
+    await waitFor(() => expect(screen.queryByTestId('settings-game-applying')).toBeNull());
+  });
+});
+
+describe('an IPC call that throws', () => {
+  it('a version change says why, instead of vanishing into the queue', async () => {
+    m.changeInstanceMc.mockRejectedValue(new Error('ipc channel closed'));
+    render(InstanceGameSection, {
+      props: props({ versions: [makeVersion(), makeVersion('1.21.1')] }),
+    });
+    await pickMc('1.21.1');
+    expect(await screen.findByText(/ipc channel closed/)).toBeTruthy();
+  });
+
+  it('a loader change says why, and the picker goes back', async () => {
+    m.setInstanceLoader.mockRejectedValue(new Error('ipc channel closed'));
+    render(InstanceGameSection, { props: props() });
+    await waitFor(() => expect(m.listForgeLoaders).toHaveBeenCalled());
+    await fireEvent.click(screen.getByRole('button', { name: 'Fabric' }));
+    expect(await screen.findByText(/ipc channel closed/)).toBeTruthy();
+    await waitFor(() => expect(pressed('Forge')).toBe('true'));
+  });
 });
 
 async function pickMc(id: string) {
@@ -406,7 +462,7 @@ describe('a change that finishes after the tab is gone', () => {
     resolve(ioError);
     await waitFor(() => expect(vi.mocked(toasts.pushWarning)).toHaveBeenCalled());
     expect(vi.mocked(toasts.pushWarning).mock.calls[0][0]).toBe(
-      "Minecraft version of Forge One wasn't saved",
+      "Couldn't save Minecraft version for Forge One",
     );
   });
 });
@@ -489,6 +545,59 @@ describe('the Game section', () => {
     const summary = await screen.findByText(/no version for this configuration/i);
     expect(summary.closest('[role="status"]')).not.toBeNull();
     expect(summary.closest('[role="alert"]')).toBeNull();
+  });
+
+  describe('the migration plan', () => {
+    const mismatch = {
+      status: 'ok',
+      data: [
+        {
+          sha1: 'a',
+          loader_mismatch: false,
+          detected_loader: null,
+          live_checkable: true,
+          platform_mismatch: true,
+          platform_axis: 'minecraft',
+          platform_declared: '[1.20,)',
+        },
+      ],
+    };
+
+    async function openPlan() {
+      m.setInstanceLoader.mockResolvedValue(okLoader('quilt'));
+      m.scanInstanceModCompat.mockResolvedValue(mismatch);
+      const view = render(InstanceGameSection, { props: props() });
+      await waitFor(() => expect(m.listForgeLoaders).toHaveBeenCalled());
+      await fireEvent.click(screen.getByRole('button', { name: 'Quilt' }));
+      await fireEvent.click(await screen.findByTestId('open-migration-plan-btn'));
+      await waitFor(() => expect(migration.props).not.toBeNull());
+      return view;
+    }
+
+    beforeEach(() => {
+      migration.props = null;
+    });
+
+    it('is opened for the instance shown, and its Apply rescans that instance', async () => {
+      await openPlan();
+      expect(migration.props?.instanceId).toBe('inst-forge');
+      const before = m.scanInstanceModCompat.mock.calls.length;
+      migration.props?.onApplied?.();
+      await waitFor(() => expect(m.scanInstanceModCompat.mock.calls.length).toBe(before + 1));
+      expect(m.scanInstanceModCompat.mock.calls.at(-1)?.[0]).toBe('inst-forge');
+    });
+
+    it('an Apply that lands once another instance is shown rescans nothing', async () => {
+      // The compat store is shared: a scan for an instance no longer shown
+      // would land under the shown one's Overview.
+      const { rerender } = await openPlan();
+      const applied = migration.props?.onApplied;
+      await rerender(props({ instance: makeInstance({ id: 'inst-other', name: 'Other' }) }));
+      const before = m.scanInstanceModCompat.mock.calls.length;
+      applied?.();
+      await flush();
+      expect(m.scanInstanceModCompat.mock.calls.length).toBe(before);
+    });
   });
 
   it('shows a quiet "couldn\'t check" note (role=status) when the compat scan throws', async () => {

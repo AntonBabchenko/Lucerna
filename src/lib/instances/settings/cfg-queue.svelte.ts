@@ -52,8 +52,9 @@ export async function enqueueCfgChange(
       try {
         await current.run();
       } catch {
-        // Each entry surfaces its own errors; swallowing here only keeps a
-        // rejected entry from wedging the loop for the change behind it.
+        // Each entry reports its own failures, a thrown IPC call included
+        // (the Game section catches it); this only keeps an entry that threw
+        // anyway from wedging the loop for the change behind it.
       }
     }
   } finally {

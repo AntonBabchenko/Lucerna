@@ -23,6 +23,7 @@
     focusField = null,
     onFocusDelivered = () => {},
     onChanged,
+    onFolderRenamed = () => {},
     onClone,
     onShortcut,
     onTranslations,
@@ -34,6 +35,9 @@
     focusField?: ManageFocusField | null;
     onFocusDelivered?: () => void;
     onChanged: () => void;
+    /** The instance's folder was renamed, so its id is now `newId` — told
+     *  before the refresh brings it in, so the tab knows it is the same one. */
+    onFolderRenamed?: (newId: string) => void;
     onClone: (id: string) => void;
     /** Undefined where the OS has no desktop-shortcut support: the button is
      *  then omitted rather than shown disabled. */
@@ -171,6 +175,7 @@
       // refresh brings the renamed instance in as the active one (the backend
       // re-points it).
       nameSyncId = updated.id;
+      onFolderRenamed(updated.id);
       onChanged();
     }}
   />

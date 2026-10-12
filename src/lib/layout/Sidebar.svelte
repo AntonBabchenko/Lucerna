@@ -581,7 +581,12 @@
                   data-testid="sidebar-instance-settings-{inst.id}"
                   aria-label={settingsLabel}
                   use:tooltip={{ text: settingsLabel, describe: false }}
-                  onmousedown={() => onOpenInstanceSettings?.(inst.id)}
+                  onmousedown={(e) => {
+                    // The primary button only: a right-click opens the row menu
+                    // without picking the row, and a request with no activation
+                    // behind it would wait, armed, for the next pick.
+                    if (e.button === 0) onOpenInstanceSettings?.(inst.id);
+                  }}
                 >
                   <Icon name="sliders" size={14} />
                 </button>

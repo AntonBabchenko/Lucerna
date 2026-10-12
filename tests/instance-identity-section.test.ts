@@ -146,7 +146,7 @@ describe('InstanceIdentitySection — the name', () => {
     unmount();
     resolve({ status: 'error', error: { kind: 'instance_name_empty' } });
     await waitFor(() => expect(vi.mocked(toasts.pushWarning)).toHaveBeenCalled());
-    expect(vi.mocked(toasts.pushWarning).mock.calls[0][0]).toBe("Name of Default wasn't saved");
+    expect(vi.mocked(toasts.pushWarning).mock.calls[0][0]).toBe("Couldn't save Name for Default");
   });
 
   it('Rename lands in the name field with the whole name selected', async () => {

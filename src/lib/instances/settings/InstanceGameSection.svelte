@@ -24,7 +24,7 @@
   import Select from '$lib/ui/Select.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { tooltip } from '$lib/ui/tooltip';
-  import { cfgSuperseded, enqueueCfgChange } from './cfg-queue.svelte';
+  import { cfgBusy, cfgSuperseded, enqueueCfgChange } from './cfg-queue.svelte';
   import { reportLateFailure } from './late-failure';
 
   let {
@@ -48,6 +48,20 @@
   } = $props();
 
   const locked = $derived(running || busy);
+
+  // A version or loader change started before this mount (on an earlier visit
+  // to the tab) can still be in flight. The pickers then show the SAVED config,
+  // not the one about to land, so the section says a change is being applied.
+  // Not a lock: a click queues behind it and the last click wins. A change
+  // started in this mount needs no line — the picker already shows the click.
+  let startedHere = $state(false);
+  const joinedInFlight = $derived(cfgBusy(instance.id) && !startedHere);
+  $effect(() => {
+    if (!cfgBusy(instance.id)) startedHere = false;
+  });
+
+  // The message for an IPC call that threw instead of answering.
+  const thrownMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
   // A completion that lands after the tab unmounted (another tab was clicked)
   // or after the active instance changed must not write this section's UI.
@@ -116,6 +130,7 @@
       compatChecked = false;
       compatCheckFailed = false;
       error = null;
+      startedHere = false;
       takePending(false);
     });
   });
@@ -172,9 +187,20 @@
   // even after the tab unmounted — toasts are page-level; only this section's
   // own UI (error slot, compat summary) needs it still here, on this instance.
   async function applyMcChange(id: string, name: string, mc: string) {
+    if (!isStale(id)) startedHere = true;
     await enqueueCfgChange(id, async () => {
       if (!isStale(id)) error = null;
-      const result = await commands.changeInstanceMc(id, mc);
+      const fail = (message: string) => {
+        if (isStale(id)) reportLateFailure(name, get(t)('instance.manage.mcVersionLabel'), message);
+        else error = message;
+      };
+      let result;
+      try {
+        result = await commands.changeInstanceMc(id, mc);
+      } catch (e) {
+        if (!cfgSuperseded(id)) fail(thrownMessage(e));
+        return;
+      }
       if (cfgSuperseded(id)) return;
       if (result.status === 'ok') {
         const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
@@ -187,9 +213,7 @@
         const fresh = result.data.instance;
         if (!isStale(id)) await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
       } else {
-        const message = instanceIpcErrorMessage(result.error);
-        if (isStale(id)) reportLateFailure(name, get(t)('instance.manage.mcVersionLabel'), message);
-        else error = message;
+        fail(instanceIpcErrorMessage(result.error));
       }
     });
   }
@@ -216,13 +240,24 @@
     kind: LoaderKind,
     version: string | null,
   ): Promise<boolean> {
+    if (!isStale(id)) startedHere = true;
     return new Promise<boolean>((resolve) => {
       void enqueueCfgChange(
         id,
         async () => {
+          const fail = (message: string) => {
+            if (isStale(id)) reportLateFailure(name, get(t)('instance.loader.label'), message);
+            else error = message;
+          };
           try {
             if (!isStale(id)) error = null;
-            const result = await commands.setInstanceLoader(id, kind, version);
+            let result;
+            try {
+              result = await commands.setInstanceLoader(id, kind, version);
+            } catch (e) {
+              if (!cfgSuperseded(id)) fail(thrownMessage(e));
+              return;
+            }
             resolve(result.status === 'ok');
             if (cfgSuperseded(id)) return;
             if (result.status === 'ok') {
@@ -230,9 +265,7 @@
               if (!isStale(id))
                 await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
             } else {
-              const message = instanceIpcErrorMessage(result.error);
-              if (isStale(id)) reportLateFailure(name, get(t)('instance.loader.label'), message);
-              else error = message;
+              fail(instanceIpcErrorMessage(result.error));
             }
           } finally {
             // Reached unanswered only if the IPC call itself threw: nothing was
@@ -345,6 +378,10 @@
   {:else if busy}
     <p class="mb-2 text-xs text-secondary" data-testid="settings-game-locked">
       {$t('instance.settings.lockedBusy')}
+    </p>
+  {:else if joinedInFlight}
+    <p class="mb-2 text-xs text-secondary" data-testid="settings-game-applying">
+      {$t('instance.settings.applyingChange')}
     </p>
   {/if}
 

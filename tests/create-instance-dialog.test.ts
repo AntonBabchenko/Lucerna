@@ -99,6 +99,26 @@ describe('CreateInstanceDialog', () => {
     expect(errorText()).toContain('Pick a Minecraft version first');
   });
 
+  it('says the reason once: beside the button, then in the alert after a click', async () => {
+    mount();
+    await fillName();
+    const shown = () => screen.queryAllByText('Pick a Minecraft version first').length;
+    expect(shown()).toBe(1);
+    expect(errorText()).toBe('');
+    await fireEvent.click(createButton());
+    expect(shown()).toBe(1);
+    expect(errorText()).toContain('Pick a Minecraft version first');
+  });
+
+  it('drops an announced reason once the form moves past it', async () => {
+    mount();
+    await fireEvent.click(createButton());
+    expect(errorText()).toContain('Name is required');
+    await fillName();
+    expect(errorText()).toBe('');
+    expect(screen.queryAllByText('Pick a Minecraft version first')).toHaveLength(1);
+  });
+
   it('creates once on a double click, then makes the new instance active and says so', async () => {
     let resolve!: (v: unknown) => void;
     m.createInstance.mockReturnValue(new Promise((r) => (resolve = r)));

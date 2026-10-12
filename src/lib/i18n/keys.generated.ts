@@ -838,6 +838,7 @@ export type TranslationKey =
   | 'instance.packDetach.titleLoaderVersion'
   | 'instance.packDetach.titleMc'
   | 'instance.settings.activateFailed'
+  | 'instance.settings.applyingChange'
   | 'instance.settings.busyBlocked'
   | 'instance.settings.createdNotSwitched'
   | 'instance.settings.dangerTitle'

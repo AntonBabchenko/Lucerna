@@ -53,9 +53,12 @@
 
   // A pending request for the Settings tab (instance-settings-nav) decides where
   // a freshly mounted MainTabs starts: mounting on Overview only to leave it
-  // would run Overview's first-visit tour for a frame and mark it seen.
+  // would run Overview's first-visit tour for a frame and mark it seen. Also
+  // one still waiting on its activation (compact mode expands for it): the tab
+  // shows the active instance until the activation lands, and a failed one
+  // leaves the user on the tab they asked for.
   let active = $state<Tab>(
-    untrack(() => requestIsFor(instanceSettingsNav.value, instanceId)) ? 'settings' : 'overview',
+    untrack(() => instanceSettingsNav.value !== null) ? 'settings' : 'overview',
   );
 
   // Tab order for roving-tabindex arrow-key navigation (WAI-ARIA tabs

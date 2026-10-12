@@ -109,6 +109,19 @@
   });
   const delivered = () => (focusField = null);
 
+  // Another instance opens at the top, as a fresh visit would; a refresh of the
+  // same one keeps the place, and so does a folder rename (the folder name is
+  // the id: Identity reports the new one before the refresh brings it in).
+  // Before the DOM update, so a field the request flashes scrolls from the top.
+  let scroller = $state<HTMLElement | null>(null);
+  let scrollId: string | null = null;
+  $effect.pre(() => {
+    const id = instance?.id ?? null;
+    if (id === scrollId) return;
+    if (scrollId !== null && scroller) scroller.scrollTop = 0;
+    scrollId = id;
+  });
+
   // Two columns once the tab is wide enough: what you SET on the left, what
   // you INSPECT on the right. Measured on mount (no one-to-two jump) and by a
   // ResizeObserver; the threshold is the tab's own width, not the window's.
@@ -138,6 +151,7 @@
 <div
   class="h-full overflow-y-auto [scrollbar-gutter:stable] p-4"
   data-testid="instance-settings-tab"
+  bind:this={scroller}
   use:observeWidth
 >
   {#if instance}
@@ -151,6 +165,7 @@
             {focusField}
             onFocusDelivered={delivered}
             {onChanged}
+            onFolderRenamed={(id) => (scrollId = id)}
             {onClone}
             {onShortcut}
             {onTranslations}

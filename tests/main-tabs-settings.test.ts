@@ -92,6 +92,18 @@ describe('MainTabs — the Settings tab', () => {
     expect(overviewRenders).toBe(0);
   });
 
+  // Compact mode: the window expands for a request about a row not yet active,
+  // and MainTabs mounts while that activation is in flight. Mounting on Overview
+  // only to leave it would run Overview's first-visit tour and mark it seen.
+  it('mounting while a request waits on an activation starts on Settings too', async () => {
+    instanceSettingsNav.value = { instanceId: 'inst-2', field: null };
+    const { rerender } = mount();
+    expect(screen.getByTestId('settings-body')).toBeTruthy();
+    expect(overviewRenders).toBe(0);
+    await rerender({ overview, settings, instanceId: 'inst-2' });
+    expect(screen.getByTestId('settings-body')).toBeTruthy();
+  });
+
   it('a click on another tab drops a request still waiting', async () => {
     mount();
     instanceSettingsNav.value = { instanceId: 'inst-2', field: null };
