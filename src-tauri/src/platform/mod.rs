@@ -11,6 +11,7 @@ pub mod encoding;
 pub mod gpu;
 pub mod java_registry;
 pub mod protocol;
+pub mod recycle_bin;
 
 pub use encoding::path_launchable;
 
