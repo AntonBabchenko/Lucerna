@@ -75,7 +75,7 @@ const overviewProps = {
   installError: null,
   modsError: null,
   errors: { listAccounts: null, remove: null, instances: null, versions: null },
-  onManage: () => {},
+  onOpenSettings: () => {},
   onExport: () => {},
   onOpenPackDrawer: () => {},
   onNavInstalled: () => {},
