@@ -103,6 +103,7 @@ const props = {
   instanceName: 'Test',
   mcVersion: '1.20.1',
   loader: 'fabric' as const,
+  onManageLoader: () => {},
 };
 
 const folderButton = () => screen.queryByTestId('addons-open-folder');

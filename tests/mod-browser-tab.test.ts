@@ -84,7 +84,7 @@ describe('ModBrowserTab', () => {
 
   it('defaults to the Browse view', () => {
     render(ModBrowserTab, {
-      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      props: { onManageLoader: () => {}, instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const browse = screen.getByRole('tab', { name: 'Browse' });
     const installed = screen.getByRole('tab', { name: 'Installed' });
@@ -97,7 +97,7 @@ describe('ModBrowserTab', () => {
 
   it('switches to the Installed view on click', async () => {
     render(ModBrowserTab, {
-      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      props: { onManageLoader: () => {}, instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const installed = screen.getByRole('tab', { name: 'Installed' });
     await fireEvent.click(installed);
@@ -110,21 +110,23 @@ describe('ModBrowserTab', () => {
 
   it('accepts a null active instance (Mod browser opened with no instance selected)', () => {
     render(ModBrowserTab, {
-      props: { instanceId: null, mcVersion: null, loader: null },
+      props: { onManageLoader: () => {}, instanceId: null, mcVersion: null, loader: null },
     });
     expect(screen.getByRole('tab', { name: 'Browse' })).toBeTruthy();
   });
 
   it('renders the FileDropzone affordance', () => {
     render(ModBrowserTab, {
-      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+      props: { onManageLoader: () => {}, instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
   it('installs jars handed to it via the droppedMods rune', async () => {
     const { droppedMods } = await import('$lib/settings/state.svelte');
-    render(ModBrowserTab, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    render(ModBrowserTab, {
+      props: { onManageLoader: () => {}, instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
     droppedMods.value = ['/x/a.jar'];
     await waitFor(() => {
       expect(vi.mocked(commands.modsInstallLocal)).toHaveBeenCalledWith('i', '/x/a.jar');

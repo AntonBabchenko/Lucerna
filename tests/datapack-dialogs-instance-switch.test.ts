@@ -132,7 +132,12 @@ const browseProps = {
   loader: 'fabric' as const,
   kind: 'datapack' as const,
 };
-const addonsProps = { instanceId: 'inst-1', mcVersion: '1.21.1', loader: 'fabric' as const };
+const addonsProps = {
+  instanceId: 'inst-1',
+  mcVersion: '1.21.1',
+  loader: 'fabric' as const,
+  onManageLoader: () => {},
+};
 
 beforeEach(() => {
   markSeen('addons');
