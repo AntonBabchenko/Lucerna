@@ -34,7 +34,7 @@ pub fn split_bundle(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
         // become file names on disk, so a traversing entry must not survive
         // the trip. `install_named_at` / `install_bytes` check the name again
         // downstream — this is the first of two, not the only one.
-        let Some(name) = std::path::Path::new(entry.name())
+        let Some(name) = std::path::Path::new(&*crate::zip_entry::name(&entry))
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
         else {

@@ -470,7 +470,7 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
         let mut entry = patch_zip
             .by_index(i)
             .map_err(|e| patcher_fail("binarypatcher", &format!("patch entry {i}: {e}")))?;
-        let name = entry.name().to_string();
+        let name = crate::zip_entry::name(&entry).into_owned();
         if !name.ends_with(".binpatch") {
             continue;
         }
@@ -508,7 +508,7 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
             if entry.is_dir() {
                 continue;
             }
-            let name = entry.name().to_string();
+            let name = crate::zip_entry::name(&entry).into_owned();
             let mut buf = Vec::with_capacity(entry.size() as usize);
             entry
                 .read_to_end(&mut buf)
@@ -872,7 +872,7 @@ mod tests {
         let expected_names: std::collections::HashSet<&str> =
             clean_entries.iter().map(|(n, _)| *n).collect();
         let actual_names: std::collections::HashSet<String> = (0..out_zip.len())
-            .map(|i| out_zip.by_index(i).unwrap().name().to_string())
+            .map(|i| crate::zip_entry::name(&out_zip.by_index(i).unwrap()).into_owned())
             .collect();
 
         assert_eq!(

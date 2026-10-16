@@ -71,10 +71,10 @@ pub fn classify(bytes: &[u8]) -> PackKind {
     let mut has_meta = false;
     let mut has_data = false;
     let mut has_assets = false;
-    for name in zip.file_names() {
+    for name in crate::zip_entry::names(&zip) {
         // §0.5 A24: the root rule is `detect`'s, exact, with no `./`
         // trimming — the game's `ZipFile.getEntry("pack.mcmeta")` is exact.
-        if crate::datapacks::detect::is_root_pack_mcmeta(name) {
+        if crate::datapacks::detect::is_root_pack_mcmeta(&name) {
             has_meta = true;
             continue;
         }

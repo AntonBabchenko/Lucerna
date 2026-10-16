@@ -1245,7 +1245,7 @@ mod tests {
         let f = std::fs::File::open(&dest).unwrap();
         let mut z = zip::ZipArchive::new(f).unwrap();
         let names: Vec<String> = (0..z.len())
-            .map(|i| z.by_index(i).unwrap().name().to_string())
+            .map(|i| crate::zip_entry::name(&z.by_index(i).unwrap()).into_owned())
             .collect();
         assert!(names.iter().any(|n| n.ends_with("server.jar")));
         assert!(!names.iter().any(|n| n.contains("logs/")));
@@ -1436,7 +1436,7 @@ mod tests {
         let f = std::fs::File::open(&dest).unwrap();
         let mut z = zip::ZipArchive::new(f).unwrap();
         let names: Vec<String> = (0..z.len())
-            .map(|i| z.by_index(i).unwrap().name().to_string())
+            .map(|i| crate::zip_entry::name(&z.by_index(i).unwrap()).into_owned())
             .collect();
         assert!(names.iter().any(|n| n.ends_with("server.jar")));
         assert!(!names.iter().any(|n| n.ends_with("session.lock")));

@@ -102,15 +102,18 @@ pub(crate) fn read_jar_legacy_annotations(jar_bytes: &[u8]) -> Option<LegacyAnno
 fn scan_classes(zip: &mut Zip<'_>) -> Result<Vec<ModAnnotation>, String> {
     // Names from the central directory: an entry whose local header is damaged
     // then fails the read below instead of silently vanishing from the list.
-    let names: Vec<String> = zip
-        .file_names()
-        .filter(|n| fml_scans_entry(n))
-        .map(str::to_string)
+    // Read back by index: zip 9 finds a name by its raw bytes, which a CP437
+    // name decoded to text no longer matches.
+    let names: Vec<(usize, String)> = crate::zip_entry::indexed_names(zip)
+        .filter(|(_, n)| fml_scans_entry(n))
+        .map(|(i, n)| (i, n.into_owned()))
         .collect();
     let mut found = Vec::new();
-    for name in &names {
-        let bytes = read_capped(zip, name, MAX_CLASS_BYTES)?
-            .ok_or_else(|| format!("{name} is listed but cannot be opened"))?;
+    for (index, name) in &names {
+        let entry = zip
+            .by_index(*index)
+            .map_err(|e| format!("{name} is listed but cannot be opened: {e}"))?;
+        let bytes = read_entry_capped(entry, name, MAX_CLASS_BYTES)?;
         let candidate = find_subslice(&bytes, MOD_DESCRIPTOR).is_some()
             || find_subslice(&bytes, CPW_MOD_DESCRIPTOR).is_some();
         if !candidate {
@@ -300,6 +303,16 @@ fn read_capped(zip: &mut Zip<'_>, name: &str, cap: u64) -> Result<Option<Vec<u8>
         Err(zip::result::ZipError::FileNotFound) => return Ok(None),
         Err(e) => return Err(format!("{name}: {e}")),
     };
+    read_entry_capped(entry, name, cap).map(Some)
+}
+
+/// An open entry's bytes, capped: `Err` when it would not inflate or is larger
+/// than `cap`. `name` is for the message.
+fn read_entry_capped(
+    entry: zip::read::ZipFile<'_, Cursor<&[u8]>>,
+    name: &str,
+    cap: u64,
+) -> Result<Vec<u8>, String> {
     if entry.size() > cap {
         return Err(format!(
             "{name} declares {} bytes, over the {cap}-byte cap",
@@ -314,7 +327,7 @@ fn read_capped(zip: &mut Zip<'_>, name: &str, cap: u64) -> Result<Option<Vec<u8>
     if buf.len() as u64 > cap {
         return Err(format!("{name} inflates past the {cap}-byte cap"));
     }
-    Ok(Some(buf))
+    Ok(buf)
 }
 
 fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
@@ -662,6 +675,26 @@ mod tests {
             bytes.extend_from_slice(&[b'[', 0, 1]);
         }
         assert!(annotation(&mut Reader::new(&bytes), &pool, 0).is_none());
+    }
+
+    /// A class whose entry name is not UTF-8 (CP437, no UTF-8 flag) is read
+    /// like any other. zip 9 finds a name by its raw bytes, so the scan reads
+    /// a listed entry back by its index, never by its decoded name.
+    #[test]
+    fn a_class_named_in_cp437_is_read() {
+        let mut j = jar(&[("ex/Xtlas.class", fixture!("fixture/AtlasA.class"))]);
+        let raw = b"ex/Xtlas.class";
+        let mut at = 0;
+        let mut patched = 0;
+        while let Some(i) = j[at..].windows(raw.len()).position(|w| w == raw) {
+            j[at + i + 3] = 0x8E; // CP437 'Ä'; alone it is not UTF-8
+            at += i + raw.len();
+            patched += 1;
+        }
+        assert_eq!(patched, 2, "the local header and the central directory");
+        let out = read_jar_legacy_annotations(&j).expect("readable");
+        let ids: Vec<&str> = out.provided.iter().map(|p| p.mod_id.as_str()).collect();
+        assert_eq!(ids, ["antiqueatlas"]);
     }
 
     #[test]

@@ -85,9 +85,8 @@ pub fn list_lang_entries(jar_bytes: &[u8]) -> Result<Vec<(LangEntry, String)>, E
         platform: "local jar".into(),
         details: e.to_string(),
     })?;
-    Ok(zip
-        .file_names()
-        .filter_map(|p| parse_lang_path(p).map(|e| (e, p.to_string())))
+    Ok(crate::zip_entry::names(&zip)
+        .filter_map(|p| parse_lang_path(&p).map(|e| (e, p.to_string())))
         .collect())
 }
 

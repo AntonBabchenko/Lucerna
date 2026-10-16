@@ -18,7 +18,8 @@ pub fn jar_is_plugin(bytes: &[u8]) -> bool {
     };
     for i in 0..zip.len() {
         let Ok(entry) = zip.by_index(i) else { continue };
-        if entry.name() == "plugin.yml" || entry.name() == "paper-plugin.yml" {
+        let name = crate::zip_entry::name(&entry);
+        if name == "plugin.yml" || name == "paper-plugin.yml" {
             return true;
         }
     }

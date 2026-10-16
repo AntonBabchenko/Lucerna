@@ -126,7 +126,7 @@ pub fn zip_has_root_pack_mcmeta(path: &Path) -> io::Result<bool> {
     let file = fs::File::open(path)?;
     let archive = zip::ZipArchive::new(BufReader::new(file))
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let found = archive.file_names().any(is_root_pack_mcmeta);
+    let found = crate::zip_entry::names(&archive).any(|n| is_root_pack_mcmeta(&n));
     Ok(found)
 }
 

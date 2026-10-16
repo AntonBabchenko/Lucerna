@@ -207,7 +207,7 @@ pub fn zip_is_pack(path: &Path, kind: ContentKind) -> std::io::Result<bool> {
         Err(_) => return Ok(false),
     };
     Ok(match kind {
-        ContentKind::Shader => archive.file_names().any(|n| {
+        ContentKind::Shader => crate::zip_entry::names(&archive).any(|n| {
             let mut parts = n.split('/');
             let first = parts.next();
             first == Some("shaders") || parts.next() == Some("shaders")
