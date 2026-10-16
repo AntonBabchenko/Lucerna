@@ -11,7 +11,14 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
-  import { failureWhat, joinChoices, KIND_LABEL, kindStateKey } from './settings-sync-view';
+  import {
+    failureDetail,
+    failureWhat,
+    joinChoices,
+    KIND_LABEL,
+    REASON,
+    rowLine,
+  } from './settings-sync-view';
 
   let {
     instanceId,
@@ -50,11 +57,16 @@
 
   // A later load wins: switching instances mid-read must not show the old one.
   let seq = 0;
+  // Whose state is on screen. Another instance's rows are never shown, not
+  // even while this one's are read: they would act on this one.
+  let shownFor: string | null = null;
   async function load(id: string) {
     const mine = ++seq;
+    if (shownFor !== id) loaded = { kind: 'loading' };
     try {
       const r = await commands.settingsSyncState(id);
       if (mine !== seq) return;
+      shownFor = id;
       loaded =
         r.status === 'ok'
           ? { kind: 'ok', data: r.data }
@@ -117,14 +129,34 @@
     void apply(v.kind, on, null);
   }
 
+  let stopping = $state(false);
   async function stopAll() {
+    if (stopping) return;
     const id = instanceId;
+    stopping = true;
     changeError = null;
-    const r = await commands.settingsSyncStop(id, null);
-    if (r.status === 'error') {
-      changeError = $t('instance.settingsSync.changeFailed', { error: formatError(r.error) });
+    try {
+      const r = await commands.settingsSyncStop(id, null);
+      if (r.status === 'error') {
+        changeError = $t('instance.settingsSync.changeFailed', { error: formatError(r.error) });
+      }
+    } catch (e) {
+      changeError = $t('instance.settingsSync.changeFailed', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      stopping = false;
     }
     await load(id);
+  }
+
+  /** The ids a checkbox is described by: its state line, and why it is locked. */
+  function describedBy(v: KindView, line: string | null): string | undefined {
+    const ids = [
+      line ? `settings-sync-state-${v.kind}` : null,
+      locked ? 'settings-sync-locked' : null,
+    ];
+    return ids.filter(Boolean).join(' ') || undefined;
   }
 </script>
 
@@ -135,16 +167,28 @@
   {#if loaded.kind === 'loading'}
     <LoadingPanel label={$t('common.loading')} size="sm" />
   {:else if loaded.kind === 'failed'}
-    <StatusMessage
-      dataTestid="settings-sync-load-failed"
-      message={$t('instance.settingsSync.loadFailed', { error: loaded.error })}
-      tone="danger"
-    />
+    <div class="flex flex-col gap-1">
+      <StatusMessage
+        dataTestid="settings-sync-load-failed"
+        message={$t('instance.settingsSync.loadFailed', { error: loaded.error })}
+        tone="danger"
+      />
+      <div>
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          onclick={() => void load(instanceId)}
+          data-testid="settings-sync-retry"
+        >
+          {$t('instance.settingsSync.retry')}
+        </button>
+      </div>
+    </div>
   {:else if data}
     {#if unreadable !== null}
       <div class="flex flex-col gap-1" data-testid="settings-sync-unreadable">
         <StatusMessage
-          message={$t('instance.settingsSync.unreadable', { reason: unreadable })}
+          message={$t('instance.settingsSync.unreadable', { reason: $t(REASON[unreadable]) })}
           tone="warning"
         />
         <p class="text-xs text-muted">{$t('instance.settingsSync.unreadableHint')}</p>
@@ -152,7 +196,7 @@
           <button
             type="button"
             class="btn-secondary btn-sm"
-            disabled={locked}
+            disabled={locked || stopping}
             onclick={() => void stopAll()}
             data-testid="settings-sync-stop-all"
           >
@@ -163,7 +207,7 @@
     {:else}
       <ul class="flex flex-col gap-2">
         {#each data.kinds as v (v.kind)}
-          {@const stateKey = kindStateKey(v)}
+          {@const line = rowLine($t, v)}
           <li data-testid="settings-sync-row-{v.kind}">
             <label class="flex items-start gap-2 cursor-pointer">
               <input
@@ -171,19 +215,19 @@
                 class="mt-0.5"
                 checked={v.enabled}
                 disabled={locked || changing !== null}
-                aria-describedby={stateKey ? `settings-sync-state-${v.kind}` : undefined}
+                aria-describedby={describedBy(v, line)}
                 onchange={(e) => onToggle(e.currentTarget, v)}
                 data-testid="settings-sync-toggle-{v.kind}"
               />
               <span class="text-sm text-primary">{$t(KIND_LABEL[v.kind])}</span>
             </label>
-            {#if stateKey}
+            {#if line}
               <p
                 id="settings-sync-state-{v.kind}"
                 class="pl-6 text-xs text-muted"
                 data-testid="settings-sync-state-{v.kind}"
               >
-                {$t(stateKey)}
+                {line}
               </p>
             {/if}
             {#if v.kind === 'hotbars' && !v.enabled}
@@ -199,7 +243,7 @@
         dataTestid="settings-sync-last-error"
         message={$t('instance.settingsSync.lastError', {
           what: $t(failureWhat(data.last_error)),
-          reason: data.last_error.reason,
+          detail: failureDetail($t, data.last_error),
         })}
         tone="warning"
       />

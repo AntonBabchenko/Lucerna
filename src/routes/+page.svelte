@@ -133,7 +133,12 @@
     type SyncFailedError,
     type SyncLaunchOutcome,
   } from '$lib/launch/settings-sync-flow';
-  import { failureWhat, KIND_WHAT } from '$lib/instances/settings/settings-sync-view';
+  import {
+    failureDetail,
+    failureWhat,
+    KIND_WHAT,
+    STOP_KIND,
+  } from '$lib/instances/settings/settings-sync-view';
   import { showUpdateToast, updateState } from '$lib/update/state.svelte';
   import { checkWhatsNew } from '$lib/changelog/whats-new.svelte';
   import { announceUpdateRecovery } from '$lib/modpacks/update-recovery.svelte';
@@ -1165,7 +1170,7 @@
           tr('launch.settingsSync.exitFailedLine', {
             instance: name,
             what: tr(failureWhat(payload.failure)),
-            reason: payload.failure.reason,
+            detail: failureDetail(tr, payload.failure),
           }),
         ]);
       })
@@ -1438,12 +1443,17 @@
   ): Promise<SyncLaunchOutcome> {
     return launchWithSettingsSync({
       launch: (options) => commands.launchInstance(id, quickPlay, options),
+      // One question at a time: a second launch (a shortcut while the first
+      // asks) backs out instead of replacing the open question, whose launch
+      // would then wait forever.
       askSyncFailed: (error) =>
         new Promise((answer) => {
+          if (syncFailedAsk || gameClosedAsk) return answer('cancel');
           syncFailedAsk = { error, answer };
         }),
       askGameClosed: () =>
         new Promise((answer) => {
+          if (syncFailedAsk || gameClosedAsk) return answer(false);
           gameClosedAsk = { answer };
         }),
       stopSyncing: (kind) => commands.settingsSyncStop(id, kind),
@@ -2198,8 +2208,10 @@
       ]}
       confirmLabel={$t('launch.settingsSync.launchWithoutSync')}
       confirmTestid="sync-failed-skip"
-      panelClass="w-[600px] max-w-full p-5 flex flex-col gap-3"
-      secondaryLabel={$t('launch.settingsSync.stopSyncing')}
+      panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
+      secondaryLabel={ask.error.sync_kind === null
+        ? $t('launch.settingsSync.stopAll')
+        : $t(STOP_KIND[ask.error.sync_kind])}
       secondaryTestid="sync-failed-stop"
       onSecondary={() => answerSyncFailed('stop')}
       onCancel={() => answerSyncFailed('cancel')}

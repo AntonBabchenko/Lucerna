@@ -54,11 +54,9 @@ beforeEach(() => {
 });
 
 describe('kindStateKey', () => {
-  it('names each state, and says nothing for a plain off', () => {
+  it('names the states a checkbox cannot say, and nothing for plain on or off', () => {
     expect(kindStateKey(view({ kind: 'servers' }))).toBeNull();
-    expect(kindStateKey(view({ kind: 'servers', enabled: true }))).toBe(
-      'instance.settingsSync.state.on',
-    );
+    expect(kindStateKey(view({ kind: 'servers', enabled: true }))).toBeNull();
     expect(kindStateKey(view({ kind: 'servers', enabled: true, join: 'use_shared' }))).toBe(
       'instance.settingsSync.state.joining',
     );
@@ -200,11 +198,11 @@ describe('SettingsSyncRows', () => {
   });
 
   it('an unreadable sync file offers only the way out, which stops every kind', async () => {
-    serve(state([], { sidecar: { status: 'unreadable', reason: 'bad json' } }));
+    serve(state([], { sidecar: { status: 'unreadable', reason: 'damaged' } }));
     vi.mocked(commands.settingsSyncStop).mockResolvedValue({ status: 'ok', data: null });
     renderRows();
     expect((await screen.findByTestId('settings-sync-unreadable')).textContent).toContain(
-      'bad json',
+      'the file is damaged or cut short',
     );
     await fireEvent.click(screen.getByTestId('settings-sync-stop-all'));
     expect(commands.settingsSyncStop).toHaveBeenCalledWith('inst-1', null);
@@ -213,13 +211,14 @@ describe('SettingsSyncRows', () => {
   it('shows a kept failure, naming what did not sync', async () => {
     serve(
       state(ALL_OFF, {
-        last_error: { kind: 'history', file: 'command_history.txt', reason: 'denied' },
+        last_error: { kind: 'history', file: 'game', reason: 'no_access' },
       }),
     );
     renderRows();
     const line = await screen.findByTestId('settings-sync-last-error');
     expect(line.textContent).toContain('the command history');
-    expect(line.textContent).toContain('denied');
+    expect(line.textContent).toContain("File: this instance's command_history.txt.");
+    expect(line.textContent).toContain('Reason: no access to the file');
   });
 
   it('is locked while the game runs, and says so', async () => {
@@ -228,5 +227,89 @@ describe('SettingsSyncRows', () => {
     const box = (await screen.findByTestId('settings-sync-toggle-servers')) as HTMLInputElement;
     expect(box.disabled).toBe(true);
     expect(screen.getByTestId('settings-sync-locked').textContent).toContain('Stop the game');
+    expect(box.getAttribute('aria-describedby')).toContain('settings-sync-locked');
+  });
+
+  it("never shows another instance's rows while this one's are read", async () => {
+    serve(state([view({ kind: 'servers', enabled: true })]));
+    const { rerender } = renderRows();
+    await screen.findByTestId('settings-sync-toggle-servers');
+    let answer!: (v: Awaited<ReturnType<typeof commands.settingsSyncState>>) => void;
+    vi.mocked(commands.settingsSyncState).mockReturnValueOnce(
+      new Promise((r) => {
+        answer = r;
+      }),
+    );
+    await rerender({ instanceId: 'inst-2', running: false, busy: false });
+    await waitFor(() => expect(commands.settingsSyncState).toHaveBeenLastCalledWith('inst-2'));
+    expect(screen.queryByTestId('settings-sync-toggle-servers')).toBeNull();
+    answer({ status: 'ok', data: state(ALL_OFF) });
+    expect(
+      ((await screen.findByTestId('settings-sync-toggle-servers')) as HTMLInputElement).checked,
+    ).toBe(false);
+  });
+
+  it('offers Try again after a failed read, and reads again', async () => {
+    vi.mocked(commands.settingsSyncState)
+      .mockResolvedValueOnce({ status: 'error', error: { kind: 'instance_busy' } })
+      .mockResolvedValueOnce({ status: 'ok', data: state(ALL_OFF) });
+    renderRows();
+    await fireEvent.click(await screen.findByTestId('settings-sync-retry'));
+    expect(await screen.findByTestId('settings-sync-toggle-servers')).toBeTruthy();
+  });
+
+  it('says which hotbars file cannot be read, on the hotbars row only', async () => {
+    serve(
+      state([
+        view({ kind: 'servers' }),
+        view({
+          kind: 'hotbars',
+          availability: { status: 'unreadable', file: 'shared', reason: 'damaged' },
+        }),
+      ]),
+    );
+    renderRows();
+    const line = await screen.findByTestId('settings-sync-state-hotbars');
+    expect(line.textContent).toBe(
+      'Not available. File: the shared hotbars. Reason: the file is damaged or cut short.',
+    );
+    expect(screen.queryByTestId('settings-sync-state-servers')).toBeNull();
+  });
+
+  it("makes this instance's hotbars the shared ones from the two-choice dialog", async () => {
+    serve(state([view({ kind: 'hotbars', join_asks: true })]));
+    vi.mocked(commands.settingsSyncSetKind).mockResolvedValue({
+      status: 'ok',
+      data: { kind: 'joined' },
+    });
+    renderRows();
+    await fireEvent.click(await screen.findByTestId('settings-sync-toggle-hotbars'));
+    await screen.findByTestId('settings-sync-use-shared');
+    await fireEvent.click(screen.getByTestId('settings-sync-make-shared'));
+    await waitFor(() =>
+      expect(commands.settingsSyncSetKind).toHaveBeenCalledWith(
+        'inst-1',
+        'hotbars',
+        true,
+        'make_shared',
+        false,
+      ),
+    );
+  });
+
+  it('turns sync off once for a double click on the way out', async () => {
+    serve(state([], { sidecar: { status: 'unreadable', reason: 'damaged' } }));
+    let done!: (v: Awaited<ReturnType<typeof commands.settingsSyncStop>>) => void;
+    vi.mocked(commands.settingsSyncStop).mockReturnValue(
+      new Promise((r) => {
+        done = r;
+      }),
+    );
+    renderRows();
+    const button = await screen.findByTestId('settings-sync-stop-all');
+    await fireEvent.click(button);
+    await fireEvent.click(button);
+    expect(commands.settingsSyncStop).toHaveBeenCalledTimes(1);
+    done({ status: 'ok', data: null });
   });
 });

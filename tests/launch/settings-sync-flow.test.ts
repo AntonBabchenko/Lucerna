@@ -11,8 +11,8 @@ const err = (error: IpcError): LaunchResult => ({ status: 'error', error });
 const FAILED_SERVERS = err({
   kind: 'settings_sync_failed',
   sync_kind: 'servers',
-  file: 'C:/i/.minecraft/servers.dat',
-  reason: 'unreadable',
+  file: 'game',
+  reason: 'damaged',
 });
 const ASK_CLOSED = err({ kind: 'settings_sync_ask_game_closed' });
 

@@ -464,23 +464,24 @@
         "hotbars": "Hotbars"
       },
       "state": {
-        "on": "On",
         "joining": "Joins at the next launch",
         "historyTooOld": "Needs Minecraft 1.20.2 or newer",
         "hotbarsNotRecorded": "Not available for this Minecraft version",
         "hotbarsNotInstalled": "Available once the game files are installed",
         "hotbarsNotRelease": "Not available for snapshots and pre-releases",
-        "olderThanShared": "The shared hotbars were saved by a newer Minecraft version, so this instance keeps its own."
+        "olderThanShared": "The shared hotbars were saved by a newer Minecraft version, so this instance keeps its own.",
+        "unreadable": "Not available. {detail}"
       },
       "hotbarsRule": "Once a newer Minecraft version saves the shared hotbars, instances on older versions keep their own.",
-      "lastError": "The last sync failed: couldn't sync {what} ({reason}). The next launch tries again, and nothing is lost.",
+      "lastError": "The last sync failed: couldn't sync {what}. {detail} The next launch tries again, and nothing is lost.",
       "unreadable": "This instance's sync settings can't be read ({reason}), so nothing syncs.",
-      "unreadableFix": "Stop syncing here",
+      "unreadableFix": "Turn off sync in this instance",
       "unreadableHint": "The unreadable file goes to the Recycle Bin and syncing here is turned off. You can turn it on again.",
       "lockedRunning": "Stop the game to change what this instance shares.",
       "lockedBusy": "You can change this once this instance's current task finishes.",
-      "loadFailed": "Couldn't read this instance's shared settings: {error}",
-      "changeFailed": "Couldn't change this: {error}",
+      "loadFailed": "Couldn't read this instance's shared settings. {error}",
+      "retry": "Try again",
+      "changeFailed": "Couldn't change this. {error}",
       "joinTitle": "Shared hotbars already exist",
       "joinBody": "Other instances already share hotbars, and this instance has its own. Which should it use?",
       "joinOlderBody": "The shared hotbars were saved by a newer Minecraft version, which this instance can't read, so it can only share its own.",
@@ -891,14 +892,19 @@
     "settingsSync": {
       "failedTitle": "Game settings didn't sync",
       "failedChoice": "You can launch without syncing this time: what you change in the game syncs at the next launch. Or stop syncing {what} in this instance.",
-      "failedChoiceAll": "You can launch without syncing this time, or stop syncing in this instance: the unreadable file goes to the Recycle Bin.",
+      "failedChoiceAll": "You can launch without syncing this time, or turn off sync in this instance: the unreadable file goes to the Recycle Bin.",
       "launchWithoutSync": "Launch without sync",
-      "stopSyncing": "Stop syncing here",
+      "stopKind": {
+        "servers": "Don't sync servers here",
+        "history": "Don't sync command history here",
+        "hotbars": "Don't sync hotbars here"
+      },
+      "stopAll": "Turn off sync in this instance",
       "closedTitle": "Is the game closed?",
       "closedBody": "A game started in this instance before Lucerna restarted may still be running, and Lucerna can't tell. If it's open, close it first: syncing while it runs would lose what it saves when it closes.",
       "itsClosed": "It's closed",
       "exitFailedTitle": "Game settings didn't sync after the game closed",
-      "exitFailedLine": "{instance}: couldn't sync {what} ({reason}). Nothing is lost: the next launch syncs first."
+      "exitFailedLine": "{instance}: couldn't sync {what}. {detail} Nothing is lost: the next launch syncs first."
     }
   },
   "mods": {
@@ -3088,12 +3094,34 @@
       "unknownComponent": "Mojang's list has no runtime \"{id}\" for this computer."
     },
     "addonEntryIsLink": "“{name}” is a link, not a pack. Remove it in the file manager.",
-    "settingsSyncFailed": "Couldn't sync {what} before the launch: {reason}",
+    "settingsSyncFailed": "Couldn't sync {what} before the launch. {detail}",
     "settingsSyncWhat": {
       "servers": "the server list",
       "history": "the command history",
       "hotbars": "the hotbars",
       "settings": "the sync settings"
+    },
+    "settingsSyncDetail": "File: {file}. Reason: {reason}.",
+    "settingsSyncDetailNoFile": "Reason: {reason}.",
+    "settingsSyncFile": {
+      "game": {
+        "servers": "this instance's servers.dat",
+        "history": "this instance's command_history.txt",
+        "hotbars": "this instance's hotbar.nbt"
+      },
+      "shared": {
+        "servers": "the shared server list",
+        "history": "the shared command history",
+        "hotbars": "the shared hotbars"
+      },
+      "settings": "this instance's sync settings",
+      "records": "this instance's sync records"
+    },
+    "settingsSyncReason": {
+      "damaged": "the file is damaged or cut short",
+      "noAccess": "no access to the file (another program may have it open)",
+      "notFound": "the file was not found",
+      "other": "another error, details in the launcher log"
     },
     "settingsSyncGameRunning": "A game started before Lucerna restarted is still running in this instance. Close it, then try again.",
     "settingsSyncAskGameClosed": "Lucerna can't tell whether a game started in this instance before it restarted is still running."
