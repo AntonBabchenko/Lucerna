@@ -37,7 +37,7 @@ beforeEach(() => {
 describe('runTransfer', () => {
   it('reports null, then each streamed phase, then the outcome', async () => {
     const phases: Array<unknown> = [];
-    vi.mocked(commands.transferModData).mockImplementation(
+    (commands.transferModData as ReturnType<typeof vi.fn>).mockImplementation(
       async (_s, _t, _sel, _c, ch: { onmessage: ((m: unknown) => void) | null }) => {
         ch.onmessage?.({ phase: 'copying', current: 1, total: 2 });
         ch.onmessage?.({ phase: 'placing', current: 2, total: 2 });
@@ -59,7 +59,7 @@ describe('runTransfer', () => {
   });
 
   it('turns a backend error into its message', async () => {
-    vi.mocked(commands.transferModData).mockResolvedValue({
+    (commands.transferModData as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'error',
       error: { kind: 'instance_busy' },
     } as never);
