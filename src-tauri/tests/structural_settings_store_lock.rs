@@ -184,7 +184,7 @@ fn the_settings_store_is_held_by_name_never_nested_and_only_inside_settings_sync
 
     // Non-vacuity: the known holders are found, so a renamed module or a
     // broken scan cannot pass silently.
-    for expected in ["run_all", "state", "set_kind"] {
+    for expected in ["run_kinds", "state", "set_kind"] {
         assert!(
             holder_names.contains(&expected),
             "expected `{expected}` to take the settings store lock; found {holder_names:?}"

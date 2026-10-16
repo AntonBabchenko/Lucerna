@@ -97,6 +97,28 @@ pub fn after_exit(
     run_all(data_root, instance_root, facts, true)
 }
 
+/// After Lucerna itself edited this instance's `kind` file (the saved-servers
+/// manager): the same sync point, for that kind alone, so the other instances
+/// see the edit without a launch. A failure is kept for the section, as after
+/// an exit: nobody is waiting on a dialog for it. `facts` is read only when
+/// this instance syncs `kind`.
+pub fn after_local_edit(
+    data_root: &Path,
+    instance_root: &Path,
+    kind: Kind,
+    facts: impl FnOnce() -> version::VersionFacts,
+) -> std::result::Result<(), SyncFailure> {
+    match sidecar::read(instance_root) {
+        Ok(sidecar::SidecarRead::Member(s)) if s.enabled(kind) => {}
+        Ok(_) => return Ok(()),
+        Err(_) => {
+            // An unreadable sidecar may well sync this kind: `run_kinds`
+            // reads it again and names it in the failure.
+        }
+    }
+    run_kinds(data_root, instance_root, &facts(), &[kind], true)
+}
+
 /// Everything a launch does before spawning (blocking; call it inside
 /// `spawn_blocking`): nothing for an instance that syncs nothing; otherwise
 /// the running-game marker is checked, the version facts are read and every
@@ -141,6 +163,20 @@ fn run_all(
     facts: &version::VersionFacts,
     keep_failure: bool,
 ) -> std::result::Result<(), SyncFailure> {
+    run_kinds(data_root, instance_root, facts, &Kind::ALL, keep_failure)
+}
+
+/// The sync point for `kinds` (those this instance has on), in order. A kept
+/// failure is cleared by a success only when it was about one of `kinds` (or
+/// the sidecar itself, which was just read): syncing the server list says
+/// nothing about the hotbars.
+fn run_kinds(
+    data_root: &Path,
+    instance_root: &Path,
+    facts: &version::VersionFacts,
+    kinds: &[Kind],
+    keep_failure: bool,
+) -> std::result::Result<(), SyncFailure> {
     let sidecar_file = || sidecar_path(instance_root).display().to_string();
     let before = match sidecar::read(instance_root) {
         Ok(sidecar::SidecarRead::NotMember) => return Ok(()),
@@ -156,7 +192,7 @@ fn run_all(
     let store = store::lock(data_root);
     let mut after = before.clone();
     let mut failed = None;
-    for kind in Kind::ALL {
+    for &kind in kinds {
         let Some(state) = before.kind(kind).filter(|s| s.enabled) else {
             continue;
         };
@@ -197,7 +233,10 @@ fn run_all(
     after.last_error = match &failed {
         Some(f) if keep_failure => Some(f.clone()),
         Some(_) => before.last_error.clone(),
-        None => None,
+        None => before
+            .last_error
+            .clone()
+            .filter(|kept| kept.kind.is_some_and(|k| !kinds.contains(&k))),
     };
     if after != before {
         if let Err(e) = sidecar::write(instance_root, &after) {
@@ -371,6 +410,82 @@ mod api_tests {
         let f = before_launch(&data, &inst, &facts()).unwrap_err();
         assert_eq!(f.kind, None);
         assert!(f.file.ends_with("settings-sync.json"), "{}", f.file);
+    }
+
+    fn servers_file(root: &Path, entries: &[(&str, &str)]) {
+        let mut v = crate::servers::nbt::empty_root();
+        for (name, ip) in entries {
+            crate::servers::nbt::push_server(&mut v, name, ip).unwrap();
+        }
+        let p = game_file(root, Kind::Servers);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, crate::servers::nbt::serialize(&v).unwrap()).unwrap();
+    }
+
+    fn shared_servers(data: &Path) -> Vec<String> {
+        let bytes = std::fs::read(store::store_dir(data).join("servers.dat")).unwrap();
+        crate::servers::nbt::list_view(&crate::servers::nbt::parse(&bytes).unwrap())
+            .into_iter()
+            .map(|s| s.address)
+            .collect()
+    }
+
+    #[test]
+    fn a_local_edit_reaches_the_shared_list_at_once() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        servers_file(&inst, &[("A", "a.example.net")]);
+        member(&inst, Kind::Servers, Join::UseShared);
+        before_launch(&data, &inst, &facts()).unwrap();
+        servers_file(&inst, &[("A", "a.example.net"), ("B", "b.example.net")]);
+        after_local_edit(&data, &inst, Kind::Servers, facts).unwrap();
+        assert_eq!(shared_servers(&data), ["a.example.net", "b.example.net"]);
+    }
+
+    #[test]
+    fn a_local_edit_of_a_kind_not_synced_reads_and_touches_nothing() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        servers_file(&inst, &[("A", "a.example.net")]);
+        member(&inst, Kind::History, Join::UseShared);
+        let read = std::cell::Cell::new(false);
+        after_local_edit(&data, &inst, Kind::Servers, || {
+            read.set(true);
+            facts()
+        })
+        .unwrap();
+        assert!(!store::store_dir(&data).join("servers.dat").exists());
+        assert!(!read.get(), "no version read for a kind it does not sync");
+    }
+
+    #[test]
+    fn a_local_edit_keeps_another_kinds_failure_and_records_its_own() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        servers_file(&inst, &[("A", "a.example.net")]);
+        let history_failure = SyncFailure {
+            kind: Some(Kind::History),
+            file: "command_history.txt".into(),
+            reason: "earlier".into(),
+        };
+        let mut s = Sidecar::default();
+        for kind in [Kind::Servers, Kind::History] {
+            s.set_kind(
+                kind,
+                KindState {
+                    enabled: true,
+                    join: Join::UseShared,
+                },
+            );
+        }
+        s.last_error = Some(history_failure.clone());
+        sidecar::write(&inst, &s).unwrap();
+        after_local_edit(&data, &inst, Kind::Servers, facts).unwrap();
+        assert_eq!(sidecar_of(&inst).last_error, Some(history_failure));
+        std::fs::write(game_file(&inst, Kind::Servers), b"garbage").unwrap();
+        let f = after_local_edit(&data, &inst, Kind::Servers, facts).unwrap_err();
+        assert_eq!(f.kind, Some(Kind::Servers));
+        assert_eq!(sidecar_of(&inst).last_error, Some(f));
     }
 
     #[test]
