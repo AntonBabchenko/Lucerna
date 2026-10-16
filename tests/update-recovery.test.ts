@@ -64,6 +64,57 @@ describe('announceUpdateRecovery', () => {
     expect(info).not.toContain('An update');
   });
 
+  it('says where files an earlier copy replaced were moved at startup', async () => {
+    await announceUpdateRecovery({
+      take: async () => [
+        {
+          instance_id: 'c',
+          instance_name: 'New pack',
+          outcome: { kind: 'kept_aside', folder: 'C:/i/lucerna/replaced/R' },
+          operation: { kind: 'unknown' },
+        },
+      ],
+    });
+    expect(pushWarning).not.toHaveBeenCalled();
+    const info = vi.mocked(pushInfo).mock.calls[0][0];
+    expect(info).toContain('New pack');
+    expect(info).toContain('C:/i/lucerna/replaced/R');
+    expect(info).not.toMatch(/interrupted|undone/);
+  });
+
+  it('warns, naming the folder, when those files could not be moved', async () => {
+    await announceUpdateRecovery({
+      take: async () => [
+        {
+          instance_id: 'c',
+          instance_name: 'New pack',
+          outcome: { kind: 'kept_in_place', folder: 'C:/i/txn/1-a-kept', details: 'denied' },
+          operation: { kind: 'unknown' },
+        },
+      ],
+    });
+    const warning = vi.mocked(pushWarning).mock.calls[0][0];
+    expect(warning).toContain('New pack');
+    expect(warning).toContain('C:/i/txn/1-a-kept');
+    expect(warning).not.toMatch(/undone/);
+  });
+
+  it('never calls a change it cannot name an update', async () => {
+    await announceUpdateRecovery({
+      take: async () => [
+        {
+          instance_id: 'd',
+          instance_name: 'Pack',
+          outcome: { kind: 'incomplete', folder: 'C:/i/txn/2-b-kept', details: 'eof' },
+          operation: { kind: 'unknown' },
+        },
+      ],
+    });
+    const warning = vi.mocked(pushWarning).mock.calls[0][0];
+    expect(warning).toContain('C:/i/txn/2-b-kept');
+    expect(warning).not.toMatch(/update/i);
+  });
+
   it('speaks once per launch', async () => {
     await announceUpdateRecovery({ take: async () => REPORT });
     await announceUpdateRecovery({ take: async () => REPORT });

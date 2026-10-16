@@ -7690,7 +7690,7 @@ export type RangeDescription = {
 export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
 
 /**  What the interrupted operation was, for the notice's wording. */
-export type RecoveredOperation = { kind: "update" } | { kind: "data_copy"; source: string };
+export type RecoveredOperation = { kind: "update" } | { kind: "data_copy"; source: string } | { kind: "unknown" };
 
 /**  One interrupted update the startup recovery dealt with. */
 export type RecoveredUpdate = {
@@ -7701,7 +7701,7 @@ export type RecoveredUpdate = {
 };
 
 /**  How the startup undo of one interrupted update ended. */
-export type RecoveryOutcome = { kind: "restored" } | { kind: "incomplete"; folder: string; details: string };
+export type RecoveryOutcome = { kind: "restored" } | { kind: "incomplete"; folder: string; details: string } | { kind: "kept_aside"; folder: string } | { kind: "kept_in_place"; folder: string; details: string };
 
 /**  Why an item cannot be copied. Each names the `/`-separated path it is about. */
 export type Refusal = 

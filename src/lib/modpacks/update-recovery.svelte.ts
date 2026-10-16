@@ -6,7 +6,7 @@
 // Pull, not an event: at startup the frontend may not be listening yet, so the
 // report waits in the backend until this asks for it.
 import { get } from 'svelte/store';
-import { t } from '$lib/i18n';
+import { type Translate, t } from '$lib/i18n';
 import type { RecoveredUpdate } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import { pushInfo, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -38,29 +38,44 @@ export async function announceUpdateRecovery(deps: UpdateRecoveryDeps = {}): Pro
   }
   if (report === null) return;
   const tr = get(t);
-  for (const r of report) {
-    // A mod-data copy runs through the same transaction as an update; the
-    // notice names which one was interrupted.
-    const copy = r.operation.kind === 'data_copy' ? r.operation : null;
-    if (r.outcome.kind === 'restored') {
+  for (const r of report) speak(tr, r);
+}
+
+/** The notice for one entry. A mod-data copy runs through the same
+ *  transaction as an update, so the wording names which one it was — and a
+ *  token whose record could not be read names neither (`unknown`). */
+function speak(tr: Translate, r: RecoveredUpdate): void {
+  const name = r.instance_name;
+  const op = r.operation;
+  switch (r.outcome.kind) {
+    case 'restored':
       pushInfo(
-        copy
-          ? tr('instance.updateRecovery.dataCopyRestored', {
-              name: r.instance_name,
-              source: copy.source,
-            })
-          : tr('instance.updateRecovery.restored', { name: r.instance_name }),
+        op.kind === 'data_copy'
+          ? tr('instance.updateRecovery.dataCopyRestored', { name, source: op.source })
+          : op.kind === 'update'
+            ? tr('instance.updateRecovery.restored', { name })
+            : tr('instance.updateRecovery.unknownRestored', { name }),
       );
-    } else {
+      return;
+    case 'incomplete':
       pushWarning(
         tr(
-          copy
+          op.kind === 'data_copy'
             ? 'instance.updateRecovery.dataCopyIncomplete'
-            : 'instance.updateRecovery.incomplete',
-          { name: r.instance_name, folder: r.outcome.folder },
+            : op.kind === 'update'
+              ? 'instance.updateRecovery.incomplete'
+              : 'instance.updateRecovery.unknownIncomplete',
+          { name, folder: r.outcome.folder },
         ),
       );
-    }
+      return;
+    // Only a mod-data copy keeps the files it replaces.
+    case 'kept_aside':
+      pushInfo(tr('instance.updateRecovery.keptAside', { name, folder: r.outcome.folder }));
+      return;
+    case 'kept_in_place':
+      pushWarning(tr('instance.updateRecovery.keptInPlace', { name, folder: r.outcome.folder }));
+      return;
   }
 }
 

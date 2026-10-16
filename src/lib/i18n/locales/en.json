@@ -735,7 +735,11 @@
       "restored": "An update of \"{name}\" was interrupted last time; it was undone and the profile is as it was.",
       "incomplete": "An interrupted update of \"{name}\" could not be fully undone. Check its mods; what could not go back is kept in {folder}.",
       "dataCopyRestored": "Copying data from \"{source}\" into \"{name}\" was interrupted last time; it was undone and the instance is as it was.",
-      "dataCopyIncomplete": "An interrupted copy of data into \"{name}\" could not be fully undone; what could not go back is kept in {folder}."
+      "dataCopyIncomplete": "An interrupted copy of data into \"{name}\" could not be fully undone; what could not go back is kept in {folder}.",
+      "keptAside": "Files that an earlier copy of data replaced in \"{name}\" were moved to {folder}.",
+      "keptInPlace": "Files that an earlier copy of data replaced in \"{name}\" could not be moved out; they are kept in {folder}.",
+      "unknownRestored": "A change to \"{name}\" was interrupted last time; it was undone and the profile is as it was.",
+      "unknownIncomplete": "An interrupted change to \"{name}\" could not be fully undone; what could not go back is kept in {folder}."
     },
     "settings": {
       "tabAria": "Instance settings",
