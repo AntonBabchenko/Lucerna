@@ -103,7 +103,15 @@ fn held_by_another_program(_: &io::Error) -> bool {
     false
 }
 
+/// Built in one place, and logged here: the UI's "details in the launcher
+/// log" is true for every path that reports one, the launch dialog's, a
+/// join's and the saved-servers manager's alike.
 fn error(at: At, path: &Path, reason: FileReason, details: String) -> Error {
+    crate::diag!(
+        "settings sync: {:?} file {} ({reason:?}): {details}",
+        at.file,
+        path.display()
+    );
     Error::SettingsSyncFile {
         file: at.file,
         file_kind: at.kind,
