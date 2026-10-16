@@ -1584,9 +1584,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 /**  Hotbars only: this instance's hotbars become the shared ones. */
 "make_shared" | null, gameClosedConfirmed: boolean) => typedError<{ kind: "synced" } | 
 /**  A join completed. */
-{ kind: "joined" } | 
-/**  A version step: re-baselined without capturing. */
-{ kind: "resynced" } | { kind: "unsupported"; why: Unsupported } | 
+{ kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
 /**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
 { kind: "older_than_shared" } | null, Error>(__TAURI_INVOKE("settings_sync_set_kind", { instanceId, kind, enabled, join, gameClosedConfirmed })),
 	/**
@@ -2964,7 +2962,9 @@ export type AssetUpdateState_Serialize =
 /**  Whether this instance's version can sync a kind now. */
 export type Availability = { status: "available" } | { status: "unsupported"; why: Unsupported } | 
 /**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
-{ status: "older_than_shared" };
+{ status: "older_than_shared" } | 
+/**  A file this row needs cannot be read; the other rows still work. */
+{ status: "unreadable"; file: SyncFile; reason: FileReason };
 
 /**  One on-disk backup zip for a world. */
 export type Backup = {
@@ -4157,10 +4157,17 @@ export type Error =
 /**
  *  A settings sync point before a launch failed; the game did not start.
  *  `sync_kind` is `None` when the instance's sync settings themselves
- *  could not be read. The launch dialog offers to launch without sync, or
- *  to stop syncing `sync_kind` here.
+ *  could not be read; `file` is `None` when the failure was not about a
+ *  file. The launch dialog offers to launch without sync, or to stop
+ *  syncing `sync_kind` here. The raw error is in the log.
  */
-{ kind: "settings_sync_failed"; sync_kind: Kind | null; file: string; reason: string } | 
+{ kind: "settings_sync_failed"; sync_kind: Kind | null; file: SyncFile | null; reason: FileReason } | 
+/**
+ *  A settings-sync file could not be read, parsed or written: which file
+ *  and a reason class the UI says in plain words. `path` and `details`
+ *  (the raw OS or parser text) are for the log, never shown.
+ */
+{ kind: "settings_sync_file"; file: SyncFile; file_kind: Kind | null; reason: FileReason; path: string; details: string } | 
 /**
  *  A game started before Lucerna restarted still runs in this instance:
  *  syncing now could overwrite what it is about to save.
@@ -4584,6 +4591,15 @@ export type Fallback =
  *  Orthogonal to [`crate::mods::store::Placement`] — see [`DetailOutcome`].
  */
 export type Fetched = "downloaded" | "cached";
+
+/**  Why, in the words the UI uses. */
+export type FileReason = 
+/**  The file does not parse, or ends early. */
+"damaged" | 
+/**  Denied, or held by another program. */
+"no_access" | "not_found" | 
+/**  Anything else: the log has the details. */
+"other";
 
 /**
  *  What the Connect tab shows. `NotApplicable` = non-Windows; `Unknown` = port
@@ -5794,9 +5810,7 @@ export type Kind = "servers" | "history" | "hotbars";
 /**  How one kind's sync point ended. */
 export type KindOutcome = { kind: "synced" } | 
 /**  A join completed. */
-{ kind: "joined" } | 
-/**  A version step: re-baselined without capturing. */
-{ kind: "resynced" } | { kind: "unsupported"; why: Unsupported } | 
+{ kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
 /**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
 { kind: "older_than_shared" };
 
@@ -8767,7 +8781,7 @@ export type SidecarStatus = { status: "readable" } |
  *  The instance's sync settings cannot be read: nothing syncs until
  *  "Stop syncing" replaces them.
  */
-{ status: "unreadable"; reason: string };
+{ status: "unreadable"; reason: FileReason };
 
 /**  One saved skin, PNG payload included so the grid renders in one round-trip. */
 export type SkinLibraryItem = {
@@ -8988,12 +9002,30 @@ export type StrandedWorld = {
 	kind: StrandedKind,
 };
 
-/**  Why a sync did not happen, as the section shows it. */
+/**
+ *  Why a sync did not happen, as the UI says it: the kind that was syncing
+ *  (`None`: the sync settings themselves), the file (`None`: not a file
+ *  problem) and a reason class. The raw error is in the log.
+ */
 export type SyncFailure = {
 	kind: Kind | null,
-	file: string,
-	reason: string,
+	file: SyncFile | null,
+	reason: FileReason,
 };
+
+/**  Which file a sync step failed on. */
+export type SyncFile = 
+/**  This instance's own file in `.minecraft/` (`servers.dat`, …). */
+"game" | 
+/**  The shared copy every member instance syncs with. */
+"shared" | 
+/**  This instance's sync settings (`lucerna/settings-sync.json`). */
+"settings" | 
+/**
+ *  Lucerna's own records of the last sync (baselines, pending files,
+ *  the running-game marker).
+ */
+"records";
 
 /**  One file's provenance and outcome — a row in a per-file install report. */
 export type TaskDetail = {
