@@ -95,6 +95,11 @@ pub async fn modpack_import(
             install_progress,
         )
         .await?;
+        crate::commands::join_new_instance(
+            &app,
+            &outcome.instance.id,
+            crate::settings_sync::creation::Origin::ModpackImport,
+        );
         journal_pack_import(&app, &outcome.instance, outcome.details.clone());
         return Ok(outcome);
     }
@@ -121,6 +126,11 @@ pub async fn modpack_import(
         install_progress,
     )
     .await?;
+    crate::commands::join_new_instance(
+        &app,
+        &outcome.instance.id,
+        crate::settings_sync::creation::Origin::ModpackImport,
+    );
     journal_pack_import(&app, &outcome.instance, outcome.details.clone());
     Ok(outcome)
 }

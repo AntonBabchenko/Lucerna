@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 use crate::error::Error;
+use crate::settings_sync::creation::{on_created, Origin};
 use crate::settings_sync::engine::KindOutcome;
 use crate::settings_sync::membership::{self, SectionState};
 use crate::settings_sync::sidecar::Join;
@@ -27,6 +28,23 @@ fn roots(app: &tauri::AppHandle, instance_id: &str) -> Result<Roots, Error> {
         versions: crate::paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?,
         mc_version: instance.mc_version,
     })
+}
+
+/// Decide a new instance's settings-sync membership by its origin (spec
+/// §B7). The creation stands either way: a failure to decide (an unreadable
+/// app.json or source sidecar) is logged, and the instance does not join.
+pub(crate) fn join_new_instance(app: &tauri::AppHandle, instance_id: &str, origin: Origin) {
+    let paths = crate::paths::app_file(app).and_then(|app_json| {
+        crate::paths::instance_dir(app, instance_id).map(|root| (app_json, root))
+    });
+    match paths {
+        Ok((app_json, root)) => {
+            if let Err(e) = on_created(&app_json, &root, origin) {
+                crate::diag!("settings sync: {instance_id} did not join ({e})");
+            }
+        }
+        Err(e) => crate::diag!("settings sync: {instance_id} did not join ({e})"),
+    }
 }
 
 /// What the section shows: each kind's toggle, join and availability, and

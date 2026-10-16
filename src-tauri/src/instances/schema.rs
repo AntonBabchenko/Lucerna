@@ -462,6 +462,12 @@ pub struct GeneralSettings {
     /// user-supplied host while this is false.
     #[serde(default)]
     pub allow_server_ping: bool,
+    /// Settings sync (spec 2026-10-15 §B7): new instances, modpack imports
+    /// and clients made from a server join every kind their version can
+    /// sync; clones keep their source's choice; imports from other launchers
+    /// do not join. Off by default.
+    #[serde(default)]
+    pub settings_sync_new_instances: bool,
     /// LEGACY consent record. Versions 0.21.0–0.24.x let the user opt in to OS
     /// registration of the `lucerna://` link scheme; that toggle was retired.
     /// The only reader is `url_scheme_retire`, which uses it to decide whether a
@@ -526,6 +532,8 @@ pub struct GeneralSettingsPatch {
     pub java_defaults: Option<Vec<crate::java::JavaDefault>>,
     #[serde(default)]
     pub allow_server_ping: Option<bool>,
+    #[serde(default)]
+    pub settings_sync_new_instances: Option<bool>,
     #[serde(default)]
     pub register_url_scheme: Option<bool>,
     #[serde(default)]
@@ -604,6 +612,9 @@ impl GeneralSettings {
                 .unwrap_or(self.hidden_sidebar_buttons),
             java_defaults: p.java_defaults.unwrap_or(self.java_defaults),
             allow_server_ping: p.allow_server_ping.unwrap_or(self.allow_server_ping),
+            settings_sync_new_instances: p
+                .settings_sync_new_instances
+                .unwrap_or(self.settings_sync_new_instances),
             register_url_scheme: p.register_url_scheme.unwrap_or(self.register_url_scheme),
             allow_ai_translation: p.allow_ai_translation.unwrap_or(self.allow_ai_translation),
             ai_provider: p.ai_provider.unwrap_or(self.ai_provider),
@@ -630,6 +641,7 @@ impl Default for GeneralSettings {
             hidden_sidebar_buttons: Vec::new(),
             java_defaults: Vec::new(),
             allow_server_ping: false,
+            settings_sync_new_instances: false,
             register_url_scheme: false,
             allow_ai_translation: false,
             ai_provider: AiProvider::default(),
