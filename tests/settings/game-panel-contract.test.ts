@@ -85,6 +85,21 @@ describe('GamePanel — the settings contract', () => {
     expect(patch).toHaveBeenCalledWith({ game_start_window: 'minimise' });
   });
 
+  it('"New instances use shared settings" shows the saved value and patches only its own field', async () => {
+    get.mockResolvedValue({
+      status: 'ok',
+      data: { general: { ...GENERAL, settings_sync_new_instances: false } },
+    });
+    await loadAppSettings();
+    render(GamePanel);
+    const box = screen.getByTestId('settings-sync-new-instances') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(box.disabled).toBe(false);
+    await fireEvent.click(box);
+    await flush();
+    expect(patch).toHaveBeenCalledWith({ settings_sync_new_instances: true });
+  });
+
   it('a refused start-window save goes back to what is saved and says why, under the picker', async () => {
     await loadAppSettings();
     patch.mockResolvedValue(REFUSED);

@@ -1,10 +1,11 @@
 <script lang="ts">
-  // The Shared data section of the Settings tab (spec 2026-10-15 §A1): a
-  // one-time copy of mod data from another instance. Step 2 of the spec adds
-  // settings sync to this section.
+  // The Shared data section of the Settings tab (spec 2026-10-15): a one-time
+  // copy of mod data from another instance (§A1), and the game settings this
+  // instance shares with the others (§B9).
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import TransferDataDialog from '$lib/instances/transfer/TransferDataDialog.svelte';
+  import SettingsSyncRows from './SettingsSyncRows.svelte';
   import { Icon } from '$lib/ui/icons';
 
   let {
@@ -46,6 +47,7 @@
       {running ? $t('instance.transfer.lockedRunning') : $t('instance.transfer.lockedBusy')}
     </p>
   {/if}
+  <SettingsSyncRows instanceId={instance.id} {running} {busy} />
 </section>
 
 {#if open}

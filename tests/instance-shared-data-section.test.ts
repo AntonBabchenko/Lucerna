@@ -11,6 +11,11 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     transferScan: vi.fn(),
     runningInstances: vi.fn().mockResolvedValue([]),
+    // The section's settings-sync rows (their own tests: settings-sync-rows).
+    settingsSyncState: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { sidecar: { status: 'readable' }, kinds: [], last_error: null },
+    }),
   },
   events: {
     processSpawned: { listen: () => Promise.resolve(() => {}) },

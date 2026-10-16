@@ -18,6 +18,7 @@ export type SettingsAnchor =
   | 'appearance.sidebarButtons'
   | 'game.tray'
   | 'game.serverPing'
+  | 'game.settingsSync'
   | 'game.gpu'
   | 'game.java'
   | 'integrations.curseforgeKey'
@@ -146,6 +147,13 @@ export const SETTINGS_SEARCH: Record<SettingsAnchor, SettingsSearchEntry> = {
     labelKey: 'settings.search.labels.game.serverPing',
     keywordsKey: 'settings.search.keywords.game.serverPing',
     visibleKeys: ['settings.general.serverPing.title', 'settings.general.serverPing.label'],
+  },
+  'game.settingsSync': {
+    anchor: 'game.settingsSync',
+    tab: 'game',
+    labelKey: 'settings.search.labels.game.settingsSync',
+    keywordsKey: 'settings.search.keywords.game.settingsSync',
+    visibleKeys: ['settings.general.settingsSync.title', 'settings.general.settingsSync.label'],
   },
   'game.gpu': {
     anchor: 'game.gpu',

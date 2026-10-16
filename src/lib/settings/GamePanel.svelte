@@ -276,6 +276,37 @@
     </div>
   </SettingsField>
 
+  <!-- Whether a NEW instance joins settings sync (spec 2026-10-15 §B7, §B9).
+       Decided once, at creation, by where the instance came from; an existing
+       instance is changed in its own Settings tab. -->
+  <SettingsField anchor="game.settingsSync">
+    <div class="flex flex-col gap-3">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.general.settingsSync.title')}</h3>
+      <div class="flex flex-col gap-1">
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            checked={general?.settings_sync_new_instances ?? false}
+            disabled={!loaded}
+            aria-describedby="game-settings-sync-desc"
+            onchange={(e) => void set('settings_sync_new_instances', e.currentTarget.checked)}
+            data-testid="settings-sync-new-instances"
+          />
+          <span class="text-sm text-primary">{$t('settings.general.settingsSync.label')}</span>
+        </label>
+        <p id="game-settings-sync-desc" class="pl-6 text-xs text-muted">
+          {$t('settings.general.settingsSync.description')}
+        </p>
+      </div>
+      <StatusMessage
+        dataTestid="save-failure-settings_sync_new_instances"
+        message={saveFailure('settings_sync_new_instances')}
+        tone="danger"
+      />
+    </div>
+  </SettingsField>
+
   {#if gpu === 'checking'}
     <LoadingPanel label={$t('common.loading')} size="sm" />
   {:else if gpuCap?.kind === 'available'}
