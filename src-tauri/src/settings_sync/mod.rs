@@ -10,6 +10,7 @@
 //! `AppHandle`, so it is tested directly.
 
 pub(crate) mod baseline;
+pub mod engine;
 pub(crate) mod fsio;
 pub(crate) mod history;
 pub(crate) mod hotbars;

@@ -59,7 +59,7 @@ pub(crate) fn read(path: &Path) -> Result<Option<Vec<Entry>>> {
         .map_err(|why| Error::io(path.display().to_string(), why))
 }
 
-fn parse(bytes: &[u8]) -> std::result::Result<Vec<Entry>, String> {
+pub(crate) fn parse(bytes: &[u8]) -> std::result::Result<Vec<Entry>, String> {
     let root: Value = fastnbt::from_bytes(bytes).map_err(|e| format!("not NBT: {e}"))?;
     from_root(root)
 }

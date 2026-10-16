@@ -42,7 +42,7 @@ pub(crate) fn read(path: &Path) -> Result<Option<(Vec<String>, Sep)>> {
     Ok(Some(split(&text)))
 }
 
-fn split(text: &str) -> (Vec<String>, Sep) {
+pub(crate) fn split(text: &str) -> (Vec<String>, Sep) {
     let sep = if text.contains("\r\n") {
         Sep::CrLf
     } else {
