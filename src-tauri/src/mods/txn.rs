@@ -177,7 +177,33 @@ struct Record {
 #[derive(Debug, Clone)]
 pub enum RecoveredOutcome {
     Restored,
-    Incomplete { folder: String, details: String },
+    Incomplete {
+        folder: String,
+        details: String,
+    },
+    /// A closed token still held the files its commit kept (the move at close
+    /// failed, or the launcher stopped first); they are in `folder` now.
+    KeptAside {
+        folder: String,
+    },
+    /// That move failed again: the token is set aside whole, as `folder`, and
+    /// no later start touches it.
+    KeptInPlace {
+        folder: String,
+        details: String,
+    },
+}
+
+/// Where a committed transaction's `Keep` files went.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeptAside {
+    /// Nothing to keep: a `Delete` plan, or nothing was set aside.
+    None,
+    /// Moved to this folder (the plan's, or `<plan's> (2)` … when taken).
+    Moved(PathBuf),
+    /// Committed, but the move failed: the files wait in this folder inside
+    /// the closed token, and the next start moves them.
+    InToken(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -325,6 +351,14 @@ pub async fn begin(lock: TxnLock, plan: Plan) -> Result<Txn, Error> {
         guard,
         instance_root,
     } = lock;
+    if let SetAsideDisposal::Keep { folder } = &plan.set_aside {
+        if !safe_rel(folder) {
+            return Err(Error::ModsInstancePath {
+                path: folder.clone(),
+                details: "not a folder inside the instance".into(),
+            });
+        }
+    }
     let root = txn_root(&instance_root);
     match pending_tokens(&instance_root) {
         Ok(pending) => {
@@ -427,9 +461,15 @@ impl Txn {
     /// Commit on `Ok` (rolling back when the commit cannot be recorded), roll
     /// back on `Err`.
     pub async fn finish<T>(self, outcome: Result<T, Error>) -> Result<T, Error> {
+        self.finish_kept(outcome).await.map(|(value, _)| value)
+    }
+
+    /// [`Txn::finish`], also saying where a `Keep` plan's set-aside files
+    /// went — the caller reports that folder and never guesses it.
+    pub async fn finish_kept<T>(self, outcome: Result<T, Error>) -> Result<(T, KeptAside), Error> {
         match outcome {
             Ok(value) => match self.close().await {
-                Ok(()) => Ok(value),
+                Ok(kept) => Ok((value, kept)),
                 Err(e) => Err(self.rollback(e).await),
             },
             Err(e) => Err(self.rollback(e).await),
@@ -459,7 +499,44 @@ impl Txn {
         }
     }
 
-    async fn close(&self) -> Result<(), Error> {
+    /// Close the record, then move a `Keep` plan's files to its folder.
+    async fn close(&self) -> Result<KeptAside, Error> {
+        self.close_record().await?;
+        let kept = match keep_set_aside(&self.instance_root, &self.dir).await {
+            Ok(Some(folder)) => KeptAside::Moved(folder),
+            Ok(None) => KeptAside::None,
+            Err(e) => {
+                // Committed; the replaced files stay in the closed token and the
+                // next start's sweep moves them (`keep_set_aside` again).
+                crate::diag!(
+                    "content txn: closed {} but could not move its kept files ({e}); the next start retries",
+                    self.dir.display()
+                );
+                return Ok(KeptAside::InToken(self.dir.join(FILES_DIR)));
+            }
+        };
+        discard_dir(&self.dir, "after closing it (the next start removes it)").await;
+        Ok(kept)
+    }
+
+    /// After a clean undo every set-aside file is back, so nothing is kept:
+    /// the marker goes first, or a later sweep would move the empty `files/`
+    /// skeleton and announce it as kept files. A marker that cannot go leaves
+    /// the token pending; the next start undoes it again (an undo repeats
+    /// safely) and retries.
+    async fn close_undone(&self) -> Result<(), Error> {
+        let keep = self.dir.join(KEEP_FILE);
+        match fs::remove_file(&keep).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_err(&keep, e)),
+        }
+        self.close_record().await?;
+        discard_dir(&self.dir, "after undoing it (the next start removes it)").await;
+        Ok(())
+    }
+
+    async fn close_record(&self) -> Result<(), Error> {
         let marker = self.dir.join(CLOSED_FILE);
         let record = self.dir.join(RECORD_FILE);
         let marked = fs::write(&marker, b"").await;
@@ -487,16 +564,6 @@ impl Txn {
             ),
             (Ok(()), Ok(())) => {}
         }
-        if let Err(e) = keep_set_aside(&self.instance_root, &self.dir).await {
-            // Committed; the replaced files stay in the closed token and the
-            // next start's sweep moves them (`keep_set_aside` again).
-            crate::diag!(
-                "content txn: closed {} but could not move its kept files ({e}); the next start retries",
-                self.dir.display()
-            );
-            return Ok(());
-        }
-        discard_dir(&self.dir, "after closing it (the next start removes it)").await;
         Ok(())
     }
 
@@ -509,7 +576,7 @@ impl Txn {
         )
         .await;
         if stuck.is_empty() {
-            if let Err(e) = self.close().await {
+            if let Err(e) = self.close_undone().await {
                 crate::diag!(
                     "content txn: undid {} but could not close it ({e}); it is undone again at the next start",
                     self.dir.display()
@@ -842,11 +909,36 @@ async fn scan(instance_root: &Path, session_start_ms: u64, undo_pending: bool) -
         let dir = root.join(&name);
         match token_state(&dir).await {
             Ok(TokenState::Closed) => match keep_set_aside(instance_root, &dir).await {
-                Ok(()) => discard_dir(&dir, "(a closed update)").await,
-                Err(e) => crate::diag!(
-                    "content txn: the kept files of {} could not be moved ({e}); left in place",
-                    dir.display()
-                ),
+                Ok(moved) => {
+                    discard_dir(&dir, "(a closed update)").await;
+                    if let Some(folder) = moved {
+                        crate::diag!(
+                            "content txn: moved the kept files of {} to {}",
+                            dir.display(),
+                            folder.display()
+                        );
+                        out.push(Recovered {
+                            token: name,
+                            // The record went at close; the marker names only the folder.
+                            kind: None,
+                            outcome: RecoveredOutcome::KeptAside {
+                                folder: folder.display().to_string(),
+                            },
+                        });
+                    }
+                }
+                Err(e) => {
+                    let why = format!("its kept files could not be moved out: {e}");
+                    crate::diag!("content txn: {}: {why}", dir.display());
+                    out.push(Recovered {
+                        token: name,
+                        kind: None,
+                        outcome: RecoveredOutcome::KeptInPlace {
+                            folder: set_aside_dir(&dir).await.display().to_string(),
+                            details: why,
+                        },
+                    });
+                }
             },
             Ok(TokenState::Pending) => pending.push((ms, name)),
             Err(e) => out.push(
@@ -904,18 +996,19 @@ async fn scan(instance_root: &Path, session_start_ms: u64, undo_pending: bool) -
 }
 
 /// A token's `keep` marker names where its set-aside `files/` go instead of
-/// being deleted with it. Moves them there; `Ok` when there is no marker or
-/// nothing set aside. On `Err` nothing moved and the token must stay: deleting
-/// it would delete the user's replaced files.
-async fn keep_set_aside(instance_root: &Path, dir: &Path) -> std::io::Result<()> {
+/// being deleted with it. Moves them there and returns where they went (a
+/// taken name gets " (2)" …); `Ok(None)` when there is no marker or nothing
+/// set aside. On `Err` nothing moved and the token must stay: deleting it
+/// would delete the user's replaced files.
+async fn keep_set_aside(instance_root: &Path, dir: &Path) -> std::io::Result<Option<PathBuf>> {
     let folder = match fs::read_to_string(dir.join(KEEP_FILE)).await {
         Ok(folder) => folder,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
     let files = dir.join(FILES_DIR);
     if !fs::try_exists(&files).await? {
-        return Ok(());
+        return Ok(None);
     }
     if !safe_rel(&folder) {
         return Err(std::io::Error::other(format!(
@@ -926,7 +1019,8 @@ async fn keep_set_aside(instance_root: &Path, dir: &Path) -> std::io::Result<()>
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).await?;
     }
-    fs::rename(&files, &dest).await
+    fs::rename(&files, &dest).await?;
+    Ok(Some(dest))
 }
 
 /// `path`, or `path (2)` … `path (99)` when taken: a second copy in the same
@@ -951,14 +1045,20 @@ async fn unique_dest(path: &Path) -> std::io::Result<PathBuf> {
     )))
 }
 
-async fn set_aside(dir: &Path, name: &str, kind: Option<TxnKind>, why: String) -> Recovered {
-    let folder = match trash::keep_out_of_purge(dir).await {
+/// Rename `dir` out of every purge's reach; the folder it is in now. A rename
+/// that fails leaves it where it is, and the next start meets it again.
+async fn set_aside_dir(dir: &Path) -> PathBuf {
+    match trash::keep_out_of_purge(dir).await {
         Ok(kept) => kept,
         Err(e) => {
             crate::diag!("content txn: could not set {} aside: {e}", dir.display());
             dir.to_path_buf()
         }
-    };
+    }
+}
+
+async fn set_aside(dir: &Path, name: &str, kind: Option<TxnKind>, why: String) -> Recovered {
+    let folder = set_aside_dir(dir).await;
     crate::diag!("content txn: set {} aside: {why}", folder.display());
     Recovered {
         token: name.to_string(),
@@ -1986,5 +2086,161 @@ mod tests {
             std::fs::read(content_path(root, "schematics/a.nbt")).unwrap(),
             b"A"
         );
+        assert!(
+            !root.join("lucerna/replaced").exists(),
+            "an undone copy replaced nothing, so nothing is kept"
+        );
+    }
+
+    /// Stage one replaced file under a keep plan into `folder`.
+    async fn staged_keep(root: &Path, folder: &str) -> Txn {
+        let sha = place(root, "schematics/base.litematic", b"OLD");
+        let txn = begin(
+            lock(root).await,
+            keep_plan(
+                vec![staged("schematics/base.litematic", &sha, None)],
+                folder,
+            ),
+        )
+        .await
+        .unwrap();
+        let entry = txn.plan().stage[0].clone();
+        txn.stage(&entry).await.unwrap();
+        txn
+    }
+
+    #[tokio::test]
+    async fn a_rolled_back_keep_leaves_no_replaced_folder() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let txn = staged_keep(root, "lucerna/replaced/R4").await;
+        let _undone = txn.rollback(Error::InstanceBusy).await;
+        assert_eq!(
+            std::fs::read(content_path(root, "schematics/base.litematic")).unwrap(),
+            b"OLD"
+        );
+        assert!(
+            !root.join("lucerna/replaced").exists(),
+            "the undo put every file back: its empty set-aside folder is not kept"
+        );
+        assert!(txn_entries(root).is_empty(), "{:?}", txn_entries(root));
+    }
+
+    #[tokio::test]
+    async fn finish_kept_names_the_folder_the_files_went_to() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        // An earlier copy in the same second already holds this name.
+        let earlier = root.join("lucerna/replaced/R5");
+        std::fs::create_dir_all(&earlier).unwrap();
+        std::fs::write(earlier.join("other.txt"), b"EARLIER").unwrap();
+        let txn = staged_keep(root, "lucerna/replaced/R5").await;
+        let ((), kept) = txn.finish_kept(Ok(())).await.unwrap();
+        let moved = root.join("lucerna/replaced/R5 (2)");
+        assert_eq!(kept, KeptAside::Moved(moved.clone()));
+        assert_eq!(
+            std::fs::read(moved.join("schematics/base.litematic")).unwrap(),
+            b"OLD"
+        );
+        assert_eq!(
+            std::fs::read(earlier.join("other.txt")).unwrap(),
+            b"EARLIER",
+            "the earlier copy's folder is untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn finish_kept_reports_nothing_for_a_delete_plan() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "mods/a.jar", b"A");
+        let txn = begin(
+            lock(root).await,
+            plan(vec![staged("mods/a.jar", &sha, None)], vec![]),
+        )
+        .await
+        .unwrap();
+        let entry = txn.plan().stage[0].clone();
+        txn.stage(&entry).await.unwrap();
+        let ((), kept) = txn.finish_kept(Ok(())).await.unwrap();
+        assert_eq!(kept, KeptAside::None);
+    }
+
+    #[tokio::test]
+    async fn a_keep_move_that_fails_at_close_names_the_token_folder() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        // A file where the kept folder's parent must go: the move cannot run.
+        std::fs::create_dir_all(root.join("lucerna")).unwrap();
+        std::fs::write(root.join("lucerna/replaced"), b"not a folder").unwrap();
+        let txn = staged_keep(root, "lucerna/replaced/R6").await;
+        let ((), kept) = txn.finish_kept(Ok(())).await.unwrap();
+        let KeptAside::InToken(at) = kept else {
+            panic!("expected the files to wait in the token, got {kept:?}");
+        };
+        assert_eq!(
+            std::fs::read(at.join("schematics/base.litematic")).unwrap(),
+            b"OLD",
+            "the replaced file is where the result says"
+        );
+    }
+
+    #[tokio::test]
+    async fn begin_refuses_an_unsafe_keep_folder() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "schematics/a.nbt", b"A");
+        let got = begin(
+            lock(root).await,
+            keep_plan(vec![staged("schematics/a.nbt", &sha, None)], "../outside"),
+        )
+        .await;
+        assert!(got.is_err());
+        assert!(txn_entries(root).is_empty(), "{:?}", txn_entries(root));
+    }
+
+    #[tokio::test]
+    async fn the_startup_sweep_reports_where_it_moved_kept_files() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let dir = txn_root(root).join("1000-abcdef13");
+        std::fs::create_dir_all(dir.join(FILES_DIR)).unwrap();
+        std::fs::write(dir.join(FILES_DIR).join("w.txt"), b"W").unwrap();
+        std::fs::write(dir.join(KEEP_FILE), b"lucerna/replaced/R7").unwrap();
+        std::fs::write(dir.join(CLOSED_FILE), b"").unwrap();
+        let got = sweep_closed(root, u64::MAX).await;
+        assert_eq!(got.len(), 1, "{got:?}");
+        let RecoveredOutcome::KeptAside { folder } = &got[0].outcome else {
+            panic!("{:?}", got[0].outcome);
+        };
+        assert_eq!(
+            PathBuf::from(folder),
+            root.join("lucerna/replaced/R7"),
+            "the notice names the folder the files are in"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_startup_keep_that_fails_sets_the_token_aside_and_says_so() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let dir = txn_root(root).join("1000-abcdef14");
+        std::fs::create_dir_all(dir.join(FILES_DIR)).unwrap();
+        std::fs::write(dir.join(FILES_DIR).join("w.txt"), b"W").unwrap();
+        std::fs::write(dir.join(KEEP_FILE), b"../outside").unwrap();
+        std::fs::write(dir.join(CLOSED_FILE), b"").unwrap();
+        let got = sweep_closed(root, u64::MAX).await;
+        assert_eq!(got.len(), 1, "{got:?}");
+        let RecoveredOutcome::KeptInPlace { folder, .. } = &got[0].outcome else {
+            panic!("{:?}", got[0].outcome);
+        };
+        assert_eq!(
+            std::fs::read(PathBuf::from(folder).join(FILES_DIR).join("w.txt")).unwrap(),
+            b"W",
+            "the files are in the folder the notice names"
+        );
+        // Set aside: no later start retries it, or deletes it.
+        assert!(sweep_closed(root, u64::MAX).await.is_empty());
+        assert!(PathBuf::from(folder).exists());
     }
 }

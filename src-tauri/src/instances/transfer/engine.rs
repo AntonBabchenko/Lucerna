@@ -223,16 +223,15 @@ pub async fn run(req: Request, seams: Seams, progress: Progress) -> Result<Trans
         &progress,
     )
     .await;
-    if let Err(e) = finish(transaction, committed).await {
-        remove_created(&created);
-        remove_op_dir(&op_dir);
-        return Err(e);
-    }
-    let replaced_kept_at = if replaced > 0 {
-        dispose(&req.target_root, &folder, aside_bytes, &seams).await
-    } else {
-        None
+    let kept = match finish(transaction, committed).await {
+        Ok(kept) => kept,
+        Err(e) => {
+            remove_created(&created);
+            remove_op_dir(&op_dir);
+            return Err(e);
+        }
     };
+    let replaced_kept_at = dispose(kept, aside_bytes, &seams).await;
     remove_op_dir(&op_dir);
     // The service folders this copy may have created, once nothing is in them.
     remove_if_empty(&req.target_root.join("lucerna").join("replaced"));
@@ -414,11 +413,14 @@ async fn commit(
 }
 
 /// Commit or undo, and word the error as a copy's, never an update's.
-async fn finish(transaction: txn::Txn, committed: Result<(), Error>) -> Result<(), Error> {
+async fn finish(
+    transaction: txn::Txn,
+    committed: Result<(), Error>,
+) -> Result<txn::KeptAside, Error> {
     let result = match committed {
-        // A close that cannot be recorded rolls back inside `finish`; its
-        // clean error is the close error itself.
-        Ok(()) => transaction.finish(Ok(())).await,
+        // A close that cannot be recorded rolls back inside `finish_kept`;
+        // its clean error is the close error itself.
+        Ok(()) => transaction.finish_kept(Ok(())).await.map(|((), kept)| kept),
         Err(cause) => Err(transaction
             .rollback_as(cause, |cause| Error::TransferFailed {
                 cause: Box::new(cause),
@@ -556,14 +558,19 @@ fn replaced_folder(target_name: &str, now: SystemTime) -> String {
     )
 }
 
-/// Send the replaced files to the Recycle Bin, or say where they are.
-async fn dispose(target_root: &Path, folder: &str, bytes: u64, seams: &Seams) -> Option<String> {
-    let kept = join_rel(target_root, folder);
-    if std::fs::symlink_metadata(&kept).is_err() {
-        // Still in the closed transaction's folder (its move failed and was
-        // logged); the next start moves it.
-        return Some(txn::txn_root(target_root).display().to_string());
-    }
+/// Send the replaced files to the Recycle Bin, or say where they are. `kept`
+/// is where the transaction itself put them — never a folder guessed by name,
+/// which an earlier copy in the same second may hold.
+async fn dispose(kept: txn::KeptAside, bytes: u64, seams: &Seams) -> Option<String> {
+    let kept = match kept {
+        // Nothing was replaced (a Keep plan with files always has its marker:
+        // `begin` refuses without one).
+        txn::KeptAside::None => return None,
+        // The move out of the closed transaction failed (logged); the next
+        // start moves them and says where.
+        txn::KeptAside::InToken(at) => return Some(at.display().to_string()),
+        txn::KeptAside::Moved(folder) => folder,
+    };
     if bytes > seams.keep_over_bytes {
         return Some(kept.display().to_string());
     }
@@ -771,6 +778,44 @@ mod tests {
             b"OLD"
         );
         assert!(seen.lock().unwrap().is_empty());
+    }
+
+    /// An earlier copy's kept folder holds the name this copy would get (same
+    /// second): this copy's files go to "<name> (2)", and only those are
+    /// recycled — never the earlier copy's.
+    #[tokio::test]
+    async fn the_bin_gets_this_copys_folder_never_an_earlier_one() {
+        let p = pair();
+        write(&p.src_mc, "schematics/a.nbt", b"NEW");
+        write(&dst_mc(&p), "schematics/a.nbt", b"OLD");
+        let now = SystemTime::now();
+        let earlier: Vec<PathBuf> = (0..3)
+            .map(|s| {
+                let at = now + std::time::Duration::from_secs(s);
+                let dir = join_rel(&p.dst_root, &replaced_folder("New", at));
+                write(&dir, "earlier.txt", b"EARLIER");
+                dir
+            })
+            .collect();
+        let (seen, bin) = recorded_bin();
+        let out = run(
+            request(&p, &schematics(), OnConflict::Replace),
+            Seams::with_recycle(bin),
+            no_progress(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.replaced_kept_at, None);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert!(seen[0].to_string_lossy().ends_with(" (2)"), "{:?}", seen[0]);
+        for dir in &earlier {
+            assert_eq!(
+                std::fs::read(dir.join("earlier.txt")).unwrap(),
+                b"EARLIER",
+                "{dir:?}"
+            );
+        }
     }
 
     #[tokio::test]

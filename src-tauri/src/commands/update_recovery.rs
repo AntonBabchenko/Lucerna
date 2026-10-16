@@ -27,6 +27,8 @@ use crate::mods::txn::{self, RecoveredOutcome};
 pub enum RecoveryOutcome {
     Restored,
     Incomplete { folder: String, details: String },
+    KeptAside { folder: String },
+    KeptInPlace { folder: String, details: String },
 }
 
 /// What the interrupted operation was, for the notice's wording.
@@ -35,6 +37,7 @@ pub enum RecoveryOutcome {
 pub enum RecoveredOperation {
     Update,
     DataCopy { source: String },
+    Unknown,
 }
 
 /// One interrupted update the startup recovery dealt with.
@@ -127,18 +130,7 @@ pub fn start_update_recovery(
                 None => txn::sweep_closed(&root, session_start_ms).await,
             };
             for r in results {
-                let operation = match &r.kind {
-                    Some(txn::TxnKind::DataCopy { source }) => RecoveredOperation::DataCopy {
-                        source: source.clone(),
-                    },
-                    _ => RecoveredOperation::Update,
-                };
-                let outcome = match r.outcome {
-                    RecoveredOutcome::Restored => RecoveryOutcome::Restored,
-                    RecoveredOutcome::Incomplete { folder, details } => {
-                        RecoveryOutcome::Incomplete { folder, details }
-                    }
-                };
+                let (operation, outcome) = report_entry(r.kind, r.outcome);
                 crate::diag!("{}", recovery_log_line(&id, &name, &outcome, &operation));
                 report.push(RecoveredUpdate {
                     instance_id: id.clone(),
@@ -250,10 +242,46 @@ fn recovery_log_line(
         (RecoveryOutcome::Restored, RecoveredOperation::Update) => {
             format!("[update-recovery] «{name}» ({id}): undid an update that was cut off")
         }
+        (RecoveryOutcome::Restored, RecoveredOperation::Unknown) => {
+            format!("[update-recovery] «{name}» ({id}): undid a change that was cut off")
+        }
         (RecoveryOutcome::Incomplete { folder, details }, _) => format!(
             "[update-recovery] «{name}» ({id}): left in {folder}, not fully put back: {details}"
         ),
+        (RecoveryOutcome::KeptAside { folder }, _) => format!(
+            "[update-recovery] «{name}» ({id}): moved files an earlier copy replaced to {folder}"
+        ),
+        (RecoveryOutcome::KeptInPlace { folder, details }, _) => format!(
+            "[update-recovery] «{name}» ({id}): files an earlier copy replaced stay in {folder}: {details}"
+        ),
     }
+}
+
+/// What the notice says about one token. Only a record names the operation; a
+/// token without one (unreadable, or closed with its record gone) is
+/// `Unknown`, never guessed to be an update.
+fn report_entry(
+    kind: Option<txn::TxnKind>,
+    outcome: RecoveredOutcome,
+) -> (RecoveredOperation, RecoveryOutcome) {
+    let operation = match kind {
+        Some(txn::TxnKind::DataCopy { source }) => RecoveredOperation::DataCopy { source },
+        Some(txn::TxnKind::PackUpdate { .. } | txn::TxnKind::ModUpdate { .. }) => {
+            RecoveredOperation::Update
+        }
+        None => RecoveredOperation::Unknown,
+    };
+    let outcome = match outcome {
+        RecoveredOutcome::Restored => RecoveryOutcome::Restored,
+        RecoveredOutcome::Incomplete { folder, details } => {
+            RecoveryOutcome::Incomplete { folder, details }
+        }
+        RecoveredOutcome::KeptAside { folder } => RecoveryOutcome::KeptAside { folder },
+        RecoveredOutcome::KeptInPlace { folder, details } => {
+            RecoveryOutcome::KeptInPlace { folder, details }
+        }
+    };
+    (operation, outcome)
 }
 
 fn signal_done(tx: &tokio::sync::watch::Sender<bool>) {
@@ -340,5 +368,57 @@ mod tests {
             set_aside.contains("its record could not be read: eof"),
             "{set_aside}"
         );
+        let moved = recovery_log_line(
+            "Pack-1",
+            "Pack",
+            &RecoveryOutcome::KeptAside {
+                folder: "lucerna/replaced/R".into(),
+            },
+            &RecoveredOperation::Unknown,
+        );
+        assert!(
+            moved.contains("moved files an earlier copy replaced to lucerna/replaced/R"),
+            "{moved}"
+        );
+    }
+
+    /// A token whose record could not be read does not say what it was: the
+    /// notice must not call it an update (it may be a data copy).
+    #[test]
+    fn an_unknown_kind_is_reported_as_unknown() {
+        let (operation, _) = report_entry(
+            None,
+            RecoveredOutcome::Incomplete {
+                folder: "f-kept".into(),
+                details: "eof".into(),
+            },
+        );
+        assert!(matches!(operation, RecoveredOperation::Unknown));
+        let (operation, _) = report_entry(
+            Some(txn::TxnKind::ModUpdate {
+                name: "m".into(),
+                from: None,
+                to: "2".into(),
+            }),
+            RecoveredOutcome::Restored,
+        );
+        assert!(matches!(operation, RecoveredOperation::Update));
+    }
+
+    #[test]
+    fn kept_files_outcomes_keep_their_own_kind() {
+        let (_, outcome) = report_entry(None, RecoveredOutcome::KeptAside { folder: "R".into() });
+        assert!(matches!(outcome, RecoveryOutcome::KeptAside { folder } if folder == "R"));
+        let (_, outcome) = report_entry(
+            None,
+            RecoveredOutcome::KeptInPlace {
+                folder: "t-kept".into(),
+                details: "denied".into(),
+            },
+        );
+        assert!(matches!(
+            outcome,
+            RecoveryOutcome::KeptInPlace { folder, details } if folder == "t-kept" && details == "denied"
+        ));
     }
 }
