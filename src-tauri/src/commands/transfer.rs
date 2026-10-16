@@ -1,6 +1,6 @@
 //! Mod-data transfer between instances (spec 2026-10-15 Part A).
 
-use crate::error::{Error, TransferRole};
+use crate::error::Error;
 use crate::instances::transfer::{
     engine, ModDataSummary, OnConflict, TransferOutcome, TransferPreview, TransferProgress,
     TransferSelection,
@@ -52,21 +52,10 @@ pub async fn transfer_mod_data(
     }
     let source = crate::instances::read_instance(&app, &source_id)?;
     let target = crate::instances::read_instance(&app, &target_id)?;
-    // `InstanceBusy` names no instance; a copy involves two, so say which.
-    let busy = |name: &str, role: TransferRole| {
-        let name = name.to_string();
-        move |e: Error| match e {
-            Error::InstanceBusy => Error::TransferInstanceBusy {
-                instance_name: name,
-                role,
-            },
-            other => other,
-        }
-    };
-    let target_claim = crate::instances::maintenance::claim_write(&target_id)
-        .map_err(busy(&target.name, TransferRole::Target))?;
-    let source_claim = crate::instances::maintenance::claim_write(&source_id)
-        .map_err(busy(&source.name, TransferRole::Source))?;
+    let (target_claim, source_claim) = crate::instances::transfer::claim_both(
+        (&target_id, &target.name),
+        (&source_id, &source.name),
+    )?;
     let source_mc = crate::paths::minecraft_dir(&app, &source_id)
         .map_err(|e| Error::io("<minecraft_dir>", e))?;
     let target_root =

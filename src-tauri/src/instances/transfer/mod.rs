@@ -16,7 +16,33 @@ pub use engine::{OnConflict, TransferOutcome, TransferPhase, TransferProgress, T
 pub use preview::{ItemPreview, OtherPreview, Refusal, RootPreview, TransferPreview};
 
 use crate::content_root::{content_at, Content, Expect};
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, TransferRole};
+use crate::instances::maintenance::MaintenanceGuard;
+
+/// Both instances' maintenance claims for one copy: the target's, then the
+/// source's. Neither can then be launched or written until the guards drop.
+/// A refusal names the busy instance and its side (`InstanceBusy` names
+/// none); a refused source claim drops the target's before the error leaves.
+pub fn claim_both(
+    target: (&str, &str),
+    source: (&str, &str),
+) -> Result<(MaintenanceGuard, MaintenanceGuard)> {
+    let busy = |name: &str, role: TransferRole| {
+        let name = name.to_string();
+        move |e: Error| match e {
+            Error::InstanceBusy => Error::TransferInstanceBusy {
+                instance_name: name,
+                role,
+            },
+            other => other,
+        }
+    };
+    let target_claim = crate::instances::maintenance::claim_write(target.0)
+        .map_err(busy(target.1, TransferRole::Target))?;
+    let source_claim = crate::instances::maintenance::claim_write(source.0)
+        .map_err(busy(source.1, TransferRole::Source))?;
+    Ok((target_claim, source_claim))
+}
 
 /// Mod data a clone would copy, for the clone dialog's row (spec §A6).
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, specta::Type)]
@@ -98,6 +124,46 @@ mod tests {
         let p = join_rel(base, rel);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, b"x").unwrap();
+    }
+
+    #[test]
+    fn a_busy_source_is_named_and_the_target_claim_is_released() {
+        let held = crate::instances::maintenance::claim_write("transfer-test-src-1").unwrap();
+        let err = claim_both(
+            ("transfer-test-dst-1", "Dst"),
+            ("transfer-test-src-1", "Src"),
+        )
+        .err()
+        .expect("the source is held");
+        assert_eq!(
+            err,
+            Error::TransferInstanceBusy {
+                instance_name: "Src".into(),
+                role: TransferRole::Source
+            }
+        );
+        drop(held);
+        let again = crate::instances::maintenance::claim_write("transfer-test-dst-1");
+        assert!(again.is_ok(), "the target claim was released");
+    }
+
+    #[test]
+    fn a_busy_target_is_named() {
+        let held = crate::instances::maintenance::claim_write("transfer-test-dst-2").unwrap();
+        let err = claim_both(
+            ("transfer-test-dst-2", "Dst"),
+            ("transfer-test-src-2", "Src"),
+        )
+        .err()
+        .expect("the target is held");
+        assert_eq!(
+            err,
+            Error::TransferInstanceBusy {
+                instance_name: "Dst".into(),
+                role: TransferRole::Target
+            }
+        );
+        drop(held);
     }
 
     #[test]

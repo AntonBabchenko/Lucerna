@@ -139,7 +139,7 @@ pub fn start_update_recovery(
                         RecoveryOutcome::Incomplete { folder, details }
                     }
                 };
-                crate::diag!("{}", recovery_log_line(&id, &name, &outcome));
+                crate::diag!("{}", recovery_log_line(&id, &name, &outcome, &operation));
                 report.push(RecoveredUpdate {
                     instance_id: id.clone(),
                     instance_name: name.clone(),
@@ -237,12 +237,20 @@ fn instance_name(root: &Path) -> Option<String> {
 /// The log line for one update the start dealt with. An incomplete outcome is
 /// not always an undo that stopped — a token whose record could not be read is
 /// set aside untouched — so it names the folder and the reason as given.
-fn recovery_log_line(id: &str, name: &str, outcome: &RecoveryOutcome) -> String {
-    match outcome {
-        RecoveryOutcome::Restored => {
+fn recovery_log_line(
+    id: &str,
+    name: &str,
+    outcome: &RecoveryOutcome,
+    operation: &RecoveredOperation,
+) -> String {
+    match (outcome, operation) {
+        (RecoveryOutcome::Restored, RecoveredOperation::DataCopy { source }) => format!(
+            "[update-recovery] «{name}» ({id}): undid a copy of data from «{source}» that was cut off"
+        ),
+        (RecoveryOutcome::Restored, RecoveredOperation::Update) => {
             format!("[update-recovery] «{name}» ({id}): undid an update that was cut off")
         }
-        RecoveryOutcome::Incomplete { folder, details } => format!(
+        (RecoveryOutcome::Incomplete { folder, details }, _) => format!(
             "[update-recovery] «{name}» ({id}): left in {folder}, not fully put back: {details}"
         ),
     }
@@ -295,8 +303,24 @@ mod tests {
     #[test]
     fn recovery_log_line_names_the_instance_and_what_happened() {
         assert_eq!(
-            recovery_log_line("Pack-1", "Pack", &RecoveryOutcome::Restored),
+            recovery_log_line(
+                "Pack-1",
+                "Pack",
+                &RecoveryOutcome::Restored,
+                &RecoveredOperation::Update
+            ),
             "[update-recovery] «Pack» (Pack-1): undid an update that was cut off"
+        );
+        assert_eq!(
+            recovery_log_line(
+                "Pack-1",
+                "Pack",
+                &RecoveryOutcome::Restored,
+                &RecoveredOperation::DataCopy {
+                    source: "Old".into()
+                }
+            ),
+            "[update-recovery] «Pack» (Pack-1): undid a copy of data from «Old» that was cut off"
         );
         let set_aside = recovery_log_line(
             "Pack-1",
@@ -305,6 +329,7 @@ mod tests {
                 folder: "f-kept".into(),
                 details: "its record could not be read: eof".into(),
             },
+            &RecoveredOperation::Update,
         );
         assert!(
             set_aside.starts_with("[update-recovery] «Pack» (Pack-1): "),

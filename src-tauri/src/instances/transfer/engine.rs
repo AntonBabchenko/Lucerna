@@ -234,6 +234,9 @@ pub async fn run(req: Request, seams: Seams, progress: Progress) -> Result<Trans
         None
     };
     remove_op_dir(&op_dir);
+    // The service folders this copy may have created, once nothing is in them.
+    remove_if_empty(&req.target_root.join("lucerna").join("replaced"));
+    remove_if_empty(&ops_root);
     Ok(TransferOutcome {
         copied: steps.len() as u32,
         replaced,
@@ -487,6 +490,20 @@ fn remove_created(created: &[PathBuf]) {
     }
 }
 
+/// Remove `dir` only when it is empty. A folder that still holds something
+/// (another copy's kept files, a leftover the next copy sweeps) stays.
+fn remove_if_empty(dir: &Path) {
+    match std::fs::remove_dir(dir) {
+        Ok(()) => {}
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+            ) => {}
+        Err(e) => crate::diag!("transfer: could not tidy {} ({e})", dir.display()),
+    }
+}
+
 /// The op dir holds only staged copies: removing it never loses the user's
 /// data, and a failure is left to the next copy's sweep.
 fn remove_op_dir(dir: &Path) {
@@ -676,9 +693,10 @@ mod tests {
         );
         assert_eq!(snapshot(&p.src_mc), before);
         let ops = p.dst_root.join("lucerna/transfer");
+        assert!(!ops.exists(), "no staging folder left behind");
         assert!(
-            !ops.exists() || std::fs::read_dir(&ops).unwrap().next().is_none(),
-            "no staging left behind"
+            !p.dst_root.join("lucerna/replaced").exists(),
+            "no empty service folder left behind"
         );
     }
 
