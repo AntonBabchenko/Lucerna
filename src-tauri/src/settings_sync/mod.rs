@@ -11,6 +11,7 @@
 
 pub(crate) mod baseline;
 pub(crate) mod fsio;
+pub(crate) mod history;
 pub(crate) mod servers;
 pub mod sidecar;
 pub mod store;
