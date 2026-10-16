@@ -10,6 +10,7 @@ use std::path::Path;
 
 use fastnbt::Value;
 
+use super::failure::{self, At};
 use crate::error::{Error, Result};
 
 pub(crate) type Entry = HashMap<String, Value>;
@@ -51,12 +52,13 @@ fn keys(entries: &[Entry]) -> Vec<Key> {
 /// here", never "emptied" — a game killed mid-save leaves `servers.dat_old`
 /// beside a missing `servers.dat`, and that captures nothing either).
 pub(crate) fn read(path: &Path) -> Result<Option<Vec<Entry>>> {
-    let Some(bytes) = super::fsio::read_if_present(path)? else {
+    let at = At::game(super::Kind::Servers);
+    let Some(bytes) = super::fsio::read_if_present(at, path)? else {
         return Ok(None);
     };
     parse(&bytes)
         .map(Some)
-        .map_err(|why| Error::io(path.display().to_string(), why))
+        .map_err(|why| failure::damaged(at, path, why))
 }
 
 pub(crate) fn parse(bytes: &[u8]) -> std::result::Result<Vec<Entry>, String> {

@@ -8,11 +8,12 @@ use serde::Serialize;
 
 use super::baseline::{self, Slot};
 use super::engine::{self, KindOutcome, Unsupported};
+use super::failure::At;
 use super::sidecar::{self, Join, KindState, Sidecar, SidecarRead, SyncFailure};
 use super::store;
 use super::version::VersionFacts;
 use super::{game_file, sidecar_path, Kind};
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 /// Whether this instance's version can sync a kind now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
@@ -24,6 +25,11 @@ pub enum Availability {
     },
     /// Shared hotbars were saved by a newer Minecraft: this instance keeps its own.
     OlderThanShared,
+    /// A file this row needs cannot be read; the other rows still work.
+    Unreadable {
+        file: super::failure::SyncFile,
+        reason: super::failure::FileReason,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
@@ -44,7 +50,7 @@ pub enum SidecarStatus {
     /// The instance's sync settings cannot be read: nothing syncs until
     /// "Stop syncing" replaces them.
     Unreadable {
-        reason: String,
+        reason: super::failure::FileReason,
     },
 }
 
@@ -59,17 +65,38 @@ pub fn state(data_root: &Path, instance_root: &Path, facts: &VersionFacts) -> Re
     let (sidecar, status) = match sidecar::read(instance_root) {
         Ok(SidecarRead::Member(s)) => (s, SidecarStatus::Readable),
         Ok(SidecarRead::NotMember) => (Sidecar::default(), SidecarStatus::Readable),
-        Err(e) => (
-            Sidecar::default(),
-            SidecarStatus::Unreadable {
-                reason: e.to_string(),
-            },
-        ),
+        Err(e) => {
+            crate::diag!("settings sync: the sync settings cannot be read ({e})");
+            (
+                Sidecar::default(),
+                SidecarStatus::Unreadable {
+                    reason: super::failure::classify(&e).1,
+                },
+            )
+        }
     };
     let store = store::lock(data_root);
-    let shared_hotbars = shared_hotbars_version(&store)?;
-    let has_own_hotbars =
-        super::fsio::read_if_present(&game_file(instance_root, Kind::Hotbars))?.is_some();
+    // A hotbars file that cannot be read makes the hotbars row say so; the
+    // other rows, and the way out, stay usable.
+    let hotbars_files = shared_hotbars_version(&store).and_then(|shared| {
+        let own = super::fsio::read_if_present(
+            At::game(Kind::Hotbars),
+            &game_file(instance_root, Kind::Hotbars),
+        )?;
+        Ok((shared, own.is_some()))
+    });
+    let (shared_hotbars, has_own_hotbars, hotbars_unreadable) = match hotbars_files {
+        Ok((shared, own)) => (shared, own, None),
+        Err(e) => {
+            crate::diag!("settings sync: the hotbars cannot be read ({e})");
+            let (file, reason) = super::failure::classify(&e);
+            let unreadable = Availability::Unreadable {
+                file: file.unwrap_or(super::failure::SyncFile::Shared),
+                reason,
+            };
+            ((None, false), false, Some(unreadable))
+        }
+    };
     let kinds = Kind::ALL
         .iter()
         .map(|&kind| {
@@ -79,6 +106,9 @@ pub fn state(data_root: &Path, instance_root: &Path, facts: &VersionFacts) -> Re
             });
             let availability = match engine::unsupported(kind, facts) {
                 Some(why) => Availability::Unsupported { why },
+                None if kind == Kind::Hotbars && hotbars_unreadable.is_some() => {
+                    hotbars_unreadable.unwrap_or(Availability::Available)
+                }
                 None if kind == Kind::Hotbars
                     && shared_hotbars
                         .0
@@ -110,9 +140,12 @@ fn shared_hotbars_version(store: &store::StoreLock) -> Result<(Option<i32>, bool
     let Some(bytes) = store.load(Kind::Hotbars)? else {
         return Ok((None, false));
     };
-    let path = || store.dir().join(Kind::Hotbars.file()).display().to_string();
-    let (root, framing) = crate::datapacks::level_dat::parse(&bytes)?;
-    let bars = super::hotbars::from_root(root, framing).map_err(|why| Error::io(path(), why))?;
+    let path = store.dir().join(Kind::Hotbars.file());
+    let at = At::shared(Kind::Hotbars);
+    let (root, framing) = crate::datapacks::level_dat::parse(&bytes)
+        .map_err(|e| super::failure::damaged(at, &path, e))?;
+    let bars = super::hotbars::from_root(root, framing)
+        .map_err(|why| super::failure::damaged(at, &path, why))?;
     Ok((bars.data_version, true))
 }
 
@@ -153,6 +186,10 @@ fn set_kind(
         SidecarRead::NotMember => Sidecar::default(),
     };
     if !enabled {
+        // The records first: if they cannot be removed the kind stays on, as
+        // it was, rather than off with a baseline that would make a later
+        // join look like an ordinary sync.
+        forget(instance_root, kind)?;
         sc.set_kind(
             kind,
             KindState {
@@ -160,8 +197,8 @@ fn set_kind(
                 join: Join::Done,
             },
         );
+        clear_failure_of(&mut sc, &[kind]);
         sidecar::write(instance_root, &sc)?;
-        forget(instance_root, kind)?;
         return Ok(None);
     }
     let join = join.unwrap_or(Join::UseShared);
@@ -182,10 +219,7 @@ fn set_kind(
         join,
         &engine::Seams::none(),
     )?;
-    if matches!(
-        outcome,
-        KindOutcome::Joined | KindOutcome::Synced | KindOutcome::Resynced
-    ) {
+    if matches!(outcome, KindOutcome::Joined | KindOutcome::Synced) {
         sc.set_kind(
             kind,
             KindState {
@@ -193,6 +227,7 @@ fn set_kind(
                 join: Join::Done,
             },
         );
+        clear_failure_of(&mut sc, &[kind]);
         sidecar::write(instance_root, &sc)?;
     }
     Ok(Some(outcome))
@@ -211,10 +246,13 @@ pub fn stop(
         Ok(SidecarRead::Member(s)) => (s, kind.map_or_else(|| Kind::ALL.to_vec(), |k| vec![k])),
         Err(_) => {
             let path = sidecar_path(instance_root);
-            recycle(path.clone()).map_err(|e| Error::io(path.display().to_string(), e))?;
+            recycle(path.clone()).map_err(|e| super::failure::io(At::settings(), &path, e))?;
             (Sidecar::default(), Kind::ALL.to_vec())
         }
     };
+    for k in &stopping {
+        forget(instance_root, *k)?;
+    }
     for k in &stopping {
         sc.set_kind(
             *k,
@@ -224,12 +262,22 @@ pub fn stop(
             },
         );
     }
-    sc.last_error = None;
+    clear_failure_of(&mut sc, &stopping);
     sidecar::write(instance_root, &sc)?;
-    for k in stopping {
-        forget(instance_root, k)?;
-    }
     Ok(())
+}
+
+/// A kept failure about one of `kinds`, or about the sync settings
+/// themselves, no longer applies once those kinds stopped or synced; one
+/// about another kind stays until that kind syncs.
+fn clear_failure_of(sc: &mut Sidecar, kinds: &[Kind]) {
+    if sc
+        .last_error
+        .as_ref()
+        .is_some_and(|f| f.kind.is_none_or(|k| kinds.contains(&k)))
+    {
+        sc.last_error = None;
+    }
 }
 
 /// A kind this instance left: its baseline and pending go (checked), so a
@@ -451,5 +499,79 @@ mod tests {
         let s = read_sidecar(&inst);
         assert!(!s.enabled(Kind::Servers));
         assert!(s.enabled(Kind::History));
+    }
+
+    fn failure(kind: Kind) -> SyncFailure {
+        SyncFailure {
+            kind: Some(kind),
+            file: Some(super::super::failure::SyncFile::Game),
+            reason: super::super::failure::FileReason::NoAccess,
+        }
+    }
+
+    fn keep_failure(root: &Path, kind: Kind) {
+        let mut s = read_sidecar(root);
+        s.last_error = Some(failure(kind));
+        sidecar::write(root, &s).unwrap();
+    }
+
+    #[test]
+    fn leaving_a_kind_clears_its_kept_failure_but_not_anothers() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        let f = facts("1.21.1");
+        set_kind(&data, &inst, &f, Kind::Servers, true, None).unwrap();
+        set_kind(&data, &inst, &f, Kind::History, true, None).unwrap();
+        keep_failure(&inst, Kind::History);
+        set_kind(&data, &inst, &f, Kind::Servers, false, None).unwrap();
+        assert_eq!(read_sidecar(&inst).last_error, Some(failure(Kind::History)));
+        set_kind(&data, &inst, &f, Kind::History, false, None).unwrap();
+        assert_eq!(read_sidecar(&inst).last_error, None);
+    }
+
+    #[test]
+    fn stopping_one_kind_keeps_another_kinds_failure() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        set_kind(&data, &inst, &facts("1.21.1"), Kind::Servers, true, None).unwrap();
+        keep_failure(&inst, Kind::History);
+        stop(&inst, Some(Kind::Servers), &|_| Ok(())).unwrap();
+        assert_eq!(read_sidecar(&inst).last_error, Some(failure(Kind::History)));
+    }
+
+    #[test]
+    fn a_leave_whose_records_cannot_be_removed_stays_a_member() {
+        // Removing the baseline first: a failure leaves the kind on, as it
+        // was, instead of off with a stale baseline that would make a later
+        // join look like an ordinary sync.
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        put(&inst, Kind::History, b"/a\n");
+        set_kind(&data, &inst, &facts("1.21.1"), Kind::History, true, None).unwrap();
+        let base = baseline::path(&inst, Kind::History, Slot::Baseline);
+        std::fs::remove_file(&base).unwrap();
+        std::fs::create_dir(&base).unwrap(); // cannot be removed as a file
+        assert!(set_kind(&data, &inst, &facts("1.21.1"), Kind::History, false, None).is_err());
+        assert!(read_sidecar(&inst).enabled(Kind::History));
+    }
+
+    #[test]
+    fn a_damaged_shared_hotbars_file_degrades_only_the_hotbars_row() {
+        use super::super::failure::{FileReason, SyncFile};
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        let shared = store::store_dir(&data).join("hotbar.nbt");
+        std::fs::create_dir_all(shared.parent().unwrap()).unwrap();
+        std::fs::write(&shared, b"garbage").unwrap();
+        let s = state(&data, &inst, &facts("1.21.1")).unwrap();
+        let row = |k: Kind| s.kinds.iter().find(|v| v.kind == k).unwrap().availability;
+        assert_eq!(row(Kind::Servers), Availability::Available);
+        assert_eq!(
+            row(Kind::Hotbars),
+            Availability::Unreadable {
+                file: SyncFile::Shared,
+                reason: FileReason::Damaged
+            }
+        );
     }
 }

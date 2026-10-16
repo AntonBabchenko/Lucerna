@@ -10,6 +10,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::failure::{self, At, FileReason, SyncFile};
 use super::{sidecar_path, Kind};
 use crate::error::{Error, Result};
 
@@ -35,12 +36,39 @@ pub enum Join {
     MakeShared,
 }
 
-/// Why a sync did not happen, as the section shows it.
+/// Why a sync did not happen, as the UI says it: the kind that was syncing
+/// (`None`: the sync settings themselves), the file (`None`: not a file
+/// problem) and a reason class. The raw error is in the log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct SyncFailure {
     pub kind: Option<Kind>,
-    pub file: String,
-    pub reason: String,
+    pub file: Option<SyncFile>,
+    pub reason: FileReason,
+}
+
+/// A sync failure as the launch reports it.
+impl From<SyncFailure> for Error {
+    fn from(f: SyncFailure) -> Self {
+        Error::SettingsSyncFailed {
+            sync_kind: f.kind,
+            file: f.file,
+            reason: f.reason,
+        }
+    }
+}
+
+impl SyncFailure {
+    /// The failure of syncing `kind`, from the error that stopped it. The
+    /// error's own text (path, OS or parser message) is written to the log
+    /// here: it is the only place it is kept.
+    pub fn logged(kind: Option<Kind>, e: &crate::error::Error) -> Self {
+        crate::diag!(
+            "settings sync: {} did not sync ({e})",
+            kind.map_or("the sync settings", Kind::file)
+        );
+        let (file, reason) = super::failure::classify(e);
+        Self { kind, file, reason }
+    }
 }
 
 /// The sidecar as stored. Kinds are kept by name so a kind this build does
@@ -95,19 +123,19 @@ pub enum SidecarRead {
 
 pub fn read(instance_root: &Path) -> Result<SidecarRead> {
     let path = sidecar_path(instance_root);
-    let Some(bytes) = super::fsio::read_if_present(&path)? else {
+    let Some(bytes) = super::fsio::read_if_present(At::settings(), &path)? else {
         return Ok(SidecarRead::NotMember);
     };
     serde_json::from_slice::<Sidecar>(&bytes)
         .map(SidecarRead::Member)
-        .map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")))
+        .map_err(|e| failure::damaged(At::settings(), &path, format!("parse: {e}")))
 }
 
 pub fn write(instance_root: &Path, sidecar: &Sidecar) -> Result<()> {
     let path = sidecar_path(instance_root);
     let json = serde_json::to_vec_pretty(sidecar)
         .map_err(|e| Error::io(path.display().to_string(), format!("serialize: {e}")))?;
-    super::fsio::write_atomic(&path, &json)
+    super::fsio::write_atomic(At::settings(), &path, &json)
 }
 
 #[cfg(test)]

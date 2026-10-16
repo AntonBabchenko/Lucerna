@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
+use super::failure::At;
 use super::state_dir;
 use crate::error::{Error, Result};
 use crate::platform::ImageMatch;
@@ -47,18 +48,18 @@ pub fn write(instance_root: &Path, pid: u32, started_unix_ms: u64) -> Result<()>
     };
     let bytes = serde_json::to_vec(&marker)
         .map_err(|e| Error::io(p.display().to_string(), format!("serialize: {e}")))?;
-    super::fsio::write_atomic(&p, &bytes)
+    super::fsio::write_atomic(At::records(None), &p, &bytes)
 }
 
 pub fn remove(instance_root: &Path) -> Result<()> {
-    super::fsio::remove_if_present(&path(instance_root))
+    super::fsio::remove_if_present(At::records(None), &path(instance_root))
 }
 
 /// Classify the marker, removing it when it is stale (checked). One this
 /// process wrote is cleared at once: the process registry, which the caller
 /// consulted, is the truth about this session's games.
 pub fn check(instance_root: &Path, probe: &dyn Fn(u32) -> ImageMatch) -> Result<MarkerState> {
-    let Some(bytes) = super::fsio::read_if_present(&path(instance_root))? else {
+    let Some(bytes) = super::fsio::read_if_present(At::records(None), &path(instance_root))? else {
         return Ok(MarkerState::Clear);
     };
     let Ok(marker) = serde_json::from_slice::<Marker>(&bytes) else {

@@ -696,13 +696,26 @@ pub enum Error {
 
     /// A settings sync point before a launch failed; the game did not start.
     /// `sync_kind` is `None` when the instance's sync settings themselves
-    /// could not be read. The launch dialog offers to launch without sync, or
-    /// to stop syncing `sync_kind` here.
-    #[error("Settings sync failed for {file}: {reason}")]
+    /// could not be read; `file` is `None` when the failure was not about a
+    /// file. The launch dialog offers to launch without sync, or to stop
+    /// syncing `sync_kind` here. The raw error is in the log.
+    #[error("Settings sync failed: {file:?}, {reason:?}")]
     SettingsSyncFailed {
         sync_kind: Option<crate::settings_sync::Kind>,
-        file: String,
-        reason: String,
+        file: Option<crate::settings_sync::failure::SyncFile>,
+        reason: crate::settings_sync::failure::FileReason,
+    },
+
+    /// A settings-sync file could not be read, parsed or written: which file
+    /// and a reason class the UI says in plain words. `path` and `details`
+    /// (the raw OS or parser text) are for the log, never shown.
+    #[error("{path}: {details}")]
+    SettingsSyncFile {
+        file: crate::settings_sync::failure::SyncFile,
+        file_kind: Option<crate::settings_sync::Kind>,
+        reason: crate::settings_sync::failure::FileReason,
+        path: String,
+        details: String,
     },
 
     /// A game started before Lucerna restarted still runs in this instance:

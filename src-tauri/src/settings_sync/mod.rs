@@ -12,6 +12,7 @@
 pub(crate) mod baseline;
 pub mod creation;
 pub mod engine;
+pub mod failure;
 pub(crate) mod fsio;
 pub(crate) mod history;
 pub mod hotbars;
@@ -102,10 +103,16 @@ pub fn after_exit(
 /// see the edit without a launch. A failure is kept for the section, as after
 /// an exit: nobody is waiting on a dialog for it. `facts` is read only when
 /// this instance syncs `kind`.
+///
+/// Not while a game Lucerna lost track of may still run here: it rewrites the
+/// file when it closes, and the next sync point would read what this one
+/// applied as removals. The edit stays local, the baseline does not move, and
+/// the next launch asks about that game first.
 pub fn after_local_edit(
     data_root: &Path,
     instance_root: &Path,
     kind: Kind,
+    probe: &dyn Fn(u32) -> crate::platform::ImageMatch,
     facts: impl FnOnce() -> version::VersionFacts,
 ) -> std::result::Result<(), SyncFailure> {
     match sidecar::read(instance_root) {
@@ -115,6 +122,18 @@ pub fn after_local_edit(
             // An unreadable sidecar may well sync this kind: `run_kinds`
             // reads it again and names it in the failure.
         }
+    }
+    match marker::check(instance_root, probe) {
+        Ok(marker::MarkerState::Clear) => {}
+        Ok(state) => {
+            crate::diag!(
+                "settings sync: {} not synced after an edit: a game started before Lucerna \
+                 restarted may still run ({state:?})",
+                kind.file()
+            );
+            return Ok(());
+        }
+        Err(e) => return Err(SyncFailure::logged(Some(kind), &e)),
     }
     run_kinds(data_root, instance_root, &facts(), &[kind], true)
 }
@@ -159,11 +178,7 @@ pub fn launch_sync(
     }
     guard_orphan(instance_root, game_closed_confirmed, probe)?;
     let facts = version::VersionFacts::read(versions_dir, mc_version);
-    before_launch(data_root, instance_root, &facts).map_err(|f| Error::SettingsSyncFailed {
-        sync_kind: f.kind,
-        file: f.file,
-        reason: f.reason,
-    })?;
+    before_launch(data_root, instance_root, &facts).map_err(Error::from)?;
     Ok(Some(facts))
 }
 
@@ -207,17 +222,10 @@ fn run_kinds(
     kinds: &[Kind],
     keep_failure: bool,
 ) -> std::result::Result<(), SyncFailure> {
-    let sidecar_file = || sidecar_path(instance_root).display().to_string();
     let before = match sidecar::read(instance_root) {
         Ok(sidecar::SidecarRead::NotMember) => return Ok(()),
         Ok(sidecar::SidecarRead::Member(s)) => s,
-        Err(e) => {
-            return Err(SyncFailure {
-                kind: None,
-                file: sidecar_file(),
-                reason: e.to_string(),
-            })
-        }
+        Err(e) => return Err(SyncFailure::logged(None, &e)),
     };
     let store = store::lock(data_root);
     let mut after = before.clone();
@@ -234,11 +242,7 @@ fn run_kinds(
             state.join,
             &engine::Seams::none(),
         ) {
-            Ok(
-                engine::KindOutcome::Joined
-                | engine::KindOutcome::Synced
-                | engine::KindOutcome::Resynced,
-            ) => {
+            Ok(engine::KindOutcome::Joined | engine::KindOutcome::Synced) => {
                 after.set_kind(
                     kind,
                     sidecar::KindState {
@@ -251,11 +255,7 @@ fn run_kinds(
             // hotbars): a pending join waits for a sync point that can.
             Ok(_) => {}
             Err(e) => {
-                failed = Some(SyncFailure {
-                    kind: Some(kind),
-                    file: game_file(instance_root, kind).display().to_string(),
-                    reason: e.to_string(),
-                });
+                failed = Some(SyncFailure::logged(Some(kind), &e));
                 break;
             }
         }
@@ -270,11 +270,7 @@ fn run_kinds(
     };
     if after != before {
         if let Err(e) = sidecar::write(instance_root, &after) {
-            let f = SyncFailure {
-                kind: None,
-                file: sidecar_file(),
-                reason: e.to_string(),
-            };
+            let f = SyncFailure::logged(None, &e);
             return Err(failed.unwrap_or(f));
         }
     }
@@ -286,6 +282,7 @@ fn run_kinds(
 
 #[cfg(test)]
 mod api_tests {
+    use super::failure::{FileReason, SyncFile};
     use super::sidecar::{Join, KindState, Sidecar, SidecarRead};
     use super::version::{DataVersion, VersionFacts};
     use super::*;
@@ -398,10 +395,13 @@ mod api_tests {
         std::fs::write(&p, b"garbage").unwrap();
         match launch(&inst, &data, false, crate::platform::ImageMatch::No) {
             Err(crate::error::Error::SettingsSyncFailed {
-                sync_kind, file, ..
+                sync_kind,
+                file,
+                reason,
             }) => {
                 assert_eq!(sync_kind, Some(Kind::Servers));
-                assert!(file.ends_with("servers.dat"), "{file}");
+                assert_eq!(file, Some(SyncFile::Game), "this instance's own file");
+                assert_eq!(reason, FileReason::Damaged);
             }
             other => panic!("{other:?}"),
         }
@@ -439,7 +439,22 @@ mod api_tests {
         std::fs::write(&p, b"{").unwrap();
         let f = before_launch(&data, &inst, &facts()).unwrap_err();
         assert_eq!(f.kind, None);
-        assert!(f.file.ends_with("settings-sync.json"), "{}", f.file);
+        assert_eq!(f.file, Some(SyncFile::Settings));
+        assert_eq!(f.reason, FileReason::Damaged);
+    }
+
+    #[test]
+    fn a_damaged_shared_copy_is_named_as_the_shared_one() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        member(&inst, Kind::Servers, Join::UseShared);
+        let shared = store::store_dir(&data).join("servers.dat");
+        std::fs::create_dir_all(shared.parent().unwrap()).unwrap();
+        std::fs::write(&shared, b"garbage").unwrap();
+        let f = before_launch(&data, &inst, &facts()).unwrap_err();
+        assert_eq!(f.kind, Some(Kind::Servers));
+        assert_eq!(f.file, Some(SyncFile::Shared));
+        assert_eq!(f.reason, FileReason::Damaged);
     }
 
     fn servers_file(root: &Path, entries: &[(&str, &str)]) {
@@ -468,8 +483,36 @@ mod api_tests {
         member(&inst, Kind::Servers, Join::UseShared);
         before_launch(&data, &inst, &facts()).unwrap();
         servers_file(&inst, &[("A", "a.example.net"), ("B", "b.example.net")]);
-        after_local_edit(&data, &inst, Kind::Servers, facts).unwrap();
+        after_local_edit(&data, &inst, Kind::Servers, &no_game, facts).unwrap();
         assert_eq!(shared_servers(&data), ["a.example.net", "b.example.net"]);
+    }
+
+    fn no_game(_: u32) -> crate::platform::ImageMatch {
+        crate::platform::ImageMatch::No
+    }
+
+    #[test]
+    fn a_local_edit_does_not_sync_while_a_game_from_before_a_restart_may_run() {
+        use crate::platform::ImageMatch;
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        servers_file(&inst, &[("A", "a.example.net")]);
+        member(&inst, Kind::Servers, Join::UseShared);
+        before_launch(&data, &inst, &facts()).unwrap();
+        earlier_marker(&inst);
+        servers_file(&inst, &[("A", "a.example.net"), ("B", "b.example.net")]);
+        for probe in [ImageMatch::Yes, ImageMatch::Unknown] {
+            after_local_edit(&data, &inst, Kind::Servers, &move |_| probe, facts).unwrap();
+            assert_eq!(
+                shared_servers(&data),
+                ["a.example.net"],
+                "{probe:?}: not synced"
+            );
+        }
+        assert!(
+            marker::path(&inst).exists(),
+            "the question stays for the launch"
+        );
     }
 
     #[test]
@@ -479,7 +522,7 @@ mod api_tests {
         servers_file(&inst, &[("A", "a.example.net")]);
         member(&inst, Kind::History, Join::UseShared);
         let read = std::cell::Cell::new(false);
-        after_local_edit(&data, &inst, Kind::Servers, || {
+        after_local_edit(&data, &inst, Kind::Servers, &no_game, || {
             read.set(true);
             facts()
         })
@@ -495,8 +538,8 @@ mod api_tests {
         servers_file(&inst, &[("A", "a.example.net")]);
         let history_failure = SyncFailure {
             kind: Some(Kind::History),
-            file: "command_history.txt".into(),
-            reason: "earlier".into(),
+            file: Some(SyncFile::Game),
+            reason: FileReason::NoAccess,
         };
         let mut s = Sidecar::default();
         for kind in [Kind::Servers, Kind::History] {
@@ -510,10 +553,10 @@ mod api_tests {
         }
         s.last_error = Some(history_failure.clone());
         sidecar::write(&inst, &s).unwrap();
-        after_local_edit(&data, &inst, Kind::Servers, facts).unwrap();
+        after_local_edit(&data, &inst, Kind::Servers, &no_game, facts).unwrap();
         assert_eq!(sidecar_of(&inst).last_error, Some(history_failure));
         std::fs::write(game_file(&inst, Kind::Servers), b"garbage").unwrap();
-        let f = after_local_edit(&data, &inst, Kind::Servers, facts).unwrap_err();
+        let f = after_local_edit(&data, &inst, Kind::Servers, &no_game, facts).unwrap_err();
         assert_eq!(f.kind, Some(Kind::Servers));
         assert_eq!(sidecar_of(&inst).last_error, Some(f));
     }

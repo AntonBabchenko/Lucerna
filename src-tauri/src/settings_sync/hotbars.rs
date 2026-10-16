@@ -8,8 +8,10 @@ use std::path::Path;
 
 use fastnbt::Value;
 
+use super::failure::{self, At};
+use super::Kind;
 use crate::datapacks::level_dat::{self, Framing};
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 const DATA_VERSION: &str = "DataVersion";
 
@@ -22,13 +24,14 @@ pub(crate) struct Hotbars {
 
 /// The instance's hotbars; `None` when there is no file.
 pub(crate) fn read(path: &Path) -> Result<Option<Hotbars>> {
-    let Some(bytes) = super::fsio::read_if_present(path)? else {
+    let at = At::game(Kind::Hotbars);
+    let Some(bytes) = super::fsio::read_if_present(at, path)? else {
         return Ok(None);
     };
-    let (root, framing) = level_dat::parse(&bytes)?;
+    let (root, framing) = level_dat::parse(&bytes).map_err(|e| failure::damaged(at, path, e))?;
     from_root(root, framing)
         .map(Some)
-        .map_err(|why| Error::io(path.display().to_string(), why))
+        .map_err(|why| failure::damaged(at, path, why))
 }
 
 pub(crate) fn from_root(root: Value, framing: Framing) -> std::result::Result<Hotbars, String> {

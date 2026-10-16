@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, LazyLock, Mutex};
 use std::thread::ThreadId;
 
+use super::failure::{self, At};
 use super::Kind;
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 /// How many earlier versions of each shared file are kept.
 pub const BACKUPS: u32 = 3;
@@ -89,7 +90,7 @@ impl StoreLock {
 
     /// The shared file's bytes; `None` when there is no shared copy yet.
     pub fn load(&self, kind: Kind) -> Result<Option<Vec<u8>>> {
-        super::fsio::read_if_present(&self.file(kind))
+        super::fsio::read_if_present(At::shared(kind), &self.file(kind))
     }
 
     /// Replace the shared file. Nothing happens when `bytes` equal what is
@@ -103,7 +104,7 @@ impl StoreLock {
         if let Some(current) = current {
             self.rotate(kind, &current)?;
         }
-        super::fsio::write_atomic(&self.file(kind), bytes)
+        super::fsio::write_atomic(At::shared(kind), &self.file(kind), bytes)
     }
 
     /// `.2 → .3`, `.1 → .2`, then the current version → `.1`.
@@ -114,10 +115,10 @@ impl StoreLock {
             match std::fs::rename(at(n), at(n + 1)) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(Error::io(at(n).display().to_string(), e)),
+                Err(e) => return Err(failure::io(At::shared(kind), &at(n), e)),
             }
         }
-        super::fsio::write_atomic(&at(1), current)
+        super::fsio::write_atomic(At::shared(kind), &at(1), current)
     }
 }
 

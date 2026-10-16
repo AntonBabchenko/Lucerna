@@ -2,23 +2,28 @@
 //! lock, with the instance not running:
 //!
 //! 1. resolve a pending write left by a crash;
-//! 2. a version step (a new Minecraft version, or a file stamped by another)
-//!    re-baselines without capturing — the game's DataFixes make values
-//!    nobody chose;
-//! 3. capture what changed here since the baseline into the shared copy;
-//! 4. apply the shared copy back: pending → the instance file → baseline.
+//! 2. capture what changed here since the baseline into the shared copy —
+//!    across a Minecraft version change too (corrected while reviewing PR 2:
+//!    a "version step" that re-baselined without capturing dropped every
+//!    hotbar save of a newer game, and any edit an exit sync had missed).
+//!    Hotbars are captured under the DataVersion of the game that wrote the
+//!    file, so a newer game's save raises the shared version (forward only);
+//! 3. apply the shared copy back: pending → the instance file → baseline —
+//!    except hotbars newer than this game, which it could not read.
 //!
 //! No baseline yet is a join: servers and history are united with the shared
-//! copy (nothing lost), hotbars take the shared rows or give theirs.
+//! copy (nothing lost), hotbars take the shared rows (the instance's own go to
+//! the Recycle Bin first) or give theirs.
 //! Every write is atomic; [`Seams`] lets a test fail right after each one.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use fastnbt::Value;
 use serde::Serialize;
 
 use super::baseline::{self, Slot, Snapshot};
+use super::failure::{self, At};
 use super::history::{self, Sep};
 use super::hotbars::{self, Hotbars};
 use super::servers::{self, Entry};
@@ -32,15 +37,34 @@ use crate::error::{Error, Result};
 /// A hook run right after one of the sync point's writes.
 pub type Seam<'a> = &'a dyn Fn() -> io::Result<()>;
 
-/// Fault injection for tests; production uses [`Seams::none`].
+/// Fault injection for tests, and where a join puts the hotbars it replaces;
+/// production uses [`Seams::none`]: no faults, the Recycle Bin.
 pub struct Seams<'a> {
     pub after_capture_save: Seam<'a>,
     pub after_pending_write: Seam<'a>,
     pub after_instance_write: Seam<'a>,
+    /// Takes away a copy of the instance's own hotbars that a join is about
+    /// to replace (spec §B7): the Recycle Bin, under a recognisable name.
+    pub set_aside: &'a dyn Fn(PathBuf) -> io::Result<()>,
 }
 
 fn no_fault() -> io::Result<()> {
     Ok(())
+}
+
+#[cfg(not(test))]
+fn to_recycle_bin(path: PathBuf) -> io::Result<()> {
+    crate::platform::recycle_bin::to_recycle_bin(path)
+}
+
+/// A test never reaches the user's Recycle Bin: one that needs a set-aside
+/// passes its own.
+#[cfg(test)]
+fn to_recycle_bin(path: PathBuf) -> io::Result<()> {
+    panic!(
+        "a test reached the real Recycle Bin with {}",
+        path.display()
+    )
 }
 
 impl Seams<'static> {
@@ -49,6 +73,7 @@ impl Seams<'static> {
             after_capture_save: &no_fault,
             after_pending_write: &no_fault,
             after_instance_write: &no_fault,
+            set_aside: &to_recycle_bin,
         }
     }
 }
@@ -60,8 +85,6 @@ pub enum KindOutcome {
     Synced,
     /// A join completed.
     Joined,
-    /// A version step: re-baselined without capturing.
-    Resynced,
     Unsupported {
         why: Unsupported,
     },
@@ -97,13 +120,12 @@ pub fn sync_kind(
     resolve_pending(instance_root, kind, &path)?;
 
     let now = read_doc(kind, &path)?;
-    let shared =
-        match store.load(kind)? {
-            Some(bytes) => Some(parse_doc(kind, &bytes).map_err(|why| {
-                Error::io(store.dir().join(kind.file()).display().to_string(), why)
-            })?),
-            None => None,
-        };
+    let shared = match store.load(kind)? {
+        Some(bytes) => Some(parse_doc(kind, &bytes).map_err(|why| {
+            failure::damaged(At::shared(kind), &store.dir().join(kind.file()), why)
+        })?),
+        None => None,
+    };
     let base = baseline::read(instance_root, kind, Slot::Baseline)?;
 
     if kind == Kind::Hotbars && join != Join::MakeShared {
@@ -119,21 +141,11 @@ pub fn sync_kind(
             joined(kind, join, now.as_ref(), shared.as_ref()),
             KindOutcome::Joined,
         ),
-        Some(b)
-            if b.mc != facts.mc_version || now.as_ref().is_some_and(|n| n.stamp() != b.stamp) =>
-        {
-            let keep = shared
-                .clone()
-                .or_else(|| now.clone())
-                .unwrap_or_else(|| Doc::empty(kind));
-            (keep, KindOutcome::Resynced)
-        }
         Some(b) => {
             let before = doc_from_snapshot(kind, b).map_err(|why| {
-                Error::io(
-                    baseline::path(instance_root, kind, Slot::Baseline)
-                        .display()
-                        .to_string(),
+                failure::damaged(
+                    At::records(Some(kind)),
+                    &baseline::path(instance_root, kind, Slot::Baseline),
                     why,
                 )
             })?;
@@ -157,16 +169,34 @@ pub fn sync_kind(
         (seams.after_capture_save)().map_err(|e| Error::io("<after capture>", e))?;
     }
 
+    // Hotbars this game cannot read (a newer one wrote them here, and the
+    // capture just lifted the shared copy above this game): it keeps its own
+    // file, which is what it already had.
+    if too_new_for(&merged, facts) {
+        let current = now.as_ref().unwrap_or(&merged);
+        baseline::write(
+            instance_root,
+            kind,
+            Slot::Baseline,
+            &snapshot(facts, current),
+        )?;
+        return Ok(outcome);
+    }
+
     let next = render(now.as_ref(), &merged, facts);
     let differs = match &now {
         Some(n) => !n.same(&next),
         None => !next.is_empty(),
     };
     if differs {
+        // A join that replaces this instance's own hotbars keeps them first.
+        if outcome == KindOutcome::Joined && kind == Kind::Hotbars && now.is_some() {
+            set_aside_own_hotbars(&path, seams)?;
+        }
         let snap = snapshot(facts, &next);
         baseline::write(instance_root, kind, Slot::Pending, &snap)?;
         (seams.after_pending_write)().map_err(|e| Error::io("<after pending>", e))?;
-        super::fsio::write_atomic(&path, &next.bytes()?)?;
+        super::fsio::write_atomic(At::game(kind), &path, &next.bytes()?)?;
         (seams.after_instance_write)().map_err(|e| Error::io("<after instance>", e))?;
         baseline::write(instance_root, kind, Slot::Baseline, &snap)?;
         baseline::remove(instance_root, kind, Slot::Pending)?;
@@ -192,6 +222,41 @@ pub(crate) fn unsupported(kind: Kind, facts: &VersionFacts) -> Option<Unsupporte
             DataVersion::JarUnavailable => Some(Unsupported::HotbarsNotInstalled),
             DataVersion::NotRelease => Some(Unsupported::HotbarsNotRelease),
         },
+    }
+}
+
+/// The name the instance's own hotbars get in the Recycle Bin when a join
+/// replaces them.
+const SET_ASIDE_NAME: &str = "hotbar (before shared hotbars).nbt";
+
+/// A copy of the instance's own hotbars goes to the Recycle Bin before a
+/// join replaces them (spec §B7). If that fails the join stops here and
+/// nothing has changed: the copy is removed (checked) and the instance's
+/// file is untouched.
+fn set_aside_own_hotbars(path: &Path, seams: &Seams) -> Result<()> {
+    let at = At::game(Kind::Hotbars);
+    let Some(bytes) = super::fsio::read_if_present(at, path)? else {
+        return Ok(());
+    };
+    let aside = path.with_file_name(SET_ASIDE_NAME);
+    super::fsio::write_atomic(at, &aside, &bytes)?;
+    if let Err(e) = (seams.set_aside)(aside.clone()) {
+        if let Err(r) = super::fsio::remove_if_present(at, &aside) {
+            crate::diag!(
+                "settings sync: could not remove the hotbars copy {} ({r})",
+                aside.display()
+            );
+        }
+        return Err(failure::io(at, &aside, e));
+    }
+    Ok(())
+}
+
+/// Whether `doc` is hotbars of a newer DataVersion than this game's.
+fn too_new_for(doc: &Doc, facts: &VersionFacts) -> bool {
+    match (doc, facts.hotbar_version()) {
+        (Doc::Hotbars(h), Some(mine)) => h.data_version.is_some_and(|dv| dv > mine),
+        _ => false,
     }
 }
 
@@ -235,8 +300,10 @@ fn capture(before: &Doc, now: &Doc, shared: &Doc, facts: &VersionFacts) -> Doc {
             Doc::History(history::capture(b, n, s), *sep)
         }
         (Doc::Hotbars(b), Doc::Hotbars(n), Doc::Hotbars(s)) => {
-            // The gate let us here only with a release DataVersion.
-            let dv = facts.hotbar_version().or(n.data_version).unwrap_or(0);
+            // The version of the game that wrote the file, not this one's: a
+            // file a newer game saved before the instance moved back is
+            // stamped as that newer game's.
+            let dv = n.data_version.or(facts.hotbar_version()).unwrap_or(0);
             Doc::Hotbars(hotbars::capture(b, n, s, dv))
         }
         // Kinds never mix: every Doc here was read for one `kind`.
@@ -529,16 +596,171 @@ mod tests {
     }
 
     #[test]
-    fn a_version_step_rebaselines_without_capturing() {
+    fn a_change_made_before_a_version_change_is_still_captured() {
+        // The exit sync failed (or was skipped), then the instance moved to a
+        // new Minecraft version: the removal made in that session still
+        // reaches the shared list. Servers have no DataFixer to fear.
         let w = world();
         put_servers(&w.a, &["A", "B"]);
         sync(&w, &w.a, Kind::Servers, "1.21.1").unwrap();
-        put_servers(&w.a, &["A"]); // what an upgraded game rewrote
+        put_servers(&w.a, &["A"]);
         assert_eq!(
             sync(&w, &w.a, Kind::Servers, "1.21.4").unwrap(),
-            KindOutcome::Resynced
+            KindOutcome::Synced
         );
-        assert_eq!(shared_servers(&w), ["A", "B"], "nothing captured");
+        assert_eq!(shared_servers(&w), ["A"]);
+    }
+
+    fn facts_dv(mc: &str, n: i32) -> VersionFacts {
+        VersionFacts {
+            mc_version: mc.into(),
+            data: DataVersion::Version { n },
+        }
+    }
+
+    fn slot(item: &str) -> Value {
+        let mut m = HashMap::new();
+        m.insert("id".to_string(), Value::String(item.into()));
+        m.insert("count".to_string(), Value::Int(1));
+        Value::List(vec![Value::Compound(m)])
+    }
+
+    fn bars(rows: &[(&str, &str)], dv: i32) -> Hotbars {
+        Hotbars {
+            rows: rows.iter().map(|(k, v)| (k.to_string(), slot(v))).collect(),
+            data_version: Some(dv),
+            framing: Framing::Raw,
+        }
+    }
+
+    fn put_bars(root: &Path, h: &Hotbars) -> Vec<u8> {
+        let p = game_file(root, Kind::Hotbars);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let bytes = hotbars::to_bytes(h).unwrap();
+        std::fs::write(p, &bytes).unwrap();
+        bytes
+    }
+
+    fn bars_of(root: &Path) -> Hotbars {
+        hotbars::read(&game_file(root, Kind::Hotbars))
+            .unwrap()
+            .unwrap()
+    }
+
+    fn shared_bars(w: &World) -> Hotbars {
+        let bytes = store::lock(&w.data_root)
+            .load(Kind::Hotbars)
+            .unwrap()
+            .unwrap();
+        let (root, framing) = level_dat::parse(&bytes).unwrap();
+        hotbars::from_root(root, framing).unwrap()
+    }
+
+    fn sync_bars(
+        w: &World,
+        root: &Path,
+        f: &VersionFacts,
+        join: Join,
+        seams: &Seams,
+    ) -> KindOutcome {
+        let s = store::lock(&w.data_root);
+        sync_kind(root, &s, f, Kind::Hotbars, join, seams).unwrap()
+    }
+
+    /// Seams that record what a join set aside instead of using the Recycle Bin.
+    fn recording(
+        aside: &std::cell::RefCell<Vec<(PathBuf, Vec<u8>)>>,
+    ) -> impl Fn(PathBuf) -> io::Result<()> + '_ {
+        move |p: PathBuf| {
+            aside.borrow_mut().push((p.clone(), std::fs::read(&p)?));
+            std::fs::remove_file(&p)
+        }
+    }
+
+    #[test]
+    fn a_newer_game_saving_the_shared_hotbars_is_captured_and_raises_the_shared_version() {
+        let w = world();
+        put_bars(&w.a, &bars(&[("0", "stone")], 3955));
+        let (old, new) = (facts_dv("1.21.1", 3955), facts_dv("1.21.4", 4189));
+        sync_bars(&w, &w.a, &old, Join::UseShared, &Seams::none());
+        // b (a newer game) takes the shared rows, then the user saves a hotbar.
+        sync_bars(&w, &w.b, &new, Join::UseShared, &Seams::none());
+        put_bars(&w.b, &bars(&[("0", "diamond")], 4189));
+        assert_eq!(
+            sync_bars(&w, &w.b, &new, Join::Done, &Seams::none()),
+            KindOutcome::Synced
+        );
+        let shared = shared_bars(&w);
+        assert_eq!(shared.rows["0"], slot("diamond"), "the save was captured");
+        assert_eq!(shared.data_version, Some(4189));
+        assert_eq!(bars_of(&w.b).rows["0"], slot("diamond"), "and kept");
+    }
+
+    #[test]
+    fn hotbars_a_newer_game_wrote_are_captured_but_not_written_into_an_older_one() {
+        // The instance went back to 1.21.1 after a 1.21.4 game saved hotbars
+        // its exit sync did not capture: they reach the shared copy under the
+        // version that wrote them, and the 1.21.1 game is not handed rows it
+        // cannot read.
+        let w = world();
+        let old = facts_dv("1.21.1", 3955);
+        put_bars(&w.a, &bars(&[("0", "stone")], 3955));
+        sync_bars(&w, &w.a, &old, Join::UseShared, &Seams::none());
+        let newer = put_bars(&w.a, &bars(&[("0", "glass")], 4189));
+        sync_bars(&w, &w.a, &old, Join::Done, &Seams::none());
+        let shared = shared_bars(&w);
+        assert_eq!(shared.rows["0"], slot("glass"));
+        assert_eq!(shared.data_version, Some(4189));
+        assert_eq!(
+            std::fs::read(game_file(&w.a, Kind::Hotbars)).unwrap(),
+            newer,
+            "untouched"
+        );
+    }
+
+    #[test]
+    fn joining_with_the_shared_hotbars_sets_this_instances_own_aside() {
+        let w = world();
+        let f = facts_dv("1.21.1", 3955);
+        put_bars(&w.a, &bars(&[("0", "stone")], 3955));
+        sync_bars(&w, &w.a, &f, Join::UseShared, &Seams::none());
+        let mine = put_bars(&w.b, &bars(&[("0", "dirt")], 3955));
+        let aside = std::cell::RefCell::new(Vec::new());
+        let set_aside = recording(&aside);
+        let seams = Seams {
+            set_aside: &set_aside,
+            ..Seams::none()
+        };
+        sync_bars(&w, &w.b, &f, Join::UseShared, &seams);
+        assert_eq!(bars_of(&w.b).rows["0"], slot("stone"), "the shared rows");
+        let aside = aside.borrow();
+        assert_eq!(aside.len(), 1);
+        assert_eq!(
+            aside[0].0.file_name().unwrap(),
+            "hotbar (before shared hotbars).nbt"
+        );
+        assert_eq!(aside[0].1, mine, "its own hotbars, whole");
+    }
+
+    #[test]
+    fn a_join_whose_hotbars_cannot_be_set_aside_changes_nothing() {
+        let w = world();
+        let f = facts_dv("1.21.1", 3955);
+        put_bars(&w.a, &bars(&[("0", "stone")], 3955));
+        sync_bars(&w, &w.a, &f, Join::UseShared, &Seams::none());
+        let mine = put_bars(&w.b, &bars(&[("0", "dirt")], 3955));
+        let refuse = |_: PathBuf| -> io::Result<()> { Err(io::Error::other("no bin")) };
+        let seams = Seams {
+            set_aside: &refuse,
+            ..Seams::none()
+        };
+        let s = store::lock(&w.data_root);
+        assert!(sync_kind(&w.b, &s, &f, Kind::Hotbars, Join::UseShared, &seams).is_err());
+        assert_eq!(std::fs::read(game_file(&w.b, Kind::Hotbars)).unwrap(), mine);
+        let left: Vec<_> = std::fs::read_dir(game_file(&w.b, Kind::Hotbars).parent().unwrap())
+            .unwrap()
+            .collect();
+        assert_eq!(left.len(), 1, "no copy left beside it");
     }
 
     #[test]
@@ -572,6 +794,7 @@ mod tests {
             after_capture_save: if which == 0 { &fail } else { &no_fault },
             after_pending_write: if which == 1 { &fail } else { &no_fault },
             after_instance_write: if which == 2 { &fail } else { &no_fault },
+            set_aside: &to_recycle_bin,
         };
         {
             let s = store::lock(&w.data_root);

@@ -686,11 +686,11 @@ pub async fn start(
                 match done {
                     Ok(Ok(())) => {}
                     Ok(Err(failure)) => {
+                        // The raw error was logged where it happened.
                         crate::diag!(
-                            "settings sync after exit failed for {}: {}: {}",
+                            "settings sync after exit failed for {}: {:?}",
                             instance_id_for_event,
-                            failure.file,
-                            failure.reason
+                            failure
                         );
                         if let Err(e) = (SettingsSyncExitFailed {
                             instance_id: instance_id_for_event.clone(),

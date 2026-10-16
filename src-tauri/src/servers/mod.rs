@@ -20,6 +20,7 @@ pub struct SavedServer {
 }
 
 use crate::error::{Error, Result};
+use crate::settings_sync::failure::At;
 use crate::settings_sync::{fsio, Kind};
 use std::path::{Path, PathBuf};
 
@@ -113,20 +114,17 @@ fn try_sync_after_edit(app: &tauri::AppHandle, instance_id: &str) -> Result<()> 
     let json = crate::paths::instance_json(app, instance_id)
         .map_err(|e| Error::io("<instance_json>", e))?;
     let mc = crate::instances::store::read_instance_json(&json)?.mc_version;
-    crate::settings_sync::after_local_edit(&data_root, &root, Kind::Servers, || {
+    let probe = |pid| crate::platform::process_image_probe(pid, "java");
+    crate::settings_sync::after_local_edit(&data_root, &root, Kind::Servers, &probe, || {
         crate::settings_sync::version::VersionFacts::read(&versions, &mc)
     })
-    .map_err(|f| Error::SettingsSyncFailed {
-        sync_kind: f.kind,
-        file: f.file,
-        reason: f.reason,
-    })
+    .map_err(Error::from)
 }
 
 /// The list in `path`. Only a file that does not exist is an empty list; one
 /// that cannot be read is an error, never "no servers".
 fn list_at(path: &Path) -> Result<Vec<SavedServer>> {
-    match fsio::read_if_present(path)? {
+    match fsio::read_if_present(At::game(Kind::Servers), path)? {
         Some(bytes) => Ok(nbt::list_view(&nbt::parse(&bytes)?)),
         None => Ok(Vec::new()),
     }
@@ -151,12 +149,12 @@ fn add_server_at(
     validate_server_name(name)?;
     crate::launch::quick_play::validate_server_address(address)?;
     let claim = crate::instances::maintenance::claim_write(instance_id)?;
-    let mut root = match fsio::read_if_present(path)? {
+    let mut root = match fsio::read_if_present(At::game(Kind::Servers), path)? {
         Some(bytes) => nbt::parse(&bytes)?,
         None => nbt::empty_root(),
     };
     nbt::push_server(&mut root, name.trim(), address)?;
-    fsio::write_atomic(path, &nbt::serialize(&root)?)?;
+    fsio::write_atomic(At::game(Kind::Servers), path, &nbt::serialize(&root)?)?;
     then();
     drop(claim);
     Ok(())
@@ -172,12 +170,12 @@ fn remove_server_at(
     then: impl FnOnce(),
 ) -> Result<()> {
     let claim = crate::instances::maintenance::claim_write(instance_id)?;
-    let Some(bytes) = fsio::read_if_present(path)? else {
+    let Some(bytes) = fsio::read_if_present(At::game(Kind::Servers), path)? else {
         return Err(Error::SavedServerListChanged);
     };
     let mut root = nbt::parse(&bytes)?;
     nbt::remove_server(&mut root, index, expected_address)?;
-    fsio::write_atomic(path, &nbt::serialize(&root)?)?;
+    fsio::write_atomic(At::game(Kind::Servers), path, &nbt::serialize(&root)?)?;
     then();
     drop(claim);
     Ok(())
@@ -254,7 +252,8 @@ mod tests {
         };
         add_server_at(&id, &p, "A", "a.example.net", || held("add")).unwrap();
         remove_server_at(&id, &p, 0, "a.example.net", || held("remove")).unwrap();
-        crate::instances::maintenance::claim_write(&id).expect("released after");
+        let again = crate::instances::maintenance::claim_write(&id).expect("released after");
+        drop(again);
     }
 
     #[test]

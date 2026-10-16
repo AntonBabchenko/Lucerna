@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
-use crate::error::{Error, Result};
+use super::failure::{self, At};
+use super::Kind;
+use crate::error::Result;
 
 /// The game keeps the last 50 commands.
 pub(crate) const CAP: usize = 50;
@@ -34,11 +36,12 @@ impl Sep {
 
 /// The instance's history and its separator; `None` when there is no file.
 pub(crate) fn read(path: &Path) -> Result<Option<(Vec<String>, Sep)>> {
-    let Some(bytes) = super::fsio::read_if_present(path)? else {
+    let at = At::game(Kind::History);
+    let Some(bytes) = super::fsio::read_if_present(at, path)? else {
         return Ok(None);
     };
     let text = String::from_utf8(bytes)
-        .map_err(|e| Error::io(path.display().to_string(), format!("not UTF-8: {e}")))?;
+        .map_err(|e| failure::damaged(at, path, format!("not UTF-8: {e}")))?;
     Ok(Some(split(&text)))
 }
 

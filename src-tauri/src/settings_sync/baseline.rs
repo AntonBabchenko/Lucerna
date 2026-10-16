@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use fastnbt::Value;
 
+use super::failure::{self, At};
 use super::{state_dir, Kind};
 use crate::error::{Error, Result};
 
@@ -38,10 +39,11 @@ pub(crate) fn path(instance_root: &Path, kind: Kind, slot: Slot) -> PathBuf {
 
 pub(crate) fn read(instance_root: &Path, kind: Kind, slot: Slot) -> Result<Option<Snapshot>> {
     let p = path(instance_root, kind, slot);
-    let Some(bytes) = super::fsio::read_if_present(&p)? else {
+    let at = At::records(Some(kind));
+    let Some(bytes) = super::fsio::read_if_present(at, &p)? else {
         return Ok(None);
     };
-    let bad = |why: &str| Error::io(p.display().to_string(), format!("parse: {why}"));
+    let bad = |why: &str| failure::damaged(at, &p, format!("parse: {why}"));
     let root: Value = fastnbt::from_bytes(&bytes).map_err(|e| bad(&e.to_string()))?;
     let Value::Compound(mut map) = root else {
         return Err(bad("the root is not a compound"));
@@ -69,11 +71,11 @@ pub(crate) fn write(instance_root: &Path, kind: Kind, slot: Slot, snap: &Snapsho
     map.insert("data".to_string(), snap.data.clone());
     let bytes = fastnbt::to_bytes(&Value::Compound(map))
         .map_err(|e| Error::io(p.display().to_string(), format!("serialize: {e}")))?;
-    super::fsio::write_atomic(&p, &bytes)
+    super::fsio::write_atomic(At::records(Some(kind)), &p, &bytes)
 }
 
 pub(crate) fn remove(instance_root: &Path, kind: Kind, slot: Slot) -> Result<()> {
-    super::fsio::remove_if_present(&path(instance_root, kind, slot))
+    super::fsio::remove_if_present(At::records(Some(kind)), &path(instance_root, kind, slot))
 }
 
 #[cfg(test)]
