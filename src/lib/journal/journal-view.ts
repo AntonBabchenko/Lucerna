@@ -55,6 +55,7 @@ export const ACTION_COPY: Record<ContentAction, JournalRowCopy> = {
     tone: 'neutral',
     labelKey: 'logs.journal.action.integrityRepaired',
   },
+  data_copied: { icon: 'copy', tone: 'positive', labelKey: 'logs.journal.action.dataCopied' },
 };
 
 export const OUTCOME_COPY: Record<LaunchOutcome, JournalRowCopy> = {

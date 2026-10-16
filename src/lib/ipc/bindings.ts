@@ -243,6 +243,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	openAddonFolder: (instanceId: string, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("open_addon_folder", { instanceId, kind })),
 	/**
+	 *  Open the folder a mod-data copy kept the files it replaced in — the
+	 *  startup notice's "Open folder". `name` is the folder's name inside
+	 *  `lucerna/replaced`; the folder is never created (see `kept_folder`).
+	 */
+	openKeptFolder: (instanceId: string, name: string) => typedError<null, Error>(__TAURI_INVOKE("open_kept_folder", { instanceId, name })),
+	/**
 	 *  Show an installed mod's jar in the OS file manager, selected — the file as
 	 *  it is on disk, `<file>` or `<file>.disabled`; `reveal_screenshot`'s shape.
 	 * 
@@ -1543,6 +1549,16 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  the clone dialog's checkbox labels. Reuses the launcher-import scanner.
 	 */
 	cloneInstanceScan: (id: string) => typedError<ContentEntry[], Error>(__TAURI_INVOKE("clone_instance_scan", { id })),
+	/**  What the transfer dialog shows for `source_id` → `target_id`. Read-only. */
+	transferScan: (sourceId: string, targetId: string) => typedError<TransferPreview, Error>(__TAURI_INVOKE("transfer_scan", { sourceId, targetId })),
+	/**
+	 *  Copy the selection from `source_id` into `target_id`. Holds both
+	 *  instances' maintenance claims for the whole run, so neither can be launched
+	 *  or written while files are read from one and placed into the other.
+	 */
+	transferModData: (sourceId: string, targetId: string, selection: TransferSelection, onConflict: OnConflict, onProgress: Channel<TransferProgress>) => typedError<TransferOutcome, Error>(__TAURI_INVOKE("transfer_mod_data", { sourceId, targetId, selection, onConflict, onProgress })),
+	/**  Mod data `id` has, for the clone dialog's "Mod data" row. Read-only. */
+	modDataScan: (id: string) => typedError<ModDataSummary, Error>(__TAURI_INVOKE("mod_data_scan", { id })),
 	/**
 	 *  Read the persisted app-level settings (currently: onboarding state).
 	 *  Returns `AppFile::default()` if `app.json` is missing — a fresh
@@ -3121,17 +3137,28 @@ export type CloneOptions = {
 	config: boolean,
 	options_txt: boolean,
 	playtime: boolean,
+	/**
+	 *  Mod data (maps, schematics, replays, LOD): every `instances::transfer`
+	 *  catalog item the source has, whole trees.
+	 */
+	mod_data?: boolean,
 };
 
 /**
- *  Per-category copy progress streamed to the UI (same counts shape the
- *  launcher import emits).
+ *  Per-step copy progress streamed to the UI (same counts shape the launcher
+ *  import emits).
  */
 export type CloneProgress = {
-	category: ContentCategory,
+	step: CloneStep,
 	current: number,
 	total: number,
 };
+
+/**
+ *  What a clone is copying, for its progress row: a content category, or the
+ *  mod data (`instances::transfer`), which is not one.
+ */
+export type CloneStep = "mods" | "config" | "saves" | "resource_packs" | "shaderpacks" | "options_txt" | "mod_data";
 
 /**
  *  The backend asks the frontend to show the close dialog. `generation`
@@ -3242,7 +3269,9 @@ export type ConflictPolicy = "keep_mine" | "take_file";
  */
 export type ContentAction = "mod_installed" | "mod_updated" | "mod_removed" | 
 /**  A trashed mod put back by «Вернуть» (`mods_restore_uninstalled`). */
-"mod_restored" | "mod_enabled" | "mod_disabled" | "asset_installed" | "asset_updated" | "asset_removed" | "modpack_imported" | "modpack_updated" | "integrity_repaired";
+"mod_restored" | "mod_enabled" | "mod_disabled" | "asset_installed" | "asset_updated" | "asset_removed" | "modpack_imported" | "modpack_updated" | "integrity_repaired" | 
+/**  Mod data copied in from another instance (`instances::transfer`). */
+"data_copied";
 
 /**  One copyable content category in a foreign instance. */
 export type ContentCategory = "mods" | "config" | "saves" | "resource_packs" | "shaderpacks" | "options_txt";
@@ -4072,7 +4101,23 @@ export type Error =
  *  `instance_name` is the display NAME; `role` says which side it is on
  *  and is rendered through a translated word, never the enum name.
  */
-{ kind: "world_migrate_instance_running"; instance_name: string; role: MigrationRole } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+{ kind: "world_migrate_instance_running"; instance_name: string; role: MigrationRole } | 
+/**
+ *  A mod-data copy needs both instances idle (`instances::transfer`).
+ *  `instance_name` is the display NAME; `role` says which side it is on.
+ */
+{ kind: "transfer_instance_busy"; instance_name: string; role: TransferRole } | 
+/**
+ *  A selection a copy does not offer: an unknown or managed folder name, or
+ *  the same instance on both sides.
+ */
+{ kind: "transfer_invalid_selection"; name: string } | 
+/**  Something in the source or the target makes this copy unsafe. */
+{ kind: "transfer_refused"; refusal: Refusal } | 
+/**  The copy failed and was undone cleanly; `cause` is why, typed. */
+{ kind: "transfer_failed"; cause: Error } | 
+/**  The copy failed and its undo could not put everything back. */
+{ kind: "transfer_rollback_incomplete"; folder: string; cause: Error; stuck: string[] } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  A curated `server.properties` field failed validation. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Attempt to build/start a server without an accepted EULA. */
@@ -5315,6 +5360,16 @@ export type IntegrityStatus = {
 	problem_count: number,
 };
 
+export type ItemPreview = {
+	id: TransferItemId,
+	roots: RootPreview[],
+	files: number,
+	bytes: number | null,
+	conflicts: number,
+	skipped: number,
+	refusal: Refusal | null,
+};
+
 /**
  *  What an instance or a server says about its Java. Stored as
  *  `{"kind": "bundled"}` / `{"kind": "custom", "path": "…"}`; absent = follow
@@ -6188,6 +6243,17 @@ export type ModCompatStatus =
  */
 { status: "unknown" };
 
+/**  Mod data a clone would copy, for the clone dialog's row (spec §A6). */
+export type ModDataSummary = {
+	files: number,
+	bytes: number | null,
+	/**
+	 *  False when a root cannot be read or links to a missing folder: a clone
+	 *  is all-or-nothing, so the row is off.
+	 */
+	selectable: boolean,
+};
+
 export type ModDepLink = {
 	kind: DepKind,
 	project_ref: DepProjectRef,
@@ -7052,6 +7118,8 @@ export type NotCheckableReason =
  */
 export type OfflineNameRejection = "too_short" | "too_long" | "invalid_chars";
 
+export type OnConflict = "replace" | "keep_existing";
+
 export type OnboardingState = OnboardingState_Serialize | OnboardingState_Deserialize;
 
 export type OnboardingState_Deserialize = {
@@ -7165,6 +7233,16 @@ export type OrphanedBackupSet = {
 	backup_count: number,
 	/**  Milliseconds since the epoch. `f64` because specta has no `u64`. */
 	newest_unix_ms: number | null,
+};
+
+export type OtherPreview = {
+	name: string,
+	root: RootPreview,
+	files: number,
+	bytes: number | null,
+	conflicts: number,
+	skipped: number,
+	refusal: Refusal | null,
 };
 
 /**
@@ -7617,15 +7695,32 @@ export type RangeDescription = {
 /**  Which grammar a raw range string uses. */
 export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
 
+/**  What the interrupted operation was, for the notice's wording. */
+export type RecoveredOperation = { kind: "update" } | { kind: "data_copy"; source: string } | { kind: "unknown" };
+
 /**  One interrupted update the startup recovery dealt with. */
 export type RecoveredUpdate = {
 	instance_id: string,
 	instance_name: string,
 	outcome: RecoveryOutcome,
+	operation: RecoveredOperation,
 };
 
 /**  How the startup undo of one interrupted update ended. */
-export type RecoveryOutcome = { kind: "restored" } | { kind: "incomplete"; folder: string; details: string };
+export type RecoveryOutcome = { kind: "restored" } | { kind: "incomplete"; folder: string; details: string } | { kind: "kept_aside"; folder: string } | { kind: "kept_in_place"; folder: string; details: string };
+
+/**  Why an item cannot be copied. Each names the `/`-separated path it is about. */
+export type Refusal = 
+/**  A source or target folder is a link whose target is missing. */
+{ kind: "broken_link"; rel: string } | 
+/**  A source or target path could not be read. */
+{ kind: "unreadable"; rel: string; reason: string } | 
+/**  A target file where the copy needs a folder, or a folder where it has a file. */
+{ kind: "prefix_clash"; rel: string } | 
+/**  A link inside the target where the copy would write. */
+{ kind: "inner_link"; rel: string } | 
+/**  Both instances use the same folder. */
+{ kind: "overlap"; rel: string };
 
 /**
  *  One downloadable release asset. `size` is `f64` because specta maps
@@ -7921,6 +8016,13 @@ export type RestoreSkipReason =
  */
 export type RestoredWorld = {
 	final_folder_name: string,
+};
+
+export type RootPreview = {
+	rel: string,
+	source: ContentLocation,
+	/**  `None` when the target has no such folder yet. */
+	target: ContentLocation | null,
 };
 
 /**  What a finished run did. */
@@ -8792,6 +8894,41 @@ export type TaskReport = {
 };
 
 export type ThemePreference = "system" | "light" | "dark";
+
+export type TransferItemId = "schematics" | "xaero" | "journeymap" | "flashback" | "replaymod" | "distant_horizons" | "voxy" | "bobby";
+
+export type TransferOutcome = {
+	copied: number,
+	replaced: number,
+	kept_existing: number,
+	skipped: number,
+	/**  Where the replaced files are when they did not go to the Recycle Bin. */
+	replaced_kept_at: string | null,
+};
+
+export type TransferPhase = "copying" | "placing";
+
+export type TransferPreview = {
+	items: ItemPreview[],
+	other: OtherPreview[],
+	/**  Free space on the target's volume, MB; `None` when it cannot be read. */
+	target_free_mb: number | null,
+};
+
+export type TransferProgress = {
+	phase: TransferPhase,
+	current: number,
+	total: number,
+};
+
+/**  Which side of a mod-data copy an instance is on. */
+export type TransferRole = "source" | "target";
+
+export type TransferSelection = {
+	items: TransferItemId[],
+	/**  Top-level folder names from the preview's "Other folders". */
+	other: string[],
+};
 
 /**
  *  The menu strings the tray is built with. English constants until the

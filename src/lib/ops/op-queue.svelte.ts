@@ -43,12 +43,15 @@ import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import type { CloneRequest } from '$lib/instances/clone-request';
 import type { LauncherImportRequest } from '$lib/instances/import/launcher-import-runner';
+import type { TransferRequest } from '$lib/instances/transfer/transfer-runner';
+import { outcomeLines } from '$lib/instances/transfer/transfer-view';
 import { commands } from '$lib/ipc/bindings';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
 import { cloneInstance } from '$lib/tasks/adapters/clone';
 import { runRepair, runVerify } from '$lib/tasks/adapters/integrity';
 import { importLauncherInstance } from '$lib/tasks/adapters/launcher-import';
 import { importModpack } from '$lib/tasks/adapters/pack-import';
+import { transferData } from '$lib/tasks/adapters/transfer';
 import { taskFor } from '$lib/tasks/registry.svelte';
 import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 
@@ -279,6 +282,33 @@ export function opCompletionTick(): number {
  *  forced post-import modpack-update sweep. */
 export function opImportCompletionTick(): number {
   return importCompletionTick;
+}
+
+// ── mod-data transfer ───────────────────────────────────────────────────────
+
+/** Enqueue a copy of mod data. Dedupe: a target that already has an active op
+ *  (of any kind) is a no-op (double-click guard). */
+export function enqueueTransfer(request: TransferRequest): void {
+  if (taskFor({ instanceId: request.targetId }) !== null) return;
+  void runTransferOp(request);
+}
+
+async function runTransferOp(request: TransferRequest): Promise<void> {
+  try {
+    const outcome = await transferData(request.targetName, request);
+    const tr = get(t);
+    if (outcome.status === 'ok') {
+      pushSuccess(
+        tr('instance.transfer.done', { name: request.targetName }),
+        outcomeLines(tr, outcome.outcome),
+      );
+    } else if (outcome.status === 'error') {
+      pushWarning(tr('instance.transfer.failed', { name: request.targetName }), [outcome.message]);
+    }
+    // `cancelled`: the user took it off the queue themselves; no toast.
+  } finally {
+    completionTick += 1;
+  }
 }
 
 /** Test-only reset of the module singleton. */

@@ -289,6 +289,7 @@ async fn build_pack_plan(
         create,
         prior_pack_origin: Some(a.old_origin.clone()),
         prior_instance: Some(prior_instance),
+        set_aside: txn::SetAsideDisposal::Delete,
     })
 }
 

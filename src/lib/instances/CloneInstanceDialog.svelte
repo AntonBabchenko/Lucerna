@@ -5,7 +5,12 @@
   import { categoryLabelKey } from '$lib/instances/import/category-display';
   import { isSelectable } from '$lib/instances/import/content-location';
   import ContentLocationNote from '$lib/instances/import/ContentLocationNote.svelte';
-  import type { CloneOptions, ContentEntry, InstanceWithStatus } from '$lib/ipc/bindings';
+  import type {
+    CloneOptions,
+    ContentEntry,
+    InstanceWithStatus,
+    ModDataSummary,
+  } from '$lib/ipc/bindings';
   import { commands } from '$lib/ipc/bindings';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
@@ -30,6 +35,7 @@
     config: true,
     options_txt: true,
     playtime: true,
+    mod_data: true,
   });
 
   // Per-category file counts + sizes for the checkbox labels (best-effort:
@@ -37,6 +43,8 @@
   let content = $state<ContentEntry[] | null>(null);
   // null until getPlaytime resolves; then whether any session was recorded.
   let hasPlaytime = $state<boolean | null>(null);
+  // null until modDataScan resolves: maps, schematics, replays, LOD.
+  let modData = $state<ModDataSummary | null>(null);
 
   onMount(() => {
     name = defaultCloneName(instance.name, get(t)('instance.clone.defaultSuffix'));
@@ -54,6 +62,11 @@
       if (stats.status === 'ok') {
         hasPlaytime = stats.data.session_count > 0;
         if (!hasPlaytime) options.playtime = false;
+      }
+      const md = await commands.modDataScan(instance.id);
+      if (md.status === 'ok') {
+        modData = md.data;
+        if (md.data.files === 0 || !md.data.selectable) options.mod_data = false;
       }
     })();
   });
@@ -142,6 +155,23 @@
       disabled: contentDisabled('config'),
       hint: sizeLabel('config'),
       entries: entriesFor('config'),
+    },
+    {
+      key: 'mod_data',
+      label: $t('instance.clone.optionModData'),
+      icon: 'locate',
+      disabled: modData !== null && (modData.files === 0 || !modData.selectable),
+      // Unreadable first: a root that cannot be read counts no files, and the
+      // row must say why it is off.
+      hint:
+        modData === null
+          ? ''
+          : !modData.selectable
+            ? $t('instance.clone.modDataUnavailable')
+            : modData.files === 0
+              ? ''
+              : `${modData.files} · ${formatSize(get(t), modData.bytes)}`,
+      entries: [],
     },
     {
       key: 'options_txt',

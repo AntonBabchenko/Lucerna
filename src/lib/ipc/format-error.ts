@@ -3,6 +3,7 @@ import { offlineNameRejectionKey } from '$lib/accounts/offline-name';
 import { t } from '$lib/i18n';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import { displayLoader } from '$lib/instances/loader-display';
+import { refusalText } from '$lib/instances/transfer/transfer-view';
 import type {
   BundleError,
   DatapackRejection,
@@ -224,6 +225,13 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   // `migrationRoleKey` — so there is nothing raw to truncate: `clean`.
   world_migrate_partial_left: 'clean',
   world_migrate_instance_running: 'clean',
+  // Built from structured fields only (names, a typed role or refusal, a typed
+  // cause formatted on its own, a folder path): `clean`.
+  transfer_instance_busy: 'clean',
+  transfer_invalid_selection: 'clean',
+  transfer_refused: 'clean',
+  transfer_failed: 'clean',
+  transfer_rollback_incomplete: 'clean',
   quick_play_address_invalid: 'clean',
   import_unsupported_loader: 'clean',
   import_source_unrecognized: 'clean',
@@ -909,6 +917,21 @@ export function formatError(e: IpcError): string {
         name: e.instance_name,
         role: translate(migrationRoleKey(e.role)),
       });
+    case 'transfer_instance_busy':
+      return translate('errors.transferInstanceBusy', {
+        name: e.instance_name,
+        role: translate(
+          e.role === 'source' ? 'errors.transferRoleSource' : 'errors.transferRoleTarget',
+        ),
+      });
+    case 'transfer_invalid_selection':
+      return translate('errors.transferInvalidSelection', { name: e.name });
+    case 'transfer_refused':
+      return refusalText(translate, e.refusal);
+    case 'transfer_failed':
+      return translate('errors.transferFailed', { cause: formatError(e.cause) });
+    case 'transfer_rollback_incomplete':
+      return translate('errors.transferRollbackIncomplete', { folder: e.folder });
     case 'playtime_io':
       return withDetailTail(translate('errors.playtimeIo'), e.details);
     case 'tray_io':

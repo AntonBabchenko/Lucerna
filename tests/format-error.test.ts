@@ -582,6 +582,26 @@ describe('formatError', () => {
         instance_name: 'Survival 1.21',
         role: 'target',
       },
+      transfer_instance_busy: {
+        kind: 'transfer_instance_busy',
+        instance_name: 'Old pack',
+        role: 'source',
+      },
+      transfer_invalid_selection: { kind: 'transfer_invalid_selection', name: 'mods' },
+      transfer_refused: {
+        kind: 'transfer_refused',
+        refusal: { kind: 'overlap', rel: 'schematics' },
+      },
+      transfer_failed: {
+        kind: 'transfer_failed',
+        cause: { kind: 'io', path: 'C:/x', details: 'd' },
+      },
+      transfer_rollback_incomplete: {
+        kind: 'transfer_rollback_incomplete',
+        folder: 'C:/x/lucerna/txn/1-a',
+        cause: { kind: 'io', path: 'C:/x', details: 'd' },
+        stuck: ['schematics/a.nbt (name taken)'],
+      },
       playtime_io: { kind: 'playtime_io', details: 'd' },
       tray_io: { kind: 'tray_io', details: 'd' },
       window_io: { kind: 'window_io', details: 'd' },

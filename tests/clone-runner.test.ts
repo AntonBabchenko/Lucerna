@@ -68,8 +68,8 @@ describe('runClone', () => {
     const phases: Array<unknown> = [];
     (commands.cloneInstance as ReturnType<typeof vi.fn>).mockImplementation(
       async (_s, _n, _o, ch: { onmessage: ((m: unknown) => void) | null }) => {
-        ch.onmessage?.({ category: 'mods', current: 1, total: 3 });
-        ch.onmessage?.({ category: 'saves', current: 2, total: 8 });
+        ch.onmessage?.({ step: 'mods', current: 1, total: 3 });
+        ch.onmessage?.({ step: 'saves', current: 2, total: 8 });
         return { status: 'ok', data: { id: 'clone-1', name: 'Default (copy)' } };
       },
     );
@@ -77,8 +77,8 @@ describe('runClone', () => {
     await runClone(request, (p) => phases.push(p));
 
     expect(phases[0]).toBeNull();
-    expect(phases[1]).toMatchObject({ category: 'mods' });
-    expect(phases[2]).toMatchObject({ category: 'saves' });
+    expect(phases[1]).toMatchObject({ step: 'mods' });
+    expect(phases[2]).toMatchObject({ step: 'saves' });
   });
 
   it('returns error outcome with the formatted message when the command fails', async () => {
