@@ -119,6 +119,21 @@ pub fn after_local_edit(
     run_kinds(data_root, instance_root, &facts(), &[kind], true)
 }
 
+/// The game files this instance syncs, relative to `.minecraft/`: what a pack
+/// files re-import must leave alone (spec §B8). An unreadable sidecar is an
+/// error, not "none": overwriting a file that may be shared would spread the
+/// pack's copy, and skipping it would claim it is shared.
+pub fn synced_files(instance_root: &Path) -> crate::error::Result<Vec<&'static str>> {
+    Ok(match sidecar::read(instance_root)? {
+        sidecar::SidecarRead::NotMember => vec![],
+        sidecar::SidecarRead::Member(s) => Kind::ALL
+            .into_iter()
+            .filter(|k| s.enabled(*k))
+            .map(Kind::file)
+            .collect(),
+    })
+}
+
 /// Everything a launch does before spawning (blocking; call it inside
 /// `spawn_blocking`): nothing for an instance that syncs nothing; otherwise
 /// the running-game marker is checked, the version facts are read and every
@@ -486,6 +501,31 @@ mod api_tests {
         let f = after_local_edit(&data, &inst, Kind::Servers, facts).unwrap_err();
         assert_eq!(f.kind, Some(Kind::Servers));
         assert_eq!(sidecar_of(&inst).last_error, Some(f));
+    }
+
+    #[test]
+    fn the_synced_files_are_the_enabled_kinds_and_an_unreadable_sidecar_is_an_error() {
+        let td = tempfile::tempdir().unwrap();
+        let inst = td.path().join("inst");
+        assert!(synced_files(&inst).unwrap().is_empty(), "not a member");
+        let mut s = Sidecar::default();
+        for (kind, enabled) in [
+            (Kind::Servers, true),
+            (Kind::History, false),
+            (Kind::Hotbars, true),
+        ] {
+            s.set_kind(
+                kind,
+                KindState {
+                    enabled,
+                    join: Join::Done,
+                },
+            );
+        }
+        sidecar::write(&inst, &s).unwrap();
+        assert_eq!(synced_files(&inst).unwrap(), ["servers.dat", "hotbar.nbt"]);
+        std::fs::write(sidecar_path(&inst), b"{").unwrap();
+        assert!(synced_files(&inst).is_err());
     }
 
     #[test]

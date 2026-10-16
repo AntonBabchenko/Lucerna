@@ -750,10 +750,13 @@ fn extracted_asset_detail(asset: &overrides::ExtractedAsset) -> TaskDetail {
 }
 
 /// Build the `TaskDetail` row for an `overrides/` entry the extractor
-/// skipped for exceeding the per-file size cap. Declared-oversize entries
-/// are never read into memory (see `overrides::extract`), so no sha1 exists
-/// to report.
+/// skipped. A skipped entry is never read into memory (see
+/// `overrides::extract`), so no sha1 exists to report.
 fn skipped_override_detail(skipped: &SkippedOverride) -> TaskDetail {
+    let reason = match skipped.reason {
+        SkipReason::Size => "exceeds the per-file size cap",
+        SkipReason::Synced => "this instance shares the file with other instances",
+    };
     let name = skipped
         .path
         .rsplit('/')
@@ -768,7 +771,7 @@ fn skipped_override_detail(skipped: &SkippedOverride) -> TaskDetail {
         bytes: Some(skipped.size),
         sha1: None,
         outcome: DetailOutcome::Skipped {
-            reason: "exceeds the per-file size cap".to_string(),
+            reason: reason.to_string(),
         },
     }
 }
@@ -1157,14 +1160,21 @@ pub async fn install_resolved_pack(
     if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
         if let Some(bytes) = archive_bytes {
             let bytes_clone = bytes.to_vec();
-            let outcome =
-                overrides::extract(&bytes_clone, &instance_root, &protected_worlds, |c, t| {
+            // A first import keeps no synced files: the instance joins
+            // settings sync after this returns, and its join applies then.
+            let outcome = overrides::extract(
+                &bytes_clone,
+                &instance_root,
+                &protected_worlds,
+                &overrides::SyncedFiles::default(),
+                |c, t| {
                     on_progress(ModpackProgress::ExtractingOverrides {
                         current: c,
                         total: t,
                     });
-                })
-                .await?;
+                },
+            )
+            .await?;
             bundled_assets = outcome.extracted;
             skipped_overrides = outcome.skipped;
         }
@@ -2679,6 +2689,7 @@ mod tests {
         let skipped = SkippedOverride {
             path: "mods/mods.rar".into(),
             size: 999.0,
+            reason: SkipReason::Size,
         };
         let detail = skipped_override_detail(&skipped);
         assert_eq!(detail.origin, TaskOrigin::Archive);
@@ -2986,6 +2997,7 @@ mod tests {
             skipped_overrides: vec![SkippedOverride {
                 path: "mods/mods.rar".into(),
                 size: 261_361_205.0,
+                reason: SkipReason::Size,
             }],
             resolved_missing: vec![crate::mods::installed::ResolvedMissing {
                 filename: "blocked.jar".into(),
