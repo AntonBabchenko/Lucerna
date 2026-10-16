@@ -225,7 +225,7 @@ pub(crate) fn scan_root(
             return Some(scan);
         }
     }
-    if let Some(r) = overlap(&source_path, target_mc, rel) {
+    if let Err(r) = overlap(&source_path, target_mc, rel) {
         scan.refusal = Some(r);
         return Some(scan);
     }
@@ -368,23 +368,39 @@ fn target_file(
 
 /// Both instances reaching one folder: the target root (or its nearest
 /// existing ancestor, extended by the missing segments) and the source root
-/// canonically equal, or one inside the other. Runs after `target_root` and
-/// the walk proved every segment reads cleanly, so a canonicalize failure here
-/// is not a new "could not tell" — it returns `None`.
-fn overlap(source_path: &Path, target_mc: &Path, rel: &str) -> Option<Refusal> {
-    let source = dunce::canonicalize(source_path).ok()?;
+/// canonically equal, or one inside the other. A path that cannot be resolved
+/// is "could not tell", refused as unreadable — never let through as no
+/// overlap, which would let a copy write into its own source.
+fn overlap(source_path: &Path, target_mc: &Path, rel: &str) -> Result<(), Refusal> {
+    let unreadable = |path: &Path, why: String| Refusal::Unreadable {
+        rel: rel.into(),
+        reason: format!("{}: {why}", path.display()),
+    };
+    let source =
+        dunce::canonicalize(source_path).map_err(|e| unreadable(source_path, e.to_string()))?;
     let mut existing = join_rel(target_mc, rel);
     let mut missing: Vec<std::ffi::OsString> = Vec::new();
-    while std::fs::symlink_metadata(&existing).is_err() {
-        missing.push(existing.file_name()?.to_os_string());
-        existing = existing.parent()?.to_path_buf();
+    loop {
+        match std::fs::symlink_metadata(&existing) {
+            Ok(_) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(unreadable(&existing, e.to_string())),
+        }
+        let (Some(name), Some(parent)) = (existing.file_name(), existing.parent()) else {
+            return Err(unreadable(&existing, "no folder above it exists".into()));
+        };
+        missing.push(name.to_os_string());
+        existing = parent.to_path_buf();
     }
-    let mut target = dunce::canonicalize(&existing).ok()?;
+    let mut target =
+        dunce::canonicalize(&existing).map_err(|e| unreadable(&existing, e.to_string()))?;
     for seg in missing.iter().rev() {
         target.push(seg);
     }
-    (target.starts_with(&source) || source.starts_with(&target))
-        .then(|| Refusal::Overlap { rel: rel.into() })
+    if target.starts_with(&source) || source.starts_with(&target) {
+        return Err(Refusal::Overlap { rel: rel.into() });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -544,5 +560,18 @@ mod tests {
         let mut names: Vec<&str> = got.other.iter().map(|o| o.name.as_str()).collect();
         names.sort_unstable();
         assert_eq!(names, [".replay_cache", "kubejs"]);
+    }
+
+    /// Could not tell whether both instances reach one folder: refused as
+    /// unreadable, never let through as no overlap.
+    #[test]
+    fn an_overlap_that_cannot_be_checked_is_refused() {
+        let p = pair();
+        let gone = p.src.join("schematics");
+        let got = overlap(&gone, &p.dst, "schematics");
+        assert!(
+            matches!(got, Err(Refusal::Unreadable { ref rel, .. }) if rel == "schematics"),
+            "{got:?}"
+        );
     }
 }
