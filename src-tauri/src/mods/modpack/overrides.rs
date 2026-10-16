@@ -9,7 +9,7 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
-use crate::mods::modpack::schema::SkippedOverride;
+use crate::mods::modpack::schema::{SkipReason, SkippedOverride};
 
 const PER_FILE_CAP: u64 = 200 * 1024 * 1024;
 const AGGREGATE_CAP: u64 = 2 * 1024 * 1024 * 1024;
@@ -37,6 +37,9 @@ enum EntryKind {
     /// Belongs to a world the instance already has — see
     /// [`ProtectedWorlds`]. Nothing is read or written.
     KeptWorld,
+    /// A file the instance syncs with others — see [`SyncedFiles`]; its
+    /// declared size. Nothing is read or written.
+    Synced(u64),
 }
 
 /// A file the extractor placed under a tracked directory (`mods/`,
@@ -165,6 +168,26 @@ impl ProtectedWorlds {
     }
 }
 
+/// The files a re-import leaves as they are because this instance shares them
+/// with other instances (settings sync, spec 2026-10-15 §B8): the pack's copy
+/// would replace the instance's own, then spread to every instance sharing it
+/// at the next sync point. Each is recorded as skipped, with
+/// [`SkipReason::Synced`]. Names are relative to `.minecraft/` and compared
+/// ignoring ASCII case — on Windows and macOS `Servers.DAT` is the same file.
+/// `Default` keeps nothing (a first import: its join applies afterwards).
+#[derive(Debug, Default)]
+pub struct SyncedFiles(Vec<&'static str>);
+
+impl SyncedFiles {
+    pub fn new(files: Vec<&'static str>) -> Self {
+        Self(files)
+    }
+
+    fn covers(&self, rel: &str) -> bool {
+        self.0.iter().any(|f| f.eq_ignore_ascii_case(rel))
+    }
+}
+
 /// Whether `path` exists and is not an empty directory. `NotFound` is a real
 /// "no"; any other failure is returned, never folded into either answer.
 fn holds_something(path: &Path) -> std::io::Result<bool> {
@@ -223,11 +246,13 @@ fn work_list(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<Vec<(usize, Str
 
 /// Extract the archive's overrides into `instance_root/.minecraft/`, never
 /// writing into a world `protected` names — take it with
-/// [`ProtectedWorlds::snapshot`] before the operation's first write.
+/// [`ProtectedWorlds::snapshot`] before the operation's first write — nor
+/// over a file `synced` names.
 pub async fn extract<F: FnMut(u32, u32)>(
     bytes: &[u8],
     instance_root: &Path,
     protected: &ProtectedWorlds,
+    synced: &SyncedFiles,
     mut on_progress: F,
 ) -> Result<ExtractOutcome, Error> {
     let mc_dir = instance_root.join(".minecraft");
@@ -274,6 +299,9 @@ pub async fn extract<F: FnMut(u32, u32)>(
 
             if protected.covers(&rel) {
                 EntryKind::KeptWorld
+            } else if synced.covers(&rel) {
+                // The declared size, for display only: nothing is read.
+                EntryKind::Synced(entry.size())
             } else if entry.is_dir() {
                 EntryKind::Dir
             } else {
@@ -336,6 +364,15 @@ pub async fn extract<F: FnMut(u32, u32)>(
                 skipped.push(SkippedOverride {
                     path: rel,
                     size: size as f64,
+                    reason: SkipReason::Size,
+                });
+            }
+            // Nothing written: the instance keeps its own — see `SyncedFiles`.
+            EntryKind::Synced(size) => {
+                skipped.push(SkippedOverride {
+                    path: rel,
+                    size: size as f64,
+                    reason: SkipReason::Synced,
                 });
             }
             EntryKind::Dir => {
@@ -414,9 +451,15 @@ mod tests {
     async fn extracts_normal_file() {
         let zip = make_zip(&[("overrides/config/foo.toml", b"k=v")]);
         let inst = TempDir::new().unwrap();
-        extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {})
-            .await
-            .unwrap();
+        extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
         let target = inst.path().join(".minecraft/config/foo.toml");
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"k=v");
     }
@@ -425,7 +468,14 @@ mod tests {
     async fn rejects_path_traversal() {
         let zip = make_zip(&[("overrides/../escape.txt", b"!")]);
         let inst = TempDir::new().unwrap();
-        let r = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {}).await;
+        let r = extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await;
         assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
     }
 
@@ -433,7 +483,14 @@ mod tests {
     async fn rejects_absolute_path() {
         let zip = make_zip(&[("overrides//etc/passwd", b"!")]);
         let inst = TempDir::new().unwrap();
-        let r = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {}).await;
+        let r = extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await;
         assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
     }
 
@@ -441,7 +498,14 @@ mod tests {
     async fn rejects_drive_letter() {
         let zip = make_zip(&[("overrides/C:/windows/system32.txt", b"!")]);
         let inst = TempDir::new().unwrap();
-        let r = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {}).await;
+        let r = extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await;
         assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
     }
 
@@ -452,9 +516,15 @@ mod tests {
             ("client-overrides/options.txt", b"from-client"),
         ]);
         let inst = TempDir::new().unwrap();
-        extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {})
-            .await
-            .unwrap();
+        extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
         let bytes = tokio::fs::read(inst.path().join(".minecraft/options.txt"))
             .await
             .unwrap();
@@ -466,9 +536,13 @@ mod tests {
         let zip = make_zip(&[("overrides/a.txt", b"a"), ("overrides/b.txt", b"b")]);
         let inst = TempDir::new().unwrap();
         let calls = std::sync::Mutex::new(vec![]);
-        extract(&zip, inst.path(), &ProtectedWorlds::default(), |c, t| {
-            calls.lock().unwrap().push((c, t))
-        })
+        extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |c, t| calls.lock().unwrap().push((c, t)),
+        )
         .await
         .unwrap();
         let calls = calls.into_inner().unwrap();
@@ -513,9 +587,15 @@ mod tests {
             ("overrides/resourcepacks/readme.txt", b"notes" as &[u8]),
         ]);
         let inst = TempDir::new().unwrap();
-        let out = extract(&zip, inst.path(), &ProtectedWorlds::default(), |_, _| {})
-            .await
-            .unwrap();
+        let out = extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
         let paths: std::collections::HashSet<&str> = out
             .extracted
             .iter()
@@ -552,9 +632,15 @@ mod tests {
             w.finish().unwrap();
         }
         let inst = TempDir::new().unwrap();
-        let out = extract(&buf, inst.path(), &ProtectedWorlds::default(), |_, _| {})
-            .await
-            .unwrap();
+        let out = extract(
+            &buf,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
 
         // Normal jar extracted to disk and surfaced as a bundled asset.
         assert_eq!(
@@ -589,7 +675,14 @@ mod tests {
     /// Snapshot, then extract — the order both real callers use.
     async fn snapshot_and_extract(zip: &[u8], inst: &TempDir) -> Result<ExtractOutcome, Error> {
         let protected = ProtectedWorlds::snapshot(zip, inst.path()).unwrap();
-        extract(zip, inst.path(), &protected, |_, _| {}).await
+        extract(
+            zip,
+            inst.path(),
+            &protected,
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await
     }
 
     #[tokio::test]
@@ -654,9 +747,15 @@ mod tests {
         std::fs::create_dir_all(&from_index).unwrap();
         std::fs::write(from_index.join("dp.zip"), b"index file").unwrap();
 
-        extract(&zip, inst.path(), &protected, |_, _| {})
-            .await
-            .unwrap();
+        extract(
+            &zip,
+            inst.path(),
+            &protected,
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             std::fs::read(inst.path().join(".minecraft/saves/W/level.dat")).unwrap(),
@@ -724,5 +823,44 @@ mod tests {
         let zip = make_zip(&[("overrides/saves/W/../../../escape.txt", b"!" as &[u8])]);
         let r = snapshot_and_extract(&zip, &inst).await;
         assert!(matches!(r, Err(Error::ModpackOverridesPathEscape { .. })));
+    }
+
+    #[tokio::test]
+    async fn a_synced_file_is_left_as_it_is_and_recorded_as_synced() {
+        let inst = TempDir::new().unwrap();
+        let mc = inst.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join("servers.dat"), b"MINE").unwrap();
+        let zip = make_zip(&[
+            ("overrides/servers.dat", b"PACK" as &[u8]),
+            ("client-overrides/Command_History.TXT", b"/pack"),
+            ("overrides/config/a.toml", b"k=v"),
+        ]);
+        let synced = SyncedFiles::new(vec!["servers.dat", "command_history.txt"]);
+        let out = extract(
+            &zip,
+            inst.path(),
+            &ProtectedWorlds::default(),
+            &synced,
+            |_, _| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read(mc.join("servers.dat")).unwrap(), b"MINE");
+        assert!(!mc.join("Command_History.TXT").exists());
+        assert_eq!(std::fs::read(mc.join("config/a.toml")).unwrap(), b"k=v");
+        let mut rows: Vec<(String, SkipReason)> = out
+            .skipped
+            .into_iter()
+            .map(|s| (s.path, s.reason))
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            rows,
+            [
+                ("Command_History.TXT".to_string(), SkipReason::Synced),
+                ("servers.dat".to_string(), SkipReason::Synced),
+            ]
+        );
     }
 }

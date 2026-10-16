@@ -455,6 +455,40 @@
       "copying": "Copying files ({current}/{total})",
       "placing": "Putting files in place ({current}/{total})"
     },
+    "settingsSync": {
+      "title": "Shared game settings",
+      "hint": "Share the server list, command history and hotbars with your other instances that turn the same thing on. A launch brings in what they changed; closing the game shares what changed here.",
+      "kind": {
+        "servers": "Server list",
+        "history": "Command history",
+        "hotbars": "Hotbars"
+      },
+      "state": {
+        "joining": "Joins at the next launch",
+        "historyTooOld": "Needs Minecraft 1.20.2 or newer",
+        "hotbarsNotRecorded": "Not available for this Minecraft version",
+        "hotbarsNotInstalled": "Available once the game files are installed",
+        "hotbarsNotRelease": "Not available for snapshots and pre-releases",
+        "olderThanShared": "The shared hotbars were saved by a newer Minecraft version, so this instance keeps its own.",
+        "unreadable": "Not available. {detail}"
+      },
+      "hotbarsRule": "Once a newer Minecraft version saves the shared hotbars, instances on older versions keep their own.",
+      "lastError": "The last sync failed: couldn't sync {what}. {detail} The next launch tries again, and nothing is lost.",
+      "unreadable": "This instance's sync settings can't be read ({reason}), so nothing syncs.",
+      "unreadableFix": "Turn off sync in this instance",
+      "unreadableHint": "The unreadable file goes to the Recycle Bin and syncing here is turned off. You can turn it on again.",
+      "lockedRunning": "Stop the game to change what this instance shares.",
+      "lockedBusy": "You can change this once this instance's current task finishes.",
+      "loadFailed": "Couldn't read this instance's shared settings. {error}",
+      "retry": "Try again",
+      "changeFailed": "Couldn't change this. {error}",
+      "joinTitle": "Shared hotbars already exist",
+      "joinBody": "Other instances already share hotbars, and this instance has its own. Which should it use?",
+      "joinOlderBody": "The shared hotbars were saved by a newer Minecraft version, which this instance can't read, so it can only share its own.",
+      "joinKept": "The hotbars that get replaced are kept: the shared ones in a backup, this instance's in the Recycle Bin.",
+      "useShared": "Use the shared hotbars",
+      "makeShared": "Make its own the shared ones"
+    },
     "error": {
       "nameRequired": "Name is required",
       "nameEmpty": "Name cannot be empty",
@@ -854,6 +888,23 @@
       "ram": "Running instances reserve ~{reserved, number, ::.0 group-off} GB of {total, number, ::.0 group-off} GB.",
       "accountMicrosoft": "Account {account} is already in use by a running instance; joining an online server may drop that session.",
       "accountOffline": "Account {account} is already in use by a running instance; a server may reject a duplicate username."
+    },
+    "settingsSync": {
+      "failedTitle": "Game settings didn't sync",
+      "failedChoice": "You can launch without syncing this time: what you change in the game syncs at the next launch. Or stop syncing {what} in this instance.",
+      "failedChoiceAll": "You can launch without syncing this time, or turn off sync in this instance: the unreadable file goes to the Recycle Bin.",
+      "launchWithoutSync": "Launch without sync",
+      "stopKind": {
+        "servers": "Don't sync servers here",
+        "history": "Don't sync command history here",
+        "hotbars": "Don't sync hotbars here"
+      },
+      "stopAll": "Turn off sync in this instance",
+      "closedTitle": "Is the game closed?",
+      "closedBody": "A game started in this instance before Lucerna restarted may still be running, and Lucerna can't tell. If it's open, close it first: syncing while it runs would lose what it saves when it closes.",
+      "itsClosed": "It's closed",
+      "exitFailedTitle": "Game settings didn't sync after the game closed",
+      "exitFailedLine": "{instance}: couldn't sync {what}. {detail} Nothing is lost: the next launch syncs first."
     }
   },
   "mods": {
@@ -1567,6 +1618,7 @@
         "missingBody": "The pack author disabled automatic downloads for these. Download each from its source and drop the jar onto the Mods tab.",
         "skippedHeading": "Bundled files skipped ({count})",
         "skippedBody": "The pack bundled these files inside it, but they exceed the size limit and aren't loadable mods (Minecraft only loads .jar files). They were left out; the pack's mods installed normally.",
+        "skippedSyncedBody": "Kept as they were: this instance shares these files with your other instances (Shared game settings), and the pack's copies would have replaced them in every one of them.",
         "pendingHeading": "{count, plural, one {# file the pack still needs} other {# files the pack still needs}}",
         "pendingBody": "This modpack could not bundle these — their authors do not allow redistribution. It asks for them itself the first time you play.",
         "pendingOpen": "Open page",
@@ -3041,7 +3093,38 @@
       "unsupportedPlatform": "Mojang publishes no Java for {os} {arch}.",
       "unknownComponent": "Mojang's list has no runtime \"{id}\" for this computer."
     },
-    "addonEntryIsLink": "“{name}” is a link, not a pack. Remove it in the file manager."
+    "addonEntryIsLink": "“{name}” is a link, not a pack. Remove it in the file manager.",
+    "settingsSyncFailed": "Couldn't sync {what} before the launch. {detail}",
+    "settingsSyncWhat": {
+      "servers": "the server list",
+      "history": "the command history",
+      "hotbars": "the hotbars",
+      "settings": "the sync settings"
+    },
+    "settingsSyncDetail": "File: {file}. Reason: {reason}.",
+    "settingsSyncDetailNoFile": "Reason: {reason}.",
+    "settingsSyncFile": {
+      "game": {
+        "servers": "this instance's servers.dat",
+        "history": "this instance's command_history.txt",
+        "hotbars": "this instance's hotbar.nbt"
+      },
+      "shared": {
+        "servers": "the shared server list",
+        "history": "the shared command history",
+        "hotbars": "the shared hotbars"
+      },
+      "settings": "this instance's sync settings",
+      "records": "this instance's sync records"
+    },
+    "settingsSyncReason": {
+      "damaged": "the file is damaged or cut short",
+      "noAccess": "no access to the file (another program may have it open)",
+      "notFound": "the file was not found",
+      "other": "another error, details in the launcher log"
+    },
+    "settingsSyncGameRunning": "A game started before Lucerna restarted is still running in this instance. Close it, then try again.",
+    "settingsSyncAskGameClosed": "Lucerna can't tell whether a game started in this instance before it restarted is still running."
   },
   "settings": {
     "title": "Settings",
@@ -3073,6 +3156,7 @@
         "game": {
           "tray": "When a game starts",
           "serverPing": "Saved server status",
+          "settingsSync": "New instances use shared settings",
           "gpu": "Preferred GPU for Minecraft",
           "java": "Java for instances and servers"
         },
@@ -3118,6 +3202,7 @@
         "game": {
           "tray": "tray minimize minimise hide playing background launcher window close",
           "serverPing": "server ping status online players multiplayer ip privacy",
+          "settingsSync": "sync shared settings server list command history hotbars new instances",
           "gpu": "gpu graphics video performance discrete card nvidia amd intel integrated",
           "java": "java jre jdk runtime path default version openjdk adoptium temurin zulu oracle"
         },
@@ -3203,6 +3288,11 @@
         "description": "Lucerna asks the servers saved in any instance's Servers list — including any a modpack added — for their player count and version, and only while that list is open on screen.",
         "privacy": "Those servers see your IP address — the same as when you join them. Off by default, and the results stay on this computer.",
         "revokeFailed": "Status checks are still on — the change wasn't saved: {error}"
+      },
+      "settingsSync": {
+        "title": "Shared game settings",
+        "label": "New instances use shared settings",
+        "description": "New instances, modpack imports and clients made from a server join the shared server list, command history and hotbars. Imports from other launchers don't: they bring their own settings. A clone keeps the choice of the instance it was made from."
       },
       "updates": {
         "title": "Updates",

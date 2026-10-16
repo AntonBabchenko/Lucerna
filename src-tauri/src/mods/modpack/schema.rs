@@ -73,11 +73,9 @@ pub struct ModpackFile {
 }
 
 /// A file inside the pack's `overrides/` that the importer chose NOT to
-/// extract because it exceeded the per-file size cap. In practice this is
-/// an inert, non-loadable blob — most often a `.rar`/`.7z`/`.zip` an author
-/// left in `overrides/mods/`, which Minecraft never loads (it scans
-/// `mods/*.jar` only). The import still succeeds; this is surfaced purely
-/// so the user is told what was deliberately left out (transparency).
+/// extract, and why ([`SkipReason`]). The import still succeeds; this is
+/// surfaced purely so the user is told what was deliberately left out
+/// (transparency).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct SkippedOverride {
     /// The override-relative path of the skipped entry, e.g. `mods/mods.rar`.
@@ -85,6 +83,24 @@ pub struct SkippedOverride {
     /// The entry's declared uncompressed size in bytes. f64 not u64 —
     /// specta forbids BigInt-style exports.
     pub size: f64,
+    /// Rows saved before reasons existed were all size skips.
+    #[serde(default)]
+    pub reason: SkipReason,
+}
+
+/// Why an override was left out.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipReason {
+    /// Over the per-file size cap. In practice an inert, non-loadable blob —
+    /// most often a `.rar`/`.7z`/`.zip` an author left in `overrides/mods/`,
+    /// which Minecraft never loads (it scans `mods/*.jar` only).
+    #[default]
+    Size,
+    /// A re-import into an instance that shares this file with others
+    /// (settings sync, spec 2026-10-15 §B8): the instance keeps its own, so
+    /// the pack's copy does not spread to every instance sharing it.
+    Synced,
 }
 
 /// A jar installed into an instance whose loader family the instance cannot
@@ -404,6 +420,16 @@ mod tests {
         });
         let f: ModpackFile = serde_json::from_value(legacy).unwrap();
         assert_eq!(f.md5, None);
+    }
+
+    #[test]
+    fn a_skipped_row_saved_before_reasons_reads_as_a_size_skip() {
+        let legacy = serde_json::json!({ "path": "mods/mods.rar", "size": 5.0 });
+        let row: SkippedOverride = serde_json::from_value(legacy).unwrap();
+        assert_eq!(row.reason, SkipReason::Size);
+        let synced = serde_json::json!({ "path": "servers.dat", "size": 1.0, "reason": "synced" });
+        let row: SkippedOverride = serde_json::from_value(synced).unwrap();
+        assert_eq!(row.reason, SkipReason::Synced);
     }
 
     #[test]

@@ -588,6 +588,22 @@ describe('formatError', () => {
         role: 'source',
       },
       transfer_invalid_selection: { kind: 'transfer_invalid_selection', name: 'mods' },
+      settings_sync_failed: {
+        kind: 'settings_sync_failed',
+        sync_kind: 'servers',
+        file: 'shared',
+        reason: 'damaged',
+      },
+      settings_sync_file: {
+        kind: 'settings_sync_file',
+        file: 'game',
+        file_kind: 'servers',
+        reason: 'no_access',
+        path: 'C:/i/.minecraft/servers.dat',
+        details: 'Access is denied. (os error 5)',
+      },
+      settings_sync_game_running: { kind: 'settings_sync_game_running' },
+      settings_sync_ask_game_closed: { kind: 'settings_sync_ask_game_closed' },
       transfer_refused: {
         kind: 'transfer_refused',
         refusal: { kind: 'overlap', rel: 'schematics' },
@@ -1150,5 +1166,59 @@ describe('an unreachable data folder', () => {
 
   it('is a clean message, not an opaque one', () => {
     expect(ERROR_CLASS.data_root_unreachable).toBe('clean');
+  });
+});
+
+// Settings sync (orchestrator's review of PR 2): WHICH file in words and a
+// reason class, in the user's language — never the OS or parser text, which
+// the backend writes to the launcher log.
+describe('formatError — settings sync failures', () => {
+  it('names the shared copy and a plain reason, in Russian', () => {
+    locale.set('ru');
+    try {
+      const msg = formatError({
+        kind: 'settings_sync_failed',
+        sync_kind: 'servers',
+        file: 'shared',
+        reason: 'damaged',
+      });
+      expect(msg).toBe(
+        'Не удалось синхронизировать список серверов перед запуском. Файл: общий список серверов. Причина: файл повреждён или обрывается.',
+      );
+    } finally {
+      locale.set('en');
+    }
+  });
+
+  it("names this instance's own file, and never shows the raw text it carries", () => {
+    locale.set('ru');
+    try {
+      const msg = formatError({
+        kind: 'settings_sync_file',
+        file: 'game',
+        file_kind: 'servers',
+        reason: 'no_access',
+        path: 'C:/i/.minecraft/servers.dat',
+        details: 'Отказано в доступе. (os error 5)',
+      });
+      expect(msg).toContain('servers.dat этого профиля');
+      expect(msg).toContain('нет доступа к файлу');
+      expect(msg).not.toContain('os error');
+      expect(msg).not.toContain('C:/i');
+    } finally {
+      locale.set('en');
+    }
+  });
+
+  it('says "another error, see the log" when no file is involved', () => {
+    const msg = formatError({
+      kind: 'settings_sync_failed',
+      sync_kind: 'history',
+      file: null,
+      reason: 'other',
+    });
+    expect(msg).toBe(
+      "Couldn't sync the command history before the launch. Reason: another error, details in the launcher log.",
+    );
   });
 });

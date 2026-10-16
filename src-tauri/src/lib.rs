@@ -31,6 +31,7 @@ pub mod reports;
 pub mod screenshots;
 pub mod servers;
 pub mod servers_runtime;
+pub mod settings_sync;
 pub mod shortcuts;
 pub mod tasks;
 /// In-process test seams replacing the `LUCERNA_*` env-var test overrides
@@ -273,6 +274,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Instance clone (Session 3):
             commands::clone_instance,
             commands::clone_instance_scan,
+            // Settings sync in the Shared data section (spec 2026-10-15 Part B):
+            commands::settings_sync_state,
+            commands::settings_sync_set_kind,
+            commands::settings_sync_stop,
             // Mod-data transfer between instances (feedback #4 item 7):
             commands::transfer_scan,
             commands::transfer_mod_data,
@@ -472,6 +477,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             verify::VerifyProgress,
             launch::ProcessSpawned,
             launch::ProcessExited,
+            launch::SettingsSyncExitFailed,
             commands::ModInstallProgress,
             commands::ModInstalled,
             commands::ModUninstalled,
