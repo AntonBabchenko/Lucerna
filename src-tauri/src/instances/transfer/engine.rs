@@ -939,6 +939,32 @@ mod tests {
         assert!(!dst.join("schematics/a.nbt").exists(), "the copy is undone");
     }
 
+    /// Staging fails before the transaction begins: the target is exactly as
+    /// it was, with no record to undo at the next start.
+    #[tokio::test]
+    async fn a_staging_failure_leaves_the_target_unchanged() {
+        let p = pair();
+        write(&p.src_mc, "schematics/a.nbt", b"NEW");
+        write(&dst_mc(&p), "schematics/a.nbt", b"OLD");
+        // A file where the staging folder must go.
+        write(&p.dst_root, "lucerna/transfer", b"not a folder");
+        let before = snapshot(&dst_mc(&p));
+        let (seen, bin) = recorded_bin();
+        let err = run(
+            request(&p, &schematics(), OnConflict::Replace),
+            Seams::with_recycle(bin),
+            no_progress(),
+        )
+        .await
+        .expect_err("staging fails");
+        assert!(matches!(err, Error::TransferFailed { .. }), "{err:?}");
+        assert_eq!(snapshot(&dst_mc(&p)), before);
+        assert!(seen.lock().unwrap().is_empty());
+        assert!(crate::mods::txn::pending_tokens(&p.dst_root)
+            .unwrap()
+            .is_empty());
+    }
+
     #[test]
     fn a_file_where_a_folder_must_go_is_refused() {
         let p = pair();
