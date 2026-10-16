@@ -346,7 +346,7 @@ pub enum ImageMatch {
     Yes,
     No,
     /// No image source on this platform, access denied, or the process
-    /// exited mid-query.
+    /// exited mid-query. (Windows answers `No` for a PID no process has.)
     Unknown,
 }
 
@@ -360,8 +360,8 @@ pub fn process_image_matches(pid: u32, needle: &str) -> bool {
     #[cfg(target_os = "windows")]
     {
         match query_image_path_windows(pid) {
-            Some(p) => p.to_ascii_lowercase().contains(&needle),
-            None => false,
+            ImageQuery::Path(p) => p.to_ascii_lowercase().contains(&needle),
+            ImageQuery::NoSuchProcess | ImageQuery::CannotTell => false,
         }
     }
     #[cfg(target_os = "linux")]
@@ -392,8 +392,10 @@ pub fn process_image_probe(pid: u32, needle: &str) -> ImageMatch {
     #[cfg(target_os = "windows")]
     {
         match query_image_path_windows(pid) {
-            Some(path) => verdict(&path),
-            None => ImageMatch::Unknown,
+            ImageQuery::Path(path) => verdict(&path),
+            // No process has this PID: whatever it was, it is not ours now.
+            ImageQuery::NoSuchProcess => ImageMatch::No,
+            ImageQuery::CannotTell => ImageMatch::Unknown,
         }
     }
     #[cfg(target_os = "linux")]
@@ -411,8 +413,20 @@ pub fn process_image_probe(pid: u32, needle: &str) -> ImageMatch {
 }
 
 #[cfg(target_os = "windows")]
-fn query_image_path_windows(pid: u32) -> Option<String> {
-    use windows_sys::Win32::Foundation::{CloseHandle, MAX_PATH};
+enum ImageQuery {
+    Path(String),
+    /// `OpenProcess` failed with `ERROR_INVALID_PARAMETER`: no process has
+    /// this PID.
+    NoSuchProcess,
+    /// Access denied, the process exiting mid-query, or anything else.
+    CannotTell,
+}
+
+#[cfg(target_os = "windows")]
+fn query_image_path_windows(pid: u32) -> ImageQuery {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, MAX_PATH,
+    };
     use windows_sys::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
     };
@@ -421,16 +435,21 @@ fn query_image_path_windows(pid: u32) -> Option<String> {
     unsafe {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if h.is_null() {
-            return None;
+            // Read at once: the next API call may overwrite it.
+            return if GetLastError() == ERROR_INVALID_PARAMETER {
+                ImageQuery::NoSuchProcess
+            } else {
+                ImageQuery::CannotTell
+            };
         }
         let mut buf = [0u16; MAX_PATH as usize];
         let mut len = buf.len() as u32;
         let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut len);
         CloseHandle(h);
         if ok == 0 {
-            return None;
+            return ImageQuery::CannotTell;
         }
-        Some(String::from_utf16_lossy(&buf[..len as usize]))
+        ImageQuery::Path(String::from_utf16_lossy(&buf[..len as usize]))
     }
 }
 
@@ -898,13 +917,18 @@ mod tests {
         );
     }
 
+    /// u32::MAX - 7 is not a live PID on any supported OS. Windows says so
+    /// (`ERROR_INVALID_PARAMETER`), so the PID is not ours; Linux reads
+    /// `/proc/<pid>/exe` and cannot tell a missing process from a denied one;
+    /// macOS has no image source.
     #[test]
-    fn image_probe_of_a_dead_pid_cannot_tell() {
-        // u32::MAX - 7 is not a live PID on any supported OS.
-        assert_eq!(
-            super::process_image_probe(u32::MAX - 7, "java"),
+    fn image_probe_of_a_dead_pid() {
+        let want = if cfg!(target_os = "windows") {
+            super::ImageMatch::No
+        } else {
             super::ImageMatch::Unknown
-        );
+        };
+        assert_eq!(super::process_image_probe(u32::MAX - 7, "java"), want);
     }
 
     #[test]
