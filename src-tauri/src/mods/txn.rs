@@ -52,6 +52,10 @@ use crate::mods::trash;
 const RECORD_FILE: &str = "record.json";
 const CLOSED_FILE: &str = "closed";
 const FILES_DIR: &str = "files";
+/// Beside the record of a `SetAsideDisposal::Keep` transaction: the folder its
+/// set-aside files move to. Outlives the record, so the startup sweep of a
+/// closed token still knows not to delete them.
+const KEEP_FILE: &str = "keep";
 const RECORD_VERSION: u32 = 1;
 /// A unique temp name per record write — the `installed::write` shape.
 static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -70,6 +74,21 @@ pub enum TxnKind {
         from: Option<String>,
         to: String,
     },
+    /// A one-time copy of mod data from another instance (`instances::transfer`).
+    DataCopy { source: String },
+}
+
+/// What closing does with the files a transaction set aside in `files/`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SetAsideDisposal {
+    /// Removed with the token — an update's superseded jars. The default, and
+    /// what every record written before this field existed means.
+    #[default]
+    Delete,
+    /// Moved to `<instance>/<folder>` — a data copy's replaced files, which the
+    /// caller then sends to the Recycle Bin. Never deleted by the transaction.
+    Keep { folder: String },
 }
 
 /// A file the update sets aside. `rel` is its path under `.minecraft/`,
@@ -137,6 +156,8 @@ pub struct Plan {
     pub create: Vec<CreateEntry>,
     pub prior_pack_origin: Option<PackOrigin>,
     pub prior_instance: Option<PriorInstance>,
+    #[serde(default)]
+    pub set_aside: SetAsideDisposal,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -336,6 +357,12 @@ pub async fn begin(lock: TxnLock, plan: Plan) -> Result<Txn, Error> {
         discard_dir(&tmp, "after a failed record write").await;
         return Err(io_err(&tmp.join(RECORD_FILE), e));
     }
+    if let SetAsideDisposal::Keep { folder } = &record.plan.set_aside {
+        if let Err(e) = fs::write(tmp.join(KEEP_FILE), folder.as_bytes()).await {
+            discard_dir(&tmp, "after a failed keep-marker write").await;
+            return Err(io_err(&tmp.join(KEEP_FILE), e));
+        }
+    }
     let dir = root.join(&token);
     if let Err(e) = fs::rename(&tmp, &dir).await {
         discard_dir(&tmp, "after it could not be named").await;
@@ -459,6 +486,15 @@ impl Txn {
                 self.dir.display()
             ),
             (Ok(()), Ok(())) => {}
+        }
+        if let Err(e) = keep_set_aside(&self.instance_root, &self.dir).await {
+            // Committed; the replaced files stay in the closed token and the
+            // next start's sweep moves them (`keep_set_aside` again).
+            crate::diag!(
+                "content txn: closed {} but could not move its kept files ({e}); the next start retries",
+                self.dir.display()
+            );
+            return Ok(());
         }
         discard_dir(&self.dir, "after closing it (the next start removes it)").await;
         Ok(())
@@ -805,7 +841,13 @@ async fn scan(instance_root: &Path, session_start_ms: u64, undo_pending: bool) -
         };
         let dir = root.join(&name);
         match token_state(&dir).await {
-            Ok(TokenState::Closed) => discard_dir(&dir, "(a closed update)").await,
+            Ok(TokenState::Closed) => match keep_set_aside(instance_root, &dir).await {
+                Ok(()) => discard_dir(&dir, "(a closed update)").await,
+                Err(e) => crate::diag!(
+                    "content txn: the kept files of {} could not be moved ({e}); left in place",
+                    dir.display()
+                ),
+            },
             Ok(TokenState::Pending) => pending.push((ms, name)),
             Err(e) => out.push(
                 set_aside(
@@ -859,6 +901,54 @@ async fn scan(instance_root: &Path, session_start_ms: u64, undo_pending: bool) -
         }
     }
     out
+}
+
+/// A token's `keep` marker names where its set-aside `files/` go instead of
+/// being deleted with it. Moves them there; `Ok` when there is no marker or
+/// nothing set aside. On `Err` nothing moved and the token must stay: deleting
+/// it would delete the user's replaced files.
+async fn keep_set_aside(instance_root: &Path, dir: &Path) -> std::io::Result<()> {
+    let folder = match fs::read_to_string(dir.join(KEEP_FILE)).await {
+        Ok(folder) => folder,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let files = dir.join(FILES_DIR);
+    if !fs::try_exists(&files).await? {
+        return Ok(());
+    }
+    if !safe_rel(&folder) {
+        return Err(std::io::Error::other(format!(
+            "an unsafe keep folder: {folder}"
+        )));
+    }
+    let dest = unique_dest(&join_rel(instance_root, &folder)).await?;
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).await?;
+    }
+    fs::rename(&files, &dest).await
+}
+
+/// `path`, or `path (2)` … `path (99)` when taken: a second copy in the same
+/// second must not land inside the first one's folder.
+async fn unique_dest(path: &Path) -> std::io::Result<PathBuf> {
+    if !fs::try_exists(path).await? {
+        return Ok(path.to_path_buf());
+    }
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    for n in 2..100 {
+        let candidate = path.with_file_name(format!("{name} ({n})"));
+        if !fs::try_exists(&candidate).await? {
+            return Ok(candidate);
+        }
+    }
+    Err(std::io::Error::other(format!(
+        "no free name for {}",
+        path.display()
+    )))
 }
 
 async fn set_aside(dir: &Path, name: &str, kind: Option<TxnKind>, why: String) -> Recovered {
@@ -1051,6 +1141,7 @@ mod tests {
             create,
             prior_pack_origin: None,
             prior_instance: None,
+            set_aside: SetAsideDisposal::Delete,
         }
     }
 
@@ -1784,6 +1875,116 @@ mod tests {
         assert_eq!(
             std::fs::read(content_path(root, "config/x.toml")).unwrap(),
             b"user"
+        );
+    }
+    fn keep_plan(stage: Vec<StageEntry>, folder: &str) -> Plan {
+        let mut p = plan(stage, vec![]);
+        p.kind = TxnKind::DataCopy {
+            source: "Old pack".into(),
+        };
+        p.set_aside = SetAsideDisposal::Keep {
+            folder: folder.into(),
+        };
+        p
+    }
+
+    #[tokio::test]
+    async fn keep_moves_the_set_aside_files_on_commit() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "schematics/base.litematic", b"OLD");
+        let txn = begin(
+            lock(root).await,
+            keep_plan(
+                vec![staged("schematics/base.litematic", &sha, None)],
+                "lucerna/replaced/R1",
+            ),
+        )
+        .await
+        .unwrap();
+        let entry = txn.plan().stage[0].clone();
+        txn.stage(&entry).await.unwrap();
+        txn.finish(Ok(())).await.unwrap();
+        let kept = root.join("lucerna/replaced/R1/schematics/base.litematic");
+        assert_eq!(
+            std::fs::read(&kept).unwrap(),
+            b"OLD",
+            "a replaced file is moved, never deleted"
+        );
+        assert!(txn_entries(root).is_empty(), "{:?}", txn_entries(root));
+    }
+
+    #[tokio::test]
+    async fn delete_stays_the_default_disposal() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "mods/a.jar", b"A");
+        let txn = begin(
+            lock(root).await,
+            plan(vec![staged("mods/a.jar", &sha, None)], vec![]),
+        )
+        .await
+        .unwrap();
+        let entry = txn.plan().stage[0].clone();
+        txn.stage(&entry).await.unwrap();
+        txn.finish(Ok(())).await.unwrap();
+        assert!(!root.join("lucerna/replaced").exists());
+        assert!(txn_entries(root).is_empty(), "{:?}", txn_entries(root));
+    }
+
+    #[tokio::test]
+    async fn the_startup_sweep_moves_kept_files_of_a_closed_token() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        // Closed by its marker, the move never ran: a crash right after the commit.
+        let dir = txn_root(root).join("1000-abcdef12");
+        std::fs::create_dir_all(dir.join(FILES_DIR).join("xaero")).unwrap();
+        std::fs::write(dir.join(FILES_DIR).join("xaero/w.txt"), b"W").unwrap();
+        std::fs::write(dir.join(KEEP_FILE), b"lucerna/replaced/R2").unwrap();
+        std::fs::write(dir.join(CLOSED_FILE), b"").unwrap();
+        sweep_closed(root, u64::MAX).await;
+        assert_eq!(
+            std::fs::read(root.join("lucerna/replaced/R2/xaero/w.txt")).unwrap(),
+            b"W"
+        );
+        assert!(!dir.exists(), "the swept token is gone");
+    }
+
+    #[test]
+    fn a_record_without_set_aside_reads_as_delete() {
+        let json = r#"{"kind":{"mod_update":{"name":"x","from":null,"to":"1"}},
+            "stage":[],"create":[],"prior_pack_origin":null,"prior_instance":null}"#;
+        let p: Plan = serde_json::from_str(json).unwrap();
+        assert_eq!(p.set_aside, SetAsideDisposal::Delete);
+    }
+
+    #[tokio::test]
+    async fn a_pending_data_copy_is_undone_at_startup_with_its_kind() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        let sha = place(root, "schematics/a.nbt", b"A");
+        let txn = begin(
+            lock(root).await,
+            keep_plan(
+                vec![staged("schematics/a.nbt", &sha, None)],
+                "lucerna/replaced/R3",
+            ),
+        )
+        .await
+        .unwrap();
+        let entry = txn.plan().stage[0].clone();
+        txn.stage(&entry).await.unwrap();
+        // The launcher died here: the token stays pending.
+        drop(txn);
+        let got = recover_pending(root, u64::MAX).await;
+        assert!(
+            matches!(got[0].kind, Some(TxnKind::DataCopy { .. })),
+            "{:?}",
+            got[0].kind
+        );
+        assert_eq!(
+            std::fs::read(content_path(root, "schematics/a.nbt")).unwrap(),
+            b"A"
         );
     }
 }
