@@ -402,6 +402,20 @@ async fn commit(
         }
         let to = join_rel(target_mc, &step.rel);
         ensure_parents(target_mc, &to, created)?;
+        // `rename` replaces a file at `to` without keeping it. One that
+        // appeared since the plan (another program: both instances are
+        // claimed) stops the copy instead. The check and the rename are two
+        // steps; the window between them is what remains.
+        match std::fs::symlink_metadata(&to) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) => {
+                return Err(Error::io(
+                    to.display().to_string(),
+                    "a file appeared here during the copy; it was left as it is",
+                ))
+            }
+            Err(e) => return Err(Error::io(to.display().to_string(), e)),
+        }
         (seams.place)(&step.staged, &to).map_err(|e| place_error(&to, e))?;
         progress(TransferProgress {
             phase: TransferPhase::Placing,
@@ -445,17 +459,34 @@ async fn finish(
 }
 
 /// Create every missing folder between the game dir and `to`'s parent,
-/// recording each (an undo removes them again).
+/// recording each (an undo removes them again). Something other than a folder
+/// on the way (a file, or a link the preview did not see) refuses the copy, as
+/// the preview would have.
 fn ensure_parents(target_mc: &Path, to: &Path, created: &mut Vec<PathBuf>) -> Result<(), Error> {
     let Some(parent) = to.parent() else {
         return Ok(());
     };
     let below = parent.strip_prefix(target_mc).unwrap_or(parent);
     let mut path = target_mc.to_path_buf();
+    let mut rel = String::new();
     for seg in below.components() {
         path.push(seg);
+        if !rel.is_empty() {
+            rel.push('/');
+        }
+        rel.push_str(&seg.as_os_str().to_string_lossy());
         match std::fs::symlink_metadata(&path) {
-            Ok(_) => {}
+            Ok(m) if m.file_type().is_symlink() => {
+                return Err(Error::TransferRefused {
+                    refusal: Refusal::InnerLink { rel },
+                })
+            }
+            Ok(m) if m.is_dir() => {}
+            Ok(_) => {
+                return Err(Error::TransferRefused {
+                    refusal: Refusal::PrefixClash { rel },
+                })
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 std::fs::create_dir(&path).map_err(|e| Error::io(path.display().to_string(), e))?;
                 created.push(path.clone());
@@ -870,6 +901,61 @@ mod tests {
         assert!(crate::mods::txn::pending_tokens(&p.dst_root)
             .unwrap()
             .is_empty());
+    }
+
+    /// A file that appears at a destination after the plan (another program;
+    /// both instances are claimed) is never replaced: `rename` would replace
+    /// it without keeping it. The copy stops and is undone; that file stays.
+    #[tokio::test]
+    async fn a_file_that_appears_during_the_copy_is_never_overwritten() {
+        let p = pair();
+        write(&p.src_mc, "schematics/a.nbt", b"NEW-A");
+        write(&p.src_mc, "schematics/b.nbt", b"NEW-B");
+        let dst = dst_mc(&p);
+        let (_, bin) = recorded_bin();
+        let mut seams = Seams::with_recycle(bin);
+        let d = dst.clone();
+        seams.place = Arc::new(move |from: &Path, to: &Path| {
+            std::fs::rename(from, to)?;
+            // Another program writes the next file once the first is placed.
+            let other = d.join("schematics/b.nbt");
+            if to.ends_with("a.nbt") {
+                std::fs::write(other, b"THEIRS")?;
+            }
+            Ok(())
+        });
+        let err = run(
+            request(&p, &schematics(), OnConflict::Replace),
+            seams,
+            no_progress(),
+        )
+        .await
+        .expect_err("the copy stops");
+        assert!(matches!(err, Error::TransferFailed { .. }), "{err:?}");
+        assert_eq!(
+            std::fs::read(dst.join("schematics/b.nbt")).unwrap(),
+            b"THEIRS"
+        );
+        assert!(!dst.join("schematics/a.nbt").exists(), "the copy is undone");
+    }
+
+    #[test]
+    fn a_file_where_a_folder_must_go_is_refused() {
+        let p = pair();
+        let dst = dst_mc(&p);
+        write(&dst, "schematics/deep", b"a file");
+        let mut created = Vec::new();
+        let got = ensure_parents(&dst, &dst.join("schematics/deep/a.nbt"), &mut created);
+        assert!(
+            matches!(
+                got,
+                Err(Error::TransferRefused {
+                    refusal: Refusal::PrefixClash { .. }
+                })
+            ),
+            "{got:?}"
+        );
+        assert!(created.is_empty());
     }
 
     #[tokio::test]

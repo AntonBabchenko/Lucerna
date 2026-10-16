@@ -76,12 +76,7 @@ fn list(dir: &Path) -> io::Result<Vec<(String, Kind)>> {
     for entry in std::fs::read_dir(dir).map_err(|e| at(dir, e))? {
         let entry = entry.map_err(|e| at(dir, e))?;
         let path = entry.path();
-        let name = entry.file_name().into_string().map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("{}: the name is not valid Unicode", path.display()),
-            )
-        })?;
+        let name = portable_name(&path, entry.file_name())?;
         let meta = std::fs::symlink_metadata(&path).map_err(|e| at(&path, e))?;
         let ft = meta.file_type();
         // `is_symlink` is true for a Windows junction too.
@@ -98,6 +93,29 @@ fn list(dir: &Path) -> io::Result<Vec<(String, Kind)>> {
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
+}
+
+/// `name` as the string the transaction records. Not valid Unicode: a lossy
+/// name would name another file. A backslash: a folder separator on Windows,
+/// so the file would land elsewhere there (and the transaction refuses such a
+/// path mid-commit; said here, before anything is staged).
+fn portable_name(path: &Path, name: std::ffi::OsString) -> io::Result<String> {
+    let name = name.into_string().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{}: the name is not valid Unicode", path.display()),
+        )
+    })?;
+    if name.contains('\\') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{}: the name has a backslash, which Windows reads as a folder separator",
+                path.display()
+            ),
+        ));
+    }
+    Ok(name)
 }
 
 fn walk_tree(dir: &Path, rel: &str, out: &mut Walked) -> io::Result<()> {
@@ -213,5 +231,28 @@ mod tests {
         let got = walk_root(td.path(), "schematics", Scope::WholeTree);
         crate::platform::set_mode_for_test(&locked, 0o755).unwrap();
         assert!(got.is_err(), "{got:?}");
+    }
+
+    /// A backslash is a folder separator on Windows: such a name would land
+    /// somewhere else there, and no transaction can record it. Said at the
+    /// walk, not deep in the commit.
+    #[test]
+    fn a_backslash_name_is_refused_on_every_system() {
+        let err = portable_name(Path::new("x/a\\b.nbt"), "a\\b.nbt".into()).expect_err("refused");
+        assert!(err.to_string().contains("backslash"), "{err}");
+        assert_eq!(
+            portable_name(Path::new("x/a.nbt"), "a.nbt".into()).unwrap(),
+            "a.nbt"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_name_with_a_backslash_is_an_error() {
+        let td = tempfile::tempdir().unwrap();
+        write(td.path(), "schematics/a\\b.nbt", b"a");
+        let got = walk_root(td.path(), "schematics", Scope::WholeTree);
+        let err = got.expect_err("refused");
+        assert!(err.to_string().contains("backslash"), "{err}");
     }
 }
