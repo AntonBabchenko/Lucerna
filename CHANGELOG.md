@@ -31,9 +31,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   choice. Clone gained a "Mod data" option, and a cloned profile's resource and
   shader packs keep their update checks.
 - **Share the server list, command history and hotbars between instances.**
-  Turn each on in Settings → Shared data: a launch brings in what the other
-  instances changed, and closing the game shares what changed here. Settings →
-  Game makes new instances and modpack imports join from the start.
+  Turn each on in an instance's Settings tab, under Shared data: a launch
+  brings in what the other instances changed, and closing the game shares what
+  changed here. The launcher's Settings → Game makes new instances and modpack
+  imports join from the start.
 - **A folder button for every kind of add-on.** Add-ons shows "Mods folder",
   "Resource packs folder", "Shaders folder" or "Data packs folder" above the
   list, beside the source picker while browsing; the data packs one opens the
