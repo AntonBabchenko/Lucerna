@@ -41,7 +41,8 @@
 //!      that is gone, is reported as stale. A command that TAKES a claim itself
 //!      (`maintenance_begin(`, the migration command; `claim_write(`, the long
 //!      writers; `claim_shared_write(`, the per-item mod, asset and pack-file
-//!      writers) is gated by construction: the claims refuse each other.
+//!      writers; `transfer::claim_both(`, the mod-data copy's `claim_write` on
+//!      both instances) is gated by construction: the claims refuse each other.
 //!   3. CLAIM HELD. A listed writer that takes a claim — exclusive or shared —
 //!      must HOLD it for the write: the first code line carrying the claim
 //!      binds a named local (`let claim = …`, never `let _ = …`, which drops
@@ -116,6 +117,12 @@ const CLAIM_WRITE_GATE: &str = "maintenance::claim_write(";
 /// claim, and refusing every exclusive claim while held.
 const SHARED_WRITE_GATE: &str = "maintenance::claim_shared_write(";
 
+/// The mod-data copy's two claims:
+/// `crate::instances::transfer::claim_both(target, source)` — `claim_write` on
+/// the target, then on the source. Listed in `GATED` as a helper that must
+/// take those claims.
+const TRANSFER_CLAIMS: &str = "transfer::claim_both(";
+
 /// `commands/datapacks.rs` routes its commands through a file-local
 /// `fn guard(instance_id)`, itself listed in `GATED` as a `WRITE_GATE` site.
 const DATAPACKS_DELEGATE: &str = "guard(&";
@@ -130,11 +137,17 @@ const GATE_SPELLINGS: &[&str] = &[
     CLAIM_WRITE_GATE,
     SHARED_WRITE_GATE,
     DATAPACKS_DELEGATE,
+    TRANSFER_CLAIMS,
 ];
 
 /// The spellings that TAKE a claim — the `GATED` entries rule 3 (CLAIM HELD)
 /// applies to.
-const CLAIM_SPELLINGS: &[&str] = &[CLAIM_GATE, CLAIM_WRITE_GATE, SHARED_WRITE_GATE];
+const CLAIM_SPELLINGS: &[&str] = &[
+    CLAIM_GATE,
+    CLAIM_WRITE_GATE,
+    SHARED_WRITE_GATE,
+    TRANSFER_CLAIMS,
+];
 
 /// `(path relative to src/, fn name, required spelling, why it is a writer)`.
 const GATED: &[(&str, &str, &str, &str)] = &[
@@ -202,8 +215,16 @@ const GATED: &[(&str, &str, &str, &str)] = &[
     (
         "commands/transfer.rs",
         "transfer_mod_data",
+        TRANSFER_CLAIMS,
+        "reads the source game dir and places files into the target one for minutes — a \
+         game, an update or a migration on either side would race the copy",
+    ),
+    (
+        "instances/transfer/mod.rs",
+        "claim_both",
         CLAIM_WRITE_GATE,
-        "reads the source game dir and places files into the target one for minutes — a \n         game, an update or a migration on either side would race the copy",
+        "the helper the mod-data copy takes both instances' claims through — its \
+         `claim_write` calls are the copy's gate",
     ),
     (
         "commands/instances.rs",

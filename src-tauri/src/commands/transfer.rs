@@ -52,7 +52,7 @@ pub async fn transfer_mod_data(
     }
     let source = crate::instances::read_instance(&app, &source_id)?;
     let target = crate::instances::read_instance(&app, &target_id)?;
-    let (target_claim, source_claim) = crate::instances::transfer::claim_both(
+    let claims = crate::instances::transfer::claim_both(
         (&target_id, &target.name),
         (&source_id, &source.name),
     )?;
@@ -78,8 +78,7 @@ pub async fn transfer_mod_data(
         }),
     )
     .await;
-    drop(source_claim);
-    drop(target_claim);
+    drop(claims);
     let outcome = outcome?;
     let mut event = crate::journal::content(crate::journal::ContentAction::DataCopied, source.name);
     if let crate::journal::JournalEvent::Content { affected, .. } = &mut event {

@@ -23,10 +23,7 @@ use crate::instances::maintenance::MaintenanceGuard;
 /// source's. Neither can then be launched or written until the guards drop.
 /// A refusal names the busy instance and its side (`InstanceBusy` names
 /// none); a refused source claim drops the target's before the error leaves.
-pub fn claim_both(
-    target: (&str, &str),
-    source: (&str, &str),
-) -> Result<(MaintenanceGuard, MaintenanceGuard)> {
+pub fn claim_both(target: (&str, &str), source: (&str, &str)) -> Result<BothClaims> {
     let busy = |name: &str, role: TransferRole| {
         let name = name.to_string();
         move |e: Error| match e {
@@ -41,7 +38,18 @@ pub fn claim_both(
         .map_err(busy(target.1, TransferRole::Target))?;
     let source_claim = crate::instances::maintenance::claim_write(source.0)
         .map_err(busy(source.1, TransferRole::Source))?;
-    Ok((target_claim, source_claim))
+    Ok(BothClaims {
+        _target: target_claim,
+        _source: source_claim,
+    })
+}
+
+/// The two claims [`claim_both`] took; dropping it releases both. One value,
+/// so the command holds and drops it by one name (the maintenance-gate guard
+/// checks that release against the body's last `.await`).
+pub struct BothClaims {
+    _target: MaintenanceGuard,
+    _source: MaintenanceGuard,
 }
 
 /// Mod data a clone would copy, for the clone dialog's row (spec §A6).
