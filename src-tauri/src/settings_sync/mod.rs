@@ -14,6 +14,7 @@ pub mod engine;
 pub(crate) mod fsio;
 pub(crate) mod history;
 pub(crate) mod hotbars;
+pub mod marker;
 pub(crate) mod servers;
 pub mod sidecar;
 pub mod store;
