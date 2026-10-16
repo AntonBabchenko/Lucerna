@@ -6,14 +6,20 @@
 //! at the next start. Replaced files are kept (`SetAsideDisposal::Keep`) and go
 //! to the Recycle Bin after the commit.
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use specta::Type;
 
-use super::catalog::TransferItemId;
+use super::catalog::{self, Scope, TransferItemId};
+use super::preview::{scan_root, Refusal};
+use super::walk::{join_rel, WalkedFile};
 use crate::error::Error;
+use crate::mods::txn::{self, CreateEntry, Plan, SetAsideDisposal, StageEntry, TxnKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct TransferSelection {
@@ -91,9 +97,467 @@ impl Seams {
     }
 }
 
+struct Staged {
+    rel: String,
+    path: PathBuf,
+    sha1: String,
+}
+
+/// One file of the commit: placed at `rel` from `staged`, after setting aside
+/// the target file it replaces when `set_aside` is `Some`.
+struct Step {
+    rel: String,
+    staged: PathBuf,
+    sha1: String,
+    set_aside: Option<StageEntry>,
+}
+
+struct Planned {
+    steps: Vec<Step>,
+    kept_existing: u32,
+    /// Bytes of the target files `steps` sets aside.
+    aside_bytes: u64,
+}
+
 pub async fn run(req: Request, seams: Seams, progress: Progress) -> Result<TransferOutcome, Error> {
-    let _ = (req, seams, progress);
-    todo!("red-first stub: the engine lands in the next commit")
+    let target_mc = req.target_root.join(".minecraft");
+    let ops_root = req.target_root.join("lucerna").join("transfer");
+    sweep_stale(&ops_root);
+
+    let roots = resolve(&req.source_mc, &req.selection)?;
+    let mut files: Vec<(String, WalkedFile)> = Vec::new();
+    let mut skipped = 0u32;
+    for (key, rel, scope) in &roots {
+        // Re-read from disk: the preview the dialog showed may be stale.
+        let Some(scan) = scan_root(&req.source_mc, &target_mc, rel, *scope) else {
+            continue; // gone since the preview: nothing of it to copy
+        };
+        if let Some(refusal) = scan.refusal {
+            return Err(Error::TransferRefused { refusal });
+        }
+        skipped += scan.walked.skipped;
+        files.extend(scan.walked.files.into_iter().map(|f| (key.clone(), f)));
+    }
+
+    let op_dir = ops_root.join(crate::instances::ids::new_id());
+    let stage_dir = op_dir.join("stage");
+    let source_mc = req.source_mc.clone();
+    let p = Arc::clone(&progress);
+    let staged = tokio::task::spawn_blocking(move || stage_all(&source_mc, &stage_dir, &files, &p))
+        .await
+        .map_err(|e| Error::io("<transfer stage>", e))
+        .and_then(|r| r);
+    let staged = match staged {
+        Ok(s) => s,
+        Err(e) => {
+            remove_op_dir(&op_dir);
+            return Err(Error::TransferFailed { cause: Box::new(e) });
+        }
+    };
+
+    let lock = txn::lock(&req.target_root).await;
+    let planned = match plan_steps(&target_mc, staged, req.on_conflict).await {
+        Ok(planned) => planned,
+        Err(e) => {
+            remove_op_dir(&op_dir);
+            return Err(e);
+        }
+    };
+    let Planned {
+        steps,
+        kept_existing,
+        aside_bytes,
+    } = planned;
+    if steps.is_empty() {
+        remove_op_dir(&op_dir);
+        return Ok(TransferOutcome {
+            copied: 0,
+            replaced: 0,
+            kept_existing,
+            skipped,
+            replaced_kept_at: None,
+        });
+    }
+    let replaced = steps.iter().filter(|s| s.set_aside.is_some()).count() as u32;
+    let folder = replaced_folder(&req.target_name, SystemTime::now());
+    let plan = Plan {
+        kind: TxnKind::DataCopy {
+            source: req.source_name.clone(),
+        },
+        stage: steps.iter().filter_map(|s| s.set_aside.clone()).collect(),
+        create: steps
+            .iter()
+            .map(|s| CreateEntry {
+                rel: s.rel.clone(),
+                sha1: s.sha1.clone(),
+                project_id: None,
+                pre_existing: false,
+                disabled_twin: false,
+                prior_row: None,
+            })
+            .collect(),
+        prior_pack_origin: None,
+        prior_instance: None,
+        set_aside: if replaced > 0 {
+            SetAsideDisposal::Keep {
+                folder: folder.clone(),
+            }
+        } else {
+            SetAsideDisposal::Delete
+        },
+    };
+    let transaction = match txn::begin(lock, plan).await {
+        Ok(t) => t,
+        Err(e) => {
+            remove_op_dir(&op_dir);
+            return Err(e);
+        }
+    };
+    let mut created: Vec<PathBuf> = Vec::new();
+    let committed = commit(
+        &transaction,
+        &steps,
+        &target_mc,
+        &seams,
+        &mut created,
+        &progress,
+    )
+    .await;
+    if let Err(e) = finish(transaction, committed).await {
+        remove_created(&created);
+        remove_op_dir(&op_dir);
+        return Err(e);
+    }
+    let replaced_kept_at = if replaced > 0 {
+        dispose(&req.target_root, &folder, aside_bytes, &seams).await
+    } else {
+        None
+    };
+    remove_op_dir(&op_dir);
+    Ok(TransferOutcome {
+        copied: steps.len() as u32,
+        replaced,
+        kept_existing,
+        skipped,
+        replaced_kept_at,
+    })
+}
+
+/// The roots to copy, with their staging keys. An `Other` name must be one the
+/// catalog offers AND a top-level folder of the source now.
+fn resolve(
+    source_mc: &Path,
+    sel: &TransferSelection,
+) -> Result<Vec<(String, String, Scope)>, Error> {
+    let mut out = Vec::new();
+    for id in &sel.items {
+        for root in id.transfer_roots() {
+            out.push((id.key().to_string(), root.rel.to_string(), root.scope));
+        }
+    }
+    if sel.other.is_empty() {
+        return Ok(out);
+    }
+    let offered = super::preview::other_folder_names(source_mc)
+        .map_err(|e| Error::io(source_mc.display().to_string(), e))?;
+    for name in &sel.other {
+        if !catalog::is_offered_other(name) || !offered.iter().any(|o| o == name) {
+            return Err(Error::TransferInvalidSelection { name: name.clone() });
+        }
+        out.push((format!("other-{name}"), name.clone(), Scope::WholeTree));
+    }
+    Ok(out)
+}
+
+fn stage_all(
+    source_mc: &Path,
+    stage_dir: &Path,
+    files: &[(String, WalkedFile)],
+    progress: &Progress,
+) -> Result<Vec<Staged>, Error> {
+    let total = files.len() as u32;
+    let mut out = Vec::with_capacity(files.len());
+    for (i, (key, f)) in files.iter().enumerate() {
+        if !crate::mods::modpack::path_safety::is_safe_relative_path(&f.rel) {
+            return Err(Error::TransferInvalidSelection {
+                name: f.rel.clone(),
+            });
+        }
+        let from = join_rel(source_mc, &f.rel);
+        let to = join_rel(&stage_dir.join(key), &f.rel);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Error::io(parent.display().to_string(), e))?;
+        }
+        let sha1 = copy_hashing(&from, &to)?;
+        out.push(Staged {
+            rel: f.rel.clone(),
+            path: to,
+            sha1,
+        });
+        progress(TransferProgress {
+            phase: TransferPhase::Copying,
+            current: i as u32 + 1,
+            total,
+        });
+    }
+    Ok(out)
+}
+
+/// Copy `from` into a NEW file `to` — never into an existing one — hashing it.
+fn copy_hashing(from: &Path, to: &Path) -> Result<String, Error> {
+    let mut src =
+        std::fs::File::open(from).map_err(|e| Error::io(from.display().to_string(), e))?;
+    let mut dst =
+        std::fs::File::create_new(to).map_err(|e| Error::io(to.display().to_string(), e))?;
+    let mut hasher = Sha1::new();
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = src
+            .read(&mut buf)
+            .map_err(|e| Error::io(from.display().to_string(), e))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        dst.write_all(&buf[..n])
+            .map_err(|e| Error::io(to.display().to_string(), e))?;
+    }
+    dst.sync_all()
+        .map_err(|e| Error::io(to.display().to_string(), e))?;
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Decide each staged file against the target as it is now.
+async fn plan_steps(
+    target_mc: &Path,
+    staged: Vec<Staged>,
+    on_conflict: OnConflict,
+) -> Result<Planned, Error> {
+    let mut planned = Planned {
+        steps: Vec::new(),
+        kept_existing: 0,
+        aside_bytes: 0,
+    };
+    for s in staged {
+        let target = join_rel(target_mc, &s.rel);
+        let set_aside = match std::fs::symlink_metadata(&target) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(Error::io(target.display().to_string(), e)),
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(Error::TransferRefused {
+                    refusal: Refusal::InnerLink { rel: s.rel },
+                })
+            }
+            Ok(meta) if !meta.is_file() => {
+                return Err(Error::TransferRefused {
+                    refusal: Refusal::PrefixClash { rel: s.rel },
+                })
+            }
+            Ok(meta) => match on_conflict {
+                OnConflict::KeepExisting => {
+                    planned.kept_existing += 1;
+                    continue;
+                }
+                OnConflict::Replace => {
+                    let old = txn::file_sha1(&target)
+                        .await
+                        .map_err(|e| Error::io(target.display().to_string(), e))?
+                        .ok_or_else(|| {
+                            Error::io(target.display().to_string(), "vanished while planning")
+                        })?;
+                    planned.aside_bytes += meta.len();
+                    Some(StageEntry {
+                        rel: s.rel.clone(),
+                        sha1: old,
+                        row: None,
+                    })
+                }
+            },
+        };
+        planned.steps.push(Step {
+            rel: s.rel,
+            staged: s.path,
+            sha1: s.sha1,
+            set_aside,
+        });
+    }
+    Ok(planned)
+}
+
+async fn commit(
+    transaction: &txn::Txn,
+    steps: &[Step],
+    target_mc: &Path,
+    seams: &Seams,
+    created: &mut Vec<PathBuf>,
+    progress: &Progress,
+) -> Result<(), Error> {
+    let total = steps.len() as u32;
+    for (i, step) in steps.iter().enumerate() {
+        if let Some(entry) = &step.set_aside {
+            transaction.stage(entry).await?;
+        }
+        let to = join_rel(target_mc, &step.rel);
+        ensure_parents(target_mc, &to, created)?;
+        (seams.place)(&step.staged, &to).map_err(|e| place_error(&to, e))?;
+        progress(TransferProgress {
+            phase: TransferPhase::Placing,
+            current: i as u32 + 1,
+            total,
+        });
+    }
+    Ok(())
+}
+
+/// Commit or undo, and word the error as a copy's, never an update's.
+async fn finish(transaction: txn::Txn, committed: Result<(), Error>) -> Result<(), Error> {
+    let result = match committed {
+        // A close that cannot be recorded rolls back inside `finish`; its
+        // clean error is the close error itself.
+        Ok(()) => transaction.finish(Ok(())).await,
+        Err(cause) => Err(transaction
+            .rollback_as(cause, |cause| Error::TransferFailed {
+                cause: Box::new(cause),
+            })
+            .await),
+    };
+    result.map_err(|e| match e {
+        Error::ContentUpdateRollbackIncomplete {
+            folder,
+            cause,
+            stuck,
+        } => Error::TransferRollbackIncomplete {
+            folder,
+            cause,
+            stuck,
+        },
+        e @ Error::TransferFailed { .. } => e,
+        other => Error::TransferFailed {
+            cause: Box::new(other),
+        },
+    })
+}
+
+/// Create every missing folder between the game dir and `to`'s parent,
+/// recording each (an undo removes them again).
+fn ensure_parents(target_mc: &Path, to: &Path, created: &mut Vec<PathBuf>) -> Result<(), Error> {
+    let Some(parent) = to.parent() else {
+        return Ok(());
+    };
+    let below = parent.strip_prefix(target_mc).unwrap_or(parent);
+    let mut path = target_mc.to_path_buf();
+    for seg in below.components() {
+        path.push(seg);
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(&path).map_err(|e| Error::io(path.display().to_string(), e))?;
+                created.push(path.clone());
+            }
+            Err(e) => return Err(Error::io(path.display().to_string(), e)),
+        }
+    }
+    Ok(())
+}
+
+fn place_error(to: &Path, e: std::io::Error) -> Error {
+    if e.kind() == std::io::ErrorKind::CrossesDevices {
+        Error::io(
+            to.display().to_string(),
+            "this folder links to another drive; Lucerna does not copy across drives",
+        )
+    } else {
+        Error::io(to.display().to_string(), e)
+    }
+}
+
+/// After an undo: the folders this copy created, deepest first, only while
+/// empty (`remove_dir` refuses a folder with anything in it).
+fn remove_created(created: &[PathBuf]) {
+    for dir in created.iter().rev() {
+        match std::fs::remove_dir(dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => crate::diag!(
+                "transfer: could not remove the empty folder {} ({e})",
+                dir.display()
+            ),
+        }
+    }
+}
+
+/// The op dir holds only staged copies: removing it never loses the user's
+/// data, and a failure is left to the next copy's sweep.
+fn remove_op_dir(dir: &Path) {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => crate::diag!(
+            "transfer: could not remove {} ({e}); the next copy sweeps it",
+            dir.display()
+        ),
+    }
+}
+
+/// Staging dirs a crash left: copies only, and the caller's
+/// `claim_write(target)` means no other copy into this instance is running.
+fn sweep_stale(ops_root: &Path) {
+    let entries = match std::fs::read_dir(ops_root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            crate::diag!("transfer: could not list {} ({e})", ops_root.display());
+            return;
+        }
+    };
+    for entry in entries {
+        match entry {
+            Ok(entry) => remove_op_dir(&entry.path()),
+            Err(e) => crate::diag!("transfer: could not read {} ({e})", ops_root.display()),
+        }
+    }
+}
+
+/// `lucerna/replaced/Replaced by Lucerna – <target> – <date time>`: a name a
+/// person recognises in the Recycle Bin.
+fn replaced_folder(target_name: &str, now: SystemTime) -> String {
+    let stamp = chrono::DateTime::<chrono::Local>::from(now).format("%Y-%m-%d %H-%M-%S");
+    let safe: String = target_name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || " -_()".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!(
+        "lucerna/replaced/Replaced by Lucerna – {} – {stamp}",
+        safe.trim()
+    )
+}
+
+/// Send the replaced files to the Recycle Bin, or say where they are.
+async fn dispose(target_root: &Path, folder: &str, bytes: u64, seams: &Seams) -> Option<String> {
+    let kept = join_rel(target_root, folder);
+    if std::fs::symlink_metadata(&kept).is_err() {
+        // Still in the closed transaction's folder (its move failed and was
+        // logged); the next start moves it.
+        return Some(txn::txn_root(target_root).display().to_string());
+    }
+    if bytes > seams.keep_over_bytes {
+        return Some(kept.display().to_string());
+    }
+    let recycle = Arc::clone(&seams.recycle);
+    match crate::platform::recycle_bin::off_thread(kept.clone(), move |p| recycle(p)).await {
+        Ok(()) => None,
+        Err(e) => {
+            crate::diag!("transfer: replaced files stay in {} ({e})", kept.display());
+            Some(kept.display().to_string())
+        }
+    }
 }
 
 #[cfg(test)]

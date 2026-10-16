@@ -176,6 +176,15 @@ pub fn copy_clone_content(
         })?;
     }
 
+    if options.packs {
+        // The pack lists reconcile with their folder (#505); without its
+        // registry a pack installed from Add-ons shows on the clone as a
+        // manual row — no icon, no update checks.
+        copy_meta_file(
+            &crate::mods::assets::registry_path(src_root),
+            &crate::mods::assets::registry_path(dst_root),
+        )?;
+    }
     if options.mod_data {
         crate::instances::transfer::copy_for_clone(&src_mc, &dst_mc, &mut |cur, tot| {
             progress(CloneStep::ModData, cur, tot)

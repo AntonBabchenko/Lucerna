@@ -15,7 +15,8 @@ pub use catalog::TransferItemId;
 pub use engine::{OnConflict, TransferOutcome, TransferPhase, TransferProgress, TransferSelection};
 pub use preview::{ItemPreview, OtherPreview, Refusal, RootPreview, TransferPreview};
 
-use crate::error::Result;
+use crate::content_root::{content_at, Content, Expect};
+use crate::error::{Error, Result};
 
 /// Mod data a clone would copy, for the clone dialog's row (spec §A6).
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, specta::Type)]
@@ -29,8 +30,29 @@ pub struct ModDataSummary {
 
 /// What [`copy_for_clone`] would take from `src_mc`.
 pub fn clone_summary(src_mc: &Path) -> ModDataSummary {
-    let _ = src_mc;
-    todo!("red-first stub")
+    let mut out = ModDataSummary {
+        files: 0,
+        bytes: 0.0,
+        selectable: true,
+    };
+    for id in catalog::ALL {
+        for root in id.clone_roots() {
+            match content_at(&walk::join_rel(src_mc, root.rel), Expect::Dir) {
+                Ok(Content::Nothing) => {}
+                Ok(Content::Local | Content::Linked { .. }) => {
+                    match walk::walk_root(src_mc, root.rel, root.scope) {
+                        Ok(w) => {
+                            out.files += w.files.len() as u32;
+                            out.bytes += w.bytes() as f64;
+                        }
+                        Err(_) => out.selectable = false,
+                    }
+                }
+                Ok(Content::BrokenLink { .. }) | Err(_) => out.selectable = false,
+            }
+        }
+    }
+    out
 }
 
 /// Copy every catalog item the source has into a fresh clone's game dir, whole
@@ -40,8 +62,31 @@ pub fn copy_for_clone(
     dst_mc: &Path,
     progress: &mut dyn FnMut(u32, u32),
 ) -> Result<()> {
-    let _ = (src_mc, dst_mc, progress);
-    todo!("red-first stub")
+    let mut files = Vec::new();
+    for id in catalog::ALL {
+        for root in id.clone_roots() {
+            let path = walk::join_rel(src_mc, root.rel);
+            let present = crate::content_root::has_content(&path, Expect::Dir)
+                .map_err(|e| Error::io(path.display().to_string(), e))?;
+            if present {
+                let w = walk::walk_root(src_mc, root.rel, root.scope)
+                    .map_err(|e| Error::io(path.display().to_string(), e))?;
+                files.extend(w.files);
+            }
+        }
+    }
+    let total = files.len() as u32;
+    for (i, f) in files.iter().enumerate() {
+        let from = walk::join_rel(src_mc, &f.rel);
+        let to = walk::join_rel(dst_mc, &f.rel);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Error::io(parent.display().to_string(), e))?;
+        }
+        std::fs::copy(&from, &to).map_err(|e| Error::io(to.display().to_string(), e))?;
+        progress(i as u32 + 1, total);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

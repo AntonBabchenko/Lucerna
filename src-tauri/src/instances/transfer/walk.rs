@@ -30,8 +30,95 @@ impl Walked {
 /// Walk `<game_dir>/<rel>` — which the caller found to be a folder, real or
 /// reached through a link at the root — by `scope`.
 pub fn walk_root(game_dir: &Path, rel: &str, scope: Scope) -> io::Result<Walked> {
-    let _ = (game_dir, rel, scope);
-    todo!("red-first stub: the walk lands in the next commit")
+    let base = join_rel(game_dir, rel);
+    let mut out = Walked::default();
+    match scope {
+        Scope::WholeTree => walk_tree(&base, rel, &mut out)?,
+        Scope::ChildFolders(prefixes) => {
+            for (name, kind) in list(&base)? {
+                if !prefixes.iter().any(|p| name.starts_with(p)) {
+                    continue;
+                }
+                match kind {
+                    Kind::Dir => walk_tree(&base.join(&name), &format!("{rel}/{name}"), &mut out)?,
+                    Kind::File(_) => {}
+                    Kind::Skipped => out.skipped += 1,
+                }
+            }
+        }
+        Scope::TopLevelFiles => {
+            for (name, kind) in list(&base)? {
+                match kind {
+                    Kind::File(len) => out.files.push(WalkedFile {
+                        rel: format!("{rel}/{name}"),
+                        len,
+                    }),
+                    Kind::Dir => {}
+                    Kind::Skipped => out.skipped += 1,
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+enum Kind {
+    Dir,
+    File(u64),
+    Skipped,
+}
+
+/// `dir`'s entries, each classified without following a link, sorted by
+/// name. A name that is not valid Unicode is an error: the transaction records
+/// paths as strings, and a lossy name would name another file.
+fn list(dir: &Path) -> io::Result<Vec<(String, Kind)>> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(|e| at(dir, e))? {
+        let entry = entry.map_err(|e| at(dir, e))?;
+        let path = entry.path();
+        let name = entry.file_name().into_string().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{}: the name is not valid Unicode", path.display()),
+            )
+        })?;
+        let meta = std::fs::symlink_metadata(&path).map_err(|e| at(&path, e))?;
+        let ft = meta.file_type();
+        // `is_symlink` is true for a Windows junction too.
+        let kind = if ft.is_symlink() {
+            Kind::Skipped
+        } else if ft.is_dir() {
+            Kind::Dir
+        } else if ft.is_file() {
+            Kind::File(meta.len())
+        } else {
+            Kind::Skipped
+        };
+        out.push((name, kind));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
+fn walk_tree(dir: &Path, rel: &str, out: &mut Walked) -> io::Result<()> {
+    let mut stack = vec![(dir.to_path_buf(), rel.to_string())];
+    while let Some((d, r)) = stack.pop() {
+        for (name, kind) in list(&d)? {
+            match kind {
+                Kind::Dir => stack.push((d.join(&name), format!("{r}/{name}"))),
+                Kind::File(len) => out.files.push(WalkedFile {
+                    rel: format!("{r}/{name}"),
+                    len,
+                }),
+                Kind::Skipped => out.skipped += 1,
+            }
+        }
+    }
+    Ok(())
+}
+
+fn at(path: &Path, e: io::Error) -> io::Error {
+    io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
 /// Join a `/`-separated relative path segment by segment.
