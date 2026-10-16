@@ -35,7 +35,7 @@ async fn extract_installer_maven_tree(
                 fv: "<unknown>".into(),
                 details: format!("maven-tree zip index {i}: {e}"),
             })?;
-        let name = entry.name().to_string();
+        let name = crate::zip_entry::name(&entry).into_owned();
         if !name.starts_with("maven/") || name.ends_with('/') {
             continue;
         }

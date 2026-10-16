@@ -45,6 +45,7 @@ pub mod verify;
 pub mod versions;
 pub mod window;
 pub mod worlds;
+pub mod zip_entry;
 
 /// General-purpose process-wide lock for the few tests that need exclusive
 /// access to a global (e.g. the in-memory keyring backend's `TEST_KEY`).

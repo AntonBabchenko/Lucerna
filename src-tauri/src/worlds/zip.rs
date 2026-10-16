@@ -105,7 +105,7 @@ pub fn extract_zip_capped(
         let mut entry = archive
             .by_index(i)
             .map_err(|e| corrupt(format!("entry {i}: {e}")))?;
-        let raw_name = entry.name().to_string();
+        let raw_name = crate::zip_entry::name(&entry).into_owned();
         // Zip-slip defense: reject absolute paths, drive letters, and
         // any `..` segment. We do this BEFORE join so a `dest_dir
         // .join("../escape")` never gets canonicalized.

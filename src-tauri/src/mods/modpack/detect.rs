@@ -12,7 +12,11 @@ pub fn detect_format(bytes: &[u8]) -> Result<ModpackFormat, Error> {
             details: e.to_string(),
         })?;
     let names: Vec<String> = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter_map(|i| {
+            zip.by_index(i)
+                .ok()
+                .map(|f| crate::zip_entry::name(&f).into_owned())
+        })
         .collect();
     if names.iter().any(|n| n == "modrinth.index.json") {
         Ok(ModpackFormat::Modrinth)

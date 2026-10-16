@@ -49,7 +49,7 @@ pub async fn run(args: Vec<String>, _ctx: &ProcessorContext) -> Result<()> {
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_string();
+        let name = crate::zip_entry::name(&entry).into_owned();
         let mut buf = Vec::with_capacity(entry.size() as usize);
         entry
             .read_to_end(&mut buf)
@@ -162,7 +162,7 @@ mod tests {
             let f = std::fs::File::open(p).unwrap();
             let mut z = zip::ZipArchive::new(f).unwrap();
             (0..z.len())
-                .map(|i| z.by_index(i).unwrap().name().to_string())
+                .map(|i| crate::zip_entry::name(&z.by_index(i).unwrap()).into_owned())
                 .collect()
         };
         let slim_names = read_jar(&slim_path);
