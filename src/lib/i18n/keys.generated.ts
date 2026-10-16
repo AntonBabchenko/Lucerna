@@ -931,6 +931,7 @@ export type TranslationKey =
   | 'instance.transfer.skippedLine'
   | 'instance.transfer.sourceBusy'
   | 'instance.transfer.sourceLegend'
+  | 'instance.transfer.sourcePlaceholder'
   | 'instance.transfer.sourceRunning'
   | 'instance.transfer.spMapsHint'
   | 'instance.transfer.spaceWarning'

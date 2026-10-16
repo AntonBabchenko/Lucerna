@@ -269,7 +269,7 @@
           value={sourceId}
           options={sourceOptions}
           onChange={(v) => void pick(String(v))}
-          placeholder={$t('instance.transfer.sourceLegend')}
+          placeholder={$t('instance.transfer.sourcePlaceholder')}
           ariaLabel={$t('instance.transfer.sourceLegend')}
           dataTestid="transfer-source"
         />
@@ -291,15 +291,18 @@
       {:else}
         {#if preview.items.length > 0}
           <div>
-            <span class="mb-2 block text-sm font-medium text-secondary"
+            <span class="block text-sm font-medium text-secondary"
               >{$t('instance.transfer.whatLegend')}</span
             >
-            <ul class="space-y-0.5" data-testid="transfer-items">
+            <!-- One caution for every row it applies to, not one per row. -->
+            {#if preview.items.some((i) => VERSION_SENSITIVE.has(i.id))}
+              <p class="text-xs text-muted" data-testid="transfer-version-caution">
+                {$t('instance.transfer.versionCaution')}
+              </p>
+            {/if}
+            <ul class="mt-2 space-y-0.5" data-testid="transfer-items">
               {#each preview.items as item (item.id)}
                 {@const notes = [
-                  ...(VERSION_SENSITIVE.has(item.id)
-                    ? [$t('instance.transfer.versionCaution')]
-                    : []),
                   ...(MULTIPLAYER_ONLY.has(item.id) ? [$t('instance.transfer.spMapsHint')] : []),
                   ...(LOD_MULTIPLAYER.has(item.id) ? [$t('instance.transfer.lodHint')] : []),
                 ]}

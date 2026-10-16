@@ -201,6 +201,23 @@ describe('TransferDataDialog', () => {
     expect((screen.getByTestId('transfer-submit') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('shows the version caution once, above the rows it applies to', async () => {
+    scan({ items: [item('xaero'), item('bobby'), item('schematics')] });
+    renderDialog();
+    await pickSource(/Old pack/);
+    await screen.findByTestId('transfer-item-xaero');
+    expect(screen.getAllByTestId('transfer-version-caution')).toHaveLength(1);
+    expect(screen.getAllByText(/newer version of a mod/)).toHaveLength(1);
+  });
+
+  it('has no version caution when only schematics are listed', async () => {
+    scan({ items: [item('schematics')] });
+    renderDialog();
+    await pickSource(/Old pack/);
+    await screen.findByTestId('transfer-item-schematics');
+    expect(screen.queryByTestId('transfer-version-caution')).toBeNull();
+  });
+
   it('says so when the source has nothing to copy', async () => {
     scan({});
     renderDialog();

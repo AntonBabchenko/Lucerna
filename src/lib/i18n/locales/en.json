@@ -408,6 +408,7 @@
       "lockedBusy": "Data can be copied once the current task on this instance finishes.",
       "dialogTitle": "Copy data into {name}",
       "sourceLegend": "Copy from",
+      "sourcePlaceholder": "Choose an instance",
       "sourceRunning": "running",
       "sourceBusy": "busy",
       "noOtherInstances": "There is no other instance to copy from.",
