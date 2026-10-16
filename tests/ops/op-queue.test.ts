@@ -14,6 +14,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     setActiveInstance: vi.fn(),
     launcherImportRun: vi.fn(),
     cloneInstance: vi.fn(),
+    transferModData: vi.fn(),
   },
   events: {
     verifyProgress: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -46,6 +47,7 @@ import {
   enqueueImport,
   enqueueIntegrity,
   enqueueLauncherImport,
+  enqueueTransfer,
   opCompletionTick,
   opImportCompletionTick,
 } from '$lib/ops/op-queue.svelte';
@@ -518,6 +520,40 @@ describe('op-queue store', () => {
     expect(call[0]).toBe('instance.clone.failed');
     expect(call[1]).toEqual(['formatted:instance_busy']);
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
+  });
+
+  const transferReq = {
+    sourceId: 'inst-2',
+    sourceName: 'Old',
+    targetId: 'inst-1',
+    targetName: 'New',
+    selection: { items: ['schematics' as const], other: [] },
+    onConflict: 'replace' as const,
+  };
+
+  it('enqueueTransfer: success pushes a summary toast', async () => {
+    (commands.transferModData as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { copied: 2, replaced: 0, kept_existing: 0, skipped: 0, replaced_kept_at: null },
+    });
+    enqueueTransfer(transferReq);
+    await vi.waitFor(() => expect(pushSuccess).toHaveBeenCalledTimes(1));
+    const call = (pushSuccess as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe('instance.transfer.done');
+    expect(call[1]).toEqual(['instance.transfer.copiedLine']);
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
+  });
+
+  it('enqueueTransfer: error pushes a warning with the failure detail', async () => {
+    (commands.transferModData as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'transfer_instance_busy' },
+    });
+    enqueueTransfer(transferReq);
+    await vi.waitFor(() => expect(pushWarning).toHaveBeenCalledTimes(1));
+    const call = (pushWarning as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe('instance.transfer.failed');
+    expect(call[1]).toEqual(['formatted:transfer_instance_busy']);
   });
 
   it('enqueueClone: an active clone blocks a verify for the same instance', async () => {

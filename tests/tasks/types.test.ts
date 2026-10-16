@@ -15,4 +15,9 @@ describe('task label maps', () => {
     expect(TASK_KINDS).toContain('world-migrate');
     expect(KIND_LABEL_KEY['world-migrate']).toBe('tasks.kind.worldMigrate');
   });
+
+  it('registers transfer as a task kind with its own label key', () => {
+    expect(TASK_KINDS).toContain('transfer');
+    expect(KIND_LABEL_KEY.transfer).toBe('tasks.kind.transfer');
+  });
 });

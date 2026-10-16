@@ -233,6 +233,16 @@ function worldMigratePhase(tr: Translate, task: Task): string | null {
   }
 }
 
+/** `instance.transfer.copying` / `placing` — the adapter stores the engine's
+ *  phase (`copying` into the staging folder, then `placing` into the instance). */
+function transferPhase(tr: Translate, task: Task): string | null {
+  if (task.progress === null) return null;
+  const params = { current: task.progress.current, total: task.progress.total };
+  if (task.phase === 'copying') return tr('instance.transfer.copying', params);
+  if (task.phase === 'placing') return tr('instance.transfer.placing', params);
+  return null;
+}
+
 /** One deliberate entry per kind — `null` for a kind with no phase
  *  vocabulary to reuse (see the module doc comment for why each is `null`).
  *  `Record<TaskKind, …>` rather than a lookup function: a new kind added to
@@ -251,6 +261,7 @@ const PHASE_LABEL: Record<TaskKind, PhaseLabelFn | null> = {
   'app-update': null,
   'data-migration': dataMigrationPhase,
   'world-migrate': worldMigratePhase,
+  transfer: transferPhase,
 };
 
 /** The localized "what is this task doing" line for `task`, or `null` when
