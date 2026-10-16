@@ -174,6 +174,19 @@ describe('CloneInstanceDialog', () => {
     expect(await findByText('instance.clone.modDataUnavailable')).toBeTruthy();
   });
 
+  // The only root there is cannot be read, so nothing was counted: the row is
+  // off for that reason, not because there is no data.
+  it('says why mod data is off even when nothing could be counted', async () => {
+    (commands.modDataScan as ReturnType<typeof vi.fn>).mockResolvedValue(modData(0, false));
+    const { getByTestId, findByText } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() =>
+      expect((getByTestId('clone-opt-mod_data') as HTMLInputElement).disabled).toBe(true),
+    );
+    expect(await findByText('instance.clone.modDataUnavailable')).toBeTruthy();
+  });
+
   it('disables and unchecks a category the scan found empty', async () => {
     (commands.cloneInstanceScan as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',

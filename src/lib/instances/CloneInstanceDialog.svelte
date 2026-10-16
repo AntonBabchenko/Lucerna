@@ -161,12 +161,16 @@
       label: $t('instance.clone.optionModData'),
       icon: 'locate',
       disabled: modData !== null && (modData.files === 0 || !modData.selectable),
+      // Unreadable first: a root that cannot be read counts no files, and the
+      // row must say why it is off.
       hint:
-        modData === null || modData.files === 0
+        modData === null
           ? ''
-          : modData.selectable
-            ? `${modData.files} · ${formatSize(get(t), modData.bytes)}`
-            : $t('instance.clone.modDataUnavailable'),
+          : !modData.selectable
+            ? $t('instance.clone.modDataUnavailable')
+            : modData.files === 0
+              ? ''
+              : `${modData.files} · ${formatSize(get(t), modData.bytes)}`,
       entries: [],
     },
     {
