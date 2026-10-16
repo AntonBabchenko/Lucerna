@@ -105,6 +105,29 @@ pub fn clone_summary(src_mc: &Path) -> ModDataSummary {
     out
 }
 
+/// `<instance>/lucerna/replaced/<name>`: where a copy kept the files it
+/// replaced, for the startup notice's "Open folder". `name` comes from the
+/// webview, so it must be one plain folder name; the folder must already be
+/// a folder: opening never creates it, and never follows a link out of the
+/// instance.
+pub fn kept_folder(instance_root: &Path, name: &str) -> Result<std::path::PathBuf> {
+    let dir = instance_root.join("lucerna").join("replaced").join(name);
+    if !crate::pathsafe::is_safe_filename(name) {
+        return Err(Error::ModsInstancePath {
+            path: name.to_string(),
+            details: "not a folder name".into(),
+        });
+    }
+    match std::fs::symlink_metadata(&dir) {
+        Ok(m) if m.is_dir() => Ok(dir),
+        Ok(_) => Err(Error::ModsInstancePath {
+            path: dir.display().to_string(),
+            details: "not a folder".into(),
+        }),
+        Err(e) => Err(Error::io(dir.display().to_string(), e)),
+    }
+}
+
 /// Copy every catalog item the source has into a fresh clone's game dir, whole
 /// trees. Any failure is fatal: the clone rolls its whole folder back.
 pub fn copy_for_clone(
@@ -188,6 +211,34 @@ mod tests {
             }
         );
         drop(held);
+    }
+
+    /// "Open folder" on the kept-files notice: one existing folder directly in
+    /// `lucerna/replaced`, never a path, never created, never a link out.
+    #[test]
+    fn the_kept_folder_is_one_existing_folder_under_replaced() {
+        let td = tempfile::tempdir().unwrap();
+        let replaced = td.path().join("lucerna").join("replaced");
+        let name = "Replaced by Lucerna – Pack – 2026-10-16 05-19-30 (2)";
+        std::fs::create_dir_all(replaced.join(name)).unwrap();
+        assert_eq!(kept_folder(td.path(), name).unwrap(), replaced.join(name));
+        for bad in ["", ".", "..", "a/b", "a\\b", "C:x", "/abs"] {
+            assert!(kept_folder(td.path(), bad).is_err(), "{bad:?}");
+        }
+        assert!(kept_folder(td.path(), "missing").is_err());
+        assert!(
+            !replaced.join("missing").exists(),
+            "opening never creates the folder"
+        );
+        std::fs::write(replaced.join("file"), b"x").unwrap();
+        assert!(kept_folder(td.path(), "file").is_err());
+        let outside = td.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        crate::content_root::test_links::link_dir(&outside, &replaced.join("link"));
+        assert!(
+            kept_folder(td.path(), "link").is_err(),
+            "a link is not followed"
+        );
     }
 
     #[test]

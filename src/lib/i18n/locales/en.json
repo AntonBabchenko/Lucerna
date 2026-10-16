@@ -420,7 +420,7 @@
       "filesSize": "{files, plural, one {# file} other {# files}} · {size}",
       "alreadyHere": "{count, plural, one {# file is already here} other {# files are already here}}",
       "versionCaution": "Data written by a newer version of a mod or of Minecraft may not open in an older one.",
-      "spMapsHint": "Multiplayer maps only. Single-player maps are matched by world name, so they come along with Clone.",
+      "spMapsHint": "Only server maps; Clone brings over single-player maps.",
       "lodHint": "Single-player data lives inside each world and is not copied here.",
       "item": {
         "schematics": "Schematics (Litematica, Create)",
@@ -737,10 +737,12 @@
       "incomplete": "An interrupted update of \"{name}\" could not be fully undone. Check its mods; what could not go back is kept in {folder}.",
       "dataCopyRestored": "Copying data from \"{source}\" into \"{name}\" was interrupted last time; it was undone and the instance is as it was.",
       "dataCopyIncomplete": "An interrupted copy of data into \"{name}\" could not be fully undone; what could not go back is kept in {folder}.",
-      "keptAside": "Files that an earlier copy of data replaced in \"{name}\" were moved to {folder}.",
+      "keptAside": "Files that an earlier copy of data replaced in \"{name}\" were moved to the folder \"{folder}\".",
       "keptInPlace": "Files that an earlier copy of data replaced in \"{name}\" could not be moved out; they are kept in {folder}.",
       "unknownRestored": "A change to \"{name}\" was interrupted last time; it was undone and the profile is as it was.",
-      "unknownIncomplete": "An interrupted change to \"{name}\" could not be fully undone; what could not go back is kept in {folder}."
+      "unknownIncomplete": "An interrupted change to \"{name}\" could not be fully undone; what could not go back is kept in {folder}.",
+      "openFolder": "Open folder",
+      "openFolderFailed": "Couldn't open the folder."
     },
     "settings": {
       "tabAria": "Instance settings",

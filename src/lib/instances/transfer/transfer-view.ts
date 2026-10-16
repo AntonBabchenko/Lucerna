@@ -6,6 +6,7 @@ import type { TranslationKey } from '$lib/i18n/keys.generated';
 import type { Translate } from '$lib/i18n/typed';
 import type {
   Refusal,
+  RootPreview,
   TransferItemId,
   TransferOutcome,
   TransferSelection,
@@ -91,6 +92,17 @@ export function outcomeLines(tr: Translate, o: TransferOutcome): string[] {
   if (o.kept_existing > 0) lines.push(tr('instance.transfer.keptLine', { count: o.kept_existing }));
   if (o.skipped > 0) lines.push(tr('instance.transfer.skippedLine', { count: o.skipped }));
   return lines;
+}
+
+/** The row's own folder note already says why it is refused: the root itself
+ *  is the broken link or the unreadable folder. One message per problem. */
+export function refusalSaidByNote(r: Refusal, roots: readonly RootPreview[]): boolean {
+  return roots.some(
+    (root) =>
+      root.rel === r.rel &&
+      ((r.kind === 'broken_link' && root.source.kind === 'broken_link') ||
+        (r.kind === 'unreadable' && root.source.kind === 'unreadable')),
+  );
 }
 
 /** Why a row cannot be copied, in the user's words. */

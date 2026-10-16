@@ -9,7 +9,8 @@ import { get } from 'svelte/store';
 import { type Translate, t } from '$lib/i18n';
 import type { RecoveredUpdate } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
-import { pushInfo, pushWarning } from '$lib/toasts/toasts.svelte';
+import { formatError } from '$lib/ipc/format-error';
+import { pushActionToast, pushInfo, pushWarning } from '$lib/toasts/toasts.svelte';
 
 /** Injectable dependencies (tests pass fakes); production uses the backend. */
 export interface UpdateRecoveryDeps {
@@ -69,13 +70,31 @@ function speak(tr: Translate, r: RecoveredUpdate): void {
         ),
       );
       return;
-    // Only a mod-data copy keeps the files it replaces.
-    case 'kept_aside':
-      pushInfo(tr('instance.updateRecovery.keptAside', { name, folder: r.outcome.folder }));
+    // Only a mod-data copy keeps the files it replaces. The folder's name, not
+    // its path, with a way to open it.
+    case 'kept_aside': {
+      const folder = folderName(r.outcome.folder);
+      pushActionToast('info', tr('instance.updateRecovery.keptAside', { name, folder }), {
+        label: tr('instance.updateRecovery.openFolder'),
+        run: () => void openKept(tr, r.instance_id, folder),
+      });
       return;
+    }
     case 'kept_in_place':
       pushWarning(tr('instance.updateRecovery.keptInPlace', { name, folder: r.outcome.folder }));
       return;
+  }
+}
+
+/** The last segment of a path the backend reported, whichever separator it uses. */
+function folderName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+async function openKept(tr: Translate, instanceId: string, folder: string): Promise<void> {
+  const r = await commands.openKeptFolder(instanceId, folder);
+  if (r.status === 'error') {
+    pushWarning(tr('instance.updateRecovery.openFolderFailed'), [formatError(r.error)]);
   }
 }
 

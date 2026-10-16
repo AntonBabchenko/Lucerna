@@ -243,6 +243,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	openAddonFolder: (instanceId: string, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("open_addon_folder", { instanceId, kind })),
 	/**
+	 *  Open the folder a mod-data copy kept the files it replaced in — the
+	 *  startup notice's "Open folder". `name` is the folder's name inside
+	 *  `lucerna/replaced`; the folder is never created (see `kept_folder`).
+	 */
+	openKeptFolder: (instanceId: string, name: string) => typedError<null, Error>(__TAURI_INVOKE("open_kept_folder", { instanceId, name })),
+	/**
 	 *  Show an installed mod's jar in the OS file manager, selected — the file as
 	 *  it is on disk, `<file>` or `<file>.disabled`; `reveal_screenshot`'s shape.
 	 * 

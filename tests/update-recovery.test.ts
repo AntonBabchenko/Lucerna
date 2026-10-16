@@ -3,16 +3,20 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/toasts/toasts.svelte', () => ({
   pushInfo: vi.fn(),
   pushWarning: vi.fn(),
+  pushActionToast: vi.fn(),
 }));
-vi.mock('$lib/ipc/bindings', () => ({ commands: { takeUpdateRecoveryReport: vi.fn() } }));
+vi.mock('$lib/ipc/bindings', () => ({
+  commands: { takeUpdateRecoveryReport: vi.fn(), openKeptFolder: vi.fn() },
+}));
 
 import { locale } from '$lib/i18n';
 import type { RecoveredUpdate } from '$lib/ipc/bindings';
+import { commands } from '$lib/ipc/bindings';
 import {
   __resetUpdateRecoveryForTest,
   announceUpdateRecovery,
 } from '$lib/modpacks/update-recovery.svelte';
-import { pushInfo, pushWarning } from '$lib/toasts/toasts.svelte';
+import { pushActionToast, pushInfo, pushWarning } from '$lib/toasts/toasts.svelte';
 
 const REPORT: RecoveredUpdate[] = [
   {
@@ -64,22 +68,28 @@ describe('announceUpdateRecovery', () => {
     expect(info).not.toContain('An update');
   });
 
-  it('says where files an earlier copy replaced were moved at startup', async () => {
+  it('names the folder kept files were moved to, with Open folder, not a full path', async () => {
+    vi.mocked(commands.openKeptFolder).mockResolvedValue({ status: 'ok', data: null });
     await announceUpdateRecovery({
       take: async () => [
         {
           instance_id: 'c',
           instance_name: 'New pack',
-          outcome: { kind: 'kept_aside', folder: 'C:/i/lucerna/replaced/R' },
+          outcome: { kind: 'kept_aside', folder: 'C:\\i\\lucerna\\replaced\\Replaced (2)' },
           operation: { kind: 'unknown' },
         },
       ],
     });
     expect(pushWarning).not.toHaveBeenCalled();
-    const info = vi.mocked(pushInfo).mock.calls[0][0];
-    expect(info).toContain('New pack');
-    expect(info).toContain('C:/i/lucerna/replaced/R');
-    expect(info).not.toMatch(/interrupted|undone/);
+    const [kind, title, action] = vi.mocked(pushActionToast).mock.calls[0];
+    expect(kind).toBe('info');
+    expect(title).toContain('New pack');
+    expect(title).toContain('Replaced (2)');
+    expect(title).not.toContain('lucerna');
+    expect(title).not.toMatch(/interrupted|undone/);
+    expect(action.label).toBe('Open folder');
+    action.run();
+    expect(commands.openKeptFolder).toHaveBeenCalledWith('c', 'Replaced (2)');
   });
 
   it('warns, naming the folder, when those files could not be moved', async () => {

@@ -162,6 +162,45 @@ describe('TransferDataDialog', () => {
     expect((screen.getByTestId('transfer-submit') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('says a broken link once: by its folder note, with no second refusal line', async () => {
+    scan({
+      items: [
+        item('bobby', {
+          roots: [
+            { rel: '.bobby', source: { kind: 'broken_link', target: 'E:\\cache' }, target: null },
+          ],
+          files: 0,
+          bytes: 0,
+          refusal: { kind: 'broken_link', rel: '.bobby' },
+        }),
+      ],
+    });
+    renderDialog();
+    await pickSource(/Old pack/);
+    const box = (await screen.findByTestId('transfer-item-bobby')) as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(screen.getByTestId('transfer-item-bobby-source-.bobby').textContent).toContain(
+      'E:\\cache',
+    );
+    expect(screen.queryByTestId('transfer-item-bobby-refusal')).toBeNull();
+  });
+
+  it('marks a refusal line and the space warning with the same warning icon', async () => {
+    scan({
+      items: [
+        item('schematics', { refusal: { kind: 'overlap', rel: 'schematics' } }),
+        item('xaero', { bytes: 3 * 1024 * 1024 }),
+      ],
+      target_free_mb: 1,
+    });
+    renderDialog();
+    await pickSource(/Old pack/);
+    const refusal = await screen.findByTestId('transfer-item-schematics-refusal');
+    const space = await screen.findByTestId('transfer-space-warning');
+    expect(refusal.querySelector('svg')).not.toBeNull();
+    expect(space.querySelector('svg')).not.toBeNull();
+  });
+
   it('Copy enqueues the checked rows with the conflict choice and closes', async () => {
     scan({ items: [item('schematics', { conflicts: 2 })], other: [folder('kubejs')] });
     const onClose = vi.fn();

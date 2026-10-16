@@ -29,6 +29,7 @@
     MULTIPLAYER_ONLY,
     VERSION_SENSITIVE,
     itemLabelKey,
+    refusalSaidByNote,
     refusalText,
     selectionFrom,
   } from './transfer-view';
@@ -123,7 +124,8 @@
     other = Object.fromEntries(r.data.other.map((o) => [o.name, false]));
   }
 
-  type Counted = { bytes: number; conflicts: number };
+  // specta types an f64 as `number | null`; the backend always sends a number.
+  type Counted = { bytes: number | null; conflicts: number };
   const checkedRows = $derived<Counted[]>(
     preview === null
       ? []
@@ -133,14 +135,14 @@
         ],
   );
   const anyConflict = $derived(checkedRows.some((r) => r.conflicts > 0));
-  const needBytes = $derived(checkedRows.reduce((n, r) => n + r.bytes, 0));
+  const needBytes = $derived(checkedRows.reduce((n, r) => n + (r.bytes ?? 0), 0));
   const freeBytes = $derived(
     preview?.target_free_mb == null ? null : preview.target_free_mb * 1024 * 1024,
   );
   const spaceShort = $derived(freeBytes !== null && needBytes > freeBytes);
   const canSubmit = $derived(source !== null && checkedRows.length > 0);
 
-  function sizeHint(files: number, bytes: number): string {
+  function sizeHint(files: number, bytes: number | null): string {
     return $t('instance.transfer.filesSize', { files, size: formatSize(get(t), bytes) });
   }
 
@@ -177,7 +179,7 @@
   r: {
     roots: RootPreview[];
     files: number;
-    bytes: number;
+    bytes: number | null;
     conflicts: number;
     refusal: Refusal | null;
   },
@@ -220,9 +222,15 @@
           {/if}
         {/each}
         {#if r.refusal !== null}
-          <span class="block text-xs text-warning-text" data-testid={`${testid}-refusal`}
-            >{refusalText($t, r.refusal)}</span
-          >
+          {#if !refusalSaidByNote(r.refusal, r.roots)}
+            <span
+              class="flex items-start gap-1 text-xs text-warning-text"
+              data-testid={`${testid}-refusal`}
+            >
+              <Icon name="warning" size={12} class="mt-0.5 shrink-0" />
+              <span class="min-w-0">{refusalText($t, r.refusal)}</span>
+            </span>
+          {/if}
         {:else}
           {#if r.conflicts > 0}
             <span class="block text-xs text-secondary"
@@ -372,6 +380,7 @@
         {#if spaceShort && freeBytes !== null}
           <StatusMessage
             tone="warning"
+            withIcon
             dataTestid="transfer-space-warning"
             message={$t('instance.transfer.spaceWarning', {
               need: formatSize(get(t), needBytes),

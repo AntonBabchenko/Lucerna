@@ -942,6 +942,8 @@ export type TranslationKey =
   | 'instance.updateRecovery.incomplete'
   | 'instance.updateRecovery.keptAside'
   | 'instance.updateRecovery.keptInPlace'
+  | 'instance.updateRecovery.openFolder'
+  | 'instance.updateRecovery.openFolderFailed'
   | 'instance.updateRecovery.restored'
   | 'instance.updateRecovery.unknownIncomplete'
   | 'instance.updateRecovery.unknownRestored'
