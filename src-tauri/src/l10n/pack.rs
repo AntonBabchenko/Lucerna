@@ -151,7 +151,9 @@ mod tests {
     /// Parse `bytes` as a zip and return every entry name, sorted.
     fn entry_names(bytes: &[u8]) -> Vec<String> {
         let zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("valid zip");
-        let mut names: Vec<String> = zip.file_names().map(String::from).collect();
+        let mut names: Vec<String> = crate::zip_entry::names(&zip)
+            .map(|n| n.into_owned())
+            .collect();
         names.sort();
         names
     }

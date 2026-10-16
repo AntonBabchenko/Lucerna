@@ -196,7 +196,7 @@ fn work_list(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<Vec<(usize, Str
         let entry = zip.by_index(i).map_err(|e| Error::ModpackInvalidArchive {
             details: e.to_string(),
         })?;
-        let name = entry.name().to_string();
+        let name = crate::zip_entry::name(&entry).into_owned();
         if let Some(rel) = name.strip_prefix("client-overrides/") {
             if !rel.is_empty() {
                 client_paths.insert(rel.to_string());
@@ -210,7 +210,7 @@ fn work_list(zip: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<Vec<(usize, Str
         let entry = zip.by_index(i).map_err(|e| Error::ModpackInvalidArchive {
             details: e.to_string(),
         })?;
-        let name = entry.name().to_string();
+        let name = crate::zip_entry::name(&entry).into_owned();
         if let Some(rel) = name.strip_prefix("overrides/") {
             if !rel.is_empty() && !client_paths.contains(rel) {
                 overrides_work.push((i, rel.to_string()));

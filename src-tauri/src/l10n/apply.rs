@@ -485,7 +485,7 @@ mod tests {
                 entry.last_modified() == Some(zip::DateTime::default()),
                 "entry {} carries a non-1980 timestamp — the zip crate's `time` \
                  feature got enabled somewhere, so pack bytes now embed build time",
-                entry.name()
+                crate::zip_entry::name(&entry)
             );
         }
     }

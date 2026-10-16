@@ -1045,11 +1045,12 @@ pub fn read_jar_embedded_providers(jar_bytes: &[u8]) -> Vec<ProvidedMod> {
     let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(jar_bytes)) else {
         return Vec::new();
     };
-    // Collect entry names first to avoid borrow conflicts when reading bytes.
-    let names: Vec<String> = (0..zip.len())
+    // Collect the entries first to avoid borrow conflicts when reading bytes;
+    // read them back by index (zip 9 finds a name by its raw bytes).
+    let nested: Vec<usize> = (0..zip.len())
         .filter_map(|i| {
             let entry = zip.by_index(i).ok()?;
-            let name = entry.name().to_string();
+            let name = crate::zip_entry::name(&entry);
             // Match a nested jar one level under either nested-jar dir:
             // META-INF/jarjar/<x>.jar (Forge/NeoForge) or
             // META-INF/jars/<x>.jar (Fabric/Quilt). Both have exactly 2 slashes.
@@ -1057,7 +1058,7 @@ pub fn read_jar_embedded_providers(jar_bytes: &[u8]) -> Vec<ProvidedMod> {
                 && name.ends_with(".jar")
                 && name.matches('/').count() == 2
             {
-                Some(name)
+                Some(i)
             } else {
                 None
             }
@@ -1065,8 +1066,12 @@ pub fn read_jar_embedded_providers(jar_bytes: &[u8]) -> Vec<ProvidedMod> {
         .collect();
 
     let mut out = Vec::new();
-    for name in &names {
-        if let Some(inner_bytes) = entry_bytes(&mut zip, name) {
+    for i in nested {
+        let inner_bytes = zip.by_index(i).ok().and_then(|mut f| {
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf).ok().map(|_| buf)
+        });
+        if let Some(inner_bytes) = inner_bytes {
             if let Ok(inner_manifest) = read_jar_manifest_deps(&inner_bytes) {
                 out.extend(inner_manifest.provided);
             }

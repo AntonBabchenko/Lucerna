@@ -910,7 +910,7 @@ async fn extract_installer_maven_tree(
             stage: "forge-maven-tree".into(),
             error: format!("index {i}: {e}"),
         })?;
-        let name = entry.name().to_string();
+        let name = entry.name().unwrap().to_string();
         if !name.starts_with("maven/") || name.ends_with('/') {
             continue;
         }
