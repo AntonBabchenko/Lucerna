@@ -31,6 +31,7 @@ pub mod reports;
 pub mod screenshots;
 pub mod servers;
 pub mod servers_runtime;
+pub mod settings_sync;
 pub mod shortcuts;
 pub mod tasks;
 /// In-process test seams replacing the `LUCERNA_*` env-var test overrides
