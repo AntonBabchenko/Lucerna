@@ -12,6 +12,7 @@
 pub(crate) mod baseline;
 pub(crate) mod fsio;
 pub mod sidecar;
+pub mod store;
 
 use std::path::{Path, PathBuf};
 
