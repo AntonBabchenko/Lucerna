@@ -182,7 +182,7 @@ pub fn sync_kind(
     Ok(outcome)
 }
 
-fn unsupported(kind: Kind, facts: &VersionFacts) -> Option<Unsupported> {
+pub(crate) fn unsupported(kind: Kind, facts: &VersionFacts) -> Option<Unsupported> {
     match kind {
         Kind::Servers => None,
         Kind::History => (!facts.history_supported()).then_some(Unsupported::HistoryTooOld),
