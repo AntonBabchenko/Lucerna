@@ -422,11 +422,24 @@ enum ImageQuery {
     CannotTell,
 }
 
+/// Why `OpenProcess` returned no handle. Only an explicit "no such process"
+/// (`ERROR_INVALID_PARAMETER` for a PID no process has) says the PID is not
+/// ours; access denied means the process EXISTS and could be ours, and any
+/// other code is could-not-tell — the data-move blockers and the settings-sync
+/// marker read `Unknown` as "maybe running".
+#[cfg(target_os = "windows")]
+fn classify_open_failure(code: u32) -> ImageQuery {
+    use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
+    if code == ERROR_INVALID_PARAMETER {
+        ImageQuery::NoSuchProcess
+    } else {
+        ImageQuery::CannotTell
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn query_image_path_windows(pid: u32) -> ImageQuery {
-    use windows_sys::Win32::Foundation::{
-        CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, MAX_PATH,
-    };
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, MAX_PATH};
     use windows_sys::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
     };
@@ -436,11 +449,7 @@ fn query_image_path_windows(pid: u32) -> ImageQuery {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if h.is_null() {
             // Read at once: the next API call may overwrite it.
-            return if GetLastError() == ERROR_INVALID_PARAMETER {
-                ImageQuery::NoSuchProcess
-            } else {
-                ImageQuery::CannotTell
-            };
+            return classify_open_failure(GetLastError());
         }
         let mut buf = [0u16; MAX_PATH as usize];
         let mut len = buf.len() as u32;
@@ -915,6 +924,29 @@ mod tests {
             super::ImageMatch::No,
             "our own image must match or be unknown"
         );
+    }
+
+    /// Both sides of the Windows classification: only "no such process" may
+    /// read as not ours; access denied (the process exists) and anything else
+    /// stay could-not-tell, which the data-move blockers count as running.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn only_no_such_process_is_not_ours_access_denied_cannot_tell() {
+        {
+            use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER};
+            assert!(matches!(
+                super::classify_open_failure(ERROR_INVALID_PARAMETER),
+                super::ImageQuery::NoSuchProcess
+            ));
+            assert!(matches!(
+                super::classify_open_failure(ERROR_ACCESS_DENIED),
+                super::ImageQuery::CannotTell
+            ));
+            assert!(matches!(
+                super::classify_open_failure(0),
+                super::ImageQuery::CannotTell
+            ));
+        }
     }
 
     /// u32::MAX - 7 is not a live PID on any supported OS. Windows says so
