@@ -5,6 +5,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     cloneInstanceScan: vi.fn(),
     getPlaytime: vi.fn(),
+    modDataScan: vi.fn(),
   },
 }));
 
@@ -64,6 +65,11 @@ const fullScan = [
   { category: 'options_txt' as const, file_count: 1, total_bytes: 128, location: local },
 ];
 
+const modData = (files: number, selectable: boolean) => ({
+  status: 'ok' as const,
+  data: { files, bytes: files * 1024, selectable },
+});
+
 const playtime = (sessions: number) => ({
   status: 'ok' as const,
   data: {
@@ -81,6 +87,7 @@ beforeEach(() => {
     data: fullScan,
   });
   (commands.getPlaytime as ReturnType<typeof vi.fn>).mockResolvedValue(playtime(2));
+  (commands.modDataScan as ReturnType<typeof vi.fn>).mockResolvedValue(modData(4, true));
 });
 
 describe('CloneInstanceDialog', () => {
@@ -128,9 +135,43 @@ describe('CloneInstanceDialog', () => {
         config: true,
         options_txt: true,
         playtime: true,
+        mod_data: true,
       },
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the mod data the source has, checked, with its size', async () => {
+    const { getByTestId, findByText } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() => expect(commands.modDataScan).toHaveBeenCalledWith('inst-1'));
+    const box = getByTestId('clone-opt-mod_data') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(box.disabled).toBe(false);
+    expect(await findByText(/^4 · /)).toBeTruthy();
+  });
+
+  it('turns mod data off when the source has none', async () => {
+    (commands.modDataScan as ReturnType<typeof vi.fn>).mockResolvedValue(modData(0, true));
+    const { getByTestId } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() =>
+      expect((getByTestId('clone-opt-mod_data') as HTMLInputElement).disabled).toBe(true),
+    );
+    expect((getByTestId('clone-opt-mod_data') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('turns mod data off, and says why, when a folder of it cannot be read', async () => {
+    (commands.modDataScan as ReturnType<typeof vi.fn>).mockResolvedValue(modData(3, false));
+    const { getByTestId, findByText } = render(CloneInstanceDialog, {
+      props: { instance: instance(), onClose: vi.fn() },
+    });
+    await waitFor(() =>
+      expect((getByTestId('clone-opt-mod_data') as HTMLInputElement).disabled).toBe(true),
+    );
+    expect(await findByText('instance.clone.modDataUnavailable')).toBeTruthy();
   });
 
   it('disables and unchecks a category the scan found empty', async () => {

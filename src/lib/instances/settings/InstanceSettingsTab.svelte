@@ -28,6 +28,7 @@
   import InstanceGameSection from './InstanceGameSection.svelte';
   import InstanceIdentitySection from './InstanceIdentitySection.svelte';
   import InstanceLaunchSection from './InstanceLaunchSection.svelte';
+  import InstanceSharedDataSection from './InstanceSharedDataSection.svelte';
   import {
     clearInstanceSettingsNav,
     instanceSettingsNav,
@@ -231,8 +232,7 @@
             </div>
           {/if}
 
-          <!-- The data-sharing settings designed by «Design data sharing between
-               instances» take their own section here, between Launch and Integrity. -->
+          <InstanceSharedDataSection {instance} {instances} {running} {busy} />
 
           <div
             data-focus-field="integrity"
