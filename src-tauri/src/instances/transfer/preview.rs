@@ -144,20 +144,27 @@ pub(crate) fn other_folder_names(source_mc: &Path) -> std::io::Result<Vec<String
         if !catalog::is_offered_other(&name) {
             continue;
         }
-        let folder = matches!(
-            inspect(&entry.path())?,
-            RootKind::Dir
-                | RootKind::Linked {
-                    resolves_to: Resolved::Dir,
-                    ..
-                }
-        );
-        if folder {
+        if offered_folder(&inspect(&entry.path())) {
             names.push(name);
         }
     }
     names.sort();
     Ok(names)
+}
+
+/// A folder, a link to one, or an entry that could not be inspected: that
+/// one is offered too, and `scan_root` refuses its row with the reason —
+/// failing the whole preview, or hiding it, would say less.
+fn offered_folder(kind: &std::io::Result<RootKind>) -> bool {
+    matches!(
+        kind,
+        Err(_)
+            | Ok(RootKind::Dir
+                | RootKind::Linked {
+                    resolves_to: Resolved::Dir,
+                    ..
+                })
+    )
 }
 
 /// One root, both sides. `None` when the source has nothing at `rel`.
@@ -560,6 +567,17 @@ mod tests {
         let mut names: Vec<&str> = got.other.iter().map(|o| o.name.as_str()).collect();
         names.sort_unstable();
         assert_eq!(names, [".replay_cache", "kubejs"]);
+    }
+
+    /// A top-level entry that cannot be inspected is still offered: its row
+    /// then says why it cannot be copied, instead of the whole preview
+    /// failing or the folder silently missing from the list.
+    #[test]
+    fn an_entry_that_cannot_be_inspected_is_offered() {
+        assert!(offered_folder(&Err(std::io::Error::other("denied"))));
+        assert!(offered_folder(&Ok(RootKind::Dir)));
+        assert!(!offered_folder(&Ok(RootKind::File)));
+        assert!(!offered_folder(&Ok(RootKind::Other)));
     }
 
     /// Could not tell whether both instances reach one folder: refused as

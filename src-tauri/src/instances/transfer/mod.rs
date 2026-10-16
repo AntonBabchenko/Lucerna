@@ -71,7 +71,9 @@ pub fn clone_summary(src_mc: &Path) -> ModDataSummary {
     };
     for id in catalog::ALL {
         for root in id.clone_roots() {
-            match content_at(&walk::join_rel(src_mc, root.rel), Expect::Dir) {
+            let path = walk::join_rel(src_mc, root.rel);
+            // The row only says "unavailable"; the log names the folder and why.
+            match content_at(&path, Expect::Dir) {
                 Ok(Content::Nothing) => {}
                 Ok(Content::Local | Content::Linked { .. }) => {
                     match walk::walk_root(src_mc, root.rel, root.scope) {
@@ -79,10 +81,24 @@ pub fn clone_summary(src_mc: &Path) -> ModDataSummary {
                             out.files += w.files.len() as u32;
                             out.bytes += w.bytes() as f64;
                         }
-                        Err(_) => out.selectable = false,
+                        Err(e) => {
+                            crate::diag!("transfer: clone cannot read {} ({e})", path.display());
+                            out.selectable = false;
+                        }
                     }
                 }
-                Ok(Content::BrokenLink { .. }) | Err(_) => out.selectable = false,
+                Ok(Content::BrokenLink { target }) => {
+                    crate::diag!(
+                        "transfer: clone cannot copy {}: it links to {}, which is missing",
+                        path.display(),
+                        target.display()
+                    );
+                    out.selectable = false;
+                }
+                Err(e) => {
+                    crate::diag!("transfer: clone cannot read {} ({e})", path.display());
+                    out.selectable = false;
+                }
             }
         }
     }
