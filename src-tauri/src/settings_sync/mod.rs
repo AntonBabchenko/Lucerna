@@ -157,12 +157,7 @@ pub fn launch_sync(
     if !syncs {
         return Ok(None);
     }
-    match marker::check(instance_root, probe)? {
-        marker::MarkerState::Clear => {}
-        marker::MarkerState::Alive => return Err(Error::SettingsSyncGameRunning),
-        marker::MarkerState::Unknown if game_closed_confirmed => marker::remove(instance_root)?,
-        marker::MarkerState::Unknown => return Err(Error::SettingsSyncAskGameClosed),
-    }
+    guard_orphan(instance_root, game_closed_confirmed, probe)?;
     let facts = version::VersionFacts::read(versions_dir, mc_version);
     before_launch(data_root, instance_root, &facts).map_err(|f| Error::SettingsSyncFailed {
         sync_kind: f.kind,
@@ -170,6 +165,26 @@ pub fn launch_sync(
         reason: f.reason,
     })?;
     Ok(Some(facts))
+}
+
+/// Refuse to write this instance's synced files while a game Lucerna lost
+/// track of (one started before a launcher restart) may still run in it
+/// (spec §B3): it rewrites them when it closes, and the next sync point would
+/// read what it dropped as removals and take them out of the shared copy.
+/// A live game refuses; "could not tell" asks, and the user's "It's closed"
+/// removes the marker.
+pub fn guard_orphan(
+    instance_root: &Path,
+    game_closed_confirmed: bool,
+    probe: &dyn Fn(u32) -> crate::platform::ImageMatch,
+) -> crate::error::Result<()> {
+    use crate::error::Error;
+    match marker::check(instance_root, probe)? {
+        marker::MarkerState::Clear => Ok(()),
+        marker::MarkerState::Alive => Err(Error::SettingsSyncGameRunning),
+        marker::MarkerState::Unknown if game_closed_confirmed => marker::remove(instance_root),
+        marker::MarkerState::Unknown => Err(Error::SettingsSyncAskGameClosed),
+    }
 }
 
 fn run_all(

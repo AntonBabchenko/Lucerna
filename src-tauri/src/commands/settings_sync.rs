@@ -66,7 +66,9 @@ pub async fn settings_sync_state(
 
 /// Turn one kind on (joining now when the version allows; `join` is the
 /// hotbars choice) or off. Holds the instance's claim: no launch, update or
-/// migration runs while its files change.
+/// migration runs while its files change. A join first checks for a game
+/// Lucerna lost track of, as a launch does: `SettingsSyncAskGameClosed`
+/// comes back until the user says it is closed (`game_closed_confirmed`).
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_sync_set_kind(
@@ -75,12 +77,22 @@ pub async fn settings_sync_set_kind(
     kind: Kind,
     enabled: bool,
     join: Option<Join>,
+    game_closed_confirmed: bool,
 ) -> Result<Option<KindOutcome>, Error> {
     let claim = crate::instances::maintenance::claim_write(&instance_id)?;
     let r = roots(&app, &instance_id)?;
     let outcome = tokio::task::spawn_blocking(move || {
         let facts = VersionFacts::read(&r.versions, &r.mc_version);
-        membership::set_kind(&r.data_root, &r.instance_root, &facts, kind, enabled, join)
+        membership::join_or_leave(
+            &r.data_root,
+            &r.instance_root,
+            &facts,
+            kind,
+            enabled,
+            join,
+            game_closed_confirmed,
+            &|pid| crate::platform::process_image_probe(pid, "java"),
+        )
     })
     .await
     .map_err(|e| Error::io("<settings sync>", e));
@@ -88,9 +100,9 @@ pub async fn settings_sync_set_kind(
     outcome?
 }
 
-/// "Stop syncing <kind> here" from the launch dialog; `kind` is `None` when
-/// the sync settings themselves could not be read (they go to the Recycle
-/// Bin and start over with nothing on).
+/// "Stop syncing <kind> here", from the launch dialog or the section; `kind`
+/// is `None` when the sync settings themselves could not be read (they go to
+/// the Recycle Bin and start over with nothing on).
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_sync_stop(

@@ -116,9 +116,31 @@ fn shared_hotbars_version(store: &store::StoreLock) -> Result<(Option<i32>, bool
     Ok((bars.data_version, true))
 }
 
+/// The section's toggle: [`set_kind`] behind the check every sync point
+/// makes. A join writes the instance's files, which a game Lucerna lost track
+/// of would rewrite when it closes, dropping what the join brought in — and
+/// the next sync point would then remove those entries from the shared copy.
+/// Leaving writes no game file, so it never waits.
+#[allow(clippy::too_many_arguments)]
+pub fn join_or_leave(
+    data_root: &Path,
+    instance_root: &Path,
+    facts: &VersionFacts,
+    kind: Kind,
+    enabled: bool,
+    join: Option<Join>,
+    game_closed_confirmed: bool,
+    probe: &dyn Fn(u32) -> crate::platform::ImageMatch,
+) -> Result<Option<KindOutcome>> {
+    if enabled {
+        super::guard_orphan(instance_root, game_closed_confirmed, probe)?;
+    }
+    set_kind(data_root, instance_root, facts, kind, enabled, join)
+}
+
 /// Turn `kind` on (a join, completed now when the version allows) or off
 /// (the instance keeps its file; its baseline goes).
-pub fn set_kind(
+fn set_kind(
     data_root: &Path,
     instance_root: &Path,
     facts: &VersionFacts,
@@ -277,6 +299,63 @@ mod tests {
             })
         );
         assert!(store::store_dir(&data).join("command_history.txt").exists());
+    }
+
+    #[test]
+    fn a_join_waits_for_a_game_from_before_a_restart_but_leaving_does_not() {
+        use crate::error::Error;
+        use crate::platform::ImageMatch;
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        put(&inst, Kind::History, b"/a\n");
+        let earlier = || {
+            let p = super::super::marker::path(&inst);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, br#"{"pid":7,"started_unix_ms":1,"session":"earlier"}"#).unwrap();
+        };
+        let f = facts("1.21.1");
+        let join = |confirmed: bool, probe: ImageMatch| {
+            join_or_leave(
+                &data,
+                &inst,
+                &f,
+                Kind::History,
+                true,
+                None,
+                confirmed,
+                &move |_| probe,
+            )
+        };
+        earlier();
+        assert!(matches!(
+            join(false, ImageMatch::Yes),
+            Err(Error::SettingsSyncGameRunning)
+        ));
+        assert!(matches!(
+            join(false, ImageMatch::Unknown),
+            Err(Error::SettingsSyncAskGameClosed)
+        ));
+        assert!(
+            !read_sidecar_or_none(&inst),
+            "nothing joined while it may run"
+        );
+        assert_eq!(
+            join(true, ImageMatch::Unknown).unwrap(),
+            Some(KindOutcome::Joined)
+        );
+        assert!(
+            !super::super::marker::path(&inst).exists(),
+            "the user said it is closed"
+        );
+        earlier();
+        let left = join_or_leave(&data, &inst, &f, Kind::History, false, None, false, &|_| {
+            ImageMatch::Yes
+        });
+        assert_eq!(left.unwrap(), None, "leaving writes no game file");
+    }
+
+    fn read_sidecar_or_none(root: &Path) -> bool {
+        matches!(sidecar::read(root).unwrap(), SidecarRead::Member(_))
     }
 
     #[test]
