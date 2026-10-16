@@ -18,16 +18,29 @@ use std::path::{Path, PathBuf};
 /// `(file under src/, why it creates an instance)`.
 const CREATORS: &[(&str, &str)] = &[
     ("commands/instances.rs", "the New instance command"),
-    ("mods/modpack/import.rs", "modpack import (its command joins)"),
-    ("servers_runtime/to_instance.rs", "a client made from a server (its command joins)"),
-    ("instances/import/pipeline.rs", "import from another launcher: never joins"),
+    (
+        "mods/modpack/import.rs",
+        "modpack import (its command joins)",
+    ),
+    (
+        "servers_runtime/to_instance.rs",
+        "a client made from a server (its command joins)",
+    ),
+    (
+        "instances/import/pipeline.rs",
+        "import from another launcher: never joins",
+    ),
 ];
 
 /// `(file, command fn, required spelling)`.
 const JOINS: &[(&str, &str, &str)] = &[
     ("commands/instances.rs", "create_instance", "Origin::New"),
     ("commands/instances.rs", "clone_instance", "Origin::Clone"),
-    ("commands/modpack_cmds.rs", "modpack_import", "Origin::ModpackImport"),
+    (
+        "commands/modpack_cmds.rs",
+        "modpack_import",
+        "Origin::ModpackImport",
+    ),
     (
         "commands/servers_runtime.rs",
         "server_create_client_instance",
