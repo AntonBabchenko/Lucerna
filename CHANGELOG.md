@@ -95,6 +95,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the site publishes no checksum for it, or the checksum didn't load, the
   launcher says exactly that, and still won't install it.
 
+### Security
+
+- Bumped `ammonia` 4.1.4 → 4.1.7 for RUSTSEC-2021-0157 and RUSTSEC-2021-0158.
+- Bumped `rustls` 0.23.45 → 0.23.46 for RUSTSEC-2026-0346, RUSTSEC-2026-0347,
+  RUSTSEC-2026-0348 and RUSTSEC-2026-0349.
+
 ## [0.27.0] — 2026-10-09
 
 ### Added
