@@ -171,6 +171,7 @@ describe('copy-map completeness', () => {
     'modpack_imported',
     'modpack_updated',
     'integrity_repaired',
+    'data_copied',
   ];
   const ALL_OUTCOMES: LaunchOutcome[] = ['ok', 'crashed', 'stopped'];
 

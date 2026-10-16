@@ -200,6 +200,12 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "changes the version the migration plan's verdict was computed against",
     ),
     (
+        "commands/transfer.rs",
+        "transfer_mod_data",
+        CLAIM_WRITE_GATE,
+        "reads the source game dir and places files into the target one for minutes — a \n         game, an update or a migration on either side would race the copy",
+    ),
+    (
         "commands/instances.rs",
         "clone_instance",
         CLAIM_WRITE_GATE,
@@ -425,6 +431,16 @@ const GATED: &[(&str, &str, &str, &str)] = &[
 /// Commands in the ratcheted files that touch nothing a migration moves:
 /// `(path relative to src/, fn name, why it needs no gate)`.
 const READ_ONLY: &[(&str, &str, &str)] = &[
+    (
+        "commands/transfer.rs",
+        "transfer_scan",
+        "stats and lists both game dirs; writes nothing",
+    ),
+    (
+        "commands/transfer.rs",
+        "mod_data_scan",
+        "stats and lists one game dir; writes nothing",
+    ),
     (
         "commands/worlds.rs",
         "list_worlds",
@@ -711,6 +727,7 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
 
 /// Files whose every `#[tauri::command]` must be gated or declared read-only.
 const RATCHETED: &[&str] = &[
+    "commands/transfer.rs",
     "commands/worlds.rs",
     "commands/datapacks.rs",
     "commands/mods.rs",

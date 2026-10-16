@@ -15,11 +15,17 @@ import {
 import { pushInfo, pushWarning } from '$lib/toasts/toasts.svelte';
 
 const REPORT: RecoveredUpdate[] = [
-  { instance_id: 'a', instance_name: 'Create+', outcome: { kind: 'restored' } },
+  {
+    instance_id: 'a',
+    instance_name: 'Create+',
+    outcome: { kind: 'restored' },
+    operation: { kind: 'update' },
+  },
   {
     instance_id: 'b',
     instance_name: 'Vanilla+',
     outcome: { kind: 'incomplete', folder: 'C:/x/1000-abcdef12-kept', details: 'mods/a.jar' },
+    operation: { kind: 'update' },
   },
 ];
 
@@ -39,6 +45,23 @@ describe('announceUpdateRecovery', () => {
     const warning = vi.mocked(pushWarning).mock.calls[0][0];
     expect(warning).toContain('Vanilla+');
     expect(warning).toContain('1000-abcdef12-kept');
+  });
+
+  it('names an interrupted data copy as a copy, with its source', async () => {
+    await announceUpdateRecovery({
+      take: async () => [
+        {
+          instance_id: 'c',
+          instance_name: 'New pack',
+          outcome: { kind: 'restored' },
+          operation: { kind: 'data_copy', source: 'Old pack' },
+        },
+      ],
+    });
+    const info = vi.mocked(pushInfo).mock.calls[0][0];
+    expect(info).toContain('Old pack');
+    expect(info).toContain('New pack');
+    expect(info).not.toContain('An update');
   });
 
   it('speaks once per launch', async () => {

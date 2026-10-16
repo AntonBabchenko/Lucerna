@@ -155,11 +155,17 @@ function launcherImportPhase(tr: Translate, task: Task): string | null {
   }
 }
 
-/** `instance.clone.copying` — the adapter stores the content category
- *  itself as `phase` (see `adapters/clone.ts`), so the category label comes
- *  from the same `categoryLabelKey` map the launcher-import dialog and
- *  clone dialog already use. */
+/** `instance.clone.copying` — the adapter stores the clone step itself as
+ *  `phase` (see `adapters/clone.ts`): a content category, whose label comes
+ *  from the same `categoryLabelKey` map the launcher-import dialog and clone
+ *  dialog already use, or `mod_data`, which has its own line. */
 function clonePhase(tr: Translate, task: Task): string | null {
+  if (task.phase === 'mod_data' && task.progress !== null) {
+    return tr('instance.clone.copyingModData', {
+      current: task.progress.current,
+      total: task.progress.total,
+    });
+  }
   if (task.phase === null || task.progress === null || !isContentCategory(task.phase)) {
     return null;
   }

@@ -12,6 +12,7 @@ pub mod scan;
 pub mod schema;
 pub mod status;
 pub mod store;
+pub mod transfer;
 
 use crate::error::{Error, Result};
 use crate::paths;

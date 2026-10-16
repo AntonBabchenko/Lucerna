@@ -29,12 +29,21 @@ pub enum RecoveryOutcome {
     Incomplete { folder: String, details: String },
 }
 
+/// What the interrupted operation was, for the notice's wording.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RecoveredOperation {
+    Update,
+    DataCopy { source: String },
+}
+
 /// One interrupted update the startup recovery dealt with.
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct RecoveredUpdate {
     pub instance_id: String,
     pub instance_name: String,
     pub outcome: RecoveryOutcome,
+    pub operation: RecoveredOperation,
 }
 
 /// Managed state: `done` turns true once the recovery task has stored its
@@ -118,6 +127,12 @@ pub fn start_update_recovery(
                 None => txn::sweep_closed(&root, session_start_ms).await,
             };
             for r in results {
+                let operation = match &r.kind {
+                    Some(txn::TxnKind::DataCopy { source }) => RecoveredOperation::DataCopy {
+                        source: source.clone(),
+                    },
+                    _ => RecoveredOperation::Update,
+                };
                 let outcome = match r.outcome {
                     RecoveredOutcome::Restored => RecoveryOutcome::Restored,
                     RecoveredOutcome::Incomplete { folder, details } => {
@@ -129,6 +144,7 @@ pub fn start_update_recovery(
                     instance_id: id.clone(),
                     instance_name: name.clone(),
                     outcome,
+                    operation,
                 });
             }
         }

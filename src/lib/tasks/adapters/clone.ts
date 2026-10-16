@@ -51,7 +51,7 @@ export async function cloneInstance(
         return;
       }
       upsertProgress(id, {
-        phase: phase.category,
+        phase: phase.step,
         progress: { current: phase.current, total: phase.total, unit: 'files' },
       });
     });

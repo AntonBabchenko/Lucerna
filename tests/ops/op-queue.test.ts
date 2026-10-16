@@ -450,7 +450,7 @@ describe('op-queue store', () => {
         _options: unknown,
         ch: { onmessage: ((m: unknown) => void) | null },
       ) => {
-        ch.onmessage?.({ category: 'mods', current: 1, total: 1 });
+        ch.onmessage?.({ step: 'mods', current: 1, total: 1 });
         return { status: 'ok', data: { id: 'clone-9', name: 'Default (copy)' } };
       },
     );

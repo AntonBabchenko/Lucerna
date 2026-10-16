@@ -634,9 +634,9 @@ pub async fn clone_instance(
         &source_id,
         new_name,
         &options,
-        move |category, current, total| {
+        move |step, current, total| {
             let _ = on_progress.send(crate::instances::clone::CloneProgress {
-                category,
+                step,
                 current,
                 total,
             });

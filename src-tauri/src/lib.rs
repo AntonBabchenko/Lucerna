@@ -271,6 +271,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Instance clone (Session 3):
             commands::clone_instance,
             commands::clone_instance_scan,
+            // Mod-data transfer between instances (feedback #4 item 7):
+            commands::transfer_scan,
+            commands::transfer_mod_data,
+            commands::mod_data_scan,
             // Onboarding (v0.5.0 sub-feature 5):
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,

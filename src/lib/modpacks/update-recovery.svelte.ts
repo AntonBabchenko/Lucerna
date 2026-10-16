@@ -39,14 +39,26 @@ export async function announceUpdateRecovery(deps: UpdateRecoveryDeps = {}): Pro
   if (report === null) return;
   const tr = get(t);
   for (const r of report) {
+    // A mod-data copy runs through the same transaction as an update; the
+    // notice names which one was interrupted.
+    const copy = r.operation.kind === 'data_copy' ? r.operation : null;
     if (r.outcome.kind === 'restored') {
-      pushInfo(tr('instance.updateRecovery.restored', { name: r.instance_name }));
+      pushInfo(
+        copy
+          ? tr('instance.updateRecovery.dataCopyRestored', {
+              name: r.instance_name,
+              source: copy.source,
+            })
+          : tr('instance.updateRecovery.restored', { name: r.instance_name }),
+      );
     } else {
       pushWarning(
-        tr('instance.updateRecovery.incomplete', {
-          name: r.instance_name,
-          folder: r.outcome.folder,
-        }),
+        tr(
+          copy
+            ? 'instance.updateRecovery.dataCopyIncomplete'
+            : 'instance.updateRecovery.incomplete',
+          { name: r.instance_name, folder: r.outcome.folder },
+        ),
       );
     }
   }

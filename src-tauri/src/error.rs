@@ -70,6 +70,15 @@ pub enum MigrationRole {
     Target,
 }
 
+// Carried by `Error::TransferInstanceBusy`; rendered through a translated word.
+/// Which side of a mod-data copy an instance is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferRole {
+    Source,
+    Target,
+}
+
 /// What the OS keyring was asked to do when it failed. Crosses the wire as
 /// a bare token so the frontend picks a headline per op.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Type)]
@@ -683,6 +692,37 @@ pub enum Error {
     WorldMigrateInstanceRunning {
         instance_name: String,
         role: MigrationRole,
+    },
+
+    /// A mod-data copy needs both instances idle (`instances::transfer`).
+    /// `instance_name` is the display NAME; `role` says which side it is on.
+    #[error("Instance {instance_name} is busy; it is the {role:?} of this copy")]
+    TransferInstanceBusy {
+        instance_name: String,
+        role: TransferRole,
+    },
+
+    /// A selection a copy does not offer: an unknown or managed folder name, or
+    /// the same instance on both sides.
+    #[error("Not something a copy can take: {name}")]
+    TransferInvalidSelection { name: String },
+
+    /// Something in the source or the target makes this copy unsafe.
+    #[error("This copy cannot be done: {refusal:?}")]
+    TransferRefused {
+        refusal: crate::instances::transfer::Refusal,
+    },
+
+    /// The copy failed and was undone cleanly; `cause` is why, typed.
+    #[error("Copy failed and nothing changed: {cause}")]
+    TransferFailed { cause: Box<Error> },
+
+    /// The copy failed and its undo could not put everything back.
+    #[error("Copy could not be fully undone; kept in {folder}: {cause}; could not be put back: {stuck:?}")]
+    TransferRollbackIncomplete {
+        folder: String,
+        cause: Box<Error>,
+        stuck: Vec<String>,
     },
 
     #[error("Playtime I/O error: {details}")]
@@ -2046,6 +2086,31 @@ mod tests {
         assert_eq!(v["only_copy"], false);
         // The display NAME, so the sentence can point at a specific instance.
         assert_eq!(v["target_instance"], "Survival 1.21");
+    }
+
+    #[test]
+    fn transfer_instance_busy_names_the_instance_and_its_role() {
+        let e = Error::TransferInstanceBusy {
+            instance_name: "Old pack".into(),
+            role: TransferRole::Source,
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "transfer_instance_busy");
+        assert_eq!(v["instance_name"], "Old pack");
+        assert_eq!(v["role"], "source");
+    }
+
+    #[test]
+    fn transfer_refused_carries_a_tagged_refusal() {
+        let e = Error::TransferRefused {
+            refusal: crate::instances::transfer::Refusal::PrefixClash {
+                rel: "schematics".into(),
+            },
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "transfer_refused");
+        assert_eq!(v["refusal"]["kind"], "prefix_clash");
+        assert_eq!(v["refusal"]["rel"], "schematics");
     }
 
     #[test]

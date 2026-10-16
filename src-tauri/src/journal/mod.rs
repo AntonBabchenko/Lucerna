@@ -114,6 +114,8 @@ pub enum ContentAction {
     ModpackImported,
     ModpackUpdated,
     IntegrityRepaired,
+    /// Mod data copied in from another instance (`instances::transfer`).
+    DataCopied,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
