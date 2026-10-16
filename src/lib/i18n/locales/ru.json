@@ -3041,7 +3041,16 @@
       "unsupportedPlatform": "Mojang не выпускает Java для {os} {arch}.",
       "unknownComponent": "В списке Mojang нет среды «{id}» для этого компьютера."
     },
-    "addonEntryIsLink": "«{name}» — ссылка, а не пак. Удалите её в файловом менеджере."
+    "addonEntryIsLink": "«{name}» — ссылка, а не пак. Удалите её в файловом менеджере.",
+    "settingsSyncFailed": "Не удалось синхронизировать {what} перед запуском: {reason}",
+    "settingsSyncWhat": {
+      "servers": "список серверов",
+      "history": "историю команд",
+      "hotbars": "хотбары",
+      "settings": "настройки синхронизации"
+    },
+    "settingsSyncGameRunning": "В этом профиле ещё работает игра, запущенная до перезапуска Lucerna. Закройте её и попробуйте снова.",
+    "settingsSyncAskGameClosed": "Lucerna не может определить, закрыта ли игра, запущенная в этом профиле до её перезапуска."
   },
   "settings": {
     "title": "Настройки",

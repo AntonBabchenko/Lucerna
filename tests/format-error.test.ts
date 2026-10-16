@@ -588,6 +588,14 @@ describe('formatError', () => {
         role: 'source',
       },
       transfer_invalid_selection: { kind: 'transfer_invalid_selection', name: 'mods' },
+      settings_sync_failed: {
+        kind: 'settings_sync_failed',
+        sync_kind: 'servers',
+        file: 'C:/i/.minecraft/servers.dat',
+        reason: 'not NBT',
+      },
+      settings_sync_game_running: { kind: 'settings_sync_game_running' },
+      settings_sync_ask_game_closed: { kind: 'settings_sync_ask_game_closed' },
       transfer_refused: {
         kind: 'transfer_refused',
         refusal: { kind: 'overlap', rel: 'schematics' },

@@ -232,6 +232,9 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   transfer_refused: 'clean',
   transfer_failed: 'clean',
   transfer_rollback_incomplete: 'clean',
+  settings_sync_failed: 'clean',
+  settings_sync_game_running: 'clean',
+  settings_sync_ask_game_closed: 'clean',
   quick_play_address_invalid: 'clean',
   import_unsupported_loader: 'clean',
   import_source_unrecognized: 'clean',
@@ -924,6 +927,23 @@ export function formatError(e: IpcError): string {
           e.role === 'source' ? 'errors.transferRoleSource' : 'errors.transferRoleTarget',
         ),
       });
+    case 'settings_sync_failed':
+      return translate('errors.settingsSyncFailed', {
+        what: translate(
+          e.sync_kind === 'servers'
+            ? 'errors.settingsSyncWhat.servers'
+            : e.sync_kind === 'history'
+              ? 'errors.settingsSyncWhat.history'
+              : e.sync_kind === 'hotbars'
+                ? 'errors.settingsSyncWhat.hotbars'
+                : 'errors.settingsSyncWhat.settings',
+        ),
+        reason: e.reason,
+      });
+    case 'settings_sync_game_running':
+      return translate('errors.settingsSyncGameRunning');
+    case 'settings_sync_ask_game_closed':
+      return translate('errors.settingsSyncAskGameClosed');
     case 'transfer_invalid_selection':
       return translate('errors.transferInvalidSelection', { name: e.name });
     case 'transfer_refused':

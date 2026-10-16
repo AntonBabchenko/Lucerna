@@ -119,7 +119,18 @@ export const commands = {
 	 *  error surfaces and the user can click Install (the Settings tab → re-pick
 	 *  the loader, or the Install button reappears once ready_status flips).
 	 */
-	launchInstance: (instanceId: string, quickPlay: { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string } | null) => typedError<number, Error>(__TAURI_INVOKE("launch_instance", { instanceId, quickPlay })),
+	launchInstance: (instanceId: string, quickPlay: { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string } | null, options: {
+	/**
+	 *  This launch only: no settings sync before it or after it; the next
+	 *  sync point captures what this session changed.
+	 */
+	skip_settings_sync?: boolean,
+	/**
+	 *  The user said a game Lucerna lost track of (a launcher restart) is
+	 *  closed: its marker is removed and the sync goes ahead.
+	 */
+	game_closed_confirmed?: boolean,
+} | null) => typedError<number, Error>(__TAURI_INVOKE("launch_instance", { instanceId, quickPlay, options })),
 	/**
 	 *  Whether this instance's installed version supports MC 1.20+ Quick Play.
 	 *  Honest signal: parses the effective version JSON and checks for a
@@ -2656,6 +2667,7 @@ export const events = {
 	serverLogLine: makeEvent<ServerLogLine>("server-log-line"),
 	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
 	serverUploadProgress: makeEvent<ServerUploadProgress>("server-upload-progress"),
+	settingsSyncExitFailed: makeEvent<SettingsSyncExitFailed>("settings-sync-exit-failed"),
 	trayQuitRefused: makeEvent<TrayQuitRefused>("tray-quit-refused"),
 	updateInstallPhase: makeEvent<UpdateInstallPhase>("update-install-phase"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
@@ -4102,6 +4114,23 @@ export type Error =
  *  and is rendered through a translated word, never the enum name.
  */
 { kind: "world_migrate_instance_running"; instance_name: string; role: MigrationRole } | 
+/**
+ *  A settings sync point before a launch failed; the game did not start.
+ *  `sync_kind` is `None` when the instance's sync settings themselves
+ *  could not be read. The launch dialog offers to launch without sync, or
+ *  to stop syncing `sync_kind` here.
+ */
+{ kind: "settings_sync_failed"; sync_kind: Kind | null; file: string; reason: string } | 
+/**
+ *  A game started before Lucerna restarted still runs in this instance:
+ *  syncing now could overwrite what it is about to save.
+ */
+{ kind: "settings_sync_game_running" } | 
+/**
+ *  Could not tell whether a game started before Lucerna restarted still
+ *  runs; the launch asks the user and retries with their answer.
+ */
+{ kind: "settings_sync_ask_game_closed" } | 
 /**
  *  A mod-data copy needs both instances idle (`instances::transfer`).
  *  `instance_name` is the display NAME; `role` says which side it is on.
@@ -5697,6 +5726,9 @@ export type KeyStatus = "missing" |
  */
 export type KeyringOp = "read" | "write" | "delete";
 
+/**  One thing that syncs. Part C adds `Options`. */
+export type Kind = "servers" | "history" | "hotbars";
+
 /**
  *  A mod whose platform identity is already known from the source's
  *  manifest (CurseForge App / Modrinth App). Empty for Prism / raw.
@@ -5748,6 +5780,19 @@ export type LaunchIntent =
 { kind: "launch"; instance: string; quick_play: QuickPlay | null } | 
 /**  From a `lucerna://` URL (untrusted): open the import confirmation UI. */
 { kind: "open_url"; url: string };
+
+export type LaunchOptions = {
+	/**
+	 *  This launch only: no settings sync before it or after it; the next
+	 *  sync point captures what this session changed.
+	 */
+	skip_settings_sync?: boolean,
+	/**
+	 *  The user said a game Lucerna lost track of (a launcher restart) is
+	 *  closed: its marker is removed and the sync goes ahead.
+	 */
+	game_closed_confirmed?: boolean,
+};
 
 export type LaunchOutcome = 
 /**  Exited cleanly (code 0). */
@@ -8608,6 +8653,16 @@ export type ServerWithStatus_Serialize = {
 };
 
 /**
+ *  The settings sync after a game exited failed (spec 2026-10-15 §B3).
+ *  Emitted before `ProcessExited`; the page warns, and the instance's Shared
+ *  data section shows the reason until a later sync succeeds.
+ */
+export type SettingsSyncExitFailed = {
+	instance_id: string,
+	failure: SyncFailure,
+};
+
+/**
  *  What a shortcut launches. World/Server ride on the existing Quick Play
  *  support, so they need MC 1.20+ — the UI gates on
  *  `instance_quick_play_support` before offering them.
@@ -8820,6 +8875,13 @@ export type StrandedWorld = {
 	target_occupied: boolean,
 	/**  Which operation parked it — see [`StrandedKind`]. */
 	kind: StrandedKind,
+};
+
+/**  Why a sync did not happen, as the section shows it. */
+export type SyncFailure = {
+	kind: Kind | null,
+	file: string,
+	reason: string,
 };
 
 /**  One file's provenance and outcome — a row in a per-file install report. */

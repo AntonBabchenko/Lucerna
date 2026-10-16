@@ -1387,7 +1387,7 @@
   async function doLaunch() {
     if (!activeInstance) return;
     setInstallError(null);
-    const result = await commands.launchInstance(activeInstance.id, null);
+    const result = await commands.launchInstance(activeInstance.id, null, null);
     if (result.status === 'error') {
       setInstallError(formatError(result.error), result.error);
     }
@@ -1565,10 +1565,11 @@
     await startLaunch(async () => {
       if (!activeInstance) return;
       setInstallError(null);
-      const result = await commands.launchInstance(activeInstance.id, {
-        kind: 'singleplayer',
-        world: folderName,
-      });
+      const result = await commands.launchInstance(
+        activeInstance.id,
+        { kind: 'singleplayer', world: folderName },
+        null,
+      );
       if (result.status === 'error') {
         setInstallError(formatError(result.error), result.error);
       }
@@ -1594,10 +1595,11 @@
       async () => {
         if (!activeInstance) return;
         setInstallError(null);
-        const result = await commands.launchInstance(activeInstance.id, {
-          kind: 'multiplayer',
-          address,
-        });
+        const result = await commands.launchInstance(
+          activeInstance.id,
+          { kind: 'multiplayer', address },
+          null,
+        );
         quickJoinBusy = false;
         if (result.status === 'error') {
           setInstallError(formatError(result.error), result.error);

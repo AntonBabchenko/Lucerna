@@ -3041,7 +3041,16 @@
       "unsupportedPlatform": "Mojang publishes no Java for {os} {arch}.",
       "unknownComponent": "Mojang's list has no runtime \"{id}\" for this computer."
     },
-    "addonEntryIsLink": "“{name}” is a link, not a pack. Remove it in the file manager."
+    "addonEntryIsLink": "“{name}” is a link, not a pack. Remove it in the file manager.",
+    "settingsSyncFailed": "Couldn't sync {what} before the launch: {reason}",
+    "settingsSyncWhat": {
+      "servers": "the server list",
+      "history": "the command history",
+      "hotbars": "the hotbars",
+      "settings": "the sync settings"
+    },
+    "settingsSyncGameRunning": "A game started before Lucerna restarted is still running in this instance. Close it, then try again.",
+    "settingsSyncAskGameClosed": "Lucerna can't tell whether a game started in this instance before it restarted is still running."
   },
   "settings": {
     "title": "Settings",

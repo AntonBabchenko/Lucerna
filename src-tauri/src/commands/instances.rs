@@ -43,6 +43,7 @@ pub async fn launch_instance(
     app: tauri::AppHandle,
     instance_id: String,
     quick_play: Option<crate::launch::QuickPlay>,
+    options: Option<crate::launch::LaunchOptions>,
 ) -> Result<u32, crate::error::Error> {
     crate::data_root::reject_if_root_unusable(&app)?;
     // Don't launch on top of a repair that's rewriting this instance's shared
@@ -104,6 +105,7 @@ pub async fn launch_instance(
         &account,
         &app,
         quick_play.as_ref(),
+        &options.unwrap_or_default(),
     )
     .await
 }

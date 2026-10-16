@@ -95,6 +95,44 @@ pub fn after_exit(
     run_all(data_root, instance_root, facts, true)
 }
 
+/// Everything a launch does before spawning (blocking; call it inside
+/// `spawn_blocking`): nothing for an instance that syncs nothing; otherwise
+/// the running-game marker is checked, the version facts are read and every
+/// kind syncs. `Some(facts)` means the instance syncs: the caller writes the
+/// marker after spawning and hands the facts to the exit step.
+pub fn launch_sync(
+    data_root: &Path,
+    instance_root: &Path,
+    versions_dir: &Path,
+    mc_version: &str,
+    game_closed_confirmed: bool,
+    probe: &dyn Fn(u32) -> crate::platform::ImageMatch,
+) -> crate::error::Result<Option<version::VersionFacts>> {
+    use crate::error::Error;
+    let syncs = match sidecar::read(instance_root) {
+        Ok(sidecar::SidecarRead::NotMember) => false,
+        Ok(sidecar::SidecarRead::Member(s)) => Kind::ALL.iter().any(|k| s.enabled(*k)),
+        // An unreadable sidecar may well sync: `before_launch` names it below.
+        Err(_) => true,
+    };
+    if !syncs {
+        return Ok(None);
+    }
+    match marker::check(instance_root, probe)? {
+        marker::MarkerState::Clear => {}
+        marker::MarkerState::Alive => return Err(Error::SettingsSyncGameRunning),
+        marker::MarkerState::Unknown if game_closed_confirmed => marker::remove(instance_root)?,
+        marker::MarkerState::Unknown => return Err(Error::SettingsSyncAskGameClosed),
+    }
+    let facts = version::VersionFacts::read(versions_dir, mc_version);
+    before_launch(data_root, instance_root, &facts).map_err(|f| Error::SettingsSyncFailed {
+        sync_kind: f.kind,
+        file: f.file,
+        reason: f.reason,
+    })?;
+    Ok(Some(facts))
+}
+
 fn run_all(
     data_root: &Path,
     instance_root: &Path,
@@ -210,6 +248,91 @@ mod api_tests {
         match sidecar::read(root).unwrap() {
             SidecarRead::Member(s) => s,
             SidecarRead::NotMember => panic!("member"),
+        }
+    }
+
+    fn earlier_marker(root: &Path) {
+        let p = marker::path(root);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, br#"{"pid":7,"started_unix_ms":1,"session":"earlier"}"#).unwrap();
+    }
+
+    fn launch(
+        inst: &Path,
+        data: &Path,
+        confirmed: bool,
+        probe: crate::platform::ImageMatch,
+    ) -> crate::error::Result<Option<VersionFacts>> {
+        launch_sync(
+            data,
+            inst,
+            &data.join("versions"),
+            "1.21.1",
+            confirmed,
+            &move |_| probe,
+        )
+    }
+
+    #[test]
+    fn a_launch_of_a_non_member_checks_nothing() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        earlier_marker(&inst);
+        let got = launch(&inst, &data, false, crate::platform::ImageMatch::Yes).unwrap();
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn a_launch_syncs_a_member_and_returns_its_facts() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        history(&inst, "/a\n");
+        member(&inst, Kind::Servers, Join::UseShared);
+        let facts = launch(&inst, &data, false, crate::platform::ImageMatch::No)
+            .unwrap()
+            .expect("syncs");
+        assert_eq!(facts.mc_version, "1.21.1");
+    }
+
+    #[test]
+    fn a_game_from_before_a_restart_blocks_or_asks() {
+        use crate::error::Error;
+        use crate::platform::ImageMatch;
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        member(&inst, Kind::Servers, Join::UseShared);
+        earlier_marker(&inst);
+        assert!(matches!(
+            launch(&inst, &data, false, ImageMatch::Yes),
+            Err(Error::SettingsSyncGameRunning)
+        ));
+        assert!(matches!(
+            launch(&inst, &data, false, ImageMatch::Unknown),
+            Err(Error::SettingsSyncAskGameClosed)
+        ));
+        assert!(marker::path(&inst).exists(), "kept while unanswered");
+        assert!(launch(&inst, &data, true, ImageMatch::Unknown)
+            .unwrap()
+            .is_some());
+        assert!(!marker::path(&inst).exists(), "the user said it is closed");
+    }
+
+    #[test]
+    fn a_launch_sync_failure_names_the_kind_and_file() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        member(&inst, Kind::Servers, Join::UseShared);
+        let p = game_file(&inst, Kind::Servers);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"garbage").unwrap();
+        match launch(&inst, &data, false, crate::platform::ImageMatch::No) {
+            Err(crate::error::Error::SettingsSyncFailed {
+                sync_kind, file, ..
+            }) => {
+                assert_eq!(sync_kind, Some(Kind::Servers));
+                assert!(file.ends_with("servers.dat"), "{file}");
+            }
+            other => panic!("{other:?}"),
         }
     }
 

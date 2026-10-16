@@ -473,6 +473,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             verify::VerifyProgress,
             launch::ProcessSpawned,
             launch::ProcessExited,
+            launch::SettingsSyncExitFailed,
             commands::ModInstallProgress,
             commands::ModInstalled,
             commands::ModUninstalled,
