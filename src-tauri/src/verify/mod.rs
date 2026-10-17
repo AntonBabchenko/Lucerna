@@ -58,6 +58,13 @@ pub enum ArtifactStatus {
     /// File present but bad: SHA mismatch for hashed artefacts; unparseable
     /// for the profile JSON (which has no authoritative SHA).
     Corrupt,
+    /// A file a Forge installer's processors make, present, whose bytes differ
+    /// from the ones the installer declares. Lucerna versions that ran those
+    /// steps with their own code built such files, and the game launches with
+    /// them, so this is not damage and never `Corrupt`. Repair rebuilds them
+    /// with Forge's own processors. A scan cannot tell such a file from one
+    /// damaged later; Repair fixes both (spec 2026-10-16 §5.5).
+    BuiltDifferently,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -77,6 +84,10 @@ pub struct CategoryReport {
     pub ok: u32,
     pub missing: u32,
     pub corrupt: u32,
+    /// Forge files counted as [`ArtifactStatus::BuiltDifferently`]. Absent
+    /// from reports saved in instance.json before it existed, hence the default.
+    #[serde(default)]
+    pub built_differently: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -107,7 +118,7 @@ pub struct VerifyReport {
 
 impl VerifyReport {
     /// `planned_totals`: per-category planned artefact counts. `problems`:
-    /// only Missing/Corrupt artefacts. `manifest_recoverable`: the profile
+    /// every artefact whose status is not `Ok`. `manifest_recoverable`: the profile
     /// JSON / manifest itself was missing or unparseable.
     pub fn build(
         instance_id: String,
@@ -152,8 +163,8 @@ impl IntegrityStatus {
 }
 
 /// Roll planned per-category totals + the flat problem list into per-category
-/// counts. `ok = total - missing - corrupt` (never underflows: problems are a
-/// subset of planned artefacts).
+/// counts. `ok = total - missing - corrupt - built_differently` (never
+/// underflows: problems are a subset of planned artefacts).
 pub fn aggregate_categories(
     planned_totals: &[(VerifyCategory, u32)],
     problems: &[ProblemArtifact],
@@ -165,16 +176,21 @@ pub fn aggregate_categories(
                 .iter()
                 .filter(|p| p.category == category && p.status == ArtifactStatus::Missing)
                 .count() as u32;
-            let corrupt = problems
-                .iter()
-                .filter(|p| p.category == category && p.status == ArtifactStatus::Corrupt)
-                .count() as u32;
+            let count = |status: ArtifactStatus| {
+                problems
+                    .iter()
+                    .filter(|p| p.category == category && p.status == status)
+                    .count() as u32
+            };
+            let corrupt = count(ArtifactStatus::Corrupt);
+            let built_differently = count(ArtifactStatus::BuiltDifferently);
             CategoryReport {
                 category,
                 total,
-                ok: total.saturating_sub(missing + corrupt),
+                ok: total.saturating_sub(missing + corrupt + built_differently),
                 missing,
                 corrupt,
+                built_differently,
             }
         })
         .collect()
@@ -218,6 +234,46 @@ mod tests {
             .find(|c| c.category == VerifyCategory::Client)
             .unwrap();
         assert_eq!(client.ok, 1);
+    }
+
+    // A Forge file an older Lucerna built is not damaged (spec 2026-10-16
+    // §5.5): it is counted on its own, never as corrupt, and not as OK.
+    #[test]
+    fn a_file_built_differently_is_counted_apart_from_corrupt_and_ok() {
+        let mut built = problem(VerifyCategory::Libraries, "net/minecraft/client/x/slim.jar");
+        built.status = ArtifactStatus::BuiltDifferently;
+        let mut bad = problem(VerifyCategory::Libraries, "org/x/y.jar");
+        bad.status = ArtifactStatus::Corrupt;
+        let cats = aggregate_categories(&[(VerifyCategory::Libraries, 10)], &[built, bad]);
+        assert_eq!(cats[0].built_differently, 1);
+        assert_eq!(cats[0].corrupt, 1);
+        assert_eq!(cats[0].missing, 0);
+        assert_eq!(cats[0].ok, 8);
+    }
+
+    // Verify still fails on it, so Repair is offered and rebuilds it.
+    #[test]
+    fn a_file_built_differently_leaves_the_report_unhealthy() {
+        let mut built = problem(VerifyCategory::Libraries, "net/minecraft/client/x/slim.jar");
+        built.status = ArtifactStatus::BuiltDifferently;
+        let r = VerifyReport::build(
+            "i".into(),
+            "forge-47.4.10-1.20.1".into(),
+            &[(VerifyCategory::Libraries, 1)],
+            vec![built],
+            false,
+        );
+        assert!(!r.healthy);
+    }
+
+    // instance.json files written before the count existed still load.
+    #[test]
+    fn a_saved_category_report_without_the_count_reads_as_zero() {
+        let r: CategoryReport = serde_json::from_str(
+            r#"{"category":"libraries","total":3,"ok":3,"missing":0,"corrupt":0}"#,
+        )
+        .unwrap();
+        assert_eq!(r.built_differently, 0);
     }
 
     #[test]

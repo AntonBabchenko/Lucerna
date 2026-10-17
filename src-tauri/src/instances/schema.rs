@@ -1429,6 +1429,7 @@ mod tests {
                 ok: 3,
                 missing: 2,
                 corrupt: 0,
+                built_differently: 0,
             }],
             problem_count: 2,
         }

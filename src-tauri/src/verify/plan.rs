@@ -18,6 +18,20 @@ pub struct PlannedArtifact {
     pub expected_sha: String,
     /// `None` ⇒ locally produced / not downloadable.
     pub url: Option<String>,
+    /// Who made the file, which decides what a SHA-1 mismatch means.
+    pub origin: Origin,
+}
+
+/// Who made a planned file. A published file whose bytes differ from its
+/// publisher's is corrupt. A Forge processor output is built on this machine,
+/// so one that differs from the installer's declared bytes was built
+/// differently (`verify::scan::status_for`, spec 2026-10-16 §5.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// Downloaded from Mojang, a maven repository or a loader's site.
+    Published,
+    /// Made by a Forge or NeoForge installer's processors (`forge_artifacts`).
+    ForgeProcessor,
 }
 
 fn opt_url(u: String) -> Option<String> {
@@ -40,6 +54,7 @@ pub fn client_artifact(effective_id: &str, sha1: &str, url: &str) -> PlannedArti
         rel_path: format!("{mc}/{mc}.jar"),
         expected_sha: sha1.to_string(),
         url: opt_url(url.to_string()),
+        origin: Origin::Published,
     }
 }
 
@@ -49,6 +64,7 @@ pub fn library_artifact(rel_path: String, sha1: String, url: String) -> PlannedA
         rel_path,
         expected_sha: sha1,
         url: opt_url(url),
+        origin: Origin::Published,
     }
 }
 
@@ -61,6 +77,7 @@ pub fn asset_artifact(hash: &str) -> PlannedArtifact {
         expected_sha: hash.to_string(),
         // url is None by design: asset problems are repaired via a full install_version (ensure_assets), not a targeted download — see repair.rs.
         url: None,
+        origin: Origin::Published,
     }
 }
 
@@ -85,6 +102,16 @@ pub fn library_artifacts(details: &VersionDetails, os: &str, arch: &str) -> Vec<
 /// 1.17–1.20.x, NeoForge). Every row is a locally produced library: `url: None`,
 /// so a problem leads Repair to a full install, which rebuilds it. Relative to
 /// the libraries root.
+fn forge_output(rel_path: String, sha1: String) -> PlannedArtifact {
+    PlannedArtifact {
+        category: VerifyCategory::Libraries,
+        rel_path,
+        expected_sha: sha1,
+        url: None,
+        origin: Origin::ForgeProcessor,
+    }
+}
+
 pub fn forge_artifacts(
     profile: &crate::forge::installer::transitional::InstallProfile,
 ) -> Result<Vec<PlannedArtifact>, String> {
@@ -94,7 +121,7 @@ pub fn forge_artifacts(
     for o in client_declared_outputs(profile, root)? {
         let rel = o.path.to_string_lossy().replace('\\', "/");
         if !out.iter().any(|a| a.rel_path == rel) {
-            out.push(library_artifact(rel, o.sha1, String::new()));
+            out.push(forge_output(rel, o.sha1));
         }
     }
     if let Some(patched) = profile
@@ -105,7 +132,7 @@ pub fn forge_artifacts(
         .and_then(crate::forge::patcher::maven_coord_to_relative_path)
     {
         if !out.iter().any(|a| a.rel_path == patched) {
-            out.push(library_artifact(patched, String::new(), String::new()));
+            out.push(forge_output(patched, String::new()));
         }
     }
     Ok(out)
@@ -197,6 +224,18 @@ mod tests {
         assert!(arts
             .iter()
             .all(|a| a.url.is_none() && a.category == VerifyCategory::Libraries));
+        assert!(arts.iter().all(|a| a.origin == Origin::ForgeProcessor));
+    }
+
+    #[test]
+    fn downloaded_files_are_published_ones() {
+        let lib = library_artifact("org/x/y.jar".into(), "aa".into(), "https://l".into());
+        assert_eq!(lib.origin, Origin::Published);
+        assert_eq!(
+            client_artifact("1.20.1", "aa", "https://c").origin,
+            Origin::Published
+        );
+        assert_eq!(asset_artifact("aabb").origin, Origin::Published);
     }
 
     #[test]

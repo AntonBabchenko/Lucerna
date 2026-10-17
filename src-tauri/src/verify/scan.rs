@@ -27,6 +27,17 @@ pub fn classify(exists: bool, on_disk_sha: Option<&str>, expected_sha: &str) -> 
     }
 }
 
+/// What a planned file's status means, given who made it. A Forge processor
+/// output whose bytes differ from the declared ones was built differently,
+/// not damaged (spec 2026-10-16 §5.5). Every other status stands.
+pub fn status_for(origin: crate::verify::plan::Origin, status: ArtifactStatus) -> ArtifactStatus {
+    use crate::verify::plan::Origin;
+    match (origin, status) {
+        (Origin::ForgeProcessor, ArtifactStatus::Corrupt) => ArtifactStatus::BuiltDifferently,
+        (_, s) => s,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,6 +66,39 @@ mod tests {
     #[test]
     fn presence_only_missing_when_absent_and_no_expected_sha() {
         assert_eq!(classify(false, None, ""), ArtifactStatus::Missing);
+    }
+
+    // A Forge processor output whose bytes differ from Forge's declared ones
+    // was built differently (an older Lucerna's own code), not damaged.
+    #[test]
+    fn a_forge_output_that_differs_was_built_differently() {
+        use crate::verify::plan::Origin;
+        assert_eq!(
+            status_for(Origin::ForgeProcessor, ArtifactStatus::Corrupt),
+            ArtifactStatus::BuiltDifferently
+        );
+    }
+
+    #[test]
+    fn a_missing_forge_output_is_still_missing() {
+        use crate::verify::plan::Origin;
+        assert_eq!(
+            status_for(Origin::ForgeProcessor, ArtifactStatus::Missing),
+            ArtifactStatus::Missing
+        );
+        assert_eq!(
+            status_for(Origin::ForgeProcessor, ArtifactStatus::Ok),
+            ArtifactStatus::Ok
+        );
+    }
+
+    #[test]
+    fn a_published_file_that_differs_is_corrupt() {
+        use crate::verify::plan::Origin;
+        assert_eq!(
+            status_for(Origin::Published, ArtifactStatus::Corrupt),
+            ArtifactStatus::Corrupt
+        );
     }
 
     /// Deterministic non-repeating filler, so a chunk read in the wrong order,
@@ -449,13 +493,14 @@ pub async fn verify_instance_report(
 
     let mut problems: Vec<ProblemArtifact> = Vec::new();
     for ((p, _abs), status) in planned.iter().zip(statuses.iter()) {
-        if *status != ArtifactStatus::Ok {
+        let status = status_for(p.origin, *status);
+        if status != ArtifactStatus::Ok {
             problems.push(ProblemArtifact {
                 category: p.category,
                 rel_path: p.rel_path.clone(),
                 expected_sha: p.expected_sha.clone(),
                 url: p.url.clone(),
-                status: *status,
+                status,
             });
         }
     }

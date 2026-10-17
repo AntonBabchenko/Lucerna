@@ -513,6 +513,8 @@
       "catProfileJson": "Профиль",
       "countOk": "{ok}/{total} OK",
       "countProblems": "{corrupt} битых, {missing} отсутствует",
+      "countBuiltDifferently": "{count} собраны не так, как их собирает сам установщик Forge",
+      "builtDifferentlyNote": "Эти файлы Forge собрала прежняя версия Lucerna своим кодом, поэтому они отличаются от тех, что делает сам установщик Forge. Игра с ними запускается. «Восстановить» пересоберёт их так, как это делает установщик Forge.",
       "busy": "Остановите запущенную игру перед проверкой.",
       "checkedAt": "проверено {date}",
       "statusNotChecked": "Целостность не проверялась",
