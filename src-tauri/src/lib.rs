@@ -279,6 +279,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::settings_sync_state,
             commands::settings_sync_set_kind,
             commands::settings_sync_stop,
+            commands::settings_sync_repair,
             // Mod-data transfer between instances (feedback #4 item 7):
             commands::transfer_scan,
             commands::transfer_mod_data,

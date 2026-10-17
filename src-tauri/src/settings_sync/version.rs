@@ -20,8 +20,8 @@ pub enum DataVersion {
     /// The game files (the client jar, the version JSON) are not installed
     /// yet, or are damaged.
     JarUnavailable,
-    /// A snapshot or pre-release, or a jar that does not say it is a release:
-    /// its DataVersion would raise the gate for every release.
+    /// Not a release by its version JSON (a snapshot, a pre-release, an old
+    /// alpha or beta): its DataVersion would raise the gate for every release.
     NotRelease,
 }
 
@@ -39,9 +39,9 @@ pub struct VersionFacts {
 /// lines (game-written options.txt, verified 2026-10-17).
 const RELEASES_1_13: &[(&str, i32)] = &[("1.13", 1519), ("1.13.1", 1628), ("1.13.2", 1631)];
 
-/// Why options.txt does not sync for a version (spec §C3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
-#[serde(rename_all = "snake_case")]
+/// Why options.txt does not sync for a version (spec §C3); the UI hears it
+/// as `engine::Unsupported::Options*`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptionsUnsupported {
     /// 1.12.2 and older.
     TooOld,
@@ -138,7 +138,13 @@ fn release_in(versions_dir: &Path, mc_version: &str) -> Option<bool> {
             return None;
         }
     };
-    let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let json: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(json) => json,
+        Err(e) => {
+            crate::diag!("settings sync: {} does not parse ({e})", path.display());
+            return None;
+        }
+    };
     Some(json.get("type")?.as_str()? == "release")
 }
 

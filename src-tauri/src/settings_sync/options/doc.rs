@@ -32,7 +32,11 @@ pub enum WaitReason {
 }
 
 pub(crate) enum OptionsRead {
-    Waiting(WaitReason),
+    /// `version`: the waiting file's own `version` line, if it has one.
+    Waiting {
+        why: WaitReason,
+        version: Option<i32>,
+    },
     File(OptionsFile),
 }
 
@@ -48,13 +52,26 @@ pub(crate) struct OptionsFile {
 /// that is not UTF-8 is damaged, never "empty".
 pub(crate) fn read(at: At, path: &Path, dv: i32) -> Result<OptionsRead> {
     let Some(bytes) = fsio::read_if_present(at, path)? else {
-        return Ok(OptionsRead::Waiting(WaitReason::FirstLaunch));
+        return Ok(OptionsRead::Waiting {
+            why: WaitReason::FirstLaunch,
+            version: None,
+        });
     };
     let text = String::from_utf8(bytes)
         .map_err(|e| failure::damaged(at, path, format!("not UTF-8: {e}")))?;
-    Ok(match from_text(&text, dv) {
-        Some(file) => OptionsRead::File(file),
-        None => OptionsRead::Waiting(WaitReason::GameSave),
+    let parsed = ParsedOptions::parse(&text);
+    let version = parsed.version();
+    Ok(if version == Some(dv) {
+        OptionsRead::File(OptionsFile {
+            values: values_of(&parsed, dv),
+            parsed,
+            dv,
+        })
+    } else {
+        OptionsRead::Waiting {
+            why: WaitReason::GameSave,
+            version,
+        }
     })
 }
 
@@ -102,7 +119,11 @@ pub(crate) fn render(file: &OptionsFile, shared: &Values, has_modifiers: bool) -
         let Some(value) = shared.get(entry.neutral) else {
             continue;
         };
-        if file.values.get(entry.neutral) == Some(value) {
+        if file
+            .values
+            .get(entry.neutral)
+            .is_some_and(|own| own.same(value))
+        {
             continue;
         }
         if let Some(text) = write_value(&entry, file.dv, value, has_modifiers) {
@@ -151,14 +172,16 @@ pub(crate) fn from_value(value: &Value) -> std::result::Result<Values, String> {
     let Value::Compound(map) = value else {
         return Err("the options are not a compound".into());
     };
-    map.iter()
+    let values = map
+        .iter()
         .map(|(k, v)| {
             Ok((
                 k.clone(),
                 value_neutral(v).ok_or(format!("{k}: an unknown value"))?,
             ))
         })
-        .collect()
+        .collect::<std::result::Result<Values, String>>()?;
+    checked(values)
 }
 
 fn value_neutral(v: &Value) -> Option<Neutral> {
@@ -194,7 +217,7 @@ pub(crate) fn capture(before: &Values, now: &Values, shared: &Values) -> Values 
     let mut out = shared.clone();
     for (k, v) in now {
         match before.get(k) {
-            Some(old) if old == v => {}
+            Some(old) if old.same(v) => {}
             Some(_) => {
                 out.insert(k.clone(), v.clone());
             }
@@ -237,9 +260,19 @@ pub(crate) fn store_bytes(values: &Values) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn parse_store(bytes: &[u8]) -> std::result::Result<Values, String> {
-    serde_json::from_slice::<Stored>(bytes)
+    let values = serde_json::from_slice::<Stored>(bytes)
         .map(|s| s.values)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    checked(values)
+}
+
+/// Values a line can hold, or which one cannot: a damaged copy, never a value
+/// written into a game's file.
+fn checked(values: Values) -> std::result::Result<Values, String> {
+    match values.iter().find(|(_, v)| !v.valid()) {
+        Some((k, _)) => Err(format!("{k}: a value no line can hold")),
+        None => Ok(values),
+    }
 }
 
 #[cfg(test)]
@@ -248,9 +281,8 @@ mod tests {
     use crate::settings_sync::failure::{classify, FileReason, SyncFile};
     use crate::settings_sync::Kind;
 
-    /// Until `Kind::Options` exists (Task 6) the file is addressed as a game file.
     fn at() -> At {
-        At::game(Kind::Servers)
+        At::game(Kind::Options)
     }
 
     fn key(token: &str) -> Neutral {
@@ -283,21 +315,37 @@ mod tests {
         let p = td.path().join("options.txt");
         assert!(matches!(
             read(at(), &p, 2586).unwrap(),
-            OptionsRead::Waiting(WaitReason::FirstLaunch)
+            OptionsRead::Waiting {
+                why: WaitReason::FirstLaunch,
+                version: None
+            }
         ));
-        for (src, why) in [
-            ("lang:ru_ru\nfov:0.5\n", "a pack's file without a version"),
-            ("version:2975\nlang:ru_ru\n", "another version's file"),
+        for (src, version, why) in [
+            (
+                "lang:ru_ru\nfov:0.5\n",
+                None,
+                "a pack's file without a version",
+            ),
+            (
+                "version:2975\nlang:ru_ru\n",
+                Some(2975),
+                "another version's file",
+            ),
             (
                 "version:abc\nlang:ru_ru\n",
+                None,
                 "a version that is not a number",
             ),
         ] {
             std::fs::write(&p, src).unwrap();
+            let got = read(at(), &p, 2586).unwrap();
             assert!(
                 matches!(
-                    read(at(), &p, 2586).unwrap(),
-                    OptionsRead::Waiting(WaitReason::GameSave)
+                    got,
+                    OptionsRead::Waiting {
+                        why: WaitReason::GameSave,
+                        version: v
+                    } if v == version
                 ),
                 "{why}"
             );
@@ -438,7 +486,7 @@ mod tests {
     #[test]
     fn a_modifier_reaches_only_a_loader_that_reads_it() {
         let f = file(
-            "version:3465\nkey_key.examplemod.open:key.keyboard.o\n",
+            "version:3465\nkey_key.examplemod.open:key.keyboard.p\n",
             3465,
         );
         let shift = shared(&[(
@@ -454,7 +502,8 @@ mod tests {
         );
         assert_eq!(
             render(&f, &shift, false).parsed.render(),
-            "version:3465\nkey_key.examplemod.open:key.keyboard.o\n"
+            "version:3465\nkey_key.examplemod.open:key.keyboard.p\n",
+            "a bare key would clash: this instance keeps its own"
         );
     }
 
@@ -480,5 +529,13 @@ mod tests {
         assert_eq!(parse_store(&bytes), Ok(v));
         assert!(parse_store(b"{\"values\":{\"fov\":{\"wide\":1}}}").is_err());
         assert!(parse_store(b"not json").is_err());
+        for bad in [
+            r#"{"values":{"fov":{"float":"0.5\nresourcePacks:[]"}}}"#,
+            r#"{"values":{"fov":{"float":"wide"}}}"#,
+            r#"{"values":{"lang":{"text":"ru_ru\nfov:1.0"}}}"#,
+            r#"{"values":{"key_key.jump":{"key":{"token":"key.keyboard.j\nx"}}}}"#,
+        ] {
+            assert!(parse_store(bad.as_bytes()).is_err(), "{bad}");
+        }
     }
 }

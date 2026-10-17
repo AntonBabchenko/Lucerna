@@ -169,7 +169,7 @@ fn options_row(
         Ok((shared, own))
     });
     match files {
-        Ok((_, OptionsRead::Waiting(why))) => (Availability::Waiting { why }, false),
+        Ok((_, OptionsRead::Waiting { why, .. })) => (Availability::Waiting { why }, false),
         Ok((shared, OptionsRead::File(_))) => (Availability::Available, shared),
         Err(e) => {
             crate::diag!("settings sync: the game options cannot be read ({e})");
@@ -334,7 +334,7 @@ pub fn stop(
 /// A kept failure about one of `kinds`, or about the sync settings
 /// themselves, no longer applies once those kinds stopped or synced; one
 /// about another kind stays until that kind syncs.
-fn clear_failure_of(sc: &mut Sidecar, kinds: &[Kind]) {
+pub(super) fn clear_failure_of(sc: &mut Sidecar, kinds: &[Kind]) {
     if sc
         .last_error
         .as_ref()
@@ -347,8 +347,7 @@ fn clear_failure_of(sc: &mut Sidecar, kinds: &[Kind]) {
 /// A kind this instance left: its baseline and pending go (checked), so a
 /// later join starts as a join.
 fn forget(instance_root: &Path, kind: Kind) -> Result<()> {
-    baseline::remove(instance_root, kind, Slot::Pending)?;
-    baseline::remove(instance_root, kind, Slot::Baseline)
+    engine::forget_records(instance_root, kind)
 }
 
 #[cfg(test)]

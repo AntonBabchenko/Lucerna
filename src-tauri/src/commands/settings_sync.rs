@@ -105,6 +105,8 @@ pub async fn settings_sync_set_kind(
 /// "Stop syncing <kind> here", from the launch dialog or the section; `kind`
 /// is `None` when the sync settings themselves could not be read (they go to
 /// the Recycle Bin and start over with nothing on).
+///
+/// (The repair command below is the way out of a damaged sync file.)
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_sync_stop(
@@ -126,4 +128,39 @@ pub async fn settings_sync_stop(
     .map_err(|e| Error::io("<settings sync stop>", e));
     drop(claim);
     done?
+}
+
+/// The way out of a sync file that does not parse, for its reason class
+/// (spec §15): the shared copy replaced by this instance's, this instance's
+/// file replaced by the shared copy, or its records started afresh. Holds the
+/// instance's claim; asks about a game Lucerna lost track of as a join does.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_sync_repair(
+    app: tauri::AppHandle,
+    instance_id: String,
+    kind: Kind,
+    repair: crate::settings_sync::repair::Repair,
+    game_closed_confirmed: bool,
+) -> Result<Option<KindOutcome>, Error> {
+    let claim = crate::instances::maintenance::claim_write(&instance_id)?;
+    let r = roots(&app, &instance_id)?;
+    let outcome = tokio::task::spawn_blocking(move || {
+        crate::settings_sync::guard_orphan(&r.instance_root, game_closed_confirmed, &|pid| {
+            crate::platform::process_image_probe(pid, "java")
+        })?;
+        let facts = VersionFacts::read(&r.versions, &r.mc_version, r.loader);
+        crate::settings_sync::repair::repair(
+            &r.data_root,
+            &r.instance_root,
+            &facts,
+            kind,
+            repair,
+            &crate::platform::recycle_bin::to_recycle_bin,
+        )
+    })
+    .await
+    .map_err(|e| Error::io("<settings sync repair>", e));
+    drop(claim);
+    outcome?
 }

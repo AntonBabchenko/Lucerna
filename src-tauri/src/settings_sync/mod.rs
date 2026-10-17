@@ -19,6 +19,7 @@ pub mod hotbars;
 pub mod marker;
 pub mod membership;
 pub(crate) mod options;
+pub mod repair;
 pub(crate) mod servers;
 pub mod sidecar;
 pub mod store;
@@ -28,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// One thing that syncs. Part C adds `Options`.
+/// One thing that syncs.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type,
 )]

@@ -154,8 +154,9 @@ const GATED: &[(&str, &str, &str, &str)] = &[
     (
         "l10n/options_txt.rs",
         "update_atomically",
-        WRITE_GATE,
-        "rewrites options.txt, which a settings-sync point reads and rewrites under the claim",
+        CLAIM_WRITE_GATE,
+        "rewrites options.txt, which a settings-sync point reads and rewrites under the \
+         claim; held from the read to the rename",
     ),
     (
         "commands/worlds.rs",
@@ -224,6 +225,12 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         CLAIM_WRITE_GATE,
         "joins (writes the instance's synced files and baselines) or leaves a kind — a \
          launch, update or migration must not run while those files change",
+    ),
+    (
+        "commands/settings_sync.rs",
+        "settings_sync_repair",
+        CLAIM_WRITE_GATE,
+        "replaces the shared copy or the instance's own synced file and its baselines",
     ),
     (
         "commands/settings_sync.rs",

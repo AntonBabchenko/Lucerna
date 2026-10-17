@@ -92,8 +92,9 @@ pub(crate) fn split(raw: &str) -> Option<(String, Option<Modifier>)> {
 }
 
 /// The stored value for a binding in a game of `family`, or `None` when that
-/// game cannot read the token. The modifier is written only for a loader
-/// that has modifiers (Forge, NeoForge).
+/// game cannot read the token, or the binding has a modifier and the loader
+/// has none (Forge and NeoForge do): a bare key would clash with another
+/// binding, so the instance keeps its own.
 pub(crate) fn render(
     family: Family,
     token: &str,
@@ -103,10 +104,11 @@ pub(crate) fn render(
     if !readable(family, token) {
         return None;
     }
-    Some(match modifier {
-        Some(m) if loader_has_modifiers => format!("{token}:{}", m.as_str()),
-        _ => token.to_string(),
-    })
+    match modifier {
+        Some(m) if loader_has_modifiers => Some(format!("{token}:{}", m.as_str())),
+        Some(_) => None,
+        None => Some(token.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -181,9 +183,17 @@ mod tests {
                 "key.keyboard.a",
                 Some(Modifier::Control),
                 false
-            )
-            .as_deref(),
+            ),
+            None,
+            "a bare A would clash with another binding"
+        );
+        assert_eq!(
+            render(Family::Glfw, "key.keyboard.a", None, false).as_deref(),
             Some("key.keyboard.a")
+        );
+        assert_eq!(
+            split("key.keyboard.a:NONE"),
+            Some(("key.keyboard.a".into(), None))
         );
         assert_eq!(render(Family::Sdl3, "key.keyboard.f25", None, false), None);
     }

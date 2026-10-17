@@ -35,6 +35,34 @@ pub(crate) enum Neutral {
     },
 }
 
+impl Neutral {
+    /// The same value as the game sees it: floats by value (a game before
+    /// 1.19 keeps volumes as Java floats and re-spells a shared double).
+    pub(crate) fn same(&self, other: &Neutral) -> bool {
+        match (self, other) {
+            (Neutral::Float(a), Neutral::Float(b)) => {
+                a == b
+                    || matches!(
+                        (a.trim().parse::<f32>(), b.trim().parse::<f32>()),
+                        (Ok(x), Ok(y)) if x == y
+                    )
+            }
+            _ => self == other,
+        }
+    }
+
+    /// A value a line can hold and its codec can read back: one line, a
+    /// finite number for a float, a key token with no separator in it.
+    pub(crate) fn valid(&self) -> bool {
+        match self {
+            Neutral::Bool(_) | Neutral::Int(_) => true,
+            Neutral::Float(s) => one_line(s) && s.trim().parse::<f64>().is_ok_and(f64::is_finite),
+            Neutral::Text(s) => one_line(s),
+            Neutral::Key { token, .. } => !token.is_empty() && !token.contains([':', '\n', '\r']),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Codec {
     Bool,
@@ -496,6 +524,9 @@ pub(crate) fn write_value(
     value: &Neutral,
     loader_has_modifiers: bool,
 ) -> Option<String> {
+    if !value.valid() {
+        return None;
+    }
     match (entry.codec, value) {
         (Bool, Neutral::Bool(b)) => Some(b.to_string()),
         (Int, Neutral::Int(i)) => Some(i.to_string()),
@@ -698,6 +729,41 @@ mod tests {
             Some(()),
             "a mod binding is in the catalog"
         );
+    }
+
+    #[test]
+    fn floats_are_the_same_by_value() {
+        let f = |s: &str| Neutral::Float(s.into());
+        assert!(f("0.43661971830985913").same(&f("0.43661973")));
+        assert!(f("1.0").same(&f("1")));
+        assert!(!f("0.5").same(&f("0.6")));
+        assert!(!f("0.5").same(&Neutral::Text("0.5".into())));
+        assert!(Neutral::Bool(true).same(&Neutral::Bool(true)));
+    }
+
+    #[test]
+    fn a_value_that_would_break_its_line_is_never_written() {
+        let fov = entry_for_name(3955, "fov").unwrap();
+        for bad in ["0.5\nresourcePacks:[]", "wide", "NaN", "inf"] {
+            assert_eq!(
+                write_value(&fov, 3955, &Neutral::Float(bad.into()), false),
+                None,
+                "{bad}"
+            );
+            assert!(!Neutral::Float(bad.into()).valid(), "{bad}");
+        }
+        let main = entry_for_name(2975, "mainHand").unwrap();
+        assert_eq!(
+            write_value(&main, 2975, &Neutral::Text("left\nfov:1".into()), false),
+            None
+        );
+        let lang = entry_for_name(2975, "lang").unwrap();
+        assert_eq!(
+            write_value(&lang, 2975, &Neutral::Text("ru_ru\rx".into()), false),
+            None
+        );
+        assert!(!Neutral::Text("a\nb".into()).valid());
+        assert!(Neutral::Float("0.5".into()).valid() && Neutral::Text("ru_ru".into()).valid());
     }
 
     #[test]

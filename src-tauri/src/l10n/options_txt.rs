@@ -215,11 +215,11 @@ pub fn pack_state(pack_on_disk: bool, options_txt: Option<&str>) -> PackState {
 /// see `concurrent_updates_do_not_race_on_the_temp_file_name` below.
 static OPTIONS_WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Read, transform and write `<mc_dir>/options.txt` atomically. Refuses
-/// while the instance is running, starting or held by a long writer
-/// (`maintenance::write_allowed`): a settings-sync point reads and rewrites
-/// this file under the instance's claim, and a write between its read and
-/// its write would be lost. `Ok(false)` when the file does not exist —
+/// Read, transform and write `<mc_dir>/options.txt` atomically, holding the
+/// instance (`maintenance::claim_write`) from the read to the rename: refused
+/// while it runs, starts or is held by another writer, and no launch starts
+/// meanwhile. A settings-sync point reads and rewrites this file under the
+/// same claim. `Ok(false)` when the file does not exist —
 /// activation is deferred rather than the launcher inventing the game's
 /// settings file — or when `transform` returns `None`, meaning it decided
 /// there was nothing to change; `Ok(true)` iff a write actually happened.
@@ -238,7 +238,9 @@ pub fn update_atomically<F>(
 where
     F: FnOnce(&str) -> Option<String>,
 {
-    crate::instances::maintenance::write_allowed(instance_id)?;
+    // Held through the rename: a launch's sync point reads and rewrites this
+    // file, and one starting between the read and the rename would lose a write.
+    let claim = crate::instances::maintenance::claim_write(instance_id)?;
 
     let path = mc_dir.join("options.txt");
     let src = match std::fs::read_to_string(&path) {
@@ -260,6 +262,7 @@ where
         let _ = std::fs::remove_file(&tmp);
         return Err(crate::error::Error::io(path.display().to_string(), e));
     }
+    drop(claim);
 
     Ok(true)
 }
@@ -610,6 +613,29 @@ mod tests {
         assert_eq!(on_disk, SAMPLE);
     }
 
+    /// A launch's sync point reads and rewrites this file; one starting
+    /// between this writer's read and its rename would lose a write.
+    #[test]
+    fn holds_the_instance_from_the_read_to_the_write() {
+        let dir = tempdir().unwrap();
+        let mc_dir = dir.path().join(".minecraft");
+        std::fs::create_dir_all(&mc_dir).unwrap();
+        std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
+        let mut held = None;
+        update_atomically(&mc_dir, "l10n-opts-held-throughout", |s| {
+            held = Some(
+                crate::instances::maintenance::claim_write("l10n-opts-held-throughout").is_err(),
+            );
+            Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
+        })
+        .unwrap();
+        assert_eq!(
+            held,
+            Some(true),
+            "no other writer gets the instance meanwhile"
+        );
+    }
+
     #[test]
     fn concurrent_updates_do_not_race_on_the_temp_file_name() {
         // Mirrors `mods::installed::concurrent_list_migration_does_not_race_
@@ -626,7 +652,8 @@ mod tests {
             .map(|i| {
                 let thread_mc_dir = mc_dir.clone();
                 std::thread::spawn(move || {
-                    update_atomically(&thread_mc_dir, "l10n-opts-concurrent", move |s| {
+                    let id = format!("l10n-opts-concurrent-{i}");
+                    update_atomically(&thread_mc_dir, &id, move |s| {
                         Some(with_pack_enabled(
                             s,
                             &format!("lucerna-translation-lang{i}.zip"),

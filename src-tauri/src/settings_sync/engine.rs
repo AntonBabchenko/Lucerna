@@ -131,10 +131,18 @@ pub fn sync_kind(
         return Ok(KindOutcome::Unsupported { why });
     }
     let path = game_file(instance_root, kind);
-    resolve_pending(instance_root, kind, &path, facts)?;
-
-    let now = match read_now(kind, &path, facts)? {
-        Now::Waiting(why) => return Ok(KindOutcome::Waiting { why }),
+    resolve_pending(instance_root, kind, &path, facts)
+        .map_err(|e| forget_on_damage(instance_root, kind, e))?;
+    let now = read_now(kind, &path, facts).map_err(|e| forget_on_damage(instance_root, kind, e))?;
+    let base = baseline::read(instance_root, kind, Slot::Baseline)?;
+    let base = if outlived(base.as_ref(), &now) {
+        forget_records(instance_root, kind)?;
+        None
+    } else {
+        base
+    };
+    let now = match now {
+        Now::Waiting { why, .. } => return Ok(KindOutcome::Waiting { why }),
         Now::Present(doc) => Some(doc),
         Now::Absent => None,
     };
@@ -144,7 +152,6 @@ pub fn sync_kind(
         })?),
         None => None,
     };
-    let base = baseline::read(instance_root, kind, Slot::Baseline)?;
 
     if kind == Kind::Hotbars && join != Join::MakeShared {
         if let (Some(Doc::Hotbars(s)), Some(dv)) = (&shared, facts.hotbar_version()) {
@@ -260,6 +267,100 @@ fn set_aside_name(kind: Kind) -> Option<&'static str> {
     }
 }
 
+/// This instance's records of the last sync (baseline and pending), gone so
+/// that the next sync point is a join. Each removal is checked.
+pub(crate) fn forget_records(instance_root: &Path, kind: Kind) -> Result<()> {
+    baseline::remove(instance_root, kind, Slot::Pending)?;
+    baseline::remove(instance_root, kind, Slot::Baseline)
+}
+
+/// This instance's file does not parse. Its records describe a file that is
+/// gone, and what the game writes next (its defaults after a failed load, a
+/// list of only what was added since) is no edit: the records go, so the
+/// next readable file joins. The damage stays the error; a record that cannot
+/// be removed is logged with it.
+fn forget_on_damage(instance_root: &Path, kind: Kind, e: Error) -> Error {
+    if failure::classify(&e) == (Some(failure::SyncFile::Game), failure::FileReason::Damaged) {
+        if let Err(r) = forget_records(instance_root, kind) {
+            crate::diag!(
+                "settings sync: the records of a damaged {} stay ({r})",
+                kind.file()
+            );
+        }
+    }
+    e
+}
+
+/// options.txt: the records describe a file this one does not continue. The
+/// game re-created it (deleted, or a pack's copy without this game's
+/// `version`), or an OLDER version saved it, dropping what it cannot name:
+/// either way it holds the game's defaults where the user's values were, and
+/// compared with the records those would read as edits and reach every
+/// instance. Such a file joins instead (the shared values win). A newer
+/// version's save continues the records: an upgrade captures what changed.
+fn outlived(base: Option<&Snapshot>, now: &Now) -> bool {
+    let Some(base) = base else {
+        return false;
+    };
+    match now {
+        Now::Waiting {
+            why: WaitReason::FirstLaunch,
+            ..
+        } => true,
+        Now::Waiting {
+            why: WaitReason::GameSave,
+            version,
+        } => *version != base.stamp,
+        Now::Present(Doc::Options(_, Some(file))) => base.stamp.is_none_or(|s| file.dv < s),
+        _ => false,
+    }
+}
+
+/// `ReplaceShared`: this instance's file becomes the shared copy (what was
+/// there rotates into `backups/`, damaged or not) and its records start from
+/// it. A file this game has not written (options) changes nothing.
+pub(crate) fn share_own(
+    instance_root: &Path,
+    store: &StoreLock,
+    facts: &VersionFacts,
+    kind: Kind,
+) -> Result<KindOutcome> {
+    if let Some(why) = unsupported(kind, facts) {
+        return Ok(KindOutcome::Unsupported { why });
+    }
+    let path = game_file(instance_root, kind);
+    let now = match read_now(kind, &path, facts)? {
+        Now::Waiting { why, .. } => return Ok(KindOutcome::Waiting { why }),
+        Now::Present(doc) => doc,
+        Now::Absent => Doc::empty(kind),
+    };
+    store.save(kind, &now.store_bytes()?)?;
+    baseline::write(instance_root, kind, Slot::Baseline, &snapshot(facts, &now))?;
+    baseline::remove(instance_root, kind, Slot::Pending)?;
+    Ok(KindOutcome::Synced)
+}
+
+/// `ReplaceOwn`: this instance's file goes to the Recycle Bin as
+/// `<name> (damaged).<ext>` and leaves `.minecraft/`; nothing happens to an
+/// absent file. A Recycle Bin that refuses leaves the file where it was.
+pub(crate) fn set_aside_damaged(
+    instance_root: &Path,
+    kind: Kind,
+    set_aside: &dyn Fn(PathBuf) -> io::Result<()>,
+) -> Result<()> {
+    let path = game_file(instance_root, kind);
+    let name = match kind.file().rsplit_once('.') {
+        Some((stem, ext)) => format!("{stem} (damaged).{ext}"),
+        None => format!("{} (damaged)", kind.file()),
+    };
+    let seams = Seams {
+        set_aside,
+        ..Seams::none()
+    };
+    set_aside_own(kind, &path, &name, &seams)?;
+    super::fsio::remove_if_present(At::game(kind), &path)
+}
+
 /// A copy of the instance's own file goes to the Recycle Bin before a join
 /// replaces it (spec §B7, §C4). If that fails the join stops here and
 /// nothing has changed: the copy is removed (checked) and the instance's
@@ -304,7 +405,7 @@ fn resolve_pending(
     };
     let now = match read_now(kind, path, facts)? {
         Now::Present(doc) => Some(doc),
-        Now::Absent | Now::Waiting(_) => None,
+        Now::Absent | Now::Waiting { .. } => None,
     };
     if now.is_some_and(|n| n.data() == pending.data && n.stamp() == pending.stamp) {
         baseline::write(instance_root, kind, Slot::Baseline, &pending)?;
@@ -412,8 +513,11 @@ enum Doc {
 enum Now {
     Present(Doc),
     Absent,
-    /// options.txt only: not this game's own yet.
-    Waiting(WaitReason),
+    /// options.txt only: not this game's own yet (`version`: its own line).
+    Waiting {
+        why: WaitReason,
+        version: Option<i32>,
+    },
 }
 
 impl Doc {
@@ -494,15 +598,19 @@ fn read_now(kind: Kind, path: &Path, facts: &VersionFacts) -> Result<Now> {
         Kind::History => history::read(path)?.map(|(l, sep)| Doc::History(l, sep)),
         Kind::Hotbars => hotbars::read(path)?.map(Doc::Hotbars),
         Kind::Options => {
-            // `unsupported` turned away every version without one.
+            // `unsupported` turned every such version away first; were one
+            // to get here, absence would let a file be created.
             let Ok(dv) = facts.options_version() else {
-                return Ok(Now::Absent);
+                return Err(Error::io(
+                    "options.txt",
+                    "no options catalog for this Minecraft version".to_string(),
+                ));
             };
             return Ok(match options_doc::read(At::game(kind), path, dv)? {
                 OptionsRead::File(file) => {
                     Now::Present(Doc::Options(file.values.clone(), Some(file)))
                 }
-                OptionsRead::Waiting(why) => Now::Waiting(why),
+                OptionsRead::Waiting { why, version } => Now::Waiting { why, version },
             });
         }
     };
@@ -686,6 +794,20 @@ mod tests {
         sync(&w, &w.b, Kind::Servers, "1.21.1").unwrap(); // b still lists B, unchanged here
         assert_eq!(servers_of(&w.b), ["A"]);
         assert_eq!(shared_servers(&w), ["A"]);
+    }
+
+    /// The game reads nothing from a server list it cannot parse and saves
+    /// only what is added since: that is no list of removals.
+    #[test]
+    fn a_damaged_server_list_rejoins_instead_of_reading_removals() {
+        let w = world();
+        put_servers(&w.a, &["A", "B"]);
+        sync(&w, &w.a, Kind::Servers, "1.21.1").unwrap();
+        std::fs::write(game_file(&w.a, Kind::Servers), b"not nbt").unwrap();
+        assert!(sync(&w, &w.a, Kind::Servers, "1.21.1").is_err());
+        put_servers(&w.a, &["C"]);
+        sync(&w, &w.a, Kind::Servers, "1.21.1").unwrap();
+        assert_eq!(shared_servers(&w), ["A", "B", "C"]);
     }
 
     #[test]

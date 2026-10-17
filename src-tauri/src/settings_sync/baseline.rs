@@ -24,7 +24,8 @@ pub(crate) enum Slot {
 pub(crate) struct Snapshot {
     /// The instance's Minecraft version.
     pub mc: String,
-    /// The file's own version stamp (hotbars' `DataVersion`), when it has one.
+    /// The file's own version stamp (hotbars' `DataVersion`, options.txt's
+    /// `version` line), when it has one.
     pub stamp: Option<i32>,
     pub data: Value,
 }

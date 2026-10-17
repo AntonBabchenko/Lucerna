@@ -408,3 +408,190 @@ fn a_damaged_shared_copy_is_an_error_that_names_it() {
     );
     assert_eq!(file_of(&w.a).as_deref(), Some(A_1_21_1));
 }
+
+// --- When the records no longer describe the file (review round, spec §15) ---
+
+fn sync_done(w: &World, root: &Path, mc: &str, dv: i32) -> crate::error::Result<KindOutcome> {
+    w.sync_as(root, &facts(mc, dv), Join::Done)
+}
+
+fn shared_fov(w: &World) -> Option<Neutral> {
+    shared(w).unwrap().get("fov").cloned()
+}
+
+/// Deleting options.txt is a common reset: the game then writes its defaults,
+/// which must never reach the other instances as edits.
+#[test]
+fn a_deleted_file_rejoins_and_the_games_defaults_never_spread() {
+    let w = world();
+    put(&w.a, A_1_21_1);
+    w.sync(&w.a, "1.21.1", 3955);
+    std::fs::remove_file(game_file(&w.a, Kind::Options)).unwrap();
+    assert_eq!(
+        sync_done(&w, &w.a, "1.21.1", 3955).unwrap(),
+        KindOutcome::Waiting {
+            why: WaitReason::FirstLaunch
+        }
+    );
+    put(
+        &w.a,
+        "version:3955\nfov:0.0\nlang:en_us\nkey_key.jump:key.keyboard.space\n",
+    );
+    sync_done(&w, &w.a, "1.21.1", 3955).unwrap();
+    assert_eq!(shared_fov(&w), Some(Neutral::Float("0.25".into())));
+    assert_eq!(
+        file_of(&w.a).as_deref(),
+        Some("version:3955\nfov:0.25\nlang:ru_ru\nkey_key.jump:key.keyboard.space\n"),
+        "the shared settings came back"
+    );
+}
+
+#[test]
+fn a_packs_unversioned_copy_rejoins_once_the_game_saves_it() {
+    let w = world();
+    put(&w.a, A_1_21_1);
+    w.sync(&w.a, "1.21.1", 3955);
+    put(&w.a, "fov:0.9\nlang:de_de\n");
+    sync_done(&w, &w.a, "1.21.1", 3955).unwrap();
+    put(&w.a, "version:3955\nfov:0.9\nlang:de_de\n");
+    sync_done(&w, &w.a, "1.21.1", 3955).unwrap();
+    assert_eq!(shared_fov(&w), Some(Neutral::Float("0.25".into())));
+}
+
+/// An older game drops what it cannot name and saves its defaults instead.
+#[test]
+fn a_file_an_older_version_saved_rejoins() {
+    let w = world();
+    put(&w.a, "version:3105\nmainHand:\"left\"\nfov:0.25\n");
+    w.sync(&w.a, "1.19", 3105);
+    put(&w.a, "version:2975\nmainHand:right\nfov:0.25\n");
+    sync_done(&w, &w.a, "1.18.2", 2975).unwrap();
+    assert_eq!(
+        shared(&w).unwrap().get("mainHand"),
+        Some(&Neutral::Text("left".into()))
+    );
+    assert_eq!(
+        file_of(&w.a).as_deref(),
+        Some("version:2975\nmainHand:left\nfov:0.25\n")
+    );
+}
+
+/// After an upgrade the old file waits for the new game; what the user then
+/// changes in the new game is an edit.
+#[test]
+fn an_upgrade_still_captures_what_changed() {
+    let w = world();
+    put(&w.a, "version:4189\nlang:ru_ru\nfov:0.25\n");
+    w.sync(&w.a, "1.21.4", 4189);
+    assert_eq!(
+        sync_done(&w, &w.a, "1.21.9", 4554).unwrap(),
+        KindOutcome::Waiting {
+            why: WaitReason::GameSave
+        }
+    );
+    put(&w.a, "version:4554\nlang:de_de\nfov:0.25\n");
+    sync_done(&w, &w.a, "1.21.9", 4554).unwrap();
+    assert_eq!(
+        shared(&w).unwrap().get("lang"),
+        Some(&Neutral::Text("de_de".into()))
+    );
+}
+
+/// A file the game could not read is replaced by its defaults on a later
+/// save; those are no edits either.
+#[test]
+fn a_damaged_file_rejoins_once_the_game_rewrites_it() {
+    let w = world();
+    put(&w.a, A_1_21_1);
+    w.sync(&w.a, "1.21.1", 3955);
+    std::fs::write(game_file(&w.a, Kind::Options), b"version:3955\nlang:\xff\n").unwrap();
+    assert!(sync_done(&w, &w.a, "1.21.1", 3955).is_err());
+    put(&w.a, "version:3955\nfov:0.0\nlang:en_us\n");
+    sync_done(&w, &w.a, "1.21.1", 3955).unwrap();
+    assert_eq!(shared_fov(&w), Some(Neutral::Float("0.25".into())));
+}
+
+/// Before 1.19 sound volumes are Java floats: an older game re-spells the
+/// shared double, which is the same value, not an edit.
+#[test]
+fn an_older_game_re_spelling_a_float_is_no_edit() {
+    let w = world();
+    put(
+        &w.a,
+        "version:3105\nsoundCategory_master:0.43661971830985913\n",
+    );
+    w.sync(&w.a, "1.19", 3105);
+    put(&w.b, "version:2975\nsoundCategory_master:1.0\n");
+    w.sync(&w.b, "1.18.2", 2975);
+    assert_eq!(
+        file_of(&w.b).as_deref(),
+        Some("version:2975\nsoundCategory_master:0.43661971830985913\n")
+    );
+    put(&w.b, "version:2975\nsoundCategory_master:0.43661973\n");
+    put(&w.a, "version:3105\nsoundCategory_master:0.5\n");
+    sync_done(&w, &w.a, "1.19", 3105).unwrap();
+    sync_done(&w, &w.b, "1.18.2", 2975).unwrap();
+    assert_eq!(
+        shared(&w).unwrap().get("soundCategory_master"),
+        Some(&Neutral::Float("0.5".into())),
+        "a's edit stands"
+    );
+}
+
+/// A value this game can only say lossily (fabulous on a two-level game) is
+/// written as the nearest it has, and is not captured back.
+#[test]
+fn a_lossy_value_does_not_come_back_as_an_edit() {
+    let w = world();
+    put(&w.a, "version:3955\ngraphicsMode:2\n");
+    w.sync(&w.a, "1.21.1", 3955);
+    let old = VersionFacts {
+        mc_version: "1.13.2".into(),
+        data: DataVersion::NotRecorded,
+        release: Some(true),
+        loader: LoaderKind::Vanilla,
+    };
+    put(&w.b, "version:1631\nfancyGraphics:false\n");
+    w.sync_as(&w.b, &old, Join::UseShared).unwrap();
+    assert_eq!(
+        file_of(&w.b).as_deref(),
+        Some("version:1631\nfancyGraphics:true\n")
+    );
+    w.sync_as(&w.b, &old, Join::Done).unwrap();
+    w.sync_as(&w.b, &old, Join::Done).unwrap();
+    assert_eq!(
+        shared(&w).unwrap().get("graphics"),
+        Some(&Neutral::Text("fabulous".into()))
+    );
+}
+
+/// Forge reads a key modifier; a loader without modifiers keeps its own
+/// binding rather than a bare key that would clash with another.
+#[test]
+fn a_modifier_binding_reaches_forge_and_no_bare_key_elsewhere() {
+    let w = world();
+    let forge = |mc: &str, dv| VersionFacts {
+        loader: LoaderKind::Forge,
+        ..facts(mc, dv)
+    };
+    put(
+        &w.a,
+        "version:3465\nkey_key.mymod.open:key.keyboard.o:SHIFT\n",
+    );
+    w.sync_as(&w.a, &forge("1.20.1", 3465), Join::UseShared)
+        .unwrap();
+    put(&w.b, "version:3465\nkey_key.mymod.open:key.keyboard.p\n");
+    w.sync(&w.b, "1.20.1", 3465);
+    assert_eq!(
+        file_of(&w.b).as_deref(),
+        Some("version:3465\nkey_key.mymod.open:key.keyboard.p\n")
+    );
+    let c = w.a.with_file_name("c");
+    put(&c, "version:3465\nkey_key.mymod.open:key.keyboard.p\n");
+    w.sync_as(&c, &forge("1.20.1", 3465), Join::UseShared)
+        .unwrap();
+    assert_eq!(
+        file_of(&c).as_deref(),
+        Some("version:3465\nkey_key.mymod.open:key.keyboard.o:SHIFT\n")
+    );
+}

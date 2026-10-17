@@ -1599,8 +1599,26 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  "Stop syncing <kind> here", from the launch dialog or the section; `kind`
 	 *  is `None` when the sync settings themselves could not be read (they go to
 	 *  the Recycle Bin and start over with nothing on).
+	 * 
+	 *  (The repair command below is the way out of a damaged sync file.)
 	 */
 	settingsSyncStop: (instanceId: string, kind: "servers" | "history" | "hotbars" | "options" | null) => typedError<null, Error>(__TAURI_INVOKE("settings_sync_stop", { instanceId, kind })),
+	/**
+	 *  The way out of a sync file that does not parse, for its reason class
+	 *  (spec §15): the shared copy replaced by this instance's, this instance's
+	 *  file replaced by the shared copy, or its records started afresh. Holds the
+	 *  instance's claim; asks about a game Lucerna lost track of as a join does.
+	 */
+	settingsSyncRepair: (instanceId: string, kind: Kind, repair: Repair, gameClosedConfirmed: boolean) => typedError<{ kind: "synced" } | 
+/**  A join completed. */
+{ kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
+/**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
+{ kind: "older_than_shared" } | 
+/**
+ *  options.txt is not this game's own yet: nothing was read or written,
+ *  and a join still waits.
+ */
+{ kind: "waiting"; why: WaitReason } | null, Error>(__TAURI_INVOKE("settings_sync_repair", { instanceId, kind, repair, gameClosedConfirmed })),
 	/**  What the transfer dialog shows for `source_id` → `target_id`. Read-only. */
 	transferScan: (sourceId: string, targetId: string) => typedError<TransferPreview, Error>(__TAURI_INVOKE("transfer_scan", { sourceId, targetId })),
 	/**
@@ -5820,7 +5838,7 @@ export type KeyStatus = "missing" |
  */
 export type KeyringOp = "read" | "write" | "delete";
 
-/**  One thing that syncs. Part C adds `Options`. */
+/**  One thing that syncs. */
 export type Kind = "servers" | "history" | "hotbars" | "options";
 
 /**  How one kind's sync point ended. */
@@ -7958,6 +7976,23 @@ export type RemovedAccount = {
 	keyring_cleared: boolean,
 	details: string | null,
 };
+
+export type Repair = 
+/**
+ *  This instance's file becomes the shared copy; the damaged copy is kept
+ *  in the shared folder's backups.
+ */
+"replace_shared" | 
+/**
+ *  This instance's file goes to the Recycle Bin and the shared copy is
+ *  taken (options: once the game has written a new file).
+ */
+"replace_own" | 
+/**
+ *  This instance's records of the last sync start afresh; its file is
+ *  joined with the shared copy as on turning the kind on.
+ */
+"reset_records";
 
 /**  The user's confirmed choice, sent back to `execute_repair`. */
 export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "reinstall_loader" } | 
