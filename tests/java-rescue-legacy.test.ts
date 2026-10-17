@@ -19,6 +19,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
+
 import { open } from '@tauri-apps/plugin-dialog';
 
 const found = (major: number | null, version: string | null, dir: string) => ({
