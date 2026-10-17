@@ -118,6 +118,10 @@
   // The update check asks Modrinth / CurseForge about rows with a source and a project and skips
   // the rest (`assets_check_updates`): with none of those, it would answer «up to date» about
   // nothing, so it is disabled and says why.
+  // The backend's removal rule, mirrored for the bulk note: only a Modrinth or CurseForge pack can
+  // be downloaded again (`asset_folder::if_file_for`).
+  const downloadableAgain = (a: InstalledAsset) =>
+    a.source === 'modrinth' || a.source === 'curseforge';
   const nothingToCheck = $derived(
     assets.length > 0 && !assets.some((a) => a.source !== null && a.project_id !== null),
   );
@@ -341,7 +345,15 @@
         return;
       }
       folders = folders.filter((f) => f !== name);
-      pushSuccess(get(t)('addons.installed.trashedToast', { name }));
+      // Said from what happened: a folder already gone was not moved anywhere.
+      pushSuccess(
+        get(t)(
+          res.data === 'recycle_bin'
+            ? 'addons.installed.trashedToast'
+            : 'addons.installed.removedToast',
+          { name },
+        ),
+      );
     } finally {
       busy = false;
     }
@@ -786,8 +798,9 @@
       bodyText={[
         ...bulkNameLines(pendingBulkRemove.map((r) => r.name)),
         // Where each pack goes is the backend's rule (`asset_folder::if_file_for`): a folder, or a
-        // file with no source, to the recycle bin; a file Lucerna can download again is deleted.
-        ...(pendingBulkRemove.some((r) => r.form === 'folder' || r.asset.source === null)
+        // file not from Modrinth or CurseForge, to the recycle bin; one Lucerna can download again
+        // is deleted.
+        ...(pendingBulkRemove.some((r) => r.form === 'folder' || !downloadableAgain(r.asset))
           ? [$t('addons.installed.bulkRecycleNote')]
           : []),
       ]}

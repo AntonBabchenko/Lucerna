@@ -300,3 +300,50 @@ pub async fn asset_update_one(
     drop(write);
     updated
 }
+
+#[cfg(test)]
+mod asset_row_tests {
+    use super::asset_row;
+    use crate::mods::platform::ContentKind;
+
+    // `asset_row`'s `None` decides where a removed pack goes (the bin), so what
+    // reads as `None` is pinned, not left to the one `.ok()`.
+
+    #[tokio::test]
+    async fn a_registry_that_cannot_be_read_is_no_row() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(crate::mods::assets::registry_path(td.path()), b"{ not json").unwrap();
+        assert!(asset_row(td.path(), ContentKind::ResourcePack, "A.zip")
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn no_registry_is_no_row() {
+        let td = tempfile::tempdir().unwrap();
+        assert!(asset_row(td.path(), ContentKind::ResourcePack, "A.zip")
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn the_row_is_found_whatever_the_case_of_its_name() {
+        let td = tempfile::tempdir().unwrap();
+        let row = crate::mods::assets::make_asset(
+            ContentKind::ResourcePack,
+            "Faithful.zip",
+            "aa",
+            Some(crate::mods::platform::ModSource::Modrinth),
+            Some("faithful".into()),
+            Some("v1".into()),
+            "Faithful",
+            "2026-10-17T00:00:00+00:00".into(),
+        );
+        crate::mods::assets::add(td.path(), row).await.unwrap();
+        let found = asset_row(td.path(), ContentKind::ResourcePack, "faithful.ZIP").await;
+        assert_eq!(found.map(|a| a.name), Some("Faithful".to_string()));
+        assert!(asset_row(td.path(), ContentKind::Shader, "Faithful.zip")
+            .await
+            .is_none());
+    }
+}

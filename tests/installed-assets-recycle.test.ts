@@ -46,8 +46,8 @@ function byHand(filename: string): InstalledAsset {
   };
 }
 
-async function mountWith(files: InstalledAsset[]) {
-  assetsList.mockResolvedValue(ok({ files, folders: [] }));
+async function mountWith(files: InstalledAsset[], folders: string[] = []) {
+  assetsList.mockResolvedValue(ok({ files, folders }));
   render(InstalledAssetsView, { props: { instanceId: 'inst-1', kind: 'resource_pack' } });
   await screen.findByTestId('bulk-select-all');
 }
@@ -87,6 +87,26 @@ describe('InstalledAssetsView — where a removed pack goes', () => {
     expect(
       within(dialog).getByText(/did not come from Modrinth or CurseForge, go to the recycle bin/),
     ).toBeTruthy();
+  });
+
+  it('the bulk confirm names the recycle bin for a pack an FTB modpack placed', async () => {
+    await mountWith([downloaded('Faithful.zip'), { ...downloaded('Ftb.zip'), source: 'ftb' }]);
+    await fireEvent.click(screen.getByTestId('bulk-select-all'));
+    await fireEvent.click(
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Remove' }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/go to the recycle bin/)).toBeTruthy();
+  });
+
+  it('a folder already gone is said to be removed, not moved to the bin', async () => {
+    assetUninstall.mockResolvedValue(ok('already_gone'));
+    await mountWith([downloaded('Faithful.zip')], ['Dev Pack']);
+    const row = screen
+      .getAllByTestId(/asset-row|asset-folder-row/)
+      .find((r) => r.textContent?.includes('Dev Pack'));
+    await fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(toasts.pushSuccess).toHaveBeenCalledWith('Removed Dev Pack'));
   });
 
   it('the bulk confirm says nothing about the bin when every selected pack can be downloaded again', async () => {

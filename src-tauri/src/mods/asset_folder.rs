@@ -269,15 +269,17 @@ pub enum IfFile {
     Recycle,
 }
 
-/// A pack file Lucerna can download again — its row names a source — is
-/// deleted; one it cannot is moved to the recycle bin, as a folder pack is: a
-/// zip the user put in the folder by hand (adopted with no source) or one a
-/// modpack shipped in its overrides may be the only copy. No row — or a
-/// registry that could not be read, which the caller passes as `None` — is the
-/// restrictive answer: the bin.
+/// A pack file Lucerna can download again — its row names Modrinth or
+/// CurseForge, the catalogues it installs single packs from — is deleted; any
+/// other is moved to the recycle bin, as a folder pack is: a zip the user put
+/// in the folder by hand (adopted with no source), one a modpack shipped in its
+/// overrides, or one an FTB pack placed (`source: ftb`, not downloadable on its
+/// own) may be the only copy. No row — or a registry that could not be read,
+/// which the caller passes as `None` — is the restrictive answer: the bin.
 pub fn if_file_for(row: Option<&InstalledAsset>) -> IfFile {
-    match row {
-        Some(a) if a.source.is_some() => IfFile::Delete,
+    use crate::mods::platform::ModSource;
+    match row.and_then(|a| a.source) {
+        Some(ModSource::Modrinth | ModSource::Curseforge) => IfFile::Delete,
         _ => IfFile::Recycle,
     }
 }
@@ -547,6 +549,14 @@ mod tests {
             IfFile::Recycle,
             "no row (or the registry could not be read): the restrictive answer"
         );
+        row.source = Some(crate::mods::platform::ModSource::Ftb);
+        assert_eq!(
+            if_file_for(Some(&row)),
+            IfFile::Recycle,
+            "an FTB pack's file cannot be downloaded on its own"
+        );
+        row.source = Some(crate::mods::platform::ModSource::Curseforge);
+        assert_eq!(if_file_for(Some(&row)), IfFile::Delete, "CurseForge: again");
         row.source = Some(crate::mods::platform::ModSource::Modrinth);
         assert_eq!(
             if_file_for(Some(&row)),
