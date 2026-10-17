@@ -133,13 +133,12 @@ impl ParsedOptions {
         })
     }
 
-    /// The value of the first line whose key matches, if any.
+    /// The value the game reads for `key`: it loads the file into a map,
+    /// so the LAST line of a repeated key wins.
     pub(crate) fn get(&self, key: &str) -> Option<&str> {
-        self.pairs().find_map(|(k, v)| (k == key).then_some(v))
-    }
-
-    pub(crate) fn has_key(&self, key: &str) -> bool {
-        self.get(key).is_some()
+        self.pairs()
+            .filter_map(|(k, v)| (k == key).then_some(v))
+            .last()
     }
 
     /// The `version:` line as a DataVersion; `None` when it is missing or is
@@ -148,32 +147,27 @@ impl ParsedOptions {
         self.get("version")?.trim().parse().ok()
     }
 
-    /// Overwrite the first matching key's value in place; `false` (and no
-    /// change) when no line has that key. Never appends a line.
+    /// Overwrite the value of every line with `key` in place (a repeated
+    /// key too: the game reads the last one); `false` (and no change) when
+    /// no line has that key. Never appends a line.
     pub(crate) fn set_existing(&mut self, key: &str, value: String) -> bool {
-        let slot = self.lines.iter_mut().find_map(|l| match l {
-            Line::Pair(k, v) if key_of(k) == key => Some(v),
-            _ => None,
-        });
-        match slot {
-            Some(v) => {
-                *v = value;
-                true
+        let mut found = false;
+        for line in &mut self.lines {
+            if let Line::Pair(k, v) = line {
+                if key_of(k) == key {
+                    v.clone_from(&value);
+                    found = true;
+                }
             }
-            None => false,
         }
+        found
     }
 
-    /// Overwrite the first matching key's value in place, or append a new
-    /// `key:value` line at the end when no line has that key yet.
+    /// [`Self::set_existing`], or a new `key:value` line at the end when no
+    /// line has that key yet.
     pub(crate) fn set_or_append(&mut self, key: &str, value: String) {
-        let existing = self.lines.iter_mut().find_map(|l| match l {
-            Line::Pair(k, v) if key_of(k) == key => Some(v),
-            _ => None,
-        });
-        match existing {
-            Some(slot) => *slot = value,
-            None => self.lines.push(Line::Pair(key.to_string(), value)),
+        if !self.set_existing(key, value.clone()) {
+            self.lines.push(Line::Pair(key.to_string(), value));
         }
     }
 }
@@ -202,6 +196,19 @@ mod tests {
         assert_eq!(doc.render(), src);
         assert!(doc.set_existing("lang", "en_us".into()));
         assert_eq!(doc.render(), "version:3465\nlang:en_us\n");
+    }
+
+    /// The game reads options.txt into a map: the last line of a key wins. A
+    /// write must reach every line of it, or the game keeps the old value.
+    #[test]
+    fn a_repeated_key_reads_as_its_last_line_and_writes_to_every_line() {
+        let src = "version:3465\nfov:0.1\nlang:ru_ru\nfov:0.2\n";
+        let mut doc = ParsedOptions::parse(src);
+        assert_eq!(doc.get("fov"), Some("0.2"));
+        assert!(doc.set_existing("fov", "0.5".into()));
+        assert_eq!(doc.render(), "version:3465\nfov:0.5\nlang:ru_ru\nfov:0.5\n");
+        doc.set_or_append("fov", "0.7".into());
+        assert_eq!(doc.render(), "version:3465\nfov:0.7\nlang:ru_ru\nfov:0.7\n");
     }
 
     #[test]

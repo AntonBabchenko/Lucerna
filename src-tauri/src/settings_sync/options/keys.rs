@@ -60,7 +60,16 @@ pub(crate) fn readable(family: Family, token: &str) -> bool {
 }
 
 impl Modifier {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "SHIFT" => Some(Modifier::Shift),
+            "CONTROL" => Some(Modifier::Control),
+            "ALT" => Some(Modifier::Alt),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Modifier::Shift => "SHIFT",
             Modifier::Control => "CONTROL",
@@ -76,11 +85,8 @@ pub(crate) fn split(raw: &str) -> Option<(String, Option<Modifier>)> {
         return Some((raw.to_string(), None));
     };
     let modifier = match m {
-        "SHIFT" => Some(Modifier::Shift),
-        "CONTROL" => Some(Modifier::Control),
-        "ALT" => Some(Modifier::Alt),
         "NONE" => None,
-        _ => return None,
+        other => Some(Modifier::from_name(other)?),
     };
     Some((token.to_string(), modifier))
 }
