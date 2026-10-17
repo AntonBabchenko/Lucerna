@@ -51,6 +51,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use specta::Type;
 
+use crate::options_file::ParsedOptions;
+
 /// Filename prefix identifying a pack Lucerna generated. Matching the whole
 /// prefix (not one exact filename) is what makes switching target language
 /// correct: the stale ru_ru entry must go when a de_de pack replaces it.
@@ -63,159 +65,24 @@ const FILE_PREFIX: &str = "file/";
 const RESOURCE_PACKS_KEY: &str = "resourcePacks";
 
 // ---------------------------------------------------------------------
-// Lossless line-oriented parsing
+// resourcePacks on the shared parser (`crate::options_file`)
 // ---------------------------------------------------------------------
 
-/// Which line terminator `options.txt` uses. Minecraft's `PrintWriter` picks
-/// one separator (`System.lineSeparator()`) for the entire file and uses it
-/// consistently — CRLF on Windows, LF on Linux/macOS — never mixed within a
-/// single write.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LineEnding {
-    Lf,
-    Crlf,
+/// `resourcePacks`, defaulting to empty when the key is absent OR its
+/// value fails to parse as a JSON array of strings — a malformed value
+/// is treated the same as a missing one, never propagated.
+fn resource_packs(doc: &ParsedOptions) -> Vec<String> {
+    doc.get(RESOURCE_PACKS_KEY)
+        .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
+        .unwrap_or_default()
 }
 
-impl LineEnding {
-    fn as_str(self) -> &'static str {
-        match self {
-            LineEnding::Lf => "\n",
-            LineEnding::Crlf => "\r\n",
-        }
-    }
-}
-
-/// One physical line, preserved losslessly. Splitting on the FIRST `:` only
-/// (via `str::split_once`) is what keeps a value containing its own `:`
-/// (e.g. `lastServer:127.0.0.1:25565`) intact rather than truncated at the
-/// second colon.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Line {
-    Pair(String, String),
-    /// No colon found (a blank line, or a corrupted one). Reproduced
-    /// byte-for-byte on render — this is what makes "preserve every other
-    /// line verbatim, including keys we do not understand" hold even for
-    /// lines this module cannot interpret at all, not just ones it chooses
-    /// not to touch.
-    Other(String),
-}
-
-impl Line {
-    fn render(&self) -> String {
-        match self {
-            Line::Pair(k, v) => format!("{k}:{v}"),
-            Line::Other(s) => s.clone(),
-        }
-    }
-}
-
-/// A parsed `options.txt`: ordered lines plus enough information to
-/// reproduce the original byte stream when nothing changes.
-///
-/// Line-ending strategy: split on bare `'\n'` and strip a trailing `'\r'`
-/// from each resulting segment, then pick ONE ending for the whole document
-/// — CRLF if any segment carried a `'\r'`, LF otherwise. For any file with a
-/// single consistent terminator (100% of files Minecraft itself writes) this
-/// round-trips byte-for-byte: `render(parse(src)) == src` whenever no
-/// transform touches a line (see the `parsing_with_no_transform_is_the_identity_for_*`
-/// tests below). A hand-edited file with genuinely MIXED endings is
-/// normalised to one style rather than reproduced exactly — a defensible,
-/// non-corrupting best effort for a case Minecraft's own writer can never
-/// produce, and strictly better than the alternative bug this design avoids:
-/// an earlier draft that split on `"\r\n"` as a literal separator would, on
-/// a mixed file, silently fold a bare trailing `'\n'` into the last line's
-/// VALUE and then append a spurious extra terminator on render.
-struct ParsedOptions {
-    lines: Vec<Line>,
-    ending: LineEnding,
-    trailing_newline: bool,
-}
-
-impl ParsedOptions {
-    fn parse(src: &str) -> Self {
-        let trailing_newline = src.ends_with('\n');
-        let body = src.strip_suffix('\n').unwrap_or(src);
-        let raw_lines: Vec<&str> = if body.is_empty() && !trailing_newline {
-            Vec::new()
-        } else {
-            body.split('\n').collect()
-        };
-
-        let ending = if raw_lines.iter().any(|l| l.ends_with('\r')) {
-            LineEnding::Crlf
-        } else {
-            LineEnding::Lf
-        };
-
-        let lines = raw_lines
-            .into_iter()
-            .map(|raw| {
-                let raw = raw.strip_suffix('\r').unwrap_or(raw);
-                match raw.split_once(':') {
-                    Some((k, v)) => Line::Pair(k.to_string(), v.to_string()),
-                    None => Line::Other(raw.to_string()),
-                }
-            })
-            .collect();
-
-        Self {
-            lines,
-            ending,
-            trailing_newline,
-        }
-    }
-
-    fn render(&self) -> String {
-        let sep = self.ending.as_str();
-        let mut out = self
-            .lines
-            .iter()
-            .map(Line::render)
-            .collect::<Vec<_>>()
-            .join(sep);
-        if self.trailing_newline {
-            out.push_str(sep);
-        }
-        out
-    }
-
-    /// The value of the first line whose key matches, if any.
-    fn get_first(&self, key: &str) -> Option<&str> {
-        self.lines.iter().find_map(|l| match l {
-            Line::Pair(k, v) if k.as_str() == key => Some(v.as_str()),
-            _ => None,
-        })
-    }
-
-    /// Overwrite the first matching key's value in place, or append a new
-    /// `key:value` line at the end when no line has that key yet.
-    fn set_or_append(&mut self, key: &str, value: String) {
-        let existing = self.lines.iter_mut().find_map(|l| match l {
-            Line::Pair(k, v) if k.as_str() == key => Some(v),
-            _ => None,
-        });
-        match existing {
-            Some(slot) => *slot = value,
-            None => self.lines.push(Line::Pair(key.to_string(), value)),
-        }
-    }
-
-    /// `resourcePacks`, defaulting to empty when the key is absent OR its
-    /// value fails to parse as a JSON array of strings — a malformed value
-    /// is treated the same as a missing one, never propagated.
-    fn resource_packs(&self) -> Vec<String> {
-        self.get_first(RESOURCE_PACKS_KEY)
-            .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
-            .unwrap_or_default()
-    }
-
-    fn set_resource_packs(&mut self, packs: &[String]) {
-        // A `Vec<String>` cannot fail to serialize (no floats, no non-UTF8
-        // content possible in a Rust `String`); the fallback exists only so
-        // this stays total rather than needing an `unwrap()` justification.
-        let json = serde_json::to_string(packs).unwrap_or_else(|_| "[]".to_string());
-        self.set_or_append(RESOURCE_PACKS_KEY, json);
-    }
+fn set_resource_packs(doc: &mut ParsedOptions, packs: &[String]) {
+    // A `Vec<String>` cannot fail to serialize (no floats, no non-UTF8
+    // content possible in a Rust `String`); the fallback exists only so
+    // this stays total rather than needing an `unwrap()` justification.
+    let json = serde_json::to_string(packs).unwrap_or_else(|_| "[]".to_string());
+    doc.set_or_append(RESOURCE_PACKS_KEY, json);
 }
 
 /// Whether `entry` (a raw `resourcePacks` array element, with or without the
@@ -243,14 +110,14 @@ fn is_ours(entry: &str) -> bool {
 /// never be `None`.
 pub fn with_pack_enabled(src: &str, pack_filename: &str, file_prefix: bool) -> String {
     let mut doc = ParsedOptions::parse(src);
-    let mut packs = doc.resource_packs();
+    let mut packs = resource_packs(&doc);
     packs.retain(|p| !is_ours(p.as_str()));
     packs.push(if file_prefix {
         format!("{FILE_PREFIX}{pack_filename}")
     } else {
         pack_filename.to_string()
     });
-    doc.set_resource_packs(&packs);
+    set_resource_packs(&mut doc, &packs);
     doc.render()
 }
 
@@ -262,20 +129,19 @@ pub fn with_pack_enabled(src: &str, pack_filename: &str, file_prefix: bool) -> S
 /// propagated.
 pub fn with_pack_disabled(src: &str) -> String {
     let mut doc = ParsedOptions::parse(src);
-    if doc.get_first(RESOURCE_PACKS_KEY).is_none() {
+    if doc.get(RESOURCE_PACKS_KEY).is_none() {
         return doc.render();
     }
-    let mut packs = doc.resource_packs();
+    let mut packs = resource_packs(&doc);
     packs.retain(|p| !is_ours(p.as_str()));
-    doc.set_resource_packs(&packs);
+    set_resource_packs(&mut doc, &packs);
     doc.render()
 }
 
 /// Whether a Lucerna-generated pack is currently listed (in any position) in
 /// `resourcePacks`.
 pub fn is_pack_enabled(src: &str) -> bool {
-    ParsedOptions::parse(src)
-        .resource_packs()
+    resource_packs(&ParsedOptions::parse(src))
         .iter()
         .any(|p| is_ours(p.as_str()))
 }
@@ -436,8 +302,7 @@ mod tests {
     );
 
     fn packs_of(src: &str) -> Vec<String> {
-        let doc = ParsedOptions::parse(src);
-        doc.resource_packs()
+        resource_packs(&ParsedOptions::parse(src))
     }
 
     // -----------------------------------------------------------------
@@ -635,7 +500,7 @@ mod tests {
         // even though byte-for-byte preservation is not guaranteed here.
         let mixed = "a:1\r\nb:2\nc:3\r\n";
         let doc = ParsedOptions::parse(mixed);
-        assert_eq!(doc.lines.len(), 3);
+        assert_eq!(doc.pairs().count(), 3);
         let out = doc.render();
         assert!(out.contains("a:1"));
         assert!(out.contains("b:2"));

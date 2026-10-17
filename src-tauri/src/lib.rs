@@ -22,6 +22,7 @@ pub mod logs;
 pub mod mods;
 pub mod naming;
 pub mod network;
+pub(crate) mod options_file;
 pub mod paths;
 pub mod pathsafe;
 pub mod platform;
