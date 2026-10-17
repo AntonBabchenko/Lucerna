@@ -634,9 +634,9 @@ pub async fn clone_instance(
         &source_id,
         new_name,
         &options,
-        move |category, current, total| {
+        move |step, current, total| {
             let _ = on_progress.send(crate::instances::clone::CloneProgress {
-                category,
+                step,
                 current,
                 total,
             });
@@ -718,6 +718,24 @@ pub async fn open_addon_folder(
 ) -> Result<(), crate::error::Error> {
     let dir = addon_folder(&instance_root(&app, &instance_id)?, kind)?;
     open_dir(&app, &dir).await
+}
+
+/// Open the folder a mod-data copy kept the files it replaced in — the
+/// startup notice's "Open folder". `name` is the folder's name inside
+/// `lucerna/replaced`; the folder is never created (see `kept_folder`).
+#[tauri::command]
+#[specta::specta]
+pub async fn open_kept_folder(
+    app: tauri::AppHandle,
+    instance_id: String,
+    name: String,
+) -> Result<(), crate::error::Error> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = crate::instances::transfer::kept_folder(&instance_root(&app, &instance_id)?, &name)?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
 }
 
 /// Create `dir` if it is missing and open it in the file manager — the one

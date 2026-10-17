@@ -67,7 +67,7 @@ async fn extract_maven_tree(installer_bytes: &[u8], libs_root: &std::path::Path)
     let mut to_write: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).expect("zip index");
-        let name = entry.name().to_string();
+        let name = entry.name().unwrap().to_string();
         if !name.starts_with("maven/") || name.ends_with('/') {
             continue;
         }

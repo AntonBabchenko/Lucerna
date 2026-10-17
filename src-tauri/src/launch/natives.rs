@@ -67,17 +67,23 @@ fn extract_one(jar_path: &Path, dest: &Path) -> Result<()> {
         if entry.is_dir() {
             continue;
         }
-        if entry.name().starts_with("META-INF/") {
+        if crate::zip_entry::name(&entry).starts_with("META-INF/") {
             continue;
         }
-        // Refuse zip slip. `enclosed_name()` returns `None` for any entry
-        // whose path would escape the extraction root — `..` traversal AND
-        // absolute/rooted names (`/etc/x`, `C:\x`, a `\\?\` prefix on
-        // Windows). The earlier `contains("..")` check missed rooted names:
+        // Refuse zip slip. A rooted name (`/etc/x`, `\x`, `C:\x`, a `\\?\`
+        // prefix) is skipped here: zip 9's `enclosed_name()` would make it
+        // relative instead (`/etc/x` → `etc/x`), where zip 2 refused it, and a
+        // rooted entry in a natives jar is malformed. `enclosed_name()` then
+        // returns `None` for `..` traversal out of the extraction root. The
+        // earlier `contains("..")` check missed rooted names:
         // `dest.join("/abs/path")` discards `dest` entirely on Unix, so a
         // malicious jar could write outside the natives dir. Mojang's jars
         // are clean, but we parse zips from external sources and this is a
         // known CVE pattern.
+        let raw = crate::zip_entry::name(&entry);
+        if raw.starts_with(['/', '\\']) || raw.as_bytes().get(1) == Some(&b':') {
+            continue;
+        }
         let Some(safe_rel) = entry.enclosed_name() else {
             continue;
         };
@@ -202,6 +208,12 @@ mod tests {
         assert!(
             !tmp.path().join("escape.dll").exists(),
             "`..` traversal entry must be skipped"
+        );
+        // zip 9's `enclosed_name` makes a rooted name relative (`/abs.dll` →
+        // `abs.dll`) where zip 2 refused it; the entry stays skipped.
+        assert!(
+            !dest.join("abs.dll").exists(),
+            "a rooted entry is skipped, not made relative"
         );
     }
 

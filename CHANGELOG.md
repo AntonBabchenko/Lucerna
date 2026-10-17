@@ -23,6 +23,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Copy maps, schematics, replays and other mod data from another profile.**
+  Settings → Shared data copies Xaero's and JourneyMap's multiplayer maps,
+  Litematica and Create schematics, Flashback and ReplayMod replays, Distant
+  Horizons, Voxy and Bobby data, or any other folder a mod made; files with the
+  same name are replaced (the old ones go to the recycle bin) or kept, your
+  choice. Clone gained a "Mod data" option, and a cloned profile's resource and
+  shader packs keep their update checks.
 - **A folder button for every kind of add-on.** Add-ons shows "Mods folder",
   "Resource packs folder", "Shaders folder" or "Data packs folder" above the
   list, beside the source picker while browsing; the data packs one opens the
@@ -105,6 +112,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A Forge installer that can't be checked is no longer called corrupted.** If
   the site publishes no checksum for it, or the checksum didn't load, the
   launcher says exactly that, and still won't install it.
+
+### Security
+
+- Bumped `ammonia` 4.1.4 → 4.1.7 for RUSTSEC-2021-0157 and RUSTSEC-2021-0158.
+- Bumped `rustls` 0.23.45 → 0.23.46 for RUSTSEC-2026-0346, RUSTSEC-2026-0347,
+  RUSTSEC-2026-0348 and RUSTSEC-2026-0349.
 
 ## [0.27.0] — 2026-10-09
 

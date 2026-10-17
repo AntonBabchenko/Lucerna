@@ -26,7 +26,7 @@ fn local_jar(filename: &str) -> InstalledMod {
 fn archive_names(path: &std::path::Path) -> Vec<String> {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
     (0..zip.len())
-        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .map(|i| zip.by_index(i).unwrap().name().unwrap().to_string())
         .collect()
 }
 
@@ -91,7 +91,7 @@ async fn full_mode_export_round_trips_through_import_parser() {
 
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
     let names: Vec<String> = (0..zip.len())
-        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .map(|i| zip.by_index(i).unwrap().name().unwrap().to_string())
         .collect();
     assert!(names.iter().any(|n| n == "modrinth.index.json"));
     assert!(names.iter().any(|n| n == "overrides/mods/local.jar"));

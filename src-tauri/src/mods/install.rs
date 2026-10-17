@@ -790,6 +790,7 @@ async fn plan_mod_update(
         create,
         prior_pack_origin: None,
         prior_instance: None,
+        set_aside: crate::mods::txn::SetAsideDisposal::Delete,
     };
     Ok((plan, was_enabled))
 }

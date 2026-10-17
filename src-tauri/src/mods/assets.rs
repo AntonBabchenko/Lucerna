@@ -14,7 +14,7 @@ use crate::error::Error;
 use crate::mods::platform::{AssetListing, ContentKind, InstalledAsset, ModSource};
 use crate::mods::registry_lock;
 
-fn registry_path(instance_root: &Path) -> std::path::PathBuf {
+pub(crate) fn registry_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join("installed-assets.json")
 }
 

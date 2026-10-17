@@ -14,7 +14,7 @@ describe('clone adapter', () => {
 
   it('registers a task scoped to the source instance, feeds progress, finishes ok', async () => {
     vi.mocked(runClone).mockImplementation(async (_req, onProgress) => {
-      onProgress({ category: 'mods', current: 1, total: 4 } as never);
+      onProgress({ step: 'mods', current: 1, total: 4 } as never);
       return { status: 'ok', instanceId: 'inst-2', name: 'Copy' } as never;
     });
 

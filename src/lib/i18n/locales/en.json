@@ -395,7 +395,65 @@
       "progress": "Cloning to {name}…",
       "copying": "Copying {category} ({current}/{total})",
       "done": "Cloned to {name}",
-      "failed": "Couldn't clone {name}"
+      "failed": "Couldn't clone {name}",
+      "optionModData": "Mod data (maps, schematics, replays, LOD)",
+      "copyingModData": "Copying mod data ({current}/{total})",
+      "modDataUnavailable": "A mod data folder can't be read"
+    },
+    "transfer": {
+      "sectionTitle": "Shared data",
+      "sectionHint": "Copy maps, schematics, replays and other mod data from another instance. The other instance is only read.",
+      "openBtn": "Copy data from another instance…",
+      "lockedRunning": "Stop the game to copy data into this instance.",
+      "lockedBusy": "Data can be copied once the current task on this instance finishes.",
+      "dialogTitle": "Copy data into {name}",
+      "sourceLegend": "Copy from",
+      "sourcePlaceholder": "Choose an instance",
+      "sourceRunning": "running",
+      "sourceBusy": "busy",
+      "noOtherInstances": "There is no other instance to copy from.",
+      "scanning": "Looking at what {name} has…",
+      "nothingToCopy": "{name} has no mod data to copy.",
+      "whatLegend": "What to copy",
+      "otherLegend": "Other folders",
+      "otherHint": "Folders mods made in {name}. Some are caches you may not need.",
+      "filesSize": "{files, plural, one {# file} other {# files}} · {size}",
+      "alreadyHere": "{count, plural, one {# file is already here} other {# files are already here}}",
+      "versionCaution": "Data written by a newer version of a mod or of Minecraft may not open in an older one.",
+      "spMapsHint": "Only server maps; Clone brings over single-player maps.",
+      "lodHint": "Single-player data lives inside each world and is not copied here.",
+      "item": {
+        "schematics": "Schematics (Litematica, Create)",
+        "xaero": "Xaero's maps and waypoints",
+        "journeymap": "JourneyMap",
+        "flashback": "Flashback replays",
+        "replaymod": "ReplayMod replays",
+        "distant_horizons": "Distant Horizons (multiplayer)",
+        "voxy": "Voxy (multiplayer)",
+        "bobby": "Bobby chunk cache"
+      },
+      "linkedTarget": "Here it links to {target}; files are written there.",
+      "conflictLegend": "Files with the same name",
+      "conflictReplace": "Replace them with the copy (the old files go to the Recycle Bin)",
+      "conflictKeep": "Keep this instance's files, add only the missing ones",
+      "spaceWarning": "This needs about {need}, and the drive has {free} free.",
+      "copyBtn": "Copy",
+      "refusal": {
+        "broken_link": "{rel} links to a folder that is gone.",
+        "unreadable": "{rel} can't be read: {reason}",
+        "prefix_clash": "{rel} here has the same name as a folder or file in the copy.",
+        "inner_link": "{rel} here is a link; Lucerna will not write through it.",
+        "overlap": "Both instances use the same {rel} folder."
+      },
+      "done": "Copied data into {name}",
+      "failed": "Couldn't copy data into {name}",
+      "copiedLine": "{count, plural, one {# file copied} other {# files copied}}",
+      "replacedBinLine": "{count, plural, one {# of them replaced a file here; the old one is in the Recycle Bin} other {# of them replaced files here; the old ones are in the Recycle Bin}}",
+      "replacedKeptLine": "{count, plural, one {# of them replaced a file here; the old one is kept in} other {# of them replaced files here; the old ones are kept in}} {folder}",
+      "keptLine": "{count, plural, one {# file kept as it was} other {# files kept as they were}}",
+      "skippedLine": "{count, plural, one {# link inside a folder was not copied} other {# links inside folders were not copied}}",
+      "copying": "Copying files ({current}/{total})",
+      "placing": "Putting files in place ({current}/{total})"
     },
     "error": {
       "nameRequired": "Name is required",
@@ -676,7 +734,15 @@
     },
     "updateRecovery": {
       "restored": "An update of \"{name}\" was interrupted last time; it was undone and the profile is as it was.",
-      "incomplete": "An interrupted update of \"{name}\" could not be fully undone. Check its mods; what could not go back is kept in {folder}."
+      "incomplete": "An interrupted update of \"{name}\" could not be fully undone. Check its mods; what could not go back is kept in {folder}.",
+      "dataCopyRestored": "Copying data from \"{source}\" into \"{name}\" was interrupted last time; it was undone and the instance is as it was.",
+      "dataCopyIncomplete": "An interrupted copy of data into \"{name}\" could not be fully undone; what could not go back is kept in {folder}.",
+      "keptAside": "Files that an earlier copy of data replaced in \"{name}\" were moved to the folder \"{folder}\".",
+      "keptInPlace": "Files that an earlier copy of data replaced in \"{name}\" could not be moved out; they are kept in {folder}.",
+      "unknownRestored": "A change to \"{name}\" was interrupted last time; it was undone and the profile is as it was.",
+      "unknownIncomplete": "An interrupted change to \"{name}\" could not be fully undone; what could not go back is kept in {folder}.",
+      "openFolder": "Open folder",
+      "openFolderFailed": "Couldn't open the folder."
     },
     "settings": {
       "tabAria": "Instance settings",
@@ -2286,7 +2352,8 @@
         "assetRemoved": "Add-on removed",
         "modpackImported": "Modpack imported",
         "modpackUpdated": "Modpack updated",
-        "integrityRepaired": "Files repaired"
+        "integrityRepaired": "Files repaired",
+        "dataCopied": "Data copied"
       },
       "outcome": {
         "ok": "Closed normally",
@@ -2807,6 +2874,12 @@
     "worldMigratePartialLeft": "The migration failed and the incomplete copy couldn't be removed. Your original world is untouched in this instance. Delete the \"{folderName}\" folder inside the saves folder of \"{targetInstance}\" — it is not a complete world. See Logs for the cause.",
     "worldMigrateOnlyCopyParked": "The migration failed and the world could not be put back either. Your only copy is now the \"{folderName}\" folder inside the saves folder of \"{targetInstance}\" — do not delete it. Open that instance's Worlds tab: the world is listed there as an interrupted move and can be put back. See Logs for the cause.",
     "worldMigrateInstanceRunning": "Stop \"{name}\" first — it is the {role} of this migration.",
+    "transferInstanceBusy": "\"{name}\" is busy: it is the {role} of this copy.",
+    "transferRoleSource": "source",
+    "transferRoleTarget": "target",
+    "transferInvalidSelection": "\"{name}\" is not something Lucerna copies.",
+    "transferFailed": "The copy failed and nothing changed: {cause}",
+    "transferRollbackIncomplete": "The copy failed and could not be fully undone. What could not go back is kept in {folder}.",
     "playtimeIo": "Couldn't read or write playtime stats",
     "trayIo": "Couldn't show or hide the tray icon",
     "windowIo": "Couldn't resize the launcher window",
@@ -4533,7 +4606,8 @@
       "serverUpload": "Uploading server",
       "appUpdate": "Updating Lucerna",
       "dataMigration": "Migrating data folder",
-      "worldMigrate": "Migrating world"
+      "worldMigrate": "Migrating world",
+      "transfer": "Copying data"
     },
     "origin": {
       "modrinth": "Modrinth",

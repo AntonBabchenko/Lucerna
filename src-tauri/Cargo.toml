@@ -72,7 +72,10 @@ deunicode = "1"
 # md5 verification of ATLauncher-supplied mod digests (RustCrypto `Digest`,
 # same trait family as `sha1`). Integrity-matching only — never a security decision.
 md-5 = "0.11.0"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+# 9.x: every older release was yanked (zip-rs/zip2#1075). Not `deflate`, which
+# in 9.x adds the zlib-rs backend: these two keep the miniz_oxide backend that
+# `flate2` below already brings, as 2.x's `deflate` did.
+zip = { version = "9.0.4", default-features = false, features = ["deflate-flate2", "deflate-zopfli"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 quick-xml = { version = "0.41", default-features = false, features = ["serialize"] }
 # NBT (de)serialization for the per-instance `servers.dat` saved-server list.

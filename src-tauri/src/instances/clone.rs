@@ -34,13 +34,44 @@ pub struct CloneOptions {
     pub config: bool,
     pub options_txt: bool,
     pub playtime: bool,
+    /// Mod data (maps, schematics, replays, LOD): every `instances::transfer`
+    /// catalog item the source has, whole trees.
+    #[serde(default)]
+    pub mod_data: bool,
 }
 
-/// Per-category copy progress streamed to the UI (same counts shape the
-/// launcher import emits).
+/// What a clone is copying, for its progress row: a content category, or the
+/// mod data (`instances::transfer`), which is not one.
+#[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CloneStep {
+    Mods,
+    Config,
+    Saves,
+    ResourcePacks,
+    Shaderpacks,
+    OptionsTxt,
+    ModData,
+}
+
+impl From<ContentCategory> for CloneStep {
+    fn from(c: ContentCategory) -> Self {
+        match c {
+            ContentCategory::Mods => Self::Mods,
+            ContentCategory::Config => Self::Config,
+            ContentCategory::Saves => Self::Saves,
+            ContentCategory::ResourcePacks => Self::ResourcePacks,
+            ContentCategory::Shaderpacks => Self::Shaderpacks,
+            ContentCategory::OptionsTxt => Self::OptionsTxt,
+        }
+    }
+}
+
+/// Per-step copy progress streamed to the UI (same counts shape the launcher
+/// import emits).
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct CloneProgress {
-    pub category: ContentCategory,
+    pub step: CloneStep,
     pub current: u32,
     pub total: u32,
 }
@@ -109,7 +140,7 @@ pub fn copy_clone_content(
     src_root: &Path,
     dst_root: &Path,
     options: &CloneOptions,
-    progress: &mut dyn FnMut(ContentCategory, u32, u32),
+    progress: &mut dyn FnMut(CloneStep, u32, u32),
 ) -> Result<()> {
     let src_mc = src_root.join(".minecraft");
     let dst_mc = dst_root.join(".minecraft");
@@ -118,7 +149,7 @@ pub fn copy_clone_content(
     // registry, so the copy stays manageable without a rehash/re-enrich pass
     // (the registry reconciles against `mods/` on every read by design).
     copy_category(&src_mc, &dst_mc, ContentCategory::Mods, &mut |cur, tot| {
-        progress(ContentCategory::Mods, cur, tot)
+        progress(ContentCategory::Mods.into(), cur, tot)
     })?;
     copy_meta_file(
         &crate::mods::installed::registry_path(src_root),
@@ -141,7 +172,22 @@ pub fn copy_clone_content(
     }
     for cat in selected {
         copy_category(&src_mc, &dst_mc, cat, &mut |cur, tot| {
-            progress(cat, cur, tot)
+            progress(cat.into(), cur, tot)
+        })?;
+    }
+
+    if options.packs {
+        // The pack lists reconcile with their folder (#505); without its
+        // registry a pack installed from Add-ons shows on the clone as a
+        // manual row — no icon, no update checks.
+        copy_meta_file(
+            &crate::mods::assets::registry_path(src_root),
+            &crate::mods::assets::registry_path(dst_root),
+        )?;
+    }
+    if options.mod_data {
+        crate::instances::transfer::copy_for_clone(&src_mc, &dst_mc, &mut |cur, tot| {
+            progress(CloneStep::ModData, cur, tot)
         })?;
     }
 
@@ -249,7 +295,7 @@ pub fn clone_instance(
     source_id: &str,
     new_name: String,
     options: &CloneOptions,
-    mut progress: impl FnMut(ContentCategory, u32, u32),
+    mut progress: impl FnMut(CloneStep, u32, u32),
 ) -> Result<InstanceWithStatus> {
     let src = crate::instances::read_instance(app, source_id)?;
     let src_root =
@@ -298,6 +344,7 @@ mod tests {
             config: false,
             options_txt: false,
             playtime: false,
+            mod_data: false,
         }
     }
 
@@ -449,7 +496,7 @@ mod tests {
         );
     }
 
-    fn no_progress() -> impl FnMut(ContentCategory, u32, u32) {
+    fn no_progress() -> impl FnMut(CloneStep, u32, u32) {
         |_, _, _| {}
     }
 
@@ -595,6 +642,7 @@ mod tests {
             config: true,
             options_txt: true,
             playtime: true,
+            mod_data: true,
         };
 
         copy_clone_content(&src, &dst, &everything, &mut no_progress()).unwrap();
@@ -635,6 +683,7 @@ mod tests {
             config: true,
             options_txt: true,
             playtime: true,
+            mod_data: true,
         };
 
         copy_clone_content(&src, &dst, &options, &mut no_progress()).unwrap();
@@ -655,6 +704,7 @@ mod tests {
             config: true,
             options_txt: true,
             playtime: true,
+            mod_data: true,
         };
 
         copy_clone_content(&src, &dst, &options, &mut no_progress()).unwrap();
@@ -683,14 +733,61 @@ mod tests {
             ..all_off()
         };
 
-        let mut seen: Vec<(ContentCategory, u32, u32)> = Vec::new();
+        let mut seen: Vec<(CloneStep, u32, u32)> = Vec::new();
         copy_clone_content(&src, &dst, &options, &mut |cat, cur, tot| {
             seen.push((cat, cur, tot));
         })
         .unwrap();
 
-        assert!(seen.contains(&(ContentCategory::Mods, 1, 1)));
-        assert!(seen.contains(&(ContentCategory::Saves, 1, 1)));
+        assert!(seen.contains(&(CloneStep::Mods, 1, 1)));
+        assert!(seen.contains(&(CloneStep::Saves, 1, 1)));
+    }
+
+    #[test]
+    fn mod_data_copies_whole_map_trees_including_single_player() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
+        for rel in [
+            "xaero/minimap/New World/sp.txt",
+            "xaero/minimap/Multiplayer_a/mp.txt",
+            "schematics/a.nbt",
+        ] {
+            let p = src.join(".minecraft").join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"x").unwrap();
+        }
+        std::fs::create_dir_all(dst.join(".minecraft")).unwrap();
+        let options = CloneOptions {
+            mod_data: true,
+            ..all_off()
+        };
+        copy_clone_content(&src, &dst, &options, &mut no_progress()).unwrap();
+        for rel in [
+            "xaero/minimap/New World/sp.txt",
+            "xaero/minimap/Multiplayer_a/mp.txt",
+            "schematics/a.nbt",
+        ] {
+            assert!(dst.join(".minecraft").join(rel).is_file(), "{rel}");
+        }
+    }
+
+    #[test]
+    fn packs_bring_their_registry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
+        std::fs::create_dir_all(src.join(".minecraft/resourcepacks")).unwrap();
+        std::fs::write(src.join(".minecraft/resourcepacks/p.zip"), b"p").unwrap();
+        std::fs::write(src.join("installed-assets.json"), br#"{"assets":[]}"#).unwrap();
+        std::fs::create_dir_all(dst.join(".minecraft")).unwrap();
+        let options = CloneOptions {
+            packs: true,
+            ..all_off()
+        };
+        copy_clone_content(&src, &dst, &options, &mut no_progress()).unwrap();
+        assert_eq!(
+            std::fs::read(dst.join("installed-assets.json")).unwrap(),
+            br#"{"assets":[]}"#
+        );
     }
 
     #[test]

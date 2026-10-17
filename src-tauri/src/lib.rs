@@ -45,6 +45,7 @@ pub mod verify;
 pub mod versions;
 pub mod window;
 pub mod worlds;
+pub mod zip_entry;
 
 /// General-purpose process-wide lock for the few tests that need exclusive
 /// access to a global (e.g. the in-memory keyring backend's `TEST_KEY`).
@@ -106,6 +107,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::share_log_to_mclogs,
             commands::open_mods_folder,
             commands::open_addon_folder,
+            commands::open_kept_folder,
             commands::mods_reveal_file,
             commands::list_worlds,
             commands::list_world_names,
@@ -271,6 +273,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Instance clone (Session 3):
             commands::clone_instance,
             commands::clone_instance_scan,
+            // Mod-data transfer between instances (feedback #4 item 7):
+            commands::transfer_scan,
+            commands::transfer_mod_data,
+            commands::mod_data_scan,
             // Onboarding (v0.5.0 sub-feature 5):
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,
