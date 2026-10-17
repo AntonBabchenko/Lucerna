@@ -413,6 +413,9 @@ pub(crate) fn entry_for_name(dv: i32, name: &str) -> Option<Entry<'_>> {
 }
 
 /// The entry that writes neutral key `neutral` in a game of DataVersion `dv`.
+/// A write looks a key up by the name on its line ([`entry_for_name`]); this
+/// side states the catalog's ranges in the tests.
+#[cfg(test)]
 pub(crate) fn entry_for_neutral(dv: i32, neutral: &str) -> Option<Entry<'_>> {
     if FIXED.iter().any(|e| e.neutral == neutral) {
         return FIXED
