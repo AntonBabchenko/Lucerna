@@ -87,12 +87,13 @@ pub fn artifacts_to_install(
         .filter(|dl| dl.artifact.is_some() || dl.classifiers.is_some())
     {
         // Vanilla path — full downloads block with SHA-1. Empty URL means
-        // the artifact is produced locally (e.g. modern-era Forge ships
-        // `net.minecraftforge:forge:<mc>-<fv>:client` in version.json with
-        // `url=""`; this is the `{PATCHED}` output of binarypatcher, not
-        // a downloadable jar). We STILL emit the tuple — it's needed for
-        // classpath construction at launch. The download path
-        // (`ensure_libraries`) skips empty-URL entries separately.
+        // the artifact is produced locally: Forge 1.20.6+ lists
+        // `net.minecraftforge:forge:<mc>-<fv>:client` in its own version.json
+        // with `url=""`, the `{PATCHED}` output of binarypatcher, not a
+        // downloadable jar. (Lucerna no longer adds such an entry for older
+        // Forge, spec 2026-10-16 §3.1.) We STILL emit the tuple: it is a
+        // classpath entry at launch. The download path (`ensure_libraries`)
+        // skips empty-URL entries separately.
         if let Some(art) = dl.artifact.as_ref() {
             out.push((
                 art.path.clone(),
@@ -279,16 +280,14 @@ pub async fn ensure_libraries(
                     downloaded,
                 };
                 if url.is_empty() {
-                    // Locally-produced artifact (e.g. modern-era Forge's
+                    // Locally produced artifact (e.g. Forge 1.20.6+'s
                     // `{PATCHED}` client jar =
-                    // `net.minecraftforge:forge:<mc>-<fv>:client`). The
-                    // published SHA1 in version.json refers to Forge's
-                    // reference installer's exact JAR output; our local Java
-                    // binarypatcher produces semantically-identical class bytes
-                    // but JAR packing (entry order, deflate parameters, zip
-                    // timestamps) is non-deterministic across JVMs / runs, so
-                    // the file SHA1 won't bytewise-match the reference. Trust
-                    // by existence (TOFU) — the install pipeline made it.
+                    // `net.minecraftforge:forge:<mc>-<fv>:client`). Forge's own
+                    // tools reproduce the SHA-1 published for it (spec
+                    // 2026-10-16 §2.1a), and the processor stage checks it
+                    // where the installer declares it. This list is not where
+                    // processor outputs are verified, so existence is enough
+                    // here: the install pipeline made it.
                     if tokio::fs::metadata(&dest).await.is_ok() {
                         return Ok(outcome(false));
                     }

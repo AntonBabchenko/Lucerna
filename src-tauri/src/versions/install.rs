@@ -128,6 +128,43 @@ pub async fn install_version(
     let json_was_cached = tokio::fs::metadata(&json_path).await.is_ok();
     let details = ensure_version_json(version_id, app).await?;
     emit(app, version_id, InstallPhase::Manifest, 1, 1, 0.0);
+
+    // A Forge/NeoForge install whose declared processor outputs are missing or
+    // stale is rebuilt here: on Install, and on Repair, which runs a full install
+    // for any locally produced library problem (spec 2026-10-16 §5.3).
+    if let Some((loader, loader_ver, mc)) = crate::versions::loaders::parse_synth_id(version_id) {
+        let flavor = match loader {
+            crate::versions::loaders::Loader::Forge => Some(crate::forge::ForgeFlavor::Forge),
+            crate::versions::loaders::Loader::NeoForge => Some(crate::forge::ForgeFlavor::NeoForge),
+            _ => None,
+        };
+        if let Some(flavor) = flavor {
+            let emit_rebuild = || {
+                InstallProgress {
+                    version_id: version_id.to_string(),
+                    phase: InstallPhase::ForgeInstall,
+                    files_done: 0,
+                    files_total: 1,
+                    bytes_done: 0.0,
+                    current_step: Some(format!(
+                        "Rebuilding {} {loader_ver} files for {mc}",
+                        loader.display_name()
+                    )),
+                }
+                .emit(app)
+                .ok();
+            };
+            crate::forge::installer::processors::ensure_processor_outputs(
+                flavor,
+                &mc,
+                &loader_ver,
+                &details.main_class,
+                app,
+                emit_rebuild,
+            )
+            .await?;
+        }
+    }
     report.push(super::report::file_row(
         format!("{version_id}.json"),
         json_path.display().to_string(),
@@ -281,13 +318,15 @@ pub async fn install_version(
     // Same invariant: vanilla parent always supplies downloads.
     let client_download = require_client_downloads(&details)?;
     emit(app, version_id, InstallPhase::Client, 0, 1, 0.0);
-    // Vanilla MC client.jar must live at `versions/<mc>/<mc>.jar` only.
-    // For synth installs (Fabric/Quilt/Forge/NeoForge), route to the parent
-    // MC's id; otherwise the vanilla client would be duplicated at
-    // `versions/<synth>/<synth>.jar`, where it conflicts with NeoForge 21.x's
-    // FML 4.0.42 module-name heuristic (which takes the filename's first
-    // dash-segment as the module name → `neoforge` → collides with the
-    // universal jar that's also module `neoforge`).
+    // The vanilla client jar is downloaded to `versions/<mc>/<mc>.jar` only;
+    // for a synth install (Fabric/Quilt/Forge/NeoForge) that is the parent
+    // MC's id. A loader profile whose ignore list names its version jar
+    // (`-DignoreList=…,${version_name}.jar`, BootstrapLauncher-era Forge and
+    // NeoForge) gets a link or copy under exactly that name at launch
+    // (`launch::version_jar`). Under any other name the module layer picks the
+    // jar up and the game fails with a JPMS ResolutionException. That, not
+    // duplication as such, is what broke NeoForge 21.x in v0.4.1 (spec
+    // 2026-10-16 §2.2).
     let client_dest_id = crate::versions::loaders::parse_synth_id(version_id)
         .map(|(_loader, _lv, mc)| mc)
         .unwrap_or_else(|| version_id.to_string());

@@ -1,0 +1,39 @@
+org/example/Aardvark c
+	<init> ()V <init>
+org/example/alpha/Widget a
+	count a
+	label b
+	parts c
+	stamp d
+	<clinit> ()V <clinit>
+	<init> (Ljava/lang/String;[[I)V <init>
+	<init> (I)V <init>
+	<init> ()V <init>
+	describe (I)Ljava/lang/String; h
+	isEmpty ()Z g
+	of (Ljava/lang/Object;)V k
+	of (II)V k
+	of (J)V k
+	of (I)V k
+	part (I)Lorg/example/alpha/Widget$Part; i
+	parts ()Ljava/util/List; j
+	render (Lorg/example/alpha/Widget;)V f
+	render ([C)V f
+	render (BS)V f
+	render (JJJ)V f
+	render (DZ)V f
+	render (F)V f
+	render ()V f
+	size ()I e
+org/example/alpha/Widget$Part a$a
+	weight a
+	<init> (F)V <init>
+	weight ()F a
+org/example/beta/Gadget b
+	flags a
+	<init> ()V <init>
+	apply ([Lorg/example/alpha/Widget;)V b
+	tick (I)V a
+	tick (II)V a
+	tick ()V a
+	tick (Ljava/lang/String;)V a

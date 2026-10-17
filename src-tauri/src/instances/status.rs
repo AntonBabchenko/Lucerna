@@ -58,10 +58,11 @@ pub fn effective_version_id(instance: &InstanceFile) -> Option<String> {
 ///   again. Without this check, an unrelated vanilla install of the
 ///   parent MC would falsely satisfy the jar-only check.
 /// - The client jar lives at `versions/<parent_mc>/<parent_mc>.jar`
-///   even for synth ids (Fabric/Quilt/Forge/NeoForge) per the v0.4.1
-///   invariant in install.rs and spawn.rs (vanilla MC jar is never
-///   duplicated under a synth dir). Resolve through parse_synth_id so
-///   this check matches what launch::spawn looks for.
+///   even for synth ids (Fabric/Quilt/Forge/NeoForge). A profile that names
+///   its version jar gets a link or copy of it at launch
+///   (`launch::version_jar`), derived from this jar, so this jar is all a
+///   ready instance needs. Resolve through parse_synth_id so this check
+///   matches what launch::spawn reads.
 pub fn ready_status(versions_dir: &Path, instance: &InstanceFile) -> bool {
     let Some(effective_id) = effective_version_id(instance) else {
         return false;

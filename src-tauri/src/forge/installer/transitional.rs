@@ -1,6 +1,9 @@
-//! MC 1.13.x — 1.16.x installer era. install_profile v2 + embedded
-//! /version.json + 4 processors (installertools, jarsplitter,
-//! SpecialSource, binarypatcher).
+//! MC 1.13.x — 1.16.x installer era: install_profile v2 + an embedded
+//! /version.json + 4 processors (installertools, jarsplitter, SpecialSource,
+//! binarypatcher). They run in the shared stage `super::processors`, as
+//! Forge's own installer runs them. This file also holds the install_profile
+//! parser, the argument substitution and the maven-tree extractor that every
+//! processor-era installer shares.
 
 use crate::error::{Error, Result};
 use crate::versions::version_json::VersionDetails;
@@ -181,149 +184,19 @@ pub async fn install(
         })?
     };
 
-    // 3-5. Compute paths.
-    let app_data = crate::paths::app_dir(app).map_err(|e| Error::io("<app_data>", e))?;
-    let cache_dir = app_data
-        .join("forge")
-        .join("cache")
-        .join(format!("{mc}-{fv}"));
-    tokio::fs::create_dir_all(&cache_dir)
-        .await
-        .map_err(|e| Error::io(cache_dir.display().to_string(), e))?;
-    let cache_dir_str = cache_dir.display().to_string();
-    let libs_root = crate::paths::libraries_dir(app).map_err(|e| Error::io("<libraries>", e))?;
-    let installer_cache_path = app_data
-        .join("forge")
-        .join("installers")
-        .join(format!("{mc}-{fv}.jar"));
-    let installer_path_str = installer_cache_path.display().to_string();
-    let minecraft_jar = app_data
-        .join("versions")
-        .join(mc)
-        .join(format!("{mc}.jar"))
-        .display()
-        .to_string();
-
-    // 6. Sequence processors.
-    use crate::forge::patcher::{run_processor, ProcessorContext};
-    use crate::versions::libraries::ensure_libraries;
-    let os = crate::versions::install::current_os();
-    let arch = crate::versions::install::current_arch();
-
-    // Ensure the vanilla MC client.jar is present BEFORE processors run.
-    // Processors 1-3 (jarsplitter, SpecialSource, binarypatcher) consume it
-    // via the {MINECRAFT_JAR} placeholder. In the normal UI flow the caller
-    // (install_version) already downloads vanilla before entering the Forge
-    // pipeline, but this function can be called in isolation (e.g. from e2e
-    // tests) and should be self-sufficient — it's idempotent when cached.
-    let vanilla_jre_component;
-    let vanilla_major;
-    {
-        let vanilla_details = crate::versions::install::ensure_version_json(mc, app).await?;
-        vanilla_major = crate::java::required_major(&vanilla_details);
-        vanilla_jre_component = vanilla_details
-            .java_version
-            .as_ref()
-            .map(|jv| jv.component.clone())
-            .unwrap_or_else(|| crate::jre::DEFAULT_LEGACY_COMPONENT.to_string());
-        let client_download = vanilla_details.downloads.as_ref().ok_or_else(|| {
-            crate::error::Error::ForgeInstallerCorrupted {
-                mc: mc.into(),
-                fv: fv.into(),
-                details: "vanilla version JSON has no downloads field".into(),
-            }
-        })?;
-        // Discarding the downloaded-vs-cached flag: the Forge installer path
-        // builds no install report.
-        let _ = crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
-    }
-
-    // Ensure JRE is installed BEFORE running processors. The SpecialSource
-    // processor (Java subprocess) requires it. Installing upfront is idempotent
-    // and cheap when already cached. Use a no-op progress callback — this
-    // function doesn't have the event-emission infrastructure that
-    // install_version has; the JRE is typically already installed by the time
-    // the Forge install step runs.
-    // The processors write the shared libraries cache and their output is not
-    // checksummed, so they run on Lucerna's runtime only — never on a Java the
-    // user chose. When that runtime cannot be had, the error says this step
-    // needed it (spec 2026-10-11-custom-java §7.1).
-    crate::jre::ensure_jre(&vanilla_jre_component, app, |_, _, _| {})
-        .await
-        .map_err(|e| {
-            crate::jre::unavailable(
-                e,
-                &vanilla_jre_component,
-                vanilla_major,
-                crate::error::JreStage::InstallerTools,
-                app,
-            )
-        })?;
-    let java_bin = crate::jre::java_executable_path(&vanilla_jre_component, app)?;
-
-    // Extract maven/ subtree from installer (forge universal jar etc.) into
-    // libs_root before fetching networked libraries. These entries appear in
-    // libraries[] without a URL because they ship inside the installer JAR.
-    extract_installer_maven_tree(installer_bytes, &libs_root).await?;
-
-    // Filter to only entries that have a download URL — the URL-less ones
-    // (forge universal etc.) are already on disk from extract_installer_maven_tree.
-    let downloadable: Vec<crate::versions::version_json::Library> = profile
-        .libraries
-        .iter()
-        .filter(|l| {
-            let from_top = l.url.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
-            let from_artifact = l
-                .downloads
-                .as_ref()
-                .and_then(|d| d.artifact.as_ref())
-                .map(|a| !a.url.is_empty())
-                .unwrap_or(false);
-            from_top || from_artifact
-        })
-        .cloned()
-        .collect();
-    ensure_libraries(&downloadable, os, arch, app).await?;
-
-    for p in &profile.processors {
-        // Skip if `sides` is specified and doesn't include "client".
-        if let Some(sides) = &p.sides {
-            if !sides.iter().any(|s| s == "client") {
-                continue;
-            }
-        }
-        let cp_libs = classpath_coords_to_libraries(&p.classpath);
-        ensure_libraries(&cp_libs, os, arch, app).await?;
-        let resolved = substitute_args(
-            &p.args,
-            &profile.data,
-            "client",
-            &libs_root,
-            installer_bytes,
-            &installer_path_str,
-            &cache_dir_str,
-            &minecraft_jar,
-        )
-        .await?;
-        let mut cp_paths: Vec<std::path::PathBuf> = p
-            .classpath
-            .iter()
-            .filter_map(|c| crate::forge::patcher::maven_coord_to_relative_path(c))
-            .map(|rel| libs_root.join(rel))
-            .collect();
-        // Include processor's OWN jar so Java can find its main class.
-        // The classpath declared in install_profile lists dependencies only;
-        // the processor jar itself is separate (it IS the tool, not a dep).
-        if let Some(rel) = crate::forge::patcher::maven_coord_to_relative_path(&p.jar) {
-            cp_paths.push(libs_root.join(rel));
-        }
-        let ctx = ProcessorContext {
-            classpath: cp_paths,
-            cache_dir: cache_dir.clone(),
-            java_bin: Some(java_bin.clone()),
-        };
-        run_processor(&p.jar, resolved, &ctx).await?;
-    }
+    // 3. Inputs (vanilla jar, Lucerna's runtime, maven tree, profile libraries),
+    // then every client processor as Forge's installer runs it, its declared
+    // outputs checked (spec 2026-10-16 §5.1).
+    use super::processors::{prepare, run_client_processors, stage_lock, AppStageIo};
+    let env = prepare(&profile, installer_bytes, mc, fv, app).await?;
+    let _stage = stage_lock(&env.installer_path).await;
+    run_client_processors(
+        &profile,
+        installer_bytes,
+        &env,
+        &AppStageIo { app: app.clone() },
+    )
+    .await?;
 
     Ok(crate::forge::profile::assemble_from_transitional(
         version_details,

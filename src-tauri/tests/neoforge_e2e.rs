@@ -33,10 +33,10 @@
 //!   FML 2.0.17 / modlauncher 10.0.9 (20.4.x bootstrap era).
 //! - `install_neoforge_1_21_1_e2e` — NeoForge 21.1.230 / MC 1.21.1.
 //!   FML 4.0.42 / modlauncher 11.0.5 / securejarhandler 3.0.8 (21.x bootstrap era).
-//!   This is the boundary where ADDENDUM D must NOT inject the :client jar:
-//!   securejarhandler 3.0.8 promotes it to a JPMS module "neoforge" colliding
-//!   with the universal jar → java.lang.module.ResolutionException. Regression
-//!   test for the fix in forge/installer/modern.rs (ADDENDUM D neoforge skip).
+//!   A :client jar on -cp here would be promoted to a JPMS module "neoforge"
+//!   colliding with the universal jar (ResolutionException), so the install
+//!   must leave it off the library list. Lucerna no longer adds it for any
+//!   loader (spec 2026-10-16 §3.1).
 
 // ── 20.4.x (FML 2.x) constants ─────────────────────────────────────────────
 
@@ -130,6 +130,41 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
         .unwrap_or_else(|e| panic!("failed to download {url}: {e:?}"));
 }
 
+/// This harness's library downloads, for the production processor stage.
+struct HarnessIo {
+    libs_root: std::path::PathBuf,
+    os: &'static str,
+    arch: &'static str,
+}
+
+impl lucerna_lib::forge::installer::processors::StageIo for HarnessIo {
+    async fn ensure_libraries(
+        &self,
+        libs: &[lucerna_lib::versions::version_json::Library],
+    ) -> lucerna_lib::error::Result<()> {
+        for lib in libs {
+            for (rel, url, sha1, _size) in
+                lucerna_lib::versions::libraries::artifacts_to_install(lib, self.os, self.arch)
+            {
+                let dest = self.libs_root.join(&rel);
+                if !url.is_empty() && !dest.is_file() {
+                    download_lib(&url, &dest, &sha1).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn run(
+        &self,
+        coord: &str,
+        args: Vec<String>,
+        ctx: &lucerna_lib::forge::patcher::ProcessorContext,
+    ) -> lucerna_lib::error::Result<()> {
+        lucerna_lib::forge::patcher::run_processor(coord, args, ctx).await
+    }
+}
+
 #[tokio::test]
 #[ignore]
 async fn install_neoforge_1_20_4_e2e() {
@@ -191,7 +226,6 @@ async fn install_neoforge_1_20_4_e2e() {
     tokio::fs::create_dir_all(&libs_root).await.unwrap();
 
     let cache_dir_str = cache_dir.display().to_string();
-    let installer_path_str = installer_cache_path.display().to_string();
     eprintln!("libs_root = {}", libs_root.display());
     eprintln!("cache_dir = {cache_dir_str}");
 
@@ -281,65 +315,29 @@ async fn install_neoforge_1_20_4_e2e() {
         }
     }
 
-    // 6. Run processors.
-    eprintln!("--- step 6: processors ---");
-    use lucerna_lib::forge::installer::transitional::{
-        classpath_coords_to_libraries, substitute_args,
+    // 6. Run processors: the production stage (spec 2026-10-16 §5.1), with
+    // this harness's own downloader.
+    eprintln!("--- step 6: processors (production stage) ---");
+    let env = lucerna_lib::forge::installer::processors::StageEnv {
+        libs_root: libs_root.clone(),
+        cache_dir: cache_dir.clone(),
+        installer_path: installer_cache_path.clone(),
+        minecraft_jar: std::path::PathBuf::from(&minecraft_jar),
+        // "java" on PATH, as this harness always used.
+        java_bin: None,
     };
-    use lucerna_lib::forge::patcher::{run_processor, ProcessorContext};
-
-    for (i, p) in profile.processors.iter().enumerate() {
-        if let Some(sides) = &p.sides {
-            if !sides.iter().any(|s| s == "client") {
-                eprintln!("  processor {i} ({}) — skipped (server-only)", p.jar);
-                continue;
-            }
-        }
-        eprintln!("  processor {i}: {}", p.jar);
-
-        let cp_libs = classpath_coords_to_libraries(&p.classpath);
-        for lib in &cp_libs {
-            for (rel_path, url, sha1, _size) in
-                lucerna_lib::versions::libraries::artifacts_to_install(lib, os, arch)
-            {
-                download_lib(&url, &libs_root.join(&rel_path), &sha1).await;
-            }
-        }
-
-        let resolved = substitute_args(
-            &p.args,
-            &profile.data,
-            "client",
-            &libs_root,
-            &installer_bytes,
-            &installer_path_str,
-            &cache_dir_str,
-            &minecraft_jar,
-        )
-        .await
-        .unwrap_or_else(|e| panic!("substitute_args for processor {i} failed: {e:?}"));
-        eprintln!("    resolved args: {resolved:?}");
-
-        let mut cp_paths: Vec<std::path::PathBuf> = p
-            .classpath
-            .iter()
-            .filter_map(|c| lucerna_lib::forge::patcher::maven_coord_to_relative_path(c))
-            .map(|rel| libs_root.join(rel))
-            .collect();
-        if let Some(rel) = lucerna_lib::forge::patcher::maven_coord_to_relative_path(&p.jar) {
-            cp_paths.push(libs_root.join(rel));
-        }
-        let ctx = ProcessorContext {
-            classpath: cp_paths,
-            cache_dir: cache_dir.clone(),
-            // Falls back to "java" on PATH — e2e harness expects system JRE.
-            java_bin: None,
-        };
-        run_processor(&p.jar, resolved, &ctx)
-            .await
-            .unwrap_or_else(|e| panic!("processor {i} ({}) failed: {e:?}", p.jar));
-        eprintln!("    processor {i} OK");
-    }
+    lucerna_lib::forge::installer::processors::run_client_processors(
+        &profile,
+        &installer_bytes,
+        &env,
+        &HarnessIo {
+            libs_root: libs_root.clone(),
+            os,
+            arch,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("processors failed: {e:?}"));
 
     // 7. Assemble.
     eprintln!("--- step 7: assemble VersionDetails ---");
@@ -363,7 +361,7 @@ async fn install_neoforge_1_20_4_e2e() {
 
 // ── NeoForge 21.1.230 / MC 1.21.1 ───────────────────────────────────────────
 //
-// Regression test for the ADDENDUM D JPMS module collision bug:
+// Regression test for the JPMS module collision a :client jar on -cp causes:
 //
 //   NeoForge 21.x uses FML 4.0.42 + securejarhandler 3.0.8 which promotes
 //   :client jars on -cp to JPMS modules by filename heuristic. The universal
@@ -495,7 +493,6 @@ async fn install_neoforge_1_21_1_e2e() {
     tokio::fs::create_dir_all(&libs_root).await.unwrap();
 
     let cache_dir_str = cache_dir.display().to_string();
-    let installer_path_str = installer_cache_path.display().to_string();
     eprintln!("libs_root = {}", libs_root.display());
     eprintln!("cache_dir = {cache_dir_str}");
 
@@ -585,115 +582,34 @@ async fn install_neoforge_1_21_1_e2e() {
         }
     }
 
-    // 6. Run processors.
-    eprintln!("--- step 6: processors ---");
-    use lucerna_lib::forge::installer::transitional::{
-        classpath_coords_to_libraries, substitute_args,
+    // 6. Run processors: the production stage (spec 2026-10-16 §5.1), with
+    // this harness's own downloader.
+    eprintln!("--- step 6: processors (production stage) ---");
+    let env = lucerna_lib::forge::installer::processors::StageEnv {
+        libs_root: libs_root.clone(),
+        cache_dir: cache_dir.clone(),
+        installer_path: installer_cache_path.clone(),
+        minecraft_jar: std::path::PathBuf::from(&minecraft_jar),
+        // "java" on PATH, as this harness always used.
+        java_bin: None,
     };
-    use lucerna_lib::forge::patcher::{run_processor, ProcessorContext};
+    lucerna_lib::forge::installer::processors::run_client_processors(
+        &profile,
+        &installer_bytes,
+        &env,
+        &HarnessIo {
+            libs_root: libs_root.clone(),
+            os,
+            arch,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("processors failed: {e:?}"));
 
-    for (i, p) in profile.processors.iter().enumerate() {
-        if let Some(sides) = &p.sides {
-            if !sides.iter().any(|s| s == "client") {
-                eprintln!("  processor {i} ({}) — skipped (server-only)", p.jar);
-                continue;
-            }
-        }
-        eprintln!("  processor {i}: {}", p.jar);
-
-        let cp_libs = classpath_coords_to_libraries(&p.classpath);
-        for lib in &cp_libs {
-            for (rel_path, url, sha1, _size) in
-                lucerna_lib::versions::libraries::artifacts_to_install(lib, os, arch)
-            {
-                download_lib(&url, &libs_root.join(&rel_path), &sha1).await;
-            }
-        }
-
-        let resolved = substitute_args(
-            &p.args,
-            &profile.data,
-            "client",
-            &libs_root,
-            &installer_bytes,
-            &installer_path_str,
-            &cache_dir_str,
-            &minecraft_jar,
-        )
-        .await
-        .unwrap_or_else(|e| panic!("substitute_args for processor {i} failed: {e:?}"));
-        eprintln!("    resolved args: {resolved:?}");
-
-        let mut cp_paths: Vec<std::path::PathBuf> = p
-            .classpath
-            .iter()
-            .filter_map(|c| lucerna_lib::forge::patcher::maven_coord_to_relative_path(c))
-            .map(|rel| libs_root.join(rel))
-            .collect();
-        if let Some(rel) = lucerna_lib::forge::patcher::maven_coord_to_relative_path(&p.jar) {
-            cp_paths.push(libs_root.join(rel));
-        }
-        let ctx = ProcessorContext {
-            classpath: cp_paths,
-            cache_dir: cache_dir.clone(),
-            java_bin: None,
-        };
-        run_processor(&p.jar, resolved, &ctx)
-            .await
-            .unwrap_or_else(|e| panic!("processor {i} ({}) failed: {e:?}", p.jar));
-        eprintln!("    processor {i} OK");
-    }
-
-    // 7. Assemble + ADDENDUM D injection (must NOT inject for NeoForge).
-    eprintln!("--- step 7: assemble VersionDetails + ADDENDUM D check ---");
-    let mut final_details = lucerna_lib::forge::profile::assemble_from_modern(version_details);
-
-    // Replicate what production install() does: call inject_patched_library_if_missing.
-    // For NeoForge coords the function must return early WITHOUT adding the :client entry.
-    // We verify by checking the library list before and after.
-    let libs_before = final_details.libraries.len();
-
-    // The PATCHED coord for 21.1.230 is net.neoforged:neoforge:21.1.230:client.
-    // If inject_patched_library_if_missing still injected it (regression), the count
-    // would increase and the :client jar would end up on -cp → JPMS collision at launch.
-    if let Some(patched_entry) = profile.data.get("PATCHED") {
-        let patched_coord = patched_entry
-            .client
-            .strip_prefix('[')
-            .and_then(|s| s.strip_suffix(']'))
-            .unwrap_or("");
-        eprintln!("PATCHED coord: {patched_coord}");
-        assert!(
-            patched_coord.starts_with("net.neoforged:"),
-            "21.1.230 PATCHED coord must be net.neoforged: prefix, got: {patched_coord}"
-        );
-        // Inject the synthetic entry using the same logic as production.
-        // After the ADDENDUM D fix this is a no-op for net.neoforged: coords.
-        let dummy_lib = lucerna_lib::versions::version_json::Library {
-            name: patched_coord.to_string(),
-            url: Some(String::new()),
-            downloads: None,
-            natives: None,
-            rules: None,
-        };
-        // Only inject if NOT already present AND NOT a net.neoforged: coord.
-        // This replicates the fixed inject_patched_library_if_missing logic.
-        let already_present = final_details
-            .libraries
-            .iter()
-            .any(|l| l.name == patched_coord);
-        if !already_present && !patched_coord.starts_with("net.neoforged:") {
-            final_details.libraries.push(dummy_lib);
-        }
-    }
-
-    let libs_after = final_details.libraries.len();
-    assert_eq!(
-        libs_before, libs_after,
-        "ADDENDUM D must NOT inject :client for NeoForge 21.1.x \
-         (would cause JPMS module name collision → ResolutionException). \
-         libs before={libs_before}, after={libs_after}"
-    );
+    // 7. Assemble. Production adds nothing to the profile's libraries (spec
+    // 2026-10-16 §3.1): the :client jar is found by the bootstrap, never put on -cp.
+    eprintln!("--- step 7: assemble VersionDetails ---");
+    let final_details = lucerna_lib::forge::profile::assemble_from_modern(version_details);
 
     // Also verify the :client entry is not in the library list at all.
     let client_coord = format!("net.neoforged:neoforge:{FV_21}:client");
@@ -705,7 +621,7 @@ async fn install_neoforge_1_21_1_e2e() {
         "library list must NOT contain {client_coord} — bootstrap auto-discovers it"
     );
 
-    eprintln!("--- INSTALL SUCCEEDED (ADDENDUM D skip verified) ---");
+    eprintln!("--- INSTALL SUCCEEDED (no :client on the library list) ---");
     eprintln!("  id        = {}", final_details.id);
     eprintln!("  mainClass = {}", final_details.main_class);
     eprintln!(

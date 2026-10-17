@@ -28,14 +28,24 @@ pub async fn run_java_processor(
         .collect::<Vec<_>>()
         .join(sep);
 
-    let mut cmd = tokio::process::Command::new(java_bin);
+    // The console `java.exe` beside a `javaw.exe` (same JRE): a launcher-level
+    // failure then prints to stderr, which `output()` captures, instead of
+    // opening a modal dialog that `output()` would wait on forever. No console
+    // window either.
+    let exe = crate::java::path::console_exe(java_bin);
+    let mut cmd = tokio::process::Command::new(&exe);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd.arg("-cp").arg(&cp);
     cmd.arg(main_class);
     cmd.args(args);
 
     crate::diag!(
         "process: spawning {} ({processor_label}) with {} classpath entries",
-        java_bin.display(),
+        exe.display(),
         classpath.len(),
     );
 

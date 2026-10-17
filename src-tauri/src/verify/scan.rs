@@ -324,6 +324,67 @@ pub async fn verify_instance_report(
         planned.push((lib, abs));
     }
 
+    // Forge/NeoForge: what the installer declares about its processor outputs
+    // (spec 2026-10-16 §5.3.3). It is read from the cached installer and never
+    // fetched; verify is read-only. Without it the outputs cannot be checked,
+    // and that is a problem, not a pass.
+    let mut forge_installer_problem: Option<ProblemArtifact> = None;
+    if let Some((loader, loader_ver, mc)) = crate::versions::loaders::parse_synth_id(effective_id) {
+        let is_forge = matches!(
+            loader,
+            crate::versions::loaders::Loader::Forge | crate::versions::loaders::Loader::NeoForge
+        );
+        if is_forge && details.main_class != "net.minecraft.launchwrapper.Launch" {
+            let app_data = crate::paths::app_dir(app).map_err(|e| Error::io("<app_data>", e))?;
+            let installer = crate::forge::meta::installer_cache_path(&app_data, &mc, &loader_ver);
+            let rel = format!("forge/installers/{mc}-{loader_ver}.jar");
+            let problem = |status| ProblemArtifact {
+                category: VerifyCategory::Libraries,
+                rel_path: rel.clone(),
+                expected_sha: String::new(),
+                url: None,
+                status,
+            };
+            match tokio::fs::read(&installer).await {
+                Ok(bytes) => {
+                    let parsed = crate::forge::installer::read_install_profile(&bytes)
+                        .and_then(|v| serde_json::to_string(&v).map_err(|e| e.to_string()))
+                        .and_then(|t| {
+                            crate::forge::installer::transitional::parse_install_profile(&t)
+                                .map_err(|e| e.to_string())
+                        })
+                        .and_then(|p| crate::verify::plan::forge_artifacts(&p));
+                    match parsed {
+                        Ok(arts) => {
+                            for a in arts {
+                                planned.retain(|(p, _)| p.rel_path != a.rel_path);
+                                let abs = libraries_dir.join(&a.rel_path);
+                                planned.push((a, abs));
+                            }
+                        }
+                        Err(why) => {
+                            crate::diag!(
+                                "verify: Forge installer {} unusable: {why}",
+                                installer.display()
+                            );
+                            forge_installer_problem = Some(problem(ArtifactStatus::Corrupt));
+                        }
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    forge_installer_problem = Some(problem(ArtifactStatus::Missing));
+                }
+                Err(e) => {
+                    crate::diag!(
+                        "verify: Forge installer {} unreadable: {e}",
+                        installer.display()
+                    );
+                    forge_installer_problem = Some(problem(ArtifactStatus::Corrupt));
+                }
+            }
+        }
+    }
+
     let mut manifest_recoverable = false;
     if let Some(ai) = details.asset_index.as_ref() {
         let index_file = assets_root.join("indexes").join(format!("{}.json", ai.id));
@@ -398,6 +459,8 @@ pub async fn verify_instance_report(
             });
         }
     }
+    let forge_installer_counted = forge_installer_problem.is_some();
+    problems.extend(forge_installer_problem);
     if !jre_ok {
         problems.push(ProblemArtifact {
             category: VerifyCategory::Jre,
@@ -408,7 +471,15 @@ pub async fn verify_instance_report(
         });
     }
 
-    let totals = category_totals(&planned, needs_managed_jre.then_some(1));
+    let mut totals = category_totals(&planned, needs_managed_jre.then_some(1));
+    if forge_installer_counted {
+        if let Some(t) = totals
+            .iter_mut()
+            .find(|(c, _)| *c == VerifyCategory::Libraries)
+        {
+            t.1 += 1;
+        }
+    }
     let report = VerifyReport::build(
         instance_id.to_string(),
         effective_id.to_string(),

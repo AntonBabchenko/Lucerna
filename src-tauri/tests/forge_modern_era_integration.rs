@@ -51,28 +51,6 @@ fn install_profile_has_9_processors() {
 }
 
 #[test]
-fn every_processor_coord_recognised() {
-    let Some((_, profile)) = load_or_skip() else {
-        return;
-    };
-    let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
-    let recognised = &[
-        ("net.minecraftforge", "installertools"),
-        ("net.minecraftforge", "ForgeAutoRenamingTool"),
-        ("net.minecraftforge", "binarypatcher"),
-    ];
-    for p in &parsed.processors {
-        let parts: Vec<&str> = p.jar.split(':').collect();
-        let (g, a) = (parts[0], parts[1]);
-        assert!(
-            recognised.iter().any(|(rg, ra)| *rg == g && *ra == a),
-            "unrecognised processor coord: {} — extend run_processor",
-            p.jar
-        );
-    }
-}
-
-#[test]
 fn five_processors_run_on_client_side() {
     let Some((_, profile)) = load_or_skip() else {
         return;

@@ -147,6 +147,41 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
         .unwrap_or_else(|e| panic!("failed to download {url}: {e:?}"));
 }
 
+/// This harness's library downloads, for the production processor stage.
+struct HarnessIo {
+    libs_root: std::path::PathBuf,
+    os: &'static str,
+    arch: &'static str,
+}
+
+impl lucerna_lib::forge::installer::processors::StageIo for HarnessIo {
+    async fn ensure_libraries(
+        &self,
+        libs: &[lucerna_lib::versions::version_json::Library],
+    ) -> lucerna_lib::error::Result<()> {
+        for lib in libs {
+            for (rel, url, sha1, _size) in
+                lucerna_lib::versions::libraries::artifacts_to_install(lib, self.os, self.arch)
+            {
+                let dest = self.libs_root.join(&rel);
+                if !url.is_empty() && !dest.is_file() {
+                    download_lib(&url, &dest, &sha1).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn run(
+        &self,
+        coord: &str,
+        args: Vec<String>,
+        ctx: &lucerna_lib::forge::patcher::ProcessorContext,
+    ) -> lucerna_lib::error::Result<()> {
+        lucerna_lib::forge::patcher::run_processor(coord, args, ctx).await
+    }
+}
+
 /// Full end-to-end smoke for the transitional-era install pipeline against
 /// the real 1.16.5 Forge installer JAR.
 ///
@@ -220,7 +255,6 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
         .expect("libs_root");
 
     let cache_dir_str = cache_dir.display().to_string();
-    let installer_path_str = installer_cache_path.display().to_string();
 
     eprintln!("libs_root   = {}", libs_root.display());
     eprintln!("cache_dir   = {cache_dir_str}");
@@ -327,78 +361,29 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
         }
     }
 
-    // 6. Run processors.
-    eprintln!("--- step 6: processors ---");
-    use lucerna_lib::forge::installer::transitional::{
-        classpath_coords_to_libraries, substitute_args,
+    // 6. Run processors: the production stage (spec 2026-10-16 §5.1), with
+    // this harness's own downloader.
+    eprintln!("--- step 6: processors (production stage) ---");
+    let env = lucerna_lib::forge::installer::processors::StageEnv {
+        libs_root: libs_root.clone(),
+        cache_dir: cache_dir.clone(),
+        installer_path: installer_cache_path.clone(),
+        minecraft_jar: std::path::PathBuf::from(&minecraft_jar),
+        // "java" on PATH, as this harness always used.
+        java_bin: None,
     };
-    use lucerna_lib::forge::patcher::{run_processor, ProcessorContext};
-
-    for (i, p) in profile.processors.iter().enumerate() {
-        // Skip server-side-only processors.
-        if let Some(sides) = &p.sides {
-            if !sides.iter().any(|s| s == "client") {
-                eprintln!("  processor {i} ({}) — skipped (server-only)", p.jar);
-                continue;
-            }
-        }
-
-        eprintln!("  processor {i}: {}", p.jar);
-
-        // Download classpath JARs.
-        let cp_libs = classpath_coords_to_libraries(&p.classpath);
-        for lib in &cp_libs {
-            for (rel_path, url, sha1, _size) in
-                lucerna_lib::versions::libraries::artifacts_to_install(lib, os, arch)
-            {
-                download_lib(&url, &libs_root.join(&rel_path), &sha1).await;
-            }
-        }
-
-        // Substitute args.
-        let resolved = substitute_args(
-            &p.args,
-            &profile.data,
-            "client",
-            &libs_root,
-            &installer_bytes,
-            &installer_path_str,
-            &cache_dir_str,
-            &minecraft_jar,
-        )
-        .await
-        .unwrap_or_else(|e| panic!("substitute_args for processor {i} failed: {e:?}"));
-
-        eprintln!("    resolved args: {resolved:?}");
-
-        // Build classpath paths.
-        let mut cp_paths: Vec<std::path::PathBuf> = p
-            .classpath
-            .iter()
-            .filter_map(|c| lucerna_lib::forge::patcher::maven_coord_to_relative_path(c))
-            .map(|rel| libs_root.join(rel))
-            .collect();
-
-        // Include processor's OWN jar so Java can find its main class.
-        // Mirrors transitional::install's logic added in the 2026-05-17(b) pivot.
-        if let Some(rel) = lucerna_lib::forge::patcher::maven_coord_to_relative_path(&p.jar) {
-            cp_paths.push(libs_root.join(rel));
-        }
-
-        let ctx = ProcessorContext {
-            classpath: cp_paths,
-            cache_dir: cache_dir.clone(),
-            // java_bin: None falls back to "java" on PATH, which is acceptable
-            // for the e2e test environment where Java is expected to be installed.
-            java_bin: None,
-        };
-
-        run_processor(&p.jar, resolved, &ctx)
-            .await
-            .unwrap_or_else(|e| panic!("processor {i} ({}) failed: {e:?}", p.jar));
-
-        eprintln!("    processor {i} OK");
-    }
+    lucerna_lib::forge::installer::processors::run_client_processors(
+        &profile,
+        &installer_bytes,
+        &env,
+        &HarnessIo {
+            libs_root: libs_root.clone(),
+            os,
+            arch,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("processors failed: {e:?}"));
 
     // 7. Assemble final VersionDetails.
     eprintln!("--- step 7: assemble VersionDetails ---");
