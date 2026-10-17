@@ -59,6 +59,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **OptiFine runs on Forge.** The game now starts the way Minecraft's own
+  launcher starts it: with the Minecraft jar under the name Forge expects, and
+  without Forge's patched client jar on the classpath. OptiFine on Forge 1.20.1
+  used to load but stay inactive.
+- **Forge installs match the files Forge publishes.** Install steps run Forge's
+  own tools and are checked against the checksums in Forge's installer, so
+  Verify no longer reports Forge 1.20.6+ files as damaged every time. A Forge
+  profile installed before this asks for one Repair, which rebuilds its files
+  in about a minute.
+- **The game no longer receives `${clientid}` and `${auth_xuid}` as text.**
+  Lucerna passes neither a client id nor an Xbox id.
 - **Import, clone and export say when a folder is a link.** A content folder
   that is really a symbolic link or junction (XMCL's shared resource packs, or
   one made with `mklink`) is marked with where it points; the files it points
