@@ -280,7 +280,10 @@
       "ok": "Понятно"
     },
     "newInstance": "Новый профиль",
-    "instanceSettingsLabel": "Настройки профиля «{name}»"
+    "instanceSettingsLabel": "Настройки профиля «{name}»",
+    "instanceFilterPlaceholder": "Фильтр профилей…",
+    "instanceFilterAriaLabel": "Фильтр профилей по имени",
+    "instanceFilterNoMatches": "Нет профилей, в имени которых есть «{query}»."
   },
   "running": {
     "pill": {

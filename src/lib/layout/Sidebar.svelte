@@ -216,6 +216,22 @@
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
   );
+  // The Manage window's list offered a name filter above this many instances (#510 removed
+  // it); the dropdown, now the only instance list, offers one from the same point — about
+  // where its 240 px list starts to scroll.
+  const INSTANCE_FILTER_THRESHOLD = 8;
+  // By the name only: every row also reads «· Fabric 1.21.1», so «f» would match every
+  // Fabric and Forge instance.
+  const instanceFilter = $derived(
+    instances.length > INSTANCE_FILTER_THRESHOLD
+      ? {
+          placeholder: $t('sidebar.instanceFilterPlaceholder'),
+          ariaLabel: $t('sidebar.instanceFilterAriaLabel'),
+          noMatches: (query: string) => $t('sidebar.instanceFilterNoMatches', { query }),
+          text: (opt: SelectOption) => instances.find((i) => i.id === opt.value)?.name ?? opt.label,
+        }
+      : undefined,
+  );
 
   const logsNav: NavStatusKind = $derived(
     diagnosisStatus() === 'actionable'
@@ -651,6 +667,7 @@
               options={instanceOptions}
               onChange={(v) => onSelectInstance(String(v))}
               ariaLabel={$t('sidebar.instance')}
+              filter={instanceFilter}
               optionLeading={instanceLeading}
               valueLeading={instanceLeading}
               optionTrailing={instanceTrailing}
