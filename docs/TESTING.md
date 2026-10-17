@@ -146,7 +146,7 @@ The full set of `#[ignore]`-gated files:
 | `neoforge_e2e.rs` | same, for NeoForge |
 | `loader_matrix_e2e.rs` | the cross-loader matrix — 17 min cached, ~3 h cold |
 | `mods_matrix_e2e.rs` | live Modrinth mod-install matrix (`LUCERNA_MOD_MATRIX_MC` / `_LOADER` / `_N` overrides) |
-| `forge_patcher_integration.rs` | mostly runs by default; two golden-bytecode tests inside it are `#[ignore]`-gated |
+| `mojmaps_network.rs` | network: Mojang's client mappings for three Minecraft versions; checks the `DOWNLOAD_MOJMAPS` port against the `MOJMAPS_SHA` Forge declares |
 
 CI doesn't run them by default. The maintainer runs them locally before merges that touch install/launch paths. Phase 2 and Phase 3 had a strict pre-merge protocol of "run the era-specific `_e2e` test green before squash". Phase 3 raised the bar to "the cross-loader matrix green".
 
@@ -249,7 +249,7 @@ integration works.
 ## Test fixture rules
 
 - **Forge installer fixtures** live in `src-tauri/tests/fixtures/forge/installers/` (gitignored). SHA-pinned in `SHA1SUMS`. Download via `pwsh fetch.ps1` from the same directory.
-- **Bytecode golden fixtures** (small, checked-in) live under `src-tauri/tests/fixtures/specialsource/`. They're optional — tests skip cleanly if absent.
+- **Mojang-mappings fixtures** (small, synthetic, checked-in) live under `src-tauri/tests/fixtures/mojmaps/`. Its README says how `synthetic.tsrg` was generated with srgutils; never edit it by hand.
 
 Adding a new fixture: append a SHA1SUMS row and verify `fetch.ps1` finds the upstream URL. The `<mc>-<fv>-<mc>` legacy quirk (1.7.10 et al) is hardcoded in `fetch.ps1`'s allowlist.
 

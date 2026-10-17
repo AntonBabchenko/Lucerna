@@ -2890,7 +2890,16 @@ export type ArtifactStatus = "ok" | "missing" |
  *  File present but bad: SHA mismatch for hashed artefacts; unparseable
  *  for the profile JSON (which has no authoritative SHA).
  */
-"corrupt";
+"corrupt" | 
+/**
+ *  A file a Forge installer's processors make, present, whose bytes differ
+ *  from the ones the installer declares. Lucerna versions that ran those
+ *  steps with their own code built such files, and the game launches with
+ *  them, so this is not damage and never `Corrupt`. Repair rebuilds them
+ *  with Forge's own processors. A scan cannot tell such a file from one
+ *  damaged later; Repair fixes both (spec 2026-10-16 §5.5).
+ */
+"built_differently";
 
 /**
  *  What `assets_list` answers: the registry rows of one kind, reconciled with
@@ -3113,6 +3122,11 @@ export type CategoryReport = {
 	ok: number,
 	missing: number,
 	corrupt: number,
+	/**
+	 *  Forge files counted as [`ArtifactStatus::BuiltDifferently`]. Absent
+	 *  from reports saved in instance.json before it existed, hence the default.
+	 */
+	built_differently?: number,
 };
 
 export type ChangeDirection = "upgrade" | "downgrade" | 
@@ -3983,6 +3997,12 @@ export type Error =
  */
 { kind: "managed_java_missing"; component: string } | 
 /**
+ *  The vanilla client jar a launch derives its named version jar from
+ *  (spec 2026-10-16 §3.2) is absent (`missing`) or does not match the
+ *  checksum Mojang publishes for it. Repair re-downloads it.
+ */
+{ kind: "client_jar_invalid"; mc_version: string; missing: boolean } | 
+/**
  *  Lucerna's runtime for this version could not be obtained. `stage`
  *  says whether the game itself needs it (a Java on this computer can stand
  *  in) or a Forge/NeoForge install step does (it cannot).
@@ -3993,7 +4013,13 @@ export type Error =
  *  verified and is refused (no trust on first use). Not
  *  `ForgeInstallerCorrupted`: nothing is known to be wrong with the file.
  */
-{ kind: "forge_installer_unverifiable"; mc: string; fv: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
+{ kind: "forge_installer_unverifiable"; mc: string; fv: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | 
+/**
+ *  A Forge/NeoForge install processor produced an output whose SHA-1 is not
+ *  the one `install_profile.json` declares (spec 2026-10-16 §5.1). The bad
+ *  file has been deleted. `details` names the file and both checksums.
+ */
+{ kind: "forge_processor_output_mismatch"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | 
 /**  The proposed folder name reduced to nothing once normalised to ASCII. */
 { kind: "instance_dir_name_empty" } | 
 /**  Another directory already occupies that name. */
