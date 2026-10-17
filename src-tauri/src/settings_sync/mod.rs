@@ -18,6 +18,7 @@ pub(crate) mod history;
 pub mod hotbars;
 pub mod marker;
 pub mod membership;
+pub(crate) mod options;
 pub(crate) mod servers;
 pub mod sidecar;
 pub mod store;
