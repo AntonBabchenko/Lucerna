@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { newLayerId, pushLayer } from '$lib/ui/layer-stack.svelte';
 import Select from '$lib/ui/Select.svelte';
 
 // Labels carry a suffix the way the sidebar's do («Name · Loader version»); the filter reads
@@ -110,6 +111,30 @@ describe('Select — a filter field in the open list', () => {
     await fireEvent.click(trigger);
     expect(field().value).toBe('');
     expect(rows()).toHaveLength(5);
+  });
+
+  it('Tab takes the active row and moves on from the trigger', async () => {
+    const { trigger, onChange } = setup();
+    await fireEvent.click(trigger);
+    await type('hard');
+    await fireEvent.keyDown(field(), { key: 'Tab' });
+    expect(onChange).toHaveBeenCalledWith('i4');
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('a press in the edit menu a right-click opened over the field leaves the list open', async () => {
+    const { trigger } = setup();
+    await fireEvent.click(trigger);
+    await type('sky');
+    // The app's edit menu (+layout) opens on the field's right-click, a layer above the list.
+    await fireEvent.contextMenu(field());
+    const release = pushLayer(newLayerId('edit-menu'), 'popover', () => {});
+    await fireEvent.mouseDown(document.body);
+    expect(field().value).toBe('sky');
+    release();
+    // With the menu gone, a press outside closes the list as before.
+    await fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('listbox')).toBeNull();
   });
 
   it('Shift+F10 in the field opens the active row’s menu', async () => {

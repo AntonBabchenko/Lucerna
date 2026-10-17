@@ -22,11 +22,13 @@
   //
   // Keyboard model is the WAI-ARIA "select-only combobox": focus stays on
   // the trigger button and the active option is tracked via
-  // aria-activedescendant (never moves DOM focus into the list).
+  // aria-activedescendant (never moves DOM focus into the list). With a
+  // `filter`, the focus is in the filter field while the list is open, and the
+  // field carries aria-activedescendant instead (McVersionCombobox's model).
 
   import { Icon } from '$lib/ui/icons';
   import type { Snippet } from 'svelte';
-  import { useLayer } from '$lib/ui/layer-stack.svelte';
+  import { isTopmost, useLayer } from '$lib/ui/layer-stack.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { computePopoverPlacement } from './select-placement';
   import { attachPopoverDismiss } from './popover-dismiss';
@@ -189,6 +191,7 @@
   function openList(initialQuery = '') {
     if (disabled) return;
     query = initialQuery;
+    editMenuAbove = false;
     positionPopover();
     open = true;
     activeIndex =
@@ -217,7 +220,13 @@
   // The open list is a layer in the app's layer stack: a contextual tour running
   // underneath steps aside while it is open, and an Escape that reaches the
   // router (focus elsewhere) closes the list, not the dialog around it.
-  useLayer('popover', () => open, closeList);
+  const layerId = useLayer('popover', () => open, closeList);
+
+  // A right-click in the filter field opens the app's edit menu (+layout) ABOVE the list. A press
+  // in that menu is not a press outside the list: closing on it would unmount the field before
+  // Cut/Copy/Paste lands. Only that menu: the sidebar's row menu, also above the list, is meant to
+  // close it, as it always has.
+  let editMenuAbove = false;
 
   function commit(i: number) {
     if (i < 0 || i >= options.length || options[i].disabled) return;
@@ -341,6 +350,8 @@
     function onMouseDown(e: MouseEvent) {
       const target = e.target as Node;
       if (trigger?.contains(target) || popoverEl?.contains(target)) return;
+      if (editMenuAbove && !isTopmost(layerId)) return;
+      editMenuAbove = false;
       open = false;
       activeIndex = -1;
     }
@@ -366,7 +377,8 @@
         open = false;
         activeIndex = -1;
       },
-      ignoreScrollWithin: () => listEl,
+      // The popover, not just the list: a query longer than the field scrolls the field.
+      ignoreScrollWithin: () => popoverEl,
     });
   });
 
@@ -432,7 +444,7 @@
           use:focusOnMount
           type="search"
           role="combobox"
-          aria-expanded="true"
+          aria-expanded={visible.length > 0}
           aria-controls={listboxId}
           aria-autocomplete="list"
           aria-activedescendant={activeDescendant}
@@ -443,6 +455,7 @@
           class="w-full rounded border border-border-emphasis bg-surface px-2 py-1 text-sm text-primary"
           value={query}
           oninput={(e) => setQuery(e.currentTarget.value)}
+          oncontextmenu={() => (editMenuAbove = true)}
           onkeydown={(e) => onOpenListKey(e, true)}
         />
       </div>
@@ -503,10 +516,11 @@
       {/each}
     </ul>
     {#if filter}
-      <!-- Mounted with the field, so the no-match line is announced when it appears. -->
+      <!-- Mounted with the field, so the no-match line is announced when it appears. `w-0
+           min-w-full`: it wraps inside the popover instead of widening it as the query grows. -->
       <p
         role="status"
-        class="text-xs text-muted"
+        class="w-0 min-w-full text-xs text-muted"
         class:px-3={visible.length === 0}
         class:py-2={visible.length === 0}
       >
