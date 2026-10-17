@@ -19,6 +19,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
+import { open } from '@tauri-apps/plugin-dialog';
 
 const found = (major: number | null, version: string | null, dir: string) => ({
   path: `/opt/${dir}/bin/java`,
@@ -82,6 +83,17 @@ describe('JavaRescuePanel — Java 8', () => {
     expect(await screen.findByText(/No Java 8 was found on this computer/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /every instance on Java 8/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Use for this instance' })).toBeNull();
+  });
+
+  it('a file picked by Browse is not claimed to be a Java 8', async () => {
+    vi.mocked(open).mockResolvedValue('/home/me/jdk-21/bin/java');
+    setup(noRuntime(8), [JDK21]);
+    expect(await screen.findByText(/No Java 8 was found on this computer/)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Browse…' }));
+    expect(await screen.findByRole('button', { name: 'Use for this instance' })).toBeTruthy();
+    expect(screen.getByText(/No Java 8 was found on this computer/)).toBeTruthy();
+    expect(screen.queryByText(/run on a Java 8 from this computer/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /every instance on Java 8/ })).toBeNull();
   });
 
   it('a Java whose version is unknown is offered for Java 8 only if it says it is Java 8', async () => {

@@ -336,7 +336,9 @@
   function setInstallError(message: string | null, error: IpcError | null = null) {
     installError = message;
     javaProblem = isJavaProblem(error) ? error : null;
-    javaUnusableOrigin = error?.kind === 'java_unusable' ? error.origin : null;
+    // A client launch never runs on a server's Java, so only the two origins it can meet.
+    javaUnusableOrigin =
+      error?.kind === 'java_unusable' && error.origin.kind !== 'server' ? error.origin : null;
   }
   function chooseJava(origin: JavaOrigin) {
     switch (origin.kind) {

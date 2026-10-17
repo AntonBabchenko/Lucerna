@@ -149,7 +149,7 @@ describe('Java field — a Settings row speaks for its instances', () => {
       statusScope: 'row',
     });
     expect(
-      await screen.findByText(/every instance that needs Java 8 and follows Settings/),
+      await screen.findByText(/instances and servers that need Java 8 and did not choose their own/),
     ).toBeTruthy();
     expect(screen.queryByText(/this Minecraft/)).toBeNull();
   });

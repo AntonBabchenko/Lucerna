@@ -245,7 +245,9 @@
   {:else if candidates === null}
     <span class="text-xs text-placeholder">{$t('instance.manage.java.searching')}</span>
   {:else}
-    {#if options.length === 0}
+    <!-- The sentence speaks for what the search found, never for a file picked by Browse: the
+         panel did not read that one's version. -->
+    {#if (candidates ?? []).length === 0}
       <p class="text-xs text-secondary" data-testid="java-rescue-none">
         {detectFailed
           ? $t(exact ? 'java.rescue.searchFailedExact' : 'java.rescue.searchFailed', {
@@ -257,6 +259,8 @@
       <p class="text-xs text-secondary">
         {$t(exact ? 'java.rescue.offerExact' : 'java.rescue.offer', { major: required ?? 0 })}
       </p>
+    {/if}
+    {#if options.length > 0}
       <Select
         class="text-sm"
         value={picked}

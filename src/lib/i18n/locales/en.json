@@ -3396,9 +3396,9 @@
         "empty": "No instance needs a Java yet. Rows appear here once an instance is installed.",
         "majorsFailed": "Couldn't read which Java versions the installed instances need.",
         "rowBundled": "Instances and servers that need Java {major} run on Lucerna's Java, unless they chose their own.",
-        "statusMatches": "Java {version}. Every instance that needs Java {major} and follows Settings runs on it.",
+        "statusMatches": "Java {version}. Instances and servers that need Java {major} run on it, unless they chose their own.",
         "statusNewer": "Java {found} is newer than Java {required}. It usually works; if a game crashes on start, set this row back to Lucerna's Java.",
-        "statusNewerLegacy": "Java {found} is newer than Java 8. Vanilla may start on it, but Forge for those versions will not, in every instance that needs Java 8 and follows Settings."
+        "statusNewerLegacy": "Java {found} is newer than Java 8. Vanilla may start on it, but Forge for those versions will not, in the instances and servers that need Java 8 and did not choose their own."
       }
     },
     "storage": {
