@@ -15,7 +15,9 @@ import { __resetTasksForTest, start } from '$lib/tasks/registry.svelte';
 const brokenStatus: IntegrityStatus = {
   healthy: false,
   checked_unix_ms: null,
-  categories: [{ category: 'client', total: 5, ok: 3, missing: 1, corrupt: 1, built_differently: 0 }],
+  categories: [
+    { category: 'client', total: 5, ok: 3, missing: 1, corrupt: 1, built_differently: 0 },
+  ],
   problem_count: 2,
 };
 
@@ -56,7 +58,14 @@ describe('IntegritySection', () => {
         status: {
           ...builtDifferentlyStatus,
           categories: [
-            { category: 'libraries', total: 40, ok: 37, missing: 1, corrupt: 0, built_differently: 2 },
+            {
+              category: 'libraries',
+              total: 40,
+              ok: 37,
+              missing: 1,
+              corrupt: 0,
+              built_differently: 2,
+            },
           ],
         },
       },
