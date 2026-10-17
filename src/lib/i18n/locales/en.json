@@ -365,6 +365,8 @@
         "statusMatches": "Java {version}: the version this Minecraft needs.",
         "statusNewer": "Java {found} is newer than the Java {required} this Minecraft version was made for. It usually works; if the game crashes on start, switch back to Lucerna's Java.",
         "statusNewerLegacy": "Java {found} is newer than Java 8. Vanilla may start, but Forge for this version will not.",
+        "refusedPick": "Not changed: {path} can't be used. {reason}",
+        "notChanged": "Not changed. {reason}",
         "statusUnknown": "This instance isn't installed yet, so the Java it needs is unknown. Lucerna checks it at launch.",
         "gpuNote": "The graphics card choice in Lucerna's Settings → Game applies to Lucerna's Java only. For this Java, set it in Windows Settings → System → Display → Graphics.",
         "fileFilter": "Java executable",
@@ -864,21 +866,29 @@
       "label": "Default (follows Settings)",
       "labelSettings": "Default (now: Settings' Java {major})",
       "labelLucerna": "Default (now: Lucerna's Java)",
+      "pinnedLabel": "Always Lucerna's Java",
       "statusUnknownInstance": "Follows Settings: the Java chosen there for the version this instance needs, or Lucerna's Java. Lucerna checks it at launch.",
       "statusUnknownServer": "Follows Settings: the Java chosen there for the version this server needs, or Lucerna's Java.",
       "statusSettings": "Settings' Java for Java {major}: {path}. Lucerna checks it at every launch.",
+      "pinnedStatusInstance": "This instance always runs on Lucerna's Java, whatever Settings names for its Java version.",
+      "pinnedStatusServer": "This server always runs on Lucerna's Java, whatever Settings names for its Java version.",
       "statusUnread": "Follows the Java set in Settings for Java {major}, if there is one; otherwise Lucerna's Java."
     },
     "rescue": {
-      "offer": "A Java {major} or newer on this computer can run it instead.",
+      "offer": "The game can run on a Java {major} or newer from this computer instead.",
+      "offerExact": "The game can run on a Java {major} from this computer instead.",
       "none": "No Java {major} or newer was found on this computer. Install one, or pick it with Browse.",
+      "noneExact": "No Java {major} was found on this computer. Install one, or pick it with Browse.",
       "pickLabel": "Java to use",
       "forInstance": "Use for this instance",
       "forMajor": "Use for every instance on Java {major}",
       "installerExplain": "Forge and NeoForge installers run only on Lucerna's Java, so a Java on this computer can't stand in for this step.",
+      "installerRetry": "Install again once it can be downloaded.",
+      "installerNone": "There is none for this computer, so Forge and NeoForge can't be installed here. Fabric, Quilt and vanilla instances can run on a Java of your own.",
       "missingExplain": "Download it to play on Lucerna's Java, or choose a Java on this computer in the instance's settings.",
       "download": "Download Java",
-      "searchFailed": "Couldn't look for a Java {major} or newer on this computer. Pick one with Browse."
+      "searchFailed": "Couldn't look for a Java {major} or newer on this computer. Pick one with Browse.",
+      "searchFailedExact": "Couldn't look for a Java {major} on this computer. Pick one with Browse."
     }
   },
   "launch": {
@@ -3385,7 +3395,10 @@
         "rowLabel": "Java {major}",
         "empty": "No instance needs a Java yet. Rows appear here once an instance is installed.",
         "majorsFailed": "Couldn't read which Java versions the installed instances need.",
-        "rowBundled": "Instances and servers that need Java {major} run on Lucerna's Java, unless they chose their own."
+        "rowBundled": "Instances and servers that need Java {major} run on Lucerna's Java, unless they chose their own.",
+        "statusMatches": "Java {version}. Every instance that needs Java {major} and follows Settings runs on it.",
+        "statusNewer": "Java {found} is newer than Java {required}. It usually works; if a game crashes on start, set this row back to Lucerna's Java.",
+        "statusNewerLegacy": "Java {found} is newer than Java 8. Vanilla may start on it, but Forge for those versions will not, in every instance that needs Java 8 and follows Settings."
       }
     },
     "storage": {
@@ -3757,6 +3770,7 @@
       "statusStopped": "Stopped",
       "statusClean": "Game closed",
       "dismissError": "Dismiss error",
+      "chooseJava": "Choose another Java",
       "errorRetry": "Reload",
       "noInstanceSelected": "No instance selected. Create one via the sidebar.",
       "attentionHeading": "Needs attention",

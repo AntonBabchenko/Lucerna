@@ -798,3 +798,27 @@ describe('OverviewTab — mods problems', () => {
     expect(onNavInstalled).toHaveBeenLastCalledWith(undefined);
   });
 });
+
+describe('OverviewTab — a chosen Java that cannot be used', () => {
+  it('offers «Choose another Java», naming where that Java was chosen', async () => {
+    const onChooseJava = vi.fn();
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installError: "The Java chosen for this instance can't be used (/opt/jdk/bin/java).",
+        javaUnusableOrigin: { kind: 'instance' },
+        onChooseJava,
+      },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose another Java' }));
+    expect(onChooseJava).toHaveBeenCalledWith({ kind: 'instance' });
+  });
+
+  it('offers nothing of the kind for another install error', () => {
+    render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, installError: "Couldn't reach a site." },
+    });
+    expect(screen.queryByRole('button', { name: 'Choose another Java' })).toBeNull();
+  });
+});

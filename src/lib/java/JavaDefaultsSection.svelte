@@ -86,6 +86,7 @@
           save={saveFor(r.major)}
           lucernaWrites={null}
           bundledStatus={$t('settings.general.java.rowBundled', { major: r.major })}
+          statusScope="row"
           testid="java-default-{r.major}"
         />
       {/each}

@@ -27,6 +27,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import { LEGACY_JAVA_MAJOR } from './legacy-java';
   import { pickJavaFile } from './pick-java-file';
 
   let {
@@ -72,6 +73,13 @@
   const offersJava = $derived(
     problem.kind === 'jre_unavailable' && problem.stage === 'game_runtime',
   );
+  // For Java 8 only a Java 8 is offered: Forge for those versions does not start on a newer one,
+  // and «every instance on Java 8» would move every such instance following Settings onto it.
+  const exact = $derived(required === LEGACY_JAVA_MAJOR);
+  const fits = (major: number, need: number) =>
+    need === LEGACY_JAVA_MAJOR ? major === need : major >= need;
+  // «Every instance on Java N» only for a Java from the offered list: the panel saw its version.
+  const pickedIsOffered = $derived((candidates ?? []).some((j) => j.path === picked));
 
   $effect(() => {
     if (offersJava) void findCandidates();
@@ -90,7 +98,7 @@
       // Not "nothing found": the search itself failed, and the panel says so.
       detectFailed = true;
     }
-    const known = found.filter((j) => j.major !== null && j.major >= need);
+    const known = found.filter((j) => j.major !== null && fits(j.major, need));
     // A Java without a `release` file says nothing about its version; ask it.
     const unknown = found.filter((j) => j.major === null);
     const confirmed: DetectedJava[] = [];
@@ -110,7 +118,10 @@
   async function probe(j: DetectedJava, need: number): Promise<DetectedJava | null> {
     try {
       const r = await commands.javaCheck(j.path, need);
-      return r.status === 'ok' ? { ...j, major: r.data.major, version: r.data.version } : null;
+      // The probe accepts a newer Java too; for Java 8 only an exact match is offered.
+      return r.status === 'ok' && fits(r.data.major, need)
+        ? { ...j, major: r.data.major, version: r.data.version }
+        : null;
     } catch {
       return null;
     }
@@ -224,8 +235,12 @@
       {$t('java.rescue.download')}
     </BusyButton>
   {:else if !offersJava}
+    <!-- The install button on Overview is the retry; this says when it can work. -->
     <p class="text-xs text-secondary" data-testid="java-rescue-installer">
       {$t('java.rescue.installerExplain')}
+      {problem.kind === 'jre_unavailable' && problem.reason.kind === 'download'
+        ? $t('java.rescue.installerRetry')
+        : $t('java.rescue.installerNone')}
     </p>
   {:else if candidates === null}
     <span class="text-xs text-placeholder">{$t('instance.manage.java.searching')}</span>
@@ -233,11 +248,15 @@
     {#if options.length === 0}
       <p class="text-xs text-secondary" data-testid="java-rescue-none">
         {detectFailed
-          ? $t('java.rescue.searchFailed', { major: required ?? 0 })
-          : $t('java.rescue.none', { major: required ?? 0 })}
+          ? $t(exact ? 'java.rescue.searchFailedExact' : 'java.rescue.searchFailed', {
+              major: required ?? 0,
+            })
+          : $t(exact ? 'java.rescue.noneExact' : 'java.rescue.none', { major: required ?? 0 })}
       </p>
     {:else}
-      <p class="text-xs text-secondary">{$t('java.rescue.offer', { major: required ?? 0 })}</p>
+      <p class="text-xs text-secondary">
+        {$t(exact ? 'java.rescue.offerExact' : 'java.rescue.offer', { major: required ?? 0 })}
+      </p>
       <Select
         class="text-sm"
         value={picked}
@@ -253,7 +272,7 @@
         <BusyButton class="btn-primary btn-sm" {busy} onclick={() => void useForInstance()}>
           {$t('java.rescue.forInstance')}
         </BusyButton>
-        {#if followsSettings}
+        {#if followsSettings && pickedIsOffered}
           <BusyButton class="btn-secondary btn-sm" {busy} onclick={() => void useForMajor()}>
             {$t('java.rescue.forMajor', { major: required ?? 0 })}
           </BusyButton>
