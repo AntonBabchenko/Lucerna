@@ -34,7 +34,12 @@ const state = (kinds: KindView[], over: Partial<SectionState> = {}): SectionStat
   ...over,
 });
 
-const ALL_OFF = [view({ kind: 'servers' }), view({ kind: 'history' }), view({ kind: 'hotbars' })];
+const ALL_OFF = [
+  view({ kind: 'servers' }),
+  view({ kind: 'history' }),
+  view({ kind: 'hotbars' }),
+  view({ kind: 'options' }),
+];
 
 function serve(s: SectionState) {
   vi.mocked(commands.settingsSyncState).mockResolvedValue({ status: 'ok', data: s });
@@ -68,6 +73,34 @@ describe('kindStateKey', () => {
     expect(
       kindStateKey(view({ kind: 'hotbars', availability: { status: 'older_than_shared' } })),
     ).toBe('instance.settingsSync.state.olderThanShared');
+  });
+});
+
+describe('the options row', () => {
+  it('says why it waits and why a version cannot sync it', () => {
+    const waiting = (why: 'first_launch' | 'game_save') =>
+      kindStateKey(view({ kind: 'options', availability: { status: 'waiting', why } }));
+    expect(waiting('first_launch')).toBe('instance.settingsSync.state.optionsFirstLaunch');
+    expect(waiting('game_save')).toBe('instance.settingsSync.state.optionsGameSave');
+    const unsupported = (
+      why: 'options_too_old' | 'options_too_new' | 'options_not_release' | 'options_not_installed',
+    ) => kindStateKey(view({ kind: 'options', availability: { status: 'unsupported', why } }));
+    expect(unsupported('options_too_old')).toBe('instance.settingsSync.state.optionsTooOld');
+    expect(unsupported('options_too_new')).toBe('instance.settingsSync.state.optionsTooNew');
+    expect(unsupported('options_not_release')).toBe(
+      'instance.settingsSync.state.optionsNotRelease',
+    );
+    expect(unsupported('options_not_installed')).toBe(
+      'instance.settingsSync.state.optionsNotInstalled',
+    );
+  });
+
+  it('asks which settings to keep only when both sides have some', () => {
+    expect(joinChoices(view({ kind: 'options' }))).toBeNull();
+    expect(joinChoices(view({ kind: 'options', join_asks: true }))).toEqual([
+      'use_shared',
+      'make_shared',
+    ]);
   });
 });
 
@@ -290,6 +323,43 @@ describe('SettingsSyncRows', () => {
       expect(commands.settingsSyncSetKind).toHaveBeenCalledWith(
         'inst-1',
         'hotbars',
+        true,
+        'make_shared',
+        false,
+      ),
+    );
+  });
+
+  it('says before the first launch when shared options apply, and what they cover', async () => {
+    serve(
+      state([view({ kind: 'options', availability: { status: 'waiting', why: 'first_launch' } })]),
+    );
+    renderRows();
+    expect((await screen.findByTestId('settings-sync-state-options')).textContent).toBe(
+      'Shared settings apply after the first launch.',
+    );
+    expect(screen.getByTestId('settings-sync-rule-options').textContent).toContain(
+      'Render distance',
+    );
+  });
+
+  it('asks about game options in their own words and joins with the choice', async () => {
+    serve(state([view({ kind: 'options', join_asks: true })]));
+    vi.mocked(commands.settingsSyncSetKind).mockResolvedValue({
+      status: 'ok',
+      data: { kind: 'joined' },
+    });
+    renderRows();
+    await fireEvent.click(await screen.findByTestId('settings-sync-toggle-options'));
+    expect(await screen.findByText('Shared game options already exist')).toBeTruthy();
+    expect(screen.getByTestId('settings-sync-use-shared').textContent).toContain(
+      'Use the shared options',
+    );
+    await fireEvent.click(screen.getByTestId('settings-sync-make-shared'));
+    await waitFor(() =>
+      expect(commands.settingsSyncSetKind).toHaveBeenCalledWith(
+        'inst-1',
+        'options',
         true,
         'make_shared',
         false,

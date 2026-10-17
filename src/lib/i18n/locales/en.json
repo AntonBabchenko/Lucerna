@@ -457,11 +457,12 @@
     },
     "settingsSync": {
       "title": "Shared game settings",
-      "hint": "Share the server list, command history and hotbars with your other instances that turn the same thing on. A launch brings in what they changed; closing the game shares what changed here.",
+      "hint": "Share the server list, command history, hotbars and game options with your other instances that turn the same thing on. A launch brings in what they changed; closing the game shares what changed here.",
       "kind": {
         "servers": "Server list",
         "history": "Command history",
-        "hotbars": "Hotbars"
+        "hotbars": "Hotbars",
+        "options": "Game options"
       },
       "state": {
         "joining": "Joins at the next launch",
@@ -470,7 +471,13 @@
         "hotbarsNotInstalled": "Available once the game files are installed",
         "hotbarsNotRelease": "Not available for snapshots and pre-releases",
         "olderThanShared": "The shared hotbars were saved by a newer Minecraft version, so this instance keeps its own.",
-        "unreadable": "Not available. {detail}"
+        "unreadable": "Not available. {detail}",
+        "optionsFirstLaunch": "Shared settings apply after the first launch.",
+        "optionsGameSave": "Waits until Minecraft saves its options once: launch the game and close it.",
+        "optionsTooOld": "Needs Minecraft 1.13 or newer",
+        "optionsTooNew": "Not supported for this Minecraft version yet",
+        "optionsNotRelease": "Not available for snapshots and pre-releases",
+        "optionsNotInstalled": "Available once the game files are installed"
       },
       "hotbarsRule": "Once a newer Minecraft version saves the shared hotbars, instances on older versions keep their own.",
       "lastError": "The last sync failed: couldn't sync {what}. {detail} The next launch tries again, and nothing is lost.",
@@ -487,7 +494,12 @@
       "joinOlderBody": "The shared hotbars were saved by a newer Minecraft version, which this instance can't read, so it can only share its own.",
       "joinKept": "The hotbars that get replaced are kept: the shared ones in a backup, this instance's in the Recycle Bin.",
       "useShared": "Use the shared hotbars",
-      "makeShared": "Make its own the shared ones"
+      "makeShared": "Make its own the shared ones",
+      "optionsRule": "Shares key bindings, mouse, chat, accessibility, sound, language and skin settings, and how the game looks (graphics, GUI scale, brightness, FOV). Render distance, frame rate and other performance settings stay with each instance.",
+      "joinTitleOptions": "Shared game options already exist",
+      "joinBodyOptions": "Other instances already share game options, and this instance has its own. Which should it use?",
+      "joinKeptOptions": "The options that get replaced are kept: the shared ones in a backup, this instance's options.txt in the Recycle Bin.",
+      "useSharedOptions": "Use the shared options"
     },
     "error": {
       "nameRequired": "Name is required",
@@ -897,7 +909,8 @@
       "stopKind": {
         "servers": "Don't sync servers here",
         "history": "Don't sync command history here",
-        "hotbars": "Don't sync hotbars here"
+        "hotbars": "Don't sync hotbars here",
+        "options": "Don't sync game options here"
       },
       "stopAll": "Turn off sync in this instance",
       "closedTitle": "Is the game closed?",
@@ -3099,7 +3112,8 @@
       "servers": "the server list",
       "history": "the command history",
       "hotbars": "the hotbars",
-      "settings": "the sync settings"
+      "settings": "the sync settings",
+      "options": "the game options"
     },
     "settingsSyncDetail": "File: {file}. Reason: {reason}.",
     "settingsSyncDetailNoFile": "Reason: {reason}.",
@@ -3107,12 +3121,14 @@
       "game": {
         "servers": "this instance's servers.dat",
         "history": "this instance's command_history.txt",
-        "hotbars": "this instance's hotbar.nbt"
+        "hotbars": "this instance's hotbar.nbt",
+        "options": "this instance's options.txt"
       },
       "shared": {
         "servers": "the shared server list",
         "history": "the shared command history",
-        "hotbars": "the shared hotbars"
+        "hotbars": "the shared hotbars",
+        "options": "the shared game options"
       },
       "settings": "this instance's sync settings",
       "records": "this instance's sync records"
@@ -3202,7 +3218,7 @@
         "game": {
           "tray": "tray minimize minimise hide playing background launcher window close",
           "serverPing": "server ping status online players multiplayer ip privacy",
-          "settingsSync": "sync shared settings server list command history hotbars new instances",
+          "settingsSync": "sync shared settings server list command history hotbars game options key bindings new instances",
           "gpu": "gpu graphics video performance discrete card nvidia amd intel integrated",
           "java": "java jre jdk runtime path default version openjdk adoptium temurin zulu oracle"
         },
@@ -3292,7 +3308,7 @@
       "settingsSync": {
         "title": "Shared game settings",
         "label": "New instances use shared settings",
-        "description": "New instances, modpack imports and clients made from a server join the shared server list, command history and hotbars. Imports from other launchers don't: they bring their own settings. A clone keeps the choice of the instance it was made from."
+        "description": "New instances, modpack imports and clients made from a server join the shared server list, command history, hotbars and game options. Imports from other launchers don't: they bring their own settings. A clone keeps the choice of the instance it was made from."
       },
       "updates": {
         "title": "Updates",

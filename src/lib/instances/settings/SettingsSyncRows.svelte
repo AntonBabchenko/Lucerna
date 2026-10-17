@@ -2,8 +2,8 @@
   // Shared game settings (spec 2026-10-15 §B9): one checkbox per kind this
   // instance can share with the others, each with what it is doing now. The
   // backend owns every decision (§B7); this asks only the two questions a
-  // join can raise: which hotbars to keep, and whether a game Lucerna lost
-  // track of is closed.
+  // join can raise: which hotbars or game options to keep, and whether a game
+  // Lucerna lost track of is closed.
   import { commands } from '$lib/ipc/bindings';
   import type { Join, Kind, KindView, SectionState } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
@@ -12,11 +12,14 @@
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import {
+    type AskingKind,
     failureDetail,
     failureWhat,
+    JOIN_COPY,
     joinChoices,
     KIND_LABEL,
     REASON,
+    RULE,
     rowLine,
   } from './settings-sync-view';
 
@@ -40,7 +43,7 @@
   /** The kind whose change is in flight. */
   let changing = $state<Kind | null>(null);
   let changeError = $state<string | null>(null);
-  let joinAsk = $state<{ choices: Exclude<Join, 'done'>[] } | null>(null);
+  let joinAsk = $state<{ kind: AskingKind; choices: Exclude<Join, 'done'>[] } | null>(null);
   let closedAsk = $state<{ retry: () => Promise<void> } | null>(null);
   // The checkbox the user just clicked. `checked` follows the backend, which
   // a cancelled question or a failed change leaves as it was, and Svelte only
@@ -122,8 +125,8 @@
     const on = el.checked;
     clicked = { el, was: v.enabled };
     const choices = on ? joinChoices(v) : null;
-    if (choices) {
-      joinAsk = { choices };
+    if (choices && (v.kind === 'hotbars' || v.kind === 'options')) {
+      joinAsk = { kind: v.kind, choices };
       return;
     }
     void apply(v.kind, on, null);
@@ -208,6 +211,7 @@
       <ul class="flex flex-col gap-2">
         {#each data.kinds as v (v.kind)}
           {@const line = rowLine($t, v)}
+          {@const rule = RULE[v.kind]}
           <li data-testid="settings-sync-row-{v.kind}">
             <label class="flex items-start gap-2 cursor-pointer">
               <input
@@ -230,8 +234,10 @@
                 {line}
               </p>
             {/if}
-            {#if v.kind === 'hotbars' && !v.enabled}
-              <p class="pl-6 text-xs text-muted">{$t('instance.settingsSync.hotbarsRule')}</p>
+            {#if rule && !v.enabled}
+              <p class="pl-6 text-xs text-muted" data-testid="settings-sync-rule-{v.kind}">
+                {$t(rule)}
+              </p>
             {/if}
           </li>
         {/each}
@@ -265,28 +271,31 @@
 </div>
 
 {#if joinAsk}
+  {@const kind = joinAsk?.kind ?? 'hotbars'}
+  {@const copy = JOIN_COPY[kind]}
   {@const choices = joinAsk?.choices ?? []}
   {@const both = choices.includes('use_shared')}
-  <!-- Joining means taking the shared hotbars: that is the headline. Making
-       this instance's the shared ones overwrites every other instance's, so it
-       is the alternative, and the only choice for an older instance. -->
+  <!-- Joining means taking the shared hotbars or options: that is the
+       headline. Making this instance's the shared ones overwrites every other
+       instance's, so it is the alternative, and the only choice for an
+       instance older than the shared hotbars. -->
   <ConfirmDialog
-    title={$t('instance.settingsSync.joinTitle')}
+    title={$t(copy.title)}
     bodyText={[
-      both ? $t('instance.settingsSync.joinBody') : $t('instance.settingsSync.joinOlderBody'),
-      $t('instance.settingsSync.joinKept'),
-      $t('instance.settingsSync.hotbarsRule'),
+      both ? $t(copy.body) : $t('instance.settingsSync.joinOlderBody'),
+      $t(copy.kept),
+      $t(RULE[kind] ?? 'instance.settingsSync.hotbarsRule'),
     ]}
-    confirmLabel={both
-      ? $t('instance.settingsSync.useShared')
-      : $t('instance.settingsSync.makeShared')}
+    confirmLabel={both ? $t(copy.useShared) : $t('instance.settingsSync.makeShared')}
     confirmTestid={both ? 'settings-sync-use-shared' : 'settings-sync-make-shared'}
     secondaryLabel={both ? $t('instance.settingsSync.makeShared') : undefined}
     secondaryTestid="settings-sync-make-shared"
     onSecondary={both
       ? () => {
+          // Taken before clearing: `kind` derives from `joinAsk`.
+          const k = kind;
           joinAsk = null;
-          void apply('hotbars', true, 'make_shared');
+          void apply(k, true, 'make_shared');
         }
       : undefined}
     onCancel={() => {
@@ -294,10 +303,11 @@
       undoClick();
     }}
     onConfirm={() => {
-      // Read before clearing: `both` derives from `joinAsk` and reads false after.
+      // Read before clearing: `both` and `kind` derive from `joinAsk`.
       const join = both ? 'use_shared' : 'make_shared';
+      const k = kind;
       joinAsk = null;
-      void apply('hotbars', true, join);
+      void apply(k, true, join);
     }}
   />
 {/if}
