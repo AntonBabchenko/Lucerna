@@ -71,7 +71,7 @@ describe('the page’s version list', () => {
 });
 
 describe('the loader picker’s failed list', () => {
-  it('a network failure offers Reload, which fetches again', async () => {
+  it('a network failure offers Reload, which fetches again and hands the focus to the list', async () => {
     vi.mocked(commands.listForgeLoaders)
       .mockResolvedValueOnce({ status: 'error', error: netFailure })
       .mockResolvedValueOnce({
@@ -79,9 +79,13 @@ describe('the loader picker’s failed list', () => {
         data: [{ version: '47.3.0', stable: true }],
       } as never);
     render(LoaderPicker, { mc: '1.20.1', loader: 'forge', loaderVersion: null });
-    await fireEvent.click(await screen.findByRole('button', { name: 'Reload' }));
+    const reload = await screen.findByRole('button', { name: 'Reload' });
+    reload.focus();
+    await fireEvent.click(reload);
     await waitFor(() => expect(commands.listForgeLoaders).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull());
+    // The keyboard user lands on the version list the reload filled, not on <body>.
+    await waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('combobox'));
   });
 
   it('a definitive answer offers no Reload', async () => {

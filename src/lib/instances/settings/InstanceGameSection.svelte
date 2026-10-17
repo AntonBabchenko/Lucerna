@@ -433,6 +433,7 @@
       loading={versionList.loading}
       failure={versionList.failure}
       onReload={versionList.reload}
+      pickerId="detail-mc-version"
     />
   {/if}
 

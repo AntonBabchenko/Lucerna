@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { commands, type LoaderKind, type LoaderVersion } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
@@ -51,6 +51,11 @@
   let error = $state<string | null>(null);
   // The failure was a fetch that may work next time: the message gets a Reload.
   let retryable = $state(false);
+  let reloadBtn: HTMLButtonElement | undefined = $state();
+  // Reload holds the focus: set when it gets it, cleared only when the user moves it to another
+  // control (a blur with a target). The button leaves while the list loads, which blurs it with
+  // none (a dialog's trap may then park the focus on its first field), so the flag survives that.
+  let reloadFocused = false;
   let isLoadingVersions = $state(false);
 
   // COMMIT MODE ONLY. With `onchange` the props are the parent's committed
@@ -236,13 +241,19 @@
   }
 
   // The same fetch again, for the shown loader (the effect re-runs only when MC or the loader change).
-  function reload() {
+  // Reload leaves while the list loads; when it ends, a focus it held goes to the version list it
+  // filled, or back to Reload if it failed again — never to <body>.
+  async function reload() {
     const k = shownLoader;
     const m = mc;
     if (k === 'vanilla' || !m) return;
     loadSeq += 1;
     isLoadingVersions = true;
-    void load(k, m, loadSeq);
+    await load(k, m, loadSeq);
+    if (!reloadFocused) return;
+    reloadFocused = false;
+    await tick();
+    (document.getElementById(versionSelectId) ?? reloadBtn)?.focus();
   }
 
   function pickLoader(k: LoaderKind) {
@@ -342,7 +353,16 @@
 {#if error && retryable}
   <div class="mb-2 flex items-start gap-2">
     <StatusMessage tone="danger" message={error} class="min-w-0 flex-1" />
-    <button type="button" class="btn-secondary btn-xs flex-shrink-0" onclick={reload}>
+    <button
+      bind:this={reloadBtn}
+      type="button"
+      class="btn-secondary btn-xs flex-shrink-0"
+      onfocus={() => (reloadFocused = true)}
+      onblur={(e) => {
+        if (e.relatedTarget !== null) reloadFocused = false;
+      }}
+      onclick={() => void reload()}
+    >
       {$t('instance.loader.reload')}
     </button>
   </div>

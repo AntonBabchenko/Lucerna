@@ -1805,7 +1805,7 @@
       {instances}
       {instancesLoaded}
       {instancesListError}
-      onRetryInstances={() => void refreshInstances()}
+      onRetryInstances={() => refreshInstances()}
       {activeInstance}
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}

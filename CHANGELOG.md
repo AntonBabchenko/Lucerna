@@ -105,8 +105,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   version list that didn't load offers Reload. Logs now keep the full cause, and
   the message points there when the cause isn't recognised.
 - **An instance list that can't be read no longer looks empty.** The sidebar
-  says it couldn't read your instances and offers Try again, instead of «No
-  instances yet» and Create.
+  says it couldn't read your instances and offers Try again, instead of "No
+  instances yet" and Create.
 - **A Forge installer that can't be checked is no longer called corrupted.** If
   the site publishes no checksum for it, or the checksum didn't load, the
   launcher says exactly that, and still won't install it.

@@ -14,6 +14,7 @@
   import type { SelectOption } from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import { focusInstancePickerIfLost } from './picker-focus';
   import { Icon } from '$lib/ui/icons';
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { t } from '$lib/i18n';
@@ -203,7 +204,7 @@
     instancesLoaded?: boolean;
     /** The instance list could not be read: «could not tell», never shown as «no instances». */
     instancesListError?: string | null;
-    onRetryInstances?: () => void;
+    onRetryInstances?: () => Promise<unknown> | void;
   } = $props();
 
   const accountOptions = $derived(
@@ -216,6 +217,18 @@
       })`,
     })),
   );
+  let retryingInstances = $state(false);
+  async function retryInstances() {
+    if (retryingInstances) return;
+    retryingInstances = true;
+    try {
+      await onRetryInstances();
+    } finally {
+      retryingInstances = false;
+    }
+    await focusInstancePickerIfLost();
+  }
+
   const instanceOptions = $derived(
     instances.map((i) => ({
       value: i.id,
@@ -532,7 +545,16 @@
               message={`${$t('sidebar.instancesFailed')} ${instancesListError}`}
               class="text-xs"
             />
-            <button type="button" class="btn-secondary btn-xs" onclick={onRetryInstances}>
+            <!-- Never disabled while it runs (the focus would fall to <body>): busy, then the
+                 focus goes to the instance list it filled, or stays here if it failed again. -->
+            <button
+              type="button"
+              class="btn-secondary btn-xs inline-flex items-center gap-1"
+              aria-disabled={retryingInstances}
+              aria-busy={retryingInstances}
+              onclick={() => void retryInstances()}
+            >
+              {#if retryingInstances}<Spinner size="sm" />{/if}
               {$t('sidebar.instancesRetry')}
             </button>
           </div>

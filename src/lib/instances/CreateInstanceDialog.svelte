@@ -222,6 +222,7 @@
       loading={versionList.loading}
       failure={versionList.failure}
       onReload={versionList.reload}
+      pickerId="create-mc-version"
     />
   {/if}
 
