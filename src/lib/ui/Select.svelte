@@ -516,11 +516,13 @@
       {/each}
     </ul>
     {#if filter}
-      <!-- Mounted with the field, so the no-match line is announced when it appears. `w-0
+      <!-- Mounted with the field, so the no-match line is announced when it appears; out of flow
+           while idle (DESIGN §10, tests/no-idle-live-region-box.test.ts). `w-0
            min-w-full`: it wraps inside the popover instead of widening it as the query grows. -->
       <p
         role="status"
         class="w-0 min-w-full text-xs text-muted"
+        class:absolute={visible.length > 0}
         class:px-3={visible.length === 0}
         class:py-2={visible.length === 0}
       >
