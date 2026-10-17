@@ -115,6 +115,12 @@
     })),
     ...folders.map((f) => ({ form: 'folder' as const, id: `folder:${f}`, key: f, name: f })),
   ]);
+  // The update check asks Modrinth / CurseForge about rows with a source and a project and skips
+  // the rest (`assets_check_updates`): with none of those, it would answer «up to date» about
+  // nothing, so it is disabled and says why.
+  const nothingToCheck = $derived(
+    assets.length > 0 && !assets.some((a) => a.source !== null && a.project_id !== null),
+  );
   let loading = $state(false);
   let busy = $state(false);
   let checking = $state(false);
@@ -308,7 +314,15 @@
       updateStates = next;
       // Notify the Browse view so its "Installed" badge clears.
       assetsChanged.value++;
-      pushSuccess(get(t)('addons.installed.removedToast', { name: asset.name }));
+      // The backend says where it went: a pack Lucerna cannot download again goes to the bin.
+      pushSuccess(
+        get(t)(
+          res.data === 'recycle_bin'
+            ? 'addons.installed.trashedToast'
+            : 'addons.installed.removedToast',
+          { name: asset.name },
+        ),
+      );
     } finally {
       busy = false;
     }
@@ -590,16 +604,24 @@
         {$t('addons.installed.updateAll', { count: updateCount })}
       </BusyButton>
     {/if}
-    <BusyButton
-      type="button"
-      class="btn-secondary btn-sm"
-      busy={checking}
-      disabled={busy || instanceId === null || assets.length === 0}
-      onclick={checkUpdates}
+    <span
+      class="inline-flex"
+      use:tooltip={{
+        text: nothingToCheck ? $t('addons.installed.nothingToCheck') : '',
+        describe: false,
+      }}
     >
-      <Icon name="refresh" class="icon-spin-hover" />
-      {$t('addons.installed.checkUpdates')}
-    </BusyButton>
+      <BusyButton
+        type="button"
+        class="btn-secondary btn-sm"
+        busy={checking}
+        disabled={busy || instanceId === null || assets.length === 0 || nothingToCheck}
+        onclick={checkUpdates}
+      >
+        <Icon name="refresh" class="icon-spin-hover" />
+        {$t('addons.installed.checkUpdates')}
+      </BusyButton>
+    </span>
   </div>
 
   {#if error}
@@ -763,8 +785,10 @@
       title={$t('addons.installed.removeManyConfirm', { count: pendingBulkRemove.length })}
       bodyText={[
         ...bulkNameLines(pendingBulkRemove.map((r) => r.name)),
-        ...(pendingBulkRemove.some((r) => r.form === 'folder')
-          ? [$t('addons.installed.bulkFoldersNote')]
+        // Where each pack goes is the backend's rule (`asset_folder::if_file_for`): a folder, or a
+        // file with no source, to the recycle bin; a file Lucerna can download again is deleted.
+        ...(pendingBulkRemove.some((r) => r.form === 'folder' || r.asset.source === null)
+          ? [$t('addons.installed.bulkRecycleNote')]
           : []),
       ]}
       confirmLabel={$t('addons.installed.remove')}

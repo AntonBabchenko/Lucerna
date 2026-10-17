@@ -254,17 +254,64 @@ pub async fn folder_packs(dir: &Path, kind: ContentKind, entries: &[FolderEntry]
 pub enum Removed {
     /// Nothing was there: a ghost row's repair.
     Nothing,
+    /// A file, deleted: Lucerna can download it again.
     File,
+    /// A file Lucerna cannot download again, moved to the recycle bin.
+    FileToBin,
     /// A folder pack, moved to the recycle bin. It never has a registry row.
     Folder,
 }
 
-/// Remove one entry of a pack folder by its real type: a file is deleted, a
-/// folder pack goes to the OS recycle bin through `recycle` (it may be the
-/// user's own work), a link is refused, and nothing there is success — a ghost
-/// row's repair. Any failure is returned, so the caller keeps the row: the
-/// folder is the truth, and a file that stayed would be listed again.
-pub async fn remove_entry<F>(path: &Path, recycle: F) -> Result<Removed, Error>
+/// What happens to a FILE [`remove_entry`] finds (a folder always goes to the bin).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IfFile {
+    Delete,
+    Recycle,
+}
+
+/// A pack file Lucerna can download again — its row names a source — is
+/// deleted; one it cannot is moved to the recycle bin, as a folder pack is: a
+/// zip the user put in the folder by hand (adopted with no source) or one a
+/// modpack shipped in its overrides may be the only copy. No row — or a
+/// registry that could not be read, which the caller passes as `None` — is the
+/// restrictive answer: the bin.
+pub fn if_file_for(row: Option<&InstalledAsset>) -> IfFile {
+    match row {
+        Some(a) if a.source.is_some() => IfFile::Delete,
+        _ => IfFile::Recycle,
+    }
+}
+
+/// What a removal did, for the toast: the user is told where the pack went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetRemoval {
+    /// Nothing was there any more (a ghost row's repair).
+    AlreadyGone,
+    /// Deleted; Lucerna can download it again.
+    Deleted,
+    /// Moved to the OS recycle bin.
+    RecycleBin,
+}
+
+impl From<Removed> for AssetRemoval {
+    fn from(r: Removed) -> Self {
+        match r {
+            Removed::Nothing => AssetRemoval::AlreadyGone,
+            Removed::File => AssetRemoval::Deleted,
+            Removed::FileToBin | Removed::Folder => AssetRemoval::RecycleBin,
+        }
+    }
+}
+
+/// Remove one entry of a pack folder by its real type: a file is deleted or,
+/// with [`IfFile::Recycle`], moved to the OS recycle bin through `recycle`; a
+/// folder pack always goes to the bin (it may be the user's own work); a link
+/// is refused, and nothing there is success — a ghost row's repair. Any
+/// failure is returned, so the caller keeps the row: the folder is the truth,
+/// and a file that stayed would be listed again. A bin that refuses is a failed
+/// removal, never a deletion.
+pub async fn remove_entry<F>(path: &Path, if_file: IfFile, recycle: F) -> Result<Removed, Error>
 where
     F: FnOnce(PathBuf) -> std::io::Result<()> + Send + 'static,
 {
@@ -287,6 +334,12 @@ where
         return crate::platform::recycle_bin::off_thread(path.to_path_buf(), recycle)
             .await
             .map(|()| Removed::Folder)
+            .map_err(|e| io_err(path, e));
+    }
+    if if_file == IfFile::Recycle {
+        return crate::platform::recycle_bin::off_thread(path.to_path_buf(), recycle)
+            .await
+            .map(|()| Removed::FileToBin)
             .map_err(|e| io_err(path, e));
     }
     match fs::remove_file(path).await {
@@ -431,19 +484,99 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn removal_deletes_a_file() {
+    async fn removal_deletes_a_file_lucerna_can_download_again() {
         let td = tempfile::tempdir().unwrap();
         let p = td.path().join("A.zip");
         std::fs::write(&p, b"a").unwrap();
-        assert_eq!(remove_entry(&p, bin_ok).await.unwrap(), Removed::File);
+        assert_eq!(
+            remove_entry(&p, IfFile::Delete, bin_ok).await.unwrap(),
+            Removed::File
+        );
         assert!(!p.exists());
+    }
+
+    #[tokio::test]
+    async fn a_file_lucerna_cannot_download_again_goes_to_the_recycle_bin() {
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("My Texture Edit.zip");
+        std::fs::write(&p, b"mine").unwrap();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let s = seen.clone();
+        let removed = remove_entry(&p, IfFile::Recycle, move |q| {
+            *s.lock().unwrap() = Some(q);
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(removed, Removed::FileToBin);
+        assert_eq!(seen.lock().unwrap().as_deref(), Some(p.as_path()));
+        assert!(
+            p.exists(),
+            "the seam stood in for the bin: nothing was deleted"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bin_that_refuses_a_file_is_a_failed_removal_never_a_deletion() {
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("Mine.zip");
+        std::fs::write(&p, b"mine").unwrap();
+        let r = remove_entry(&p, IfFile::Recycle, |_| {
+            Err(std::io::Error::other("no recycle bin"))
+        })
+        .await;
+        assert!(r.is_err());
+        assert!(p.exists(), "a refused bin keeps the file");
+    }
+
+    #[test]
+    fn a_pack_with_no_source_or_no_row_keeps_a_copy() {
+        let mut row = crate::mods::assets::make_asset(
+            ContentKind::ResourcePack,
+            "Mine.zip",
+            "aa",
+            None,
+            None,
+            None,
+            "Mine",
+            "2026-10-17T00:00:00+00:00".into(),
+        );
+        assert_eq!(if_file_for(Some(&row)), IfFile::Recycle, "no source");
+        assert_eq!(
+            if_file_for(None),
+            IfFile::Recycle,
+            "no row (or the registry could not be read): the restrictive answer"
+        );
+        row.source = Some(crate::mods::platform::ModSource::Modrinth);
+        assert_eq!(
+            if_file_for(Some(&row)),
+            IfFile::Delete,
+            "downloadable again"
+        );
+    }
+
+    #[test]
+    fn what_the_user_is_told_follows_what_happened() {
+        assert_eq!(
+            AssetRemoval::from(Removed::Nothing),
+            AssetRemoval::AlreadyGone
+        );
+        assert_eq!(AssetRemoval::from(Removed::File), AssetRemoval::Deleted);
+        assert_eq!(
+            AssetRemoval::from(Removed::FileToBin),
+            AssetRemoval::RecycleBin
+        );
+        assert_eq!(
+            AssetRemoval::from(Removed::Folder),
+            AssetRemoval::RecycleBin
+        );
     }
 
     #[tokio::test]
     async fn removal_of_nothing_is_ok() {
         let td = tempfile::tempdir().unwrap();
         assert_eq!(
-            remove_entry(&td.path().join("ghost.zip"), bin_ok)
+            remove_entry(&td.path().join("ghost.zip"), IfFile::Delete, bin_ok)
                 .await
                 .unwrap(),
             Removed::Nothing
@@ -457,7 +590,7 @@ mod tests {
         std::fs::create_dir_all(&p).unwrap();
         let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
         let s = seen.clone();
-        let removed = remove_entry(&p, move |q| {
+        let removed = remove_entry(&p, IfFile::Delete, move |q| {
             *s.lock().unwrap() = Some(q);
             Ok(())
         })
@@ -476,7 +609,10 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let p = td.path().join("Dev Pack");
         std::fs::create_dir_all(&p).unwrap();
-        let r = remove_entry(&p, |_| Err(std::io::Error::other("no bin here"))).await;
+        let r = remove_entry(&p, IfFile::Delete, |_| {
+            Err(std::io::Error::other("no bin here"))
+        })
+        .await;
         assert!(r.is_err());
     }
 
@@ -485,7 +621,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let p = td.path().join("Dev Pack");
         std::fs::create_dir_all(&p).unwrap();
-        let r = remove_entry(&p, |_| panic!("CoCreateInstance failed")).await;
+        let r = remove_entry(&p, IfFile::Delete, |_| panic!("CoCreateInstance failed")).await;
         assert!(r.is_err());
     }
 
@@ -496,7 +632,7 @@ mod tests {
         std::fs::create_dir_all(td.path().join("real")).unwrap();
         let link = td.path().join("Linked");
         std::os::unix::fs::symlink(td.path().join("real"), &link).unwrap();
-        let r = remove_entry(&link, bin_ok).await;
+        let r = remove_entry(&link, IfFile::Delete, bin_ok).await;
         assert!(matches!(r, Err(Error::AddonEntryIsLink { .. })));
         assert!(link.exists());
     }
