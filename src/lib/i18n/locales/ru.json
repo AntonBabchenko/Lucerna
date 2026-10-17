@@ -2741,6 +2741,7 @@
     "forgeInstallerUnverifiable": "Lucerna не может проверить установщик Forge для {mc}-{fv}: сайт не публикует для него контрольную сумму, поэтому он не будет установлен.",
     "forgeUnsupportedProcessor": "Эта версия Forge использует неподдерживаемый процессор: {coord}",
     "forgePatcherFailed": "Патчер Forge «{processor}» завершился с ошибкой",
+    "forgeProcessorOutputMismatch": "Шаг установки Forge «{processor}» создал файл с неверной контрольной суммой, установка остановлена",
     "forgeMappingsMissing": "Маппинги Forge для {mc} недоступны",
     "instanceNameEmpty": "Имя профиля не может быть пустым",
     "instanceNameTooLong": "Имя профиля слишком длинное: {actual}/{max} символов",
@@ -2962,6 +2963,8 @@
     "javaUnusableServer": "Выбранную для сервера Java нельзя использовать ({path}). {reason}",
     "javaSettingsUnreadable": "Lucerna не смогла прочитать свои настройки и не знает, какую Java запустить.",
     "managedJavaMissing": "Java от Lucerna для этой версии не скачана.",
+    "clientJarMissing": "Файл игры Minecraft {mc} отсутствует. На вкладке «Настройки» профиля нажмите «Проверить», затем «Восстановить» в разделе «Целостность».",
+    "clientJarDamaged": "Файл игры Minecraft {mc} повреждён. На вкладке «Настройки» профиля нажмите «Проверить», затем «Восстановить» в разделе «Целостность».",
     "jreUnavailable": "Lucerna не смогла получить Java {major} для этой версии. {reason}",
     "jreUnavailableInstaller": "Lucerna не смогла получить Java {major}, на которой работает установщик Forge или NeoForge. {reason}",
     "jreUnavailableReason": {
