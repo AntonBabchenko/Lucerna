@@ -4,7 +4,7 @@
   import { commands, type LoaderKind, type LoaderVersion } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
-  import { formatLoaderListError } from '$lib/instances/loader-list-error';
+  import { formatLoaderListError, isRetryableListError } from '$lib/instances/loader-list-error';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -49,6 +49,8 @@
 
   let versions = $state<LoaderVersion[]>([]);
   let error = $state<string | null>(null);
+  // The failure was a fetch that may work next time: the message gets a Reload.
+  let retryable = $state(false);
   let isLoadingVersions = $state(false);
 
   // COMMIT MODE ONLY. With `onchange` the props are the parent's committed
@@ -77,9 +79,10 @@
   // longer free — it needs a real request (last click wins).
   let writtenSinceProps = false;
 
-  function failList(message: string) {
+  function failList(message: string, canRetry = false) {
     versions = [];
     error = message;
+    retryable = canRetry;
     // "Could not list builds" is not "no version needed". Bind mode: the draft
     // loses its version, which keeps Create blocked. Commit mode: there is no
     // valid pair to write, so nothing is requested.
@@ -182,6 +185,7 @@
 
   async function load(k: LoaderKind, m: string, seq: number): Promise<void> {
     error = null;
+    retryable = false;
     let result: Awaited<ReturnType<typeof commands.listFabricLoaders>>;
     try {
       result =
@@ -195,7 +199,7 @@
     } catch (e) {
       if (seq !== loadSeq) return;
       isLoadingVersions = false;
-      failList(e instanceof Error ? e.message : String(e));
+      failList(e instanceof Error ? e.message : String(e), true);
       return;
     }
     // A newer (mc, loader) superseded this fetch — its list must not land on
@@ -203,7 +207,7 @@
     if (seq !== loadSeq) return;
     isLoadingVersions = false;
     if (result.status !== 'ok') {
-      failList(formatLoaderListError(result.error, k));
+      failList(formatLoaderListError(result.error, k), isRetryableListError(result.error));
       return;
     }
     if (result.data.length === 0) {
@@ -229,6 +233,16 @@
     } else if (next !== stored) {
       requestCommit(k, next, 'auto');
     }
+  }
+
+  // The same fetch again, for the shown loader (the effect re-runs only when MC or the loader change).
+  function reload() {
+    const k = shownLoader;
+    const m = mc;
+    if (k === 'vanilla' || !m) return;
+    loadSeq += 1;
+    isLoadingVersions = true;
+    void load(k, m, loadSeq);
   }
 
   function pickLoader(k: LoaderKind) {
@@ -325,4 +339,13 @@
   {/if}
 {/if}
 
-<StatusMessage tone="danger" message={error} class="mb-2" />
+{#if error && retryable}
+  <div class="mb-2 flex items-start gap-2">
+    <StatusMessage tone="danger" message={error} class="min-w-0 flex-1" />
+    <button type="button" class="btn-secondary btn-xs flex-shrink-0" onclick={reload}>
+      {$t('instance.loader.reload')}
+    </button>
+  </div>
+{:else}
+  <StatusMessage tone="danger" message={error} class="mb-2" />
+{/if}

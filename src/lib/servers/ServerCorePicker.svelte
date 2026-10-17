@@ -7,7 +7,7 @@
   } from '$lib/ipc/bindings';
   import { displayCore, coreToLoaderKind, pluginCapable } from '$lib/servers/core-display';
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
-  import { formatLoaderListError } from '$lib/instances/loader-list-error';
+  import { formatLoaderListError, isRetryableListError } from '$lib/instances/loader-list-error';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -44,6 +44,8 @@
 
   let versions = $state<LoaderVersion[]>([]);
   let error = $state<string | null>(null);
+  // The failure was a fetch that may work next time: the message gets a Reload.
+  let retryable = $state(false);
   let isLoadingVersions = $state(false);
 
   // Tracks the core value the LAST $effect run dispatched a load() for.
@@ -88,6 +90,7 @@
 
   async function load(k: LoaderKind, m: string, resetToStable: boolean): Promise<void> {
     error = null;
+    retryable = false;
     const result =
       k === 'fabric'
         ? await commands.listFabricLoaders(m)
@@ -121,7 +124,18 @@
       versions = [];
       coreVersion = null;
       error = formatLoaderListError(result.error, k);
+      retryable = isRetryableListError(result.error);
     }
+  }
+
+  // The same fetch again, for the shown core (the effect re-runs only when MC or the core change).
+  function reload() {
+    const lk = coreToLoaderKind(core);
+    if (lk === null || core === 'vanilla' || !mc) return;
+    isLoadingVersions = true;
+    void load(lk, mc, false).finally(() => {
+      isLoadingVersions = false;
+    });
   }
 
   function pickCore(c: ServerCore) {
@@ -199,4 +213,13 @@
   <p class="text-xs text-muted mb-3">{$t('servers.core.latestBuildHint')}</p>
 {/if}
 
-<StatusMessage tone="danger" message={error} class="mb-2" />
+{#if error && retryable}
+  <div class="mb-2 flex items-start gap-2">
+    <StatusMessage tone="danger" message={error} class="min-w-0 flex-1" />
+    <button type="button" class="btn-secondary btn-xs flex-shrink-0" onclick={reload}>
+      {$t('instance.loader.reload')}
+    </button>
+  </div>
+{:else}
+  <StatusMessage tone="danger" message={error} class="mb-2" />
+{/if}

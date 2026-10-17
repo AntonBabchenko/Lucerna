@@ -109,6 +109,7 @@
   import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
+  import { focusInstancePicker, focusInstancePickerIfLost } from '$lib/layout/picker-focus';
   import { debounceTrailing } from '$lib/ui/debounce';
   import { modalBlocksFileDrops } from '$lib/ui/layer-stack.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
@@ -184,6 +185,12 @@
   // recovery). Powers the Settings tab's version picker and publishes to the
   // shared `mcVersions` rune for the browsers' version combobox.
   const mcv = createMcVersions();
+  // What a version picker says beside the versions: loading, or the last load failed (with Reload).
+  const versionList = $derived({
+    loading: mcv.loading,
+    failure: mcv.failure,
+    reload: () => void mcv.load(),
+  });
 
   let instances = $state<InstanceWithStatus[]>([]);
   let activeInstance = $state<InstanceWithStatus | null>(null);
@@ -222,6 +229,13 @@
   }
   // Opened from the Overview Mods card's translation row.
   let l10nOpen = $state(false);
+  // The translations dialog closes through its own binding; the row menu that opened it is gone.
+  let l10nWasOpen = false;
+  $effect(() => {
+    const open = l10nOpen;
+    if (l10nWasOpen && !open) void focusInstancePickerIfLost();
+    l10nWasOpen = open;
+  });
   // Why the AI pre-fill is or is not usable, handed to LocalizationModal as a
   // prop. Both non-ready answers are fixable in Settings, so the modal renders
   // its translate buttons disabled WITH the reason rather than hiding them.
@@ -1394,7 +1408,7 @@
       pushSuccess(get(t)('instance.settings.deletedNowActive', { name: deleted.name, other }));
     }
     await tick();
-    document.querySelector<HTMLElement>('[data-tour="instance-picker"] [role="combobox"]')?.focus();
+    focusInstancePicker();
   }
 
   async function onInstall() {
@@ -1403,10 +1417,16 @@
     if (dataLocation.fellBack) return;
     installing = true;
     setInstallError(null);
-    const result = await installGame(activeInstance.id, activeInstance.name);
+    const name = activeInstance.name;
+    const result = await installGame(activeInstance.id, name);
     installing = false;
     if (result.status === 'error') {
-      setInstallError(formatError(result.error), result.error);
+      // What failed, then why (the `withCause` shape): the cause alone names a site and a reason,
+      // and the install the user just asked for is what failed.
+      setInstallError(
+        `${get(t)('page.overview.installFailed', { name })} ${formatError(result.error)}`,
+        result.error,
+      );
     } else {
       // Refresh so `activeInstance.ready` flips to true and the button
       // swaps from blue Install to green Play. No auto-launch — the
@@ -1784,6 +1804,8 @@
       {activeAccount}
       {instances}
       {instancesLoaded}
+      {instancesListError}
+      onRetryInstances={() => void refreshInstances()}
       {activeInstance}
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}
@@ -1947,6 +1969,7 @@
               listError={instancesListError}
               fellBack={dataLocation.fellBack}
               versions={mcv.value}
+              {versionList}
               running={selectedRunning}
               anyRunning={runningCount > 0}
               onChanged={refreshInstances}
@@ -2067,6 +2090,7 @@
   {#if createInstanceOpen}
     <CreateInstanceDialog
       versions={mcv.value}
+      {versionList}
       activate={activateInstance}
       onCreated={() => void refreshInstances()}
       onClose={() => (createInstanceOpen = false)}
@@ -2078,7 +2102,10 @@
     <DeleteInstanceDialog
       instance={target}
       refresh={refreshAfterDelete}
-      onClose={() => (deleteTarget = null)}
+      onClose={() => {
+        deleteTarget = null;
+        void focusInstancePickerIfLost();
+      }}
       onDeleted={() => void afterDelete(target)}
     />
   {/if}
@@ -2094,14 +2121,26 @@
   {#if cloneTargetId !== null}
     {@const cloneSource = instances.find((i) => i.id === cloneTargetId)}
     {#if cloneSource}
-      <CloneInstanceDialog instance={cloneSource} onClose={() => (cloneTargetId = null)} />
+      <CloneInstanceDialog
+        instance={cloneSource}
+        onClose={() => {
+          cloneTargetId = null;
+          void focusInstancePickerIfLost();
+        }}
+      />
     {/if}
   {/if}
 
   {#if shortcutTargetId !== null}
     {@const shortcutSource = instances.find((i) => i.id === shortcutTargetId)}
     {#if shortcutSource}
-      <CreateShortcutDialog instance={shortcutSource} onClose={() => (shortcutTargetId = null)} />
+      <CreateShortcutDialog
+        instance={shortcutSource}
+        onClose={() => {
+          shortcutTargetId = null;
+          void focusInstancePickerIfLost();
+        }}
+      />
     {/if}
   {/if}
 
@@ -2242,7 +2281,10 @@
     <ExportPackDialog
       instanceId={exportTarget.id}
       instanceName={exportTarget.name}
-      onClose={() => (exportTargetId = null)}
+      onClose={() => {
+        exportTargetId = null;
+        void focusInstancePickerIfLost();
+      }}
     />
   {/if}
   {#if optimiseOpen && optimisePlan && activeInstance}

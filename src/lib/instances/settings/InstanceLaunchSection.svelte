@@ -18,11 +18,14 @@
 
   let {
     instance,
+    running = false,
     focusField = null,
     onFocusDelivered = () => {},
     onChanged,
   }: {
     instance: InstanceWithStatus;
+    /** This instance's game is up: what changes here applies at its next start. */
+    running?: boolean;
     focusField?: ManageFocusField | null;
     onFocusDelivered?: () => void;
     onChanged: () => void;
@@ -142,6 +145,13 @@
 
 <section class="flex flex-col">
   <h3 class="mb-2 text-sm font-medium text-primary">{$t('instance.settings.launchSection')}</h3>
+  {#if running}
+    <!-- The server tab's «Restart the server to apply…» sibling: memory, Java and JVM arguments
+         stay editable while the game runs, and the game keeps what it started with. -->
+    <p class="mb-2 text-xs text-muted" data-testid="launch-applies-next-start">
+      {$t('instance.settings.launchNextStart')}
+    </p>
+  {/if}
 
   <div
     data-focus-field="memory"

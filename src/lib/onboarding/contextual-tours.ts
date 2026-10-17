@@ -78,7 +78,8 @@ export function fingerprintSteps(steps: ReadonlyArray<TourStep>): string {
 // never redden CI. tests/tour-fingerprint.test.ts recomputes and prints the
 // new value on mismatch.
 export const STEPS_FINGERPRINT: Record<ContextualTourId, string> = {
-  instanceSettings: 'ff644aa3',
+  // Copy fix 2026-10-17 (Delete no longer asks to type a word); v1 never shipped, so no bump.
+  instanceSettings: 'b67d562b',
   logs: 'a4eac54b',
   // Moved 2026-10-04 by a copy-only fix, not bumped: the filter step pointed at
   // a «Filters» button, chips and a source filter that are gone, and named the

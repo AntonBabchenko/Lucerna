@@ -23,14 +23,19 @@
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import VersionListNotice from '$lib/versions/VersionListNotice.svelte';
+  import { LOADED_VERSION_LIST, type VersionListState } from '$lib/versions/mc-versions.svelte';
 
   let {
     versions,
+    versionList = LOADED_VERSION_LIST,
     activate,
     onCreated,
     onClose,
   }: {
     versions: VersionEntry[];
+    /** Loading / failed state of `versions`, said under the picker when it shows none. */
+    versionList?: VersionListState;
     /** Make the new instance active; resolves to an error message or null. The
      *  page's own activation, so the same request bookkeeping applies. */
     activate: (id: string) => Promise<string | null>;
@@ -212,11 +217,12 @@
     {$t('instance.manage.showSnapshots')}
   </label>
   {#if visibleVersions.length === 0}
-    <p class="mb-3 text-xs text-warning-text">
-      {versions.length === 0
-        ? $t('instance.manage.noVersions')
-        : $t('instance.manage.noReleasesEnableSnapshots')}
-    </p>
+    <VersionListNotice
+      total={versions.length}
+      loading={versionList.loading}
+      failure={versionList.failure}
+      onReload={versionList.reload}
+    />
   {/if}
 
   <LoaderPicker mc={draftMc} bind:loader={draftLoader} bind:loaderVersion={draftLoaderVersion} />

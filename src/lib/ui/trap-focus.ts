@@ -199,8 +199,11 @@ export function trapFocus(node: HTMLElement, layer: LayerId) {
       node.removeEventListener('keydown', onKeydown);
       document.removeEventListener('keydown', onDocumentKeydown);
       // Restore focus to whatever was focused before the trap opened, if it is
-      // still in the document and focusable.
-      if (restoreTo && document.contains(restoreTo)) restoreTo.focus?.();
+      // still in the document and focusable. Without scrolling: the opener was
+      // on screen when the dialog opened, and if what is under the dialog changed
+      // meanwhile (Delete: the tab now shows the next instance, reset to its top),
+      // a restore must not scroll it back down to where the opener now sits.
+      if (restoreTo && document.contains(restoreTo)) restoreTo.focus?.({ preventScroll: true });
     },
   };
 }
