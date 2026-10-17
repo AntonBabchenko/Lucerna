@@ -41,8 +41,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile's library.
 - **Packs you put in a folder yourself show up.** Resource packs and shaders
   dropped into their folder, zipped or unpacked, are listed and can be removed
-  (an unpacked one goes to the recycle bin), and an Installed list re-reads
-  itself when you come back to the launcher.
+  (one Lucerna can't download again goes to the recycle bin), and an Installed
+  list re-reads itself when you come back to the launcher.
 - **Run an instance on your own Java.** Advanced → Java on the instance's
   Settings tab lists the Javas found on this computer and has a Browse button.
   Lucerna checks the chosen Java before every launch and refuses one that

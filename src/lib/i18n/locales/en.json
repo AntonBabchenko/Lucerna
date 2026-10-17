@@ -1483,6 +1483,7 @@
       "loading": "Loading…",
       "pickInstance": "Pick an instance first.",
       "upToDateToast": "Everything is up to date.",
+      "nothingToCheck": "None of these packs came from Modrinth or CurseForge, so there is nothing to check.",
       "checkFailed": "Update check failed",
       "installedToast": "Installed {name}",
       "updatedToast": "Updated {name}",
@@ -1494,7 +1495,7 @@
       "removeManyConfirm": "{count, plural, one {Remove # add-on?} other {Remove # add-ons?}}",
       "folderTag": "folder",
       "trashedToast": "Moved {name} to the recycle bin",
-      "bulkFoldersNote": "Folders are moved to the recycle bin.",
+      "bulkRecycleNote": "Folders, and packs that did not come from Modrinth or CurseForge, go to the recycle bin; the others can be downloaded again.",
       "folderUnreadable": "Couldn't read the folder, so packs added to it by hand may be missing.",
       "oldFileKept": "Updated {name}, but the old file {file} is still in the folder",
       "oldFilesKept": "{count, plural, one {# old file is} other {# old files are}} still in the folder"
