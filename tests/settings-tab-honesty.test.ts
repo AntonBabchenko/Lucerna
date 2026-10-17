@@ -10,8 +10,8 @@ import type { InstanceWithStatus } from '$lib/ipc/bindings';
 import { focusInstancePickerIfLost } from '$lib/layout/picker-focus';
 import Sidebar from '$lib/layout/Sidebar.svelte';
 import { newLayerId } from '$lib/ui/layer-stack.svelte';
-import { trapFocus } from '$lib/ui/trap-focus';
 import { hideTooltip, tooltipState } from '$lib/ui/tooltip/tooltip-controller.svelte';
+import { trapFocus } from '$lib/ui/trap-focus';
 import { revealTooltip } from './test-utils/reveal-tooltip';
 
 vi.mock('$lib/ipc/bindings', async (importOriginal) => {

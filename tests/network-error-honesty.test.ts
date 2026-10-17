@@ -3,10 +3,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
-import { commands } from '$lib/ipc/bindings';
 import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
-import VersionListNotice from '$lib/versions/VersionListNotice.svelte';
+import { commands } from '$lib/ipc/bindings';
 import { createMcVersions } from '$lib/versions/mc-versions.svelte';
+import VersionListNotice from '$lib/versions/VersionListNotice.svelte';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
