@@ -3,6 +3,7 @@ import { offlineNameRejectionKey } from '$lib/accounts/offline-name';
 import { t } from '$lib/i18n';
 import type { TranslationKey } from '$lib/i18n/keys.generated';
 import { displayLoader } from '$lib/instances/loader-display';
+import { failureDetail, failureWhat } from '$lib/instances/settings/settings-sync-view';
 import { refusalText } from '$lib/instances/transfer/transfer-view';
 import type {
   BundleError,
@@ -233,6 +234,10 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   transfer_refused: 'clean',
   transfer_failed: 'clean',
   transfer_rollback_incomplete: 'clean',
+  settings_sync_failed: 'clean',
+  settings_sync_file: 'clean',
+  settings_sync_game_running: 'clean',
+  settings_sync_ask_game_closed: 'clean',
   quick_play_address_invalid: 'clean',
   import_unsupported_loader: 'clean',
   import_source_unrecognized: 'clean',
@@ -935,6 +940,18 @@ export function formatError(e: IpcError): string {
           e.role === 'source' ? 'errors.transferRoleSource' : 'errors.transferRoleTarget',
         ),
       });
+    // Which file and a reason class; the raw OS or parser text is in the log.
+    case 'settings_sync_failed':
+      return translate('errors.settingsSyncFailed', {
+        what: translate(failureWhat({ kind: e.sync_kind })),
+        detail: failureDetail(translate, { file: e.file, kind: e.sync_kind, reason: e.reason }),
+      });
+    case 'settings_sync_file':
+      return failureDetail(translate, { file: e.file, kind: e.file_kind, reason: e.reason });
+    case 'settings_sync_game_running':
+      return translate('errors.settingsSyncGameRunning');
+    case 'settings_sync_ask_game_closed':
+      return translate('errors.settingsSyncAskGameClosed');
     case 'transfer_invalid_selection':
       return translate('errors.transferInvalidSelection', { name: e.name });
     case 'transfer_refused':

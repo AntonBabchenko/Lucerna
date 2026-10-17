@@ -296,6 +296,8 @@ describe('searchSettings over the real registry + locales', () => {
     { q: 'знакомство', t: ruT, first: 'help.replayTours' },
     { q: 'русификация', t: ruT, first: 'integrations.aiTranslation' },
     { q: 'история', t: ruT, first: 'updates.changelog' },
+    { q: 'синхронизация', t: ruT, first: 'game.settingsSync' },
+    { q: 'sync', t: enT, first: 'game.settingsSync' },
     { q: 'подсказки', t: ruT, has: ['help.tipsLevel', 'help.replayTours'] },
     { q: 'ии', t: ruT, only: ['integrations.aiTranslation'] },
     { q: 'language', t: ruT, first: 'appearance.language' },

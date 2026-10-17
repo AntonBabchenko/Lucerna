@@ -708,6 +708,40 @@ pub enum Error {
         role: MigrationRole,
     },
 
+    /// A settings sync point before a launch failed; the game did not start.
+    /// `sync_kind` is `None` when the instance's sync settings themselves
+    /// could not be read; `file` is `None` when the failure was not about a
+    /// file. The launch dialog offers to launch without sync, or to stop
+    /// syncing `sync_kind` here. The raw error is in the log.
+    #[error("Settings sync failed: {file:?}, {reason:?}")]
+    SettingsSyncFailed {
+        sync_kind: Option<crate::settings_sync::Kind>,
+        file: Option<crate::settings_sync::failure::SyncFile>,
+        reason: crate::settings_sync::failure::FileReason,
+    },
+
+    /// A settings-sync file could not be read, parsed or written: which file
+    /// and a reason class the UI says in plain words. `path` and `details`
+    /// (the raw OS or parser text) are for the log, never shown.
+    #[error("{path}: {details}")]
+    SettingsSyncFile {
+        file: crate::settings_sync::failure::SyncFile,
+        file_kind: Option<crate::settings_sync::Kind>,
+        reason: crate::settings_sync::failure::FileReason,
+        path: String,
+        details: String,
+    },
+
+    /// A game started before Lucerna restarted still runs in this instance:
+    /// syncing now could overwrite what it is about to save.
+    #[error("A game started before Lucerna restarted is still running in this instance")]
+    SettingsSyncGameRunning,
+
+    /// Could not tell whether a game started before Lucerna restarted still
+    /// runs; the launch asks the user and retries with their answer.
+    #[error("Could not tell whether a game started before Lucerna restarted is still running")]
+    SettingsSyncAskGameClosed,
+
     /// A mod-data copy needs both instances idle (`instances::transfer`).
     /// `instance_name` is the display NAME; `role` says which side it is on.
     #[error("Instance {instance_name} is busy; it is the {role:?} of this copy")]

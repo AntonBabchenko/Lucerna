@@ -34,6 +34,15 @@ pub struct ProcessSpawned {
     pub pid: u32,
 }
 
+/// The settings sync after a game exited failed (spec 2026-10-15 §B3).
+/// Emitted before `ProcessExited`; the page warns, and the instance's Shared
+/// data section shows the reason until a later sync succeeds.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct SettingsSyncExitFailed {
+    pub instance_id: String,
+    pub failure: crate::settings_sync::SyncFailure,
+}
+
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ProcessExited {
     pub instance_id: String,
@@ -322,6 +331,7 @@ pub async fn start(
     account: &Account,
     app: &AppHandle,
     quick_play: Option<&QuickPlay>,
+    options: &crate::launch::LaunchOptions,
 ) -> Result<u32> {
     // Reserve THIS instance's id across the whole spawn. `claim_start` returns
     // None if the id is already running OR already starting — closing the TOCTOU
@@ -370,6 +380,36 @@ pub async fn start(
         .map_err(|e| Error::io("<instance_natives_dir>", e))?;
     let logs_dir =
         instance_logs_dir(app, &instance.id).map_err(|e| Error::io("<instance_logs_dir>", e))?;
+
+    // Settings sync (spec 2026-10-15 §B3), before natives: this instance
+    // counts as starting, so no other writer can touch its files. A failure
+    // stops the launch here, and the claim's `Drop` releases `starting`.
+    let sync_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
+    let synced = if options.skip_settings_sync {
+        None
+    } else {
+        let data_root = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
+        let (inst, versions_at, mc) = (
+            sync_root.clone(),
+            versions.clone(),
+            instance.mc_version.clone(),
+        );
+        let confirmed = options.game_closed_confirmed;
+        let facts = tokio::task::spawn_blocking(move || {
+            crate::settings_sync::launch_sync(
+                &data_root,
+                &inst,
+                &versions_at,
+                &mc,
+                confirmed,
+                &|pid| crate::platform::process_image_probe(pid, "java"),
+            )
+            .map(|facts| facts.map(|f| (data_root, f)))
+        })
+        .await
+        .map_err(|e| Error::io("<settings sync>", e))??;
+        facts
+    };
     // The version JSON is parsed here: the version jar decision reads its JVM
     // arguments (spec 2026-10-16 §3.1).
     let version_json_path = versions
@@ -578,6 +618,18 @@ pub async fn start(
     // Registry now holds the live process; the exit-watcher owns teardown.
     claim.commit();
 
+    // The marker that tells a later launcher session this game may still run
+    // (spec §B3, R4). Not fatal: the game is running; without it a launcher
+    // crash leaves one question less answerable, which the log says.
+    if synced.is_some() {
+        let started = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        if let Err(e) = crate::settings_sync::marker::write(&sync_root, pid, started) {
+            crate::diag!("settings sync: could not write the running-game marker ({e})");
+        }
+    }
+
     let _ = ProcessSpawned {
         instance_id: instance.id.clone(),
         version_id: version_id_owned.clone(),
@@ -598,6 +650,45 @@ pub async fn start(
             .ok()
             .and_then(|st| st.code())
             .unwrap_or(-1);
+        // Settings sync after exit (spec §B3): before `remove_if_pid`, so the
+        // instance still counts as running and nothing else can touch it, and
+        // only while the registry still holds THIS pid (`kill_all_running`
+        // removes it first; then the next launch captures instead).
+        if let Some((data_root, facts)) = synced {
+            if registry().pid_of(&instance_id_for_event) == Some(pid) {
+                let inst = sync_root.clone();
+                let done = tokio::task::spawn_blocking(move || {
+                    let outcome = crate::settings_sync::after_exit(&data_root, &inst, &facts);
+                    if let Err(e) = crate::settings_sync::marker::remove(&inst) {
+                        crate::diag!(
+                            "settings sync: could not remove the running-game marker ({e})"
+                        );
+                    }
+                    outcome
+                })
+                .await;
+                match done {
+                    Ok(Ok(())) => {}
+                    Ok(Err(failure)) => {
+                        // The raw error was logged where it happened.
+                        crate::diag!(
+                            "settings sync after exit failed for {}: {:?}",
+                            instance_id_for_event,
+                            failure
+                        );
+                        if let Err(e) = (SettingsSyncExitFailed {
+                            instance_id: instance_id_for_event.clone(),
+                            failure,
+                        })
+                        .emit(&app_clone)
+                        {
+                            crate::diag!("settings sync: could not announce the failure ({e})");
+                        }
+                    }
+                    Err(e) => crate::diag!("settings sync after exit did not finish ({e})"),
+                }
+            }
+        }
         // ABA-safe: only clear/announce if this map entry is still OUR pid. A
         // stop()+relaunch could have inserted a NEW pid under this id before
         // this stale watcher woke; `remove_if_pid` refuses to evict it.

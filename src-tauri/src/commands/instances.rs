@@ -43,6 +43,7 @@ pub async fn launch_instance(
     app: tauri::AppHandle,
     instance_id: String,
     quick_play: Option<crate::launch::QuickPlay>,
+    options: Option<crate::launch::LaunchOptions>,
 ) -> Result<u32, crate::error::Error> {
     crate::data_root::reject_if_root_unusable(&app)?;
     // Don't launch on top of a repair that's rewriting this instance's shared
@@ -104,6 +105,7 @@ pub async fn launch_instance(
         &account,
         &app,
         quick_play.as_ref(),
+        &options.unwrap_or_default(),
     )
     .await
 }
@@ -340,7 +342,7 @@ pub fn create_instance(
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
     crate::data_root::reject_if_root_unusable(&app)?;
     validate_instance_name(&name)?;
-    crate::instances::create_instance(
+    let created = crate::instances::create_instance(
         &app,
         name,
         mc_version,
@@ -350,7 +352,13 @@ pub fn create_instance(
         crate::instances::schema::PackOrigin::default(),
         None,
         None,
-    )
+    )?;
+    crate::commands::join_new_instance(
+        &app,
+        &created.id,
+        crate::settings_sync::creation::Origin::New,
+    );
+    Ok(created)
 }
 
 /// Delete an instance. If it was active, auto-switches to oldest remaining.
@@ -643,6 +651,16 @@ pub async fn clone_instance(
         },
     );
     drop(claim);
+    if let Ok(clone) = &cloned {
+        match crate::paths::instance_dir(&app, &source_id) {
+            Ok(source_root) => crate::commands::join_new_instance(
+                &app,
+                &clone.id,
+                crate::settings_sync::creation::Origin::Clone { source_root },
+            ),
+            Err(e) => crate::diag!("settings sync: the clone {} did not join ({e})", clone.id),
+        }
+    }
     cloned
 }
 
