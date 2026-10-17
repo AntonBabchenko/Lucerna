@@ -37,18 +37,28 @@ pub enum Kind {
     Servers,
     History,
     Hotbars,
+    Options,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 3] = [Kind::Servers, Kind::History, Kind::Hotbars];
+    pub const ALL: [Kind; 4] = [Kind::Servers, Kind::History, Kind::Hotbars, Kind::Options];
 
-    /// The file the game keeps for this kind, in `.minecraft/` and in the
-    /// shared store alike.
+    /// The file the game keeps for this kind in `.minecraft/`.
     pub fn file(self) -> &'static str {
         match self {
             Kind::Servers => "servers.dat",
             Kind::History => "command_history.txt",
             Kind::Hotbars => "hotbar.nbt",
+            Kind::Options => "options.txt",
+        }
+    }
+
+    /// The shared copy's file: the game's own format, except options, kept
+    /// version-neutral (a game reads only its own version's options.txt).
+    pub fn store_file(self) -> &'static str {
+        match self {
+            Kind::Options => "options.json",
+            other => other.file(),
         }
     }
 
@@ -57,6 +67,7 @@ impl Kind {
             Kind::Servers => "servers",
             Kind::History => "history",
             Kind::Hotbars => "hotbars",
+            Kind::Options => "options",
         }
     }
 }

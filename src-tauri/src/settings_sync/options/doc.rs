@@ -185,6 +185,41 @@ fn value_neutral(v: &Value) -> Option<Neutral> {
     })
 }
 
+/// What changed here since the baseline, into the shared values. A key the
+/// baseline lacks is a default this game just wrote (a new option after an
+/// upgrade, a mod's first save): it seeds the shared copy, never overrides
+/// it. A key gone from the file is no removal: the game writes every key it
+/// knows, so it is a key this game does not have.
+pub(crate) fn capture(before: &Values, now: &Values, shared: &Values) -> Values {
+    let mut out = shared.clone();
+    for (k, v) in now {
+        match before.get(k) {
+            Some(old) if old == v => {}
+            Some(_) => {
+                out.insert(k.clone(), v.clone());
+            }
+            None => {
+                out.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+    }
+    out
+}
+
+/// A join: the shared values win for keys both have ("Use the shared
+/// settings") or this instance's do ("Make this instance's settings the
+/// shared ones"); a key only one side has is kept either way.
+pub(crate) fn join(shared: &Values, own: &Values, own_wins: bool) -> Values {
+    let (base, over) = if own_wins {
+        (shared, own)
+    } else {
+        (own, shared)
+    };
+    let mut out = base.clone();
+    out.extend(over.iter().map(|(k, v)| (k.clone(), v.clone())));
+    out
+}
+
 /// The shared copy, `options.json`.
 #[derive(Serialize, Deserialize)]
 struct Stored {

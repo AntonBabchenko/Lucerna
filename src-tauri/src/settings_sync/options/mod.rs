@@ -7,3 +7,5 @@ pub(crate) mod keys;
 
 #[cfg(test)]
 mod evidence;
+#[cfg(test)]
+mod sync_tests;
