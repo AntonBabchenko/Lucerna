@@ -280,7 +280,10 @@
       "ok": "Got it"
     },
     "newInstance": "New instance",
-    "instanceSettingsLabel": "Settings for {name}"
+    "instanceSettingsLabel": "Settings for {name}",
+    "instanceFilterPlaceholder": "Filter instances…",
+    "instanceFilterAriaLabel": "Filter instances by name",
+    "instanceFilterNoMatches": "No instance name contains “{query}”."
   },
   "running": {
     "pill": {
