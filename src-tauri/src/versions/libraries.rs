@@ -226,6 +226,9 @@ pub(crate) fn collect_library_downloads(
     // collision resolves to identical bytes, so keeping the first is correct.
     let mut seen = std::collections::HashSet::new();
     libs.iter()
+        // Old cached merged JSONs carry the patched-client entry Lucerna <= 0.27
+        // injected; the processors make that jar, nothing downloads it.
+        .filter(|lib| !crate::launch::classpath::is_injected_patched_client(lib))
         .flat_map(|lib| artifacts_to_install(lib, os, arch))
         .filter(|(rel_path, _, _, _)| seen.insert(rel_path.clone()))
         .collect()
@@ -511,6 +514,21 @@ mod tests {
         assert_eq!(outcome.size, 100);
         assert!(outcome.downloaded);
         assert!(outcome.url.starts_with("https://"));
+    }
+
+    // Old cached merged JSONs carry the patched-client entry Lucerna <= 0.27
+    // injected. Downloading it would ask libraries.minecraft.net for a jar that
+    // only the processors make (spec 2026-10-16 §3.1).
+    #[test]
+    fn collect_library_downloads_skips_the_injected_patched_client() {
+        let injected = Library {
+            name: "net.minecraftforge:forge:1.20.1-47.4.10:client".into(),
+            downloads: None,
+            url: Some(String::new()),
+            rules: None,
+            natives: None,
+        };
+        assert!(collect_library_downloads(&[injected], "windows", "x64").is_empty());
     }
 
     #[test]

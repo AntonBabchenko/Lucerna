@@ -73,7 +73,7 @@ pub async fn install(
     // then every client processor as Forge's installer runs it, its declared
     // outputs checked (spec 2026-10-16 §5.1).
     let env = prepare(&profile, installer_bytes, mc, fv, app).await?;
-    let _stage = stage_lock(&env.installer_path).await;
+    let _stage = stage_lock().await;
     run_client_processors(
         &profile,
         installer_bytes,

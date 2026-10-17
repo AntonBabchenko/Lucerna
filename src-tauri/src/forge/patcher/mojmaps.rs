@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::forge::patcher::patcher_fail;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const TASK: &str = "installertools::DOWNLOAD_MOJMAPS";
 
@@ -77,25 +77,53 @@ pub async fn run(coord: &str, args: &[String]) -> Result<()> {
         return crate::network::download::download_no_emit(&url, &a.output, &sha1, "forge-mojmaps")
             .await;
     }
-    let raw = a.output.with_extension("proguard.part");
+    let raw = beside(&a.output, ".proguard.part");
     crate::network::download::download_no_emit(&url, &raw, &sha1, "forge-mojmaps").await?;
-    let text = tokio::fs::read_to_string(&raw)
+    let converted = convert(&raw, &a.output).await;
+    discard(&raw).await;
+    converted
+}
+
+/// Convert the downloaded ProGuard file into `output`, through a scratch file
+/// renamed into place, so `output` is never half-written.
+async fn convert(raw: &Path, output: &Path) -> Result<()> {
+    let text = tokio::fs::read_to_string(raw)
         .await
         .map_err(|e| Error::io(raw.display().to_string(), e))?;
     let tsrg = proguard_to_tsrg(&text).map_err(|why| patcher_fail(TASK, &why))?;
-    let tmp = a.output.with_extension("tsrg.part");
-    tokio::fs::write(&tmp, tsrg.as_bytes())
-        .await
-        .map_err(|e| Error::io(tmp.display().to_string(), e))?;
-    tokio::fs::rename(&tmp, &a.output)
-        .await
-        .map_err(|e| Error::io(a.output.display().to_string(), e))?;
-    if let Err(e) = tokio::fs::remove_file(&raw).await {
-        // A leftover download in the libraries tree: harmless and overwritten
-        // next time, but said, never silent.
-        crate::diag!("mojmaps: could not remove {}: {e}", raw.display());
+    let tmp = beside(output, ".part");
+    let written = match tokio::fs::write(&tmp, tsrg.as_bytes()).await {
+        Ok(()) => tokio::fs::rename(&tmp, output)
+            .await
+            .map_err(|e| Error::io(output.display().to_string(), e)),
+        Err(e) => Err(Error::io(tmp.display().to_string(), e)),
+    };
+    if written.is_err() {
+        discard(&tmp).await;
     }
-    Ok(())
+    written
+}
+
+/// `<output's file name><suffix>` beside it: unique per output, where
+/// `with_extension` would give two outputs that differ only by extension one name.
+fn beside(output: &Path, suffix: &str) -> PathBuf {
+    let mut name = output
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(suffix);
+    output.with_file_name(name)
+}
+
+/// Remove one of this task's scratch files.
+async fn discard(path: &Path) {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // A leftover in the libraries tree is harmless and overwritten next
+        // time, but it is said, never silent.
+        Err(e) => crate::diag!("mojmaps: could not remove {}: {e}", path.display()),
+    }
 }
 
 /// `downloads.<side>_mappings` of `version` in Mojang's manifest: its URL and SHA-1.
@@ -468,6 +496,19 @@ pub(crate) fn proguard_to_tsrg(text: &str) -> std::result::Result<String, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scratch_files_are_named_after_the_whole_output_name() {
+        let out = Path::new("lib/client-1.21.1-mappings.tsrg");
+        assert_eq!(
+            beside(out, ".proguard.part"),
+            Path::new("lib/client-1.21.1-mappings.tsrg.proguard.part")
+        );
+        assert_ne!(
+            beside(Path::new("lib/m.txt"), ".part"),
+            beside(Path::new("lib/m.tsrg"), ".part")
+        );
+    }
 
     fn fixture(name: &str) -> String {
         std::fs::read_to_string(

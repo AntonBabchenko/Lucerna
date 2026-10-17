@@ -1,18 +1,24 @@
 //! The client-side processor stage of a Forge/NeoForge install, as Forge's own
-//! installer runs it (`PostProcessors.process`, spec 2026-10-16 §5.1). For each
-//! processor that runs on the client:
+//! installer runs it (`PostProcessors.process`, spec 2026-10-16 §5.1).
+//!
+//! First, for every client processor, everything that can fail without Java is
+//! checked: its jar and classpath are present (`prepare` fetched them, pinned,
+//! with `install_profile.libraries`; a missing one is an error, as in Forge's
+//! installer) and its arguments resolve. Only then, for each processor in turn:
 //! - if it declares outputs and every one exists with its declared SHA-1, skip
 //!   it; a mismatching output is deleted;
-//! - otherwise make its jar and classpath present, run it, and check each
-//!   declared output again: a mismatch deletes the file and fails the install.
+//! - otherwise run it, and check each declared output again: a mismatch deletes
+//!   the file and fails the install.
 //!
 //! Processors without declared outputs always run when the stage runs. The
 //! stage runs on a first install, and on a rebuild when a declared output is
-//! stale (`ensure_processor_outputs`).
+//! stale or the patched client jar is missing (`ensure_processor_outputs`). A
+//! processor that fails in the middle of a rebuild leaves the install for
+//! another Repair, as with Forge's installer: its outputs have no old copy kept.
 
 use crate::error::{Error, Result};
 use crate::forge::installer::transitional::{
-    classpath_coords_to_libraries, substitute_args, DataEntry, InstallProfile, ProcessorEntry,
+    substitute_args, DataEntry, InstallProfile, ProcessorEntry,
 };
 use crate::forge::patcher::{maven_coord_to_relative_path, ProcessorContext};
 use crate::versions::version_json::Library;
@@ -36,10 +42,8 @@ pub struct StageEnv {
     pub java_bin: Option<PathBuf>,
 }
 
-/// The stage's two effects on the outside world.
+/// The stage's one effect on the outside world.
 pub trait StageIo {
-    /// Make these libraries present under `StageEnv::libs_root`.
-    fn ensure_libraries(&self, libs: &[Library]) -> impl Future<Output = Result<()>> + Send;
     /// Run one processor (`crate::forge::patcher::run_processor` in production).
     fn run(
         &self,
@@ -136,12 +140,20 @@ async fn outputs_current(outputs: &[DeclaredOutput]) -> Result<bool> {
                     o.path.display(),
                     o.sha1
                 );
-                tokio::fs::remove_file(&o.path)
-                    .await
-                    .map_err(|e| Error::ForgePatcherFailed {
-                        processor: o.processor.clone(),
-                        details: format!("could not delete the stale {}: {e}", o.path.display()),
-                    })?;
+                match tokio::fs::remove_file(&o.path).await {
+                    Ok(()) => {}
+                    // Gone between the hash and the delete: nothing left to replace.
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        return Err(Error::ForgePatcherFailed {
+                            processor: o.processor.clone(),
+                            details: format!(
+                                "could not delete the stale {}: {e}",
+                                o.path.display()
+                            ),
+                        })
+                    }
+                }
                 all = false;
             }
             Ok(None) => all = false,
@@ -237,6 +249,9 @@ pub async fn run_client_processors(
     io: &impl StageIo,
 ) -> Result<()> {
     let text = |p: &Path| p.display().to_string();
+    // Everything that can fail without Java, for every processor, before any
+    // stale output is deleted (review 2026-10-17).
+    let mut planned = Vec::new();
     for p in client_processors(profile) {
         let outputs = declared_outputs(p, &profile.data, &env.libs_root).map_err(|why| {
             Error::ForgeInstallerCorrupted {
@@ -245,14 +260,6 @@ pub async fn run_client_processors(
                 details: why,
             }
         })?;
-        if !outputs.is_empty() && outputs_current(&outputs).await? {
-            crate::diag!("forge: {} skipped, its declared outputs are current", p.jar);
-            continue;
-        }
-        // The jar itself came with `install_profile.libraries` (SHA-1-pinned,
-        // fetched by `prepare`); its classpath is ensured here, as before.
-        io.ensure_libraries(&classpath_coords_to_libraries(&p.classpath))
-            .await?;
         let jar = coord_path(&p.jar, &env.libs_root, &p.jar)?;
         let mut classpath = vec![jar.clone()];
         for c in &p.classpath {
@@ -278,6 +285,13 @@ pub async fn run_client_processors(
             cache_dir: env.cache_dir.clone(),
             java_bin: env.java_bin.clone(),
         };
+        planned.push((p, outputs, args, ctx));
+    }
+    for (p, outputs, args, ctx) in planned {
+        if !outputs.is_empty() && outputs_current(&outputs).await? {
+            crate::diag!("forge: {} skipped, its declared outputs are current", p.jar);
+            continue;
+        }
         crate::diag!("forge: running {}", p.jar);
         io.run(&p.jar, args, &ctx).await?;
         check_outputs_after_run(&outputs).await?;
@@ -292,33 +306,20 @@ pub struct AppStageIo {
 }
 
 impl StageIo for AppStageIo {
-    async fn ensure_libraries(&self, libs: &[Library]) -> Result<()> {
-        let os = crate::versions::install::current_os();
-        let arch = crate::versions::install::current_arch();
-        crate::versions::libraries::ensure_libraries(libs, os, arch, &self.app)
-            .await
-            .map(|_| ())
-    }
     async fn run(&self, coord: &str, args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
         crate::forge::patcher::run_processor(coord, args, ctx).await
     }
 }
 
-/// One lock per Forge/NeoForge version (keyed by its installer path): a first
-/// install and a rebuild, or two rebuilds, must not rewrite the same shared
-/// outputs at once.
-pub(crate) async fn stage_lock(installer_path: &Path) -> tokio::sync::OwnedMutexGuard<()> {
-    static LOCKS: std::sync::OnceLock<
-        std::sync::Mutex<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>,
-    > = std::sync::OnceLock::new();
-    let lock = {
-        let mut map = LOCKS
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        std::sync::Arc::clone(map.entry(installer_path.to_path_buf()).or_default())
-    };
-    lock.lock_owned().await
+/// One lock for every processor stage. The outputs are not per Forge version:
+/// the MCP-versioned slim, extra and srg jars and the mappings are shared by
+/// every Forge build of one Minecraft version, and on 1.21.1 by Forge and
+/// NeoForge. Stages are rare, so one lock costs nothing (review 2026-10-17).
+pub(crate) async fn stage_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
 }
 
 /// Everything a processor run needs before it starts, shared by first installs
@@ -413,21 +414,82 @@ pub(crate) async fn prepare(
     })
 }
 
+/// The patched client jar the binarypatcher writes (`data.PATCHED`), relative to
+/// the libraries root. Some eras declare it as an output, others do not; verify
+/// checks it either way (`verify::plan::forge_artifacts`).
+pub(crate) fn patched_rel_path(profile: &InstallProfile) -> Option<String> {
+    profile
+        .data
+        .get("PATCHED")
+        .and_then(|e| e.client.strip_prefix('['))
+        .and_then(|s| s.strip_suffix(']'))
+        .and_then(maven_coord_to_relative_path)
+}
+
+/// Whether an installed version needs the stage again: a declared output is
+/// missing or stale, or the patched client jar is not a file. Reads only.
+async fn stage_needed(declared: &[DeclaredOutput], patched: Option<&Path>) -> Result<bool> {
+    if !outputs_all_match(declared).await? {
+        return Ok(true);
+    }
+    let Some(patched) = patched else {
+        return Ok(false);
+    };
+    match tokio::fs::metadata(patched).await {
+        Ok(m) => Ok(!m.is_file()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(Error::io(patched.display().to_string(), e)),
+    }
+}
+
+/// Rebuilds in flight. A rebuild rewrites shared library files in place, so
+/// `launch::start` refuses while one runs, and a rebuild refuses while a game
+/// runs or starts.
+static REBUILDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// True while a rebuild rewrites installed Forge files (`launch::start` checks).
+pub fn rebuild_in_progress() -> bool {
+    REBUILDS.load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
+/// Marks a rebuild for as long as it lives; panic-safe.
+struct Rebuilding;
+
+impl Rebuilding {
+    fn enter() -> Self {
+        REBUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Rebuilding
+    }
+}
+
+impl Drop for Rebuilding {
+    fn drop(&mut self) {
+        REBUILDS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// A game is running, or on its way: a rebuild would rewrite files it reads.
+fn games_active() -> bool {
+    crate::launch::is_any_running() || crate::launch::spawn::is_any_starting()
+}
+
 /// The launchwrapper era (Forge <= 1.12.2) has no processors.
 const LAUNCHWRAPPER_MAIN_CLASS: &str = "net.minecraft.launchwrapper.Launch";
 
 /// For an installed Forge/NeoForge version: if a declared processor output is
-/// missing or stale, run the client stage again, as a reinstall with Forge's
-/// installer would (spec §5.3.2). Old Lucerna installs were built by the
-/// removed Rust patchers, whose bytes never matched, and this is their path to
-/// the official ones.
+/// missing or stale, or the patched client jar is missing, run the client stage
+/// again, as a reinstall with Forge's installer would (spec §5.3.2). Old Lucerna
+/// installs were built by the removed Rust patchers, whose bytes did not match
+/// on the versions measured, and this is their path to the official ones.
 ///
 /// - A legacy profile returns before touching the installer, so offline repair
 ///   of legacy Forge works as before.
 /// - Otherwise the installer is needed to know what is declared. It is cached;
 ///   `fetch_installer_bytes` re-fetches it if the cache is gone.
-/// - A rebuild is refused while any game runs: the outputs are shared, and a
-///   running game holds them open.
+/// - A rebuild is refused while any game runs or starts: the outputs are
+///   shared, and a game reads them. It marks itself (`rebuild_in_progress`)
+///   before its last check, and `launch::start` claims its slot before
+///   checking the mark, so one of the two always sees the other.
 /// - `on_rebuild` fires once, before a rebuild, for progress.
 pub async fn ensure_processor_outputs(
     flavor: crate::forge::ForgeFlavor,
@@ -454,17 +516,22 @@ pub async fn ensure_processor_outputs(
     let profile = super::transitional::parse_install_profile(&text)?;
     let libs_root = crate::paths::libraries_dir(app).map_err(|e| Error::io("<libraries>", e))?;
     let declared = client_declared_outputs(&profile, &libs_root).map_err(corrupted)?;
-    if declared.is_empty() || outputs_all_match(&declared).await? {
+    let patched = patched_rel_path(&profile).map(|rel| libs_root.join(rel));
+    if !stage_needed(&declared, patched.as_deref()).await? {
         return Ok(());
     }
-    if crate::launch::is_any_running() {
+    if games_active() {
         return Err(Error::InstanceBusy);
     }
     let env = prepare(&profile, &bytes, mc, fv, app).await?;
-    let _stage = stage_lock(&env.installer_path).await;
+    let _stage = stage_lock().await;
     // Another task may have rebuilt while we waited for the lock.
-    if outputs_all_match(&declared).await? {
+    if !stage_needed(&declared, patched.as_deref()).await? {
         return Ok(());
+    }
+    let _rebuilding = Rebuilding::enter();
+    if games_active() {
+        return Err(Error::InstanceBusy);
     }
     on_rebuild();
     run_client_processors(&profile, &bytes, &env, &AppStageIo { app: app.clone() }).await
@@ -505,15 +572,9 @@ mod tests {
         out: PathBuf,
         writes: &'static [u8],
         ran: Mutex<Vec<String>>,
-        ensured: Mutex<Vec<String>>,
     }
 
     impl StageIo for Fake {
-        async fn ensure_libraries(&self, libs: &[Library]) -> Result<()> {
-            let mut e = self.ensured.lock().unwrap();
-            e.extend(libs.iter().map(|l| l.name.clone()));
-            Ok(())
-        }
         async fn run(
             &self,
             coord: &str,
@@ -561,7 +622,6 @@ mod tests {
             out: out_path(td.path()),
             writes: b"good",
             ran: Mutex::default(),
-            ensured: Mutex::default(),
         };
         run_client_processors(&profile(&sha(b"good")), b"", &env(td.path()), &io)
             .await
@@ -579,7 +639,6 @@ mod tests {
             out: out_path(td.path()),
             writes: b"good",
             ran: Mutex::default(),
-            ensured: Mutex::default(),
         };
         run_client_processors(&profile(&sha(b"good")), b"", &env(td.path()), &io)
             .await
@@ -601,7 +660,6 @@ mod tests {
             out: out_path(td.path()),
             writes: b"good",
             ran: Mutex::default(),
-            ensured: Mutex::default(),
         };
         run_client_processors(&profile(&sha(b"good")), b"", &env(td.path()), &io)
             .await
@@ -618,7 +676,6 @@ mod tests {
             out: out_path(td.path()),
             writes: b"bad",
             ran: Mutex::default(),
-            ensured: Mutex::default(),
         };
         let err = run_client_processors(&profile(&sha(b"good")), b"", &env(td.path()), &io)
             .await
@@ -644,7 +701,6 @@ mod tests {
             out: td.path().join("elsewhere.jar"),
             writes: b"good",
             ran: Mutex::default(),
-            ensured: Mutex::default(),
         };
         let err = run_client_processors(&profile(&sha(b"good")), b"", &env(td.path()), &io)
             .await
@@ -659,13 +715,89 @@ mod tests {
             out: out_path(td.path()),
             writes: b"good",
             ran: Mutex::default(),
-            ensured: Mutex::default(),
         };
         let err = run_client_processors(&profile(&sha(b"good")), b"", &env(td.path()), &io)
             .await
             .unwrap_err();
         assert!(matches!(err, Error::ForgePatcherFailed { .. }), "{err:?}");
         assert!(io.ran.lock().unwrap().is_empty());
+    }
+
+    // Review 2026-10-17: everything that can fail without Java is checked for
+    // every processor before any stale output is deleted.
+    #[tokio::test]
+    async fn a_stale_output_stays_when_a_later_processor_cannot_run() {
+        let td = tempfile::tempdir().unwrap();
+        place_jars(td.path());
+        std::fs::remove_file(td.path().join("libraries/g/p2/1/p2-1.jar")).unwrap();
+        std::fs::create_dir_all(out_path(td.path()).parent().unwrap()).unwrap();
+        std::fs::write(out_path(td.path()), b"rust-made").unwrap();
+        let io = Fake {
+            out: out_path(td.path()),
+            writes: b"good",
+            ran: Mutex::default(),
+        };
+        let err = run_client_processors(&profile(&sha(b"good")), b"", &env(td.path()), &io)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::ForgePatcherFailed { .. }), "{err:?}");
+        assert_eq!(std::fs::read(out_path(td.path())).unwrap(), b"rust-made");
+        assert!(io.ran.lock().unwrap().is_empty(), "nothing ran");
+    }
+
+    #[tokio::test]
+    async fn a_missing_patched_jar_needs_the_stage_even_when_outputs_match() {
+        let td = tempfile::tempdir().unwrap();
+        let patched = td.path().join("patched.jar");
+        assert!(stage_needed(&[], Some(&patched)).await.unwrap());
+        std::fs::write(&patched, b"jar").unwrap();
+        assert!(!stage_needed(&[], Some(&patched)).await.unwrap());
+        assert!(!stage_needed(&[], None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_stale_declared_output_needs_the_stage() {
+        let td = tempfile::tempdir().unwrap();
+        let out = DeclaredOutput {
+            processor: "g:p1:1".into(),
+            path: td.path().join("out.jar"),
+            sha1: sha(b"good"),
+        };
+        std::fs::write(&out.path, b"rust-made").unwrap();
+        assert!(stage_needed(std::slice::from_ref(&out), None)
+            .await
+            .unwrap());
+        std::fs::write(&out.path, b"good").unwrap();
+        assert!(!stage_needed(std::slice::from_ref(&out), None)
+            .await
+            .unwrap());
+    }
+
+    // `launch::start` refuses while this is up (spec §5.3.2).
+    #[test]
+    fn a_rebuild_is_visible_while_it_runs() {
+        assert!(!rebuild_in_progress());
+        let r = Rebuilding::enter();
+        assert!(rebuild_in_progress());
+        drop(r);
+        assert!(!rebuild_in_progress());
+    }
+
+    #[test]
+    fn the_patched_jar_path_comes_from_the_profile_data() {
+        let mut p = profile("ab12");
+        assert_eq!(patched_rel_path(&p), None);
+        p.data.insert(
+            "PATCHED".into(),
+            DataEntry {
+                client: "[net.minecraftforge:forge:1.20.1-47.4.10:client]".into(),
+                server: "x".into(),
+            },
+        );
+        assert_eq!(
+            patched_rel_path(&p).as_deref(),
+            Some("net/minecraftforge/forge/1.20.1-47.4.10/forge-1.20.1-47.4.10-client.jar")
+        );
     }
 
     #[test]

@@ -189,7 +189,7 @@ pub async fn install(
     // outputs checked (spec 2026-10-16 §5.1).
     use super::processors::{prepare, run_client_processors, stage_lock, AppStageIo};
     let env = prepare(&profile, installer_bytes, mc, fv, app).await?;
-    let _stage = stage_lock(&env.installer_path).await;
+    let _stage = stage_lock().await;
     run_client_processors(
         &profile,
         installer_bytes,
@@ -385,33 +385,6 @@ pub async fn substitute_args(
     Ok(out)
 }
 
-pub fn classpath_coords_to_libraries(
-    coords: &[String],
-) -> Vec<crate::versions::version_json::Library> {
-    coords
-        .iter()
-        .map(|c| crate::versions::version_json::Library {
-            name: c.clone(),
-            // For Forge-specific processors (jar coords like net.minecraftforge:installertools)
-            // hint the Forge maven. For NeoForge processors (net.neoforged.* group),
-            // hint maven.neoforged.net. The libraries.minecraft.net fallback in
-            // ensure_libraries is used for everything else (e.g. org.ow2.asm:asm).
-            url: if c.starts_with("net.minecraftforge:") || c.starts_with("de.oceanlabs.mcp:") {
-                Some("https://maven.minecraftforge.net/".into())
-            } else if c.starts_with("net.neoforged.installertools:")
-                || c.starts_with("net.neoforged:")
-            {
-                Some("https://maven.neoforged.net/releases/".into())
-            } else {
-                None
-            },
-            downloads: None,
-            rules: None,
-            natives: None,
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,20 +509,6 @@ mod tests {
             "bracket should be resolved away: {}",
             out[0]
         );
-    }
-
-    #[test]
-    fn classpath_forge_coord_gets_forge_maven_url() {
-        let coords = vec![
-            "net.minecraftforge:installertools:1.3.0".into(),
-            "com.google.guava:guava:21.0".into(),
-        ];
-        let libs = classpath_coords_to_libraries(&coords);
-        assert_eq!(
-            libs[0].url.as_deref(),
-            Some("https://maven.minecraftforge.net/")
-        );
-        assert!(libs[1].url.is_none()); // falls back to libraries.minecraft.net
     }
 
     #[tokio::test]

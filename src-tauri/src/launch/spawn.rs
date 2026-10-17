@@ -369,6 +369,12 @@ pub async fn start(
     if crate::instances::maintenance::maintenance_is_active(&instance.id) {
         return Err(Error::InstanceBusy);
     }
+    // The same two-sided check against a rebuild of installed Forge files
+    // (`forge::installer::processors`), which rewrites shared libraries in place:
+    // it marks itself, then checks for running and starting games.
+    if crate::forge::installer::processors::rebuild_in_progress() {
+        return Err(Error::InstanceBusy);
+    }
     // Fresh run: clear any stale stop request for THIS instance.
     let _ = take_stop_requested(&instance.id);
 

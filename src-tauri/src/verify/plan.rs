@@ -28,7 +28,8 @@ pub struct PlannedArtifact {
 /// differently (`verify::scan::status_for`, spec 2026-10-16 §5.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
-    /// Downloaded from Mojang, a maven repository or a loader's site.
+    /// Downloaded from Mojang, a maven repository or a loader's site, or taken
+    /// from an installer's own `maven/` tree.
     Published,
     /// Made by a Forge or NeoForge installer's processors (`forge_artifacts`).
     ForgeProcessor,
@@ -90,18 +91,26 @@ pub fn library_artifacts(details: &VersionDetails, os: &str, arch: &str) -> Vec<
         .libraries
         .iter()
         .filter(|lib| !crate::launch::classpath::is_injected_patched_client(lib))
-        .flat_map(|lib| artifacts_to_install(lib, os, arch))
-        .map(|(rel, url, sha1, _size)| library_artifact(rel, sha1, url))
+        .flat_map(|lib| {
+            // Forge 1.20.6+ lists its patched client jar as a library. When the
+            // installer cache is gone this row is the jar's only check, and a
+            // mismatch is a jar built differently, as in `forge_artifacts`.
+            let origin = if crate::launch::classpath::is_forge_patched_client(lib) {
+                Origin::ForgeProcessor
+            } else {
+                Origin::Published
+            };
+            artifacts_to_install(lib, os, arch)
+                .into_iter()
+                .map(move |(rel, url, sha1, _size)| PlannedArtifact {
+                    origin,
+                    ..library_artifact(rel, sha1, url)
+                })
+        })
         .collect()
 }
 
-/// What a Forge/NeoForge installer declares about the files its processors
-/// make (spec §5.3.3): each declared client output, with its SHA-1, and the
-/// patched client jar `data.PATCHED`. That jar is checked against its SHA-1
-/// only when a processor declares it, and for presence otherwise (Forge
-/// 1.17–1.20.x, NeoForge). Every row is a locally produced library: `url: None`,
-/// so a problem leads Repair to a full install, which rebuilds it. Relative to
-/// the libraries root.
+/// One file a Forge processor makes, under the libraries root.
 fn forge_output(rel_path: String, sha1: String) -> PlannedArtifact {
     PlannedArtifact {
         category: VerifyCategory::Libraries,
@@ -112,6 +121,14 @@ fn forge_output(rel_path: String, sha1: String) -> PlannedArtifact {
     }
 }
 
+/// What a Forge/NeoForge installer declares about the files its processors
+/// make (spec §5.3.3): each declared client output, with its SHA-1, and the
+/// patched client jar `data.PATCHED`. That jar is checked against its SHA-1
+/// only when a processor declares it, and for presence otherwise (Forge
+/// 1.17–1.20.x, NeoForge). Every row is a locally produced library: `url: None`,
+/// so a problem leads Repair to a full install, whose
+/// `ensure_processor_outputs` rebuilds a stale or missing output and a missing
+/// patched jar. Relative to the libraries root.
 pub fn forge_artifacts(
     profile: &crate::forge::installer::transitional::InstallProfile,
 ) -> Result<Vec<PlannedArtifact>, String> {
@@ -172,6 +189,25 @@ mod tests {
     fn empty_url_library_has_no_url() {
         let p = library_artifact("forge/patched.jar".into(), "aa".into(), String::new());
         assert!(p.url.is_none());
+    }
+
+    // Forge 1.20.6+ lists its patched client jar as a library. With the
+    // installer cache gone, that row is the only check of the jar, and a
+    // mismatch is still "built differently", not corrupt (spec §5.5).
+    #[test]
+    fn forge_s_own_patched_client_library_is_a_processor_output() {
+        let details = crate::versions::version_json::parse(
+            r#"{"id":"1.20.6-forge-50.2.0","mainClass":"m","libraries":[
+                {"name":"net.minecraftforge:forge:1.20.6-50.2.0:client","downloads":{"artifact":{
+                  "path":"net/minecraftforge/forge/1.20.6-50.2.0/forge-1.20.6-50.2.0-client.jar",
+                  "url":"","sha1":"aa","size":0}}},
+                {"name":"org.x:y:1","downloads":{"artifact":{"path":"org/x/y/1/y-1.jar",
+                  "url":"https://l/y.jar","sha1":"bb","size":1}}}]}"#,
+        )
+        .unwrap();
+        let arts = library_artifacts(&details, "windows", "x64");
+        assert_eq!(arts[0].origin, Origin::ForgeProcessor);
+        assert_eq!(arts[1].origin, Origin::Published);
     }
 
     #[test]

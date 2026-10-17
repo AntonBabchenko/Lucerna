@@ -7,7 +7,8 @@
 //!
 //! This replaced pure-Rust reimplementations of jarsplitter, binarypatcher and
 //! installertools. Their jars carried the same classes in other bytes, so
-//! Forge's declared output checksums could never match.
+//! Forge's declared output checksums did not match on any version measured
+//! (Forge 1.20.1, 1.20.6, 1.21.1, 1.21.11).
 
 use crate::error::{Error, Result};
 use std::path::PathBuf;
@@ -77,26 +78,21 @@ pub fn parse_maven_coord(coord: &str) -> Option<(String, String, String, Option<
 /// Moved here from `forge::installer::legacy` because two eras now
 /// need it; legacy.rs re-exports for backward compatibility.
 ///
-/// The `@ext` annotation (e.g. `@jar`, `@zip`) is stripped from the version
-/// or classifier field before building the path. NeoForge installertools 2.1.2
-/// appends `@jar` to every classpath coord — this function handles that case.
+/// The `@ext` annotation (e.g. `@jar`, `@zip`, `@tsrg`) ends the whole
+/// coordinate, after the classifier when there is one, and gives the file's
+/// extension; without it the extension is `jar`. NeoForge installertools 2.1.2
+/// appends `@jar` to every classpath coord, and Forge 1.20.4+ declares outputs
+/// such as `…:mappings@tsrg`.
 pub fn maven_coord_to_relative_path(coord: &str) -> Option<String> {
+    let (coord, ext) = strip_at_ext(coord);
     let parts: Vec<&str> = coord.split(':').collect();
     if parts.len() < 3 {
         return None;
     }
     let group_path = parts[0].replace('.', "/");
     let artifact = parts[1];
-    // Strip @ext from version; default extension is "jar".
-    let (version, ext) = strip_at_ext(parts[2]);
-    // Strip @ext from classifier too (if present).
-    let classifier = parts
-        .get(3)
-        .map(|c| {
-            let (c_base, _) = strip_at_ext(c);
-            format!("-{c_base}")
-        })
-        .unwrap_or_default();
+    let version = parts[2];
+    let classifier = parts.get(3).map(|c| format!("-{c}")).unwrap_or_default();
     if group_path.is_empty() || artifact.is_empty() || version.is_empty() {
         return None;
     }
@@ -127,6 +123,28 @@ pub fn patcher_fail(processor: &str, cause: &dyn std::fmt::Display) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Forge 49.x declares `[de.oceanlabs.mcp:mcp_config:<v>:mappings@txt]` as an
+    // output: `@ext` ends the whole coordinate, classifier or not (era matrix,
+    // 2026-10-17).
+    #[test]
+    fn the_extension_after_a_classifier_is_kept() {
+        assert_eq!(
+            maven_coord_to_relative_path(
+                "de.oceanlabs.mcp:mcp_config:1.20.4-20231207.112700:mappings@txt"
+            )
+            .as_deref(),
+            Some("de/oceanlabs/mcp/mcp_config/1.20.4-20231207.112700/mcp_config-1.20.4-20231207.112700-mappings.txt")
+        );
+        assert_eq!(
+            maven_coord_to_relative_path("net.minecraft:client:1.20.4:slim").as_deref(),
+            Some("net/minecraft/client/1.20.4/client-1.20.4-slim.jar")
+        );
+        assert_eq!(
+            maven_coord_to_relative_path("g:a:1@zip").as_deref(),
+            Some("g/a/1/a-1.zip")
+        );
+    }
 
     #[test]
     fn parse_maven_coord_three_segments() {

@@ -71,15 +71,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
-- **OptiFine runs on Forge.** The game now starts the way Minecraft's own
-  launcher starts it: with the Minecraft jar under the name Forge expects, and
-  without Forge's patched client jar on the classpath. OptiFine on Forge 1.20.1
+- **OptiFine runs on Forge.** Forge and NeoForge games now start with the
+  classpath the official Minecraft launcher gives them. OptiFine on Forge 1.20.1
   used to load but stay inactive.
 - **Forge installs are built the way Forge's own installer builds them.**
-  Verify no longer flags Forge 1.20.6+ files on every check. A Forge profile
-  installed by an earlier version shows its files as built differently from
-  Forge's own installer: the game still launches with them, and one Repair
-  rebuilds them the official way.
+  Repair now fixes the Forge 1.20.6+ file Verify used to report after every
+  check. A Forge 1.13 or newer profile installed by an earlier version may show
+  some files as built differently from Forge's own installer: the game still
+  launches with them, and one Repair rebuilds them the official way.
 - **The game no longer receives `${clientid}` and `${auth_xuid}` as text.**
   Lucerna passes neither a client id nor an Xbox id.
 - **Import, clone and export say when a folder is a link.** A content folder

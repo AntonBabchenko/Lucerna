@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 
 /// Run a Java processor: `java -cp <classpath> <main_class> <args...>`,
 /// wait for it, and map a spawn failure or non-zero exit to
-/// `Error::ForgePatcherFailed`. All five install-time Java processors
-/// (SpecialSource, FART, ART, binarypatcher, installertools) route
-/// through here — see `docs/PRINCIPLES.md` Appendix A.
+/// `Error::ForgePatcherFailed`. Every Forge/NeoForge install processor that
+/// runs on Java routes through here (`forge::patcher::run_processor`); see
+/// `docs/PRINCIPLES.md` Appendix A.
 pub async fn run_java_processor(
     java_bin: &Path,
     classpath: &[PathBuf],

@@ -548,7 +548,7 @@
       "countOk": "{ok}/{total} OK",
       "countProblems": "{corrupt} corrupt, {missing} missing",
       "countBuiltDifferently": "{count} built differently from Forge's own installer",
-      "builtDifferentlyNote": "Older Lucerna versions built these Forge files with their own code, so they differ from the ones Forge's own installer makes. The game still launches with them. Repair rebuilds them the way Forge's installer does.",
+      "builtDifferentlyNote": "Older Lucerna versions built these Forge files with their own code, so they differ from the ones Forge's own installer makes. If the game started with them before, it still does. Repair rebuilds them the way Forge's installer does.",
       "busy": "Stop the running game before verifying.",
       "checkedAt": "checked {date}",
       "statusNotChecked": "Integrity not checked",

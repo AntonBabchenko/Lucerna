@@ -318,28 +318,9 @@ async fn download_file(url: &str, dest: &Path, sha1: &str) -> Result<(), Install
 }
 
 /// This harness's library downloads, for the production processor stage.
-struct MatrixIo {
-    libs_root: PathBuf,
-    os: &'static str,
-    arch: &'static str,
-}
+struct MatrixIo;
 
 impl lucerna_lib::forge::installer::processors::StageIo for MatrixIo {
-    async fn ensure_libraries(&self, libs: &[Library]) -> lucerna_lib::error::Result<()> {
-        for lib in libs {
-            for (rel, url, sha1, _size) in artifacts_to_install(lib, self.os, self.arch) {
-                if url.is_empty() {
-                    continue;
-                }
-                let dest = self.libs_root.join(&rel);
-                download_file(&url, &dest, &sha1).await.map_err(|e| {
-                    lucerna_lib::error::Error::io(dest.display().to_string(), e.error)
-                })?;
-            }
-        }
-        Ok(())
-    }
-
     async fn run(
         &self,
         coord: &str,
@@ -874,11 +855,7 @@ async fn install_forge_processor_era(
         &profile,
         installer_bytes,
         &env,
-        &MatrixIo {
-            libs_root: libs_root.clone(),
-            os,
-            arch,
-        },
+        &MatrixIo,
     )
     .await
     .map_err(|e| InstallError {

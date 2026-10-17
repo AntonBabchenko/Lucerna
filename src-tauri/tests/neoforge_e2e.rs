@@ -131,30 +131,9 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
 }
 
 /// This harness's library downloads, for the production processor stage.
-struct HarnessIo {
-    libs_root: std::path::PathBuf,
-    os: &'static str,
-    arch: &'static str,
-}
+struct HarnessIo;
 
 impl lucerna_lib::forge::installer::processors::StageIo for HarnessIo {
-    async fn ensure_libraries(
-        &self,
-        libs: &[lucerna_lib::versions::version_json::Library],
-    ) -> lucerna_lib::error::Result<()> {
-        for lib in libs {
-            for (rel, url, sha1, _size) in
-                lucerna_lib::versions::libraries::artifacts_to_install(lib, self.os, self.arch)
-            {
-                let dest = self.libs_root.join(&rel);
-                if !url.is_empty() && !dest.is_file() {
-                    download_lib(&url, &dest, &sha1).await;
-                }
-            }
-        }
-        Ok(())
-    }
-
     async fn run(
         &self,
         coord: &str,
@@ -330,11 +309,7 @@ async fn install_neoforge_1_20_4_e2e() {
         &profile,
         &installer_bytes,
         &env,
-        &HarnessIo {
-            libs_root: libs_root.clone(),
-            os,
-            arch,
-        },
+        &HarnessIo,
     )
     .await
     .unwrap_or_else(|e| panic!("processors failed: {e:?}"));
@@ -597,11 +572,7 @@ async fn install_neoforge_1_21_1_e2e() {
         &profile,
         &installer_bytes,
         &env,
-        &HarnessIo {
-            libs_root: libs_root.clone(),
-            os,
-            arch,
-        },
+        &HarnessIo,
     )
     .await
     .unwrap_or_else(|e| panic!("processors failed: {e:?}"));

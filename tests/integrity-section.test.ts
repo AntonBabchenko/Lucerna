@@ -43,7 +43,7 @@ describe('IntegritySection', () => {
     expect(text).not.toMatch(/corrupt|damaged/i);
     expect(text).toMatch(/3 built differently from Forge's own installer/);
     const note = getByTestId('integrity-built-differently').textContent ?? '';
-    expect(note).toMatch(/still launches/);
+    expect(note).toMatch(/If the game started with them before, it still does/);
     expect(note).toMatch(/Repair rebuilds them the way Forge's installer does/);
     expect(getByRole('button', { name: 'Repair (3)' })).toBeTruthy();
   });

@@ -41,7 +41,7 @@
 //!   - `extract_installer_maven_tree_to` (inline) — zip extraction
 //!   - `download_no_emit` — downloads without AppHandle
 //!   - `artifacts_to_install` + `should_install` — library selection
-//!   - `substitute_args`, `classpath_coords_to_libraries` — arg resolution
+//!   - `substitute_args` — arg resolution
 //!   - `run_processor` — processor dispatch
 //!   - `forge::profile::assemble_from_transitional` — final assembly
 //!
@@ -148,30 +148,9 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
 }
 
 /// This harness's library downloads, for the production processor stage.
-struct HarnessIo {
-    libs_root: std::path::PathBuf,
-    os: &'static str,
-    arch: &'static str,
-}
+struct HarnessIo;
 
 impl lucerna_lib::forge::installer::processors::StageIo for HarnessIo {
-    async fn ensure_libraries(
-        &self,
-        libs: &[lucerna_lib::versions::version_json::Library],
-    ) -> lucerna_lib::error::Result<()> {
-        for lib in libs {
-            for (rel, url, sha1, _size) in
-                lucerna_lib::versions::libraries::artifacts_to_install(lib, self.os, self.arch)
-            {
-                let dest = self.libs_root.join(&rel);
-                if !url.is_empty() && !dest.is_file() {
-                    download_lib(&url, &dest, &sha1).await;
-                }
-            }
-        }
-        Ok(())
-    }
-
     async fn run(
         &self,
         coord: &str,
@@ -376,11 +355,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
         &profile,
         &installer_bytes,
         &env,
-        &HarnessIo {
-            libs_root: libs_root.clone(),
-            os,
-            arch,
-        },
+        &HarnessIo,
     )
     .await
     .unwrap_or_else(|e| panic!("processors failed: {e:?}"));

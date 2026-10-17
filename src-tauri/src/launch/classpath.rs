@@ -11,9 +11,9 @@ const VERSION_NAME: &str = "${version_name}";
 
 /// Whether the profile refers to its version jar BY NAME: some JVM argument
 /// contains `${version_name}`. That is the BootstrapLauncher-era ignore list
-/// (`-DignoreList=…,${version_name}.jar`, Forge 1.17–1.20.x and NeoForge
-/// 20.x–21.x), which keeps the jar out of the module layer only under that
-/// exact file name. Game arguments are not consulted: every profile passes
+/// (`-DignoreList=…,${version_name}.jar`: Forge 1.17–1.20.x, and NeoForge up
+/// to 21.1.x; NeoForge 21.11 no longer has it), which keeps the jar out of the
+/// module layer only under that exact file name. Game arguments are not consulted: every profile passes
 /// `--version ${version_name}` there. Rules are not consulted either: the
 /// question is what the profile expects, not which branch this OS takes.
 pub fn names_version_jar(details: &VersionDetails) -> bool {
@@ -99,9 +99,13 @@ pub fn plan_version_jar(
 /// no `downloads`. Forge 1.20.6+'s own `:client` entry has `downloads` and is
 /// kept.
 pub fn is_injected_patched_client(lib: &Library) -> bool {
-    if lib.downloads.is_some() || lib.url.as_deref() != Some("") {
-        return false;
-    }
+    lib.downloads.is_none() && lib.url.as_deref() == Some("") && is_forge_patched_client(lib)
+}
+
+/// `net.minecraftforge:forge:<v>:client`: the patched client jar Forge's
+/// binarypatcher writes, whether Forge 1.20.6+ lists it itself or Lucerna
+/// <= 0.27 injected it.
+pub fn is_forge_patched_client(lib: &Library) -> bool {
     let parts: Vec<&str> = lib.name.split(':').collect();
     parts.len() == 4
         && parts[0] == "net.minecraftforge"

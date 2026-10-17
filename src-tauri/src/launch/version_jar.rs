@@ -15,15 +15,6 @@ fn lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-/// The jar to put last on `-cp`. A `Vanilla` jar is returned as is, as before
-/// this change: install and verify own it. A `Named` jar is checked against the
-/// vanilla client checksum on every launch and rebuilt from the vanilla jar when
-/// absent or stale. It goes stale when a repair replaces the vanilla jar it was
-/// linked to.
-///
-/// Refuses, never launches without it: no checksum to check against, a source
-/// that is missing or damaged (`ClientJarInvalid`), or any file that cannot be
-/// read (`Error::io`). A file we could not read is never "rebuilt over".
 /// What reading the named jar said about it.
 #[derive(Debug, PartialEq, Eq)]
 enum DestState {
@@ -47,6 +38,15 @@ fn judge_dest(read: std::io::Result<Option<String>>, expected: &str) -> std::io:
     }
 }
 
+/// The jar to put last on `-cp`. A `Vanilla` jar is returned as is, as before
+/// this change: install and verify own it. A `Named` jar is checked against the
+/// vanilla client checksum on every launch and rebuilt from the vanilla jar when
+/// absent or stale. It goes stale when a repair replaces the vanilla jar it was
+/// linked to.
+///
+/// Refuses, never launches without it: no checksum to check against, a source
+/// that is missing or damaged (`ClientJarInvalid`), or any file that cannot be
+/// read (`Error::io`). A file we could not read is never "rebuilt over".
 pub async fn ensure(plan: &VersionJar, mc_version: &str) -> Result<PathBuf> {
     let (dest, source, sha1) = match plan {
         VersionJar::Vanilla(path) => return Ok(path.clone()),
