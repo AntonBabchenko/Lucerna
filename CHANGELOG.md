@@ -109,7 +109,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Security
 
-- Bumped `ammonia` 4.1.4 → 4.1.7 for RUSTSEC-2021-0157 and RUSTSEC-2021-0158.
+- Bumped `ammonia` 4.1.4 → 4.1.8 for RUSTSEC-2021-0157, RUSTSEC-2021-0158 and
+  RUSTSEC-2026-0373.
 - Bumped `rustls` 0.23.45 → 0.23.46 for RUSTSEC-2026-0346, RUSTSEC-2026-0347,
   RUSTSEC-2026-0348 and RUSTSEC-2026-0349.
 
