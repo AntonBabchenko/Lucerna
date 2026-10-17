@@ -480,7 +480,7 @@
         "optionsNotInstalled": "Available once the game files are installed"
       },
       "hotbarsRule": "Once a newer Minecraft version saves the shared hotbars, instances on older versions keep their own.",
-      "lastError": "The last sync failed: couldn't sync {what}. {detail} The next launch tries again, and nothing is lost.",
+      "lastError": "The last sync failed: couldn't sync {what}. {detail} {next}",
       "unreadable": "This instance's sync settings can't be read ({reason}), so nothing syncs.",
       "unreadableFix": "Turn off sync in this instance",
       "unreadableHint": "The unreadable file goes to the Recycle Bin and syncing here is turned off. You can turn it on again.",
@@ -491,15 +491,25 @@
       "changeFailed": "Couldn't change this. {error}",
       "joinTitle": "Shared hotbars already exist",
       "joinBody": "Other instances already share hotbars, and this instance has its own. Which should it use?",
-      "joinOlderBody": "The shared hotbars were saved by a newer Minecraft version, which this instance can't read, so it can only share its own.",
-      "joinKept": "The hotbars that get replaced are kept: the shared ones in a backup, this instance's in the Recycle Bin.",
+      "joinOlderBody": "The shared hotbars were saved by a newer Minecraft version, which this instance can't read. You can replace them with this instance's hotbars, or cancel.",
       "useShared": "Use the shared hotbars",
-      "makeShared": "Make its own the shared ones",
+      "makeShared": "Share this instance's hotbars",
       "optionsRule": "Shares key bindings, mouse, chat, accessibility, sound, language and skin settings, and how the game looks (graphics, GUI scale, brightness, FOV). Render distance, frame rate and other performance settings stay with each instance.",
       "joinTitleOptions": "Shared game options already exist",
       "joinBodyOptions": "Other instances already share game options, and this instance has its own. Which should it use?",
-      "joinKeptOptions": "The options that get replaced are kept: the shared ones in a backup, this instance's options.txt in the Recycle Bin.",
-      "useSharedOptions": "Use the shared options"
+      "useSharedOptions": "Use the shared options",
+      "useSharedResult": "Use the shared hotbars: this instance's own go to the Recycle Bin first.",
+      "makeSharedResult": "Share this instance's hotbars: they replace the shared ones, and the other instances that sync hotbars take them at their next launch. The current shared hotbars are kept in a backup.",
+      "replaceSharedHotbars": "Replace the shared hotbars",
+      "joinOlderResult": "The other instances that sync hotbars, newer versions included, take this instance's at their next launch; the current shared hotbars are kept in a backup.",
+      "useSharedResultOptions": "Use the shared options: they replace this instance's where both have a setting; if its options.txt changes, the old file goes to the Recycle Bin first.",
+      "makeSharedOptions": "Share this instance's options",
+      "makeSharedResultOptions": "Share this instance's options: they become the shared ones, and the other instances that sync options take them at their next launch. The current shared options are kept in a backup.",
+      "repair": {
+        "replaceShared": "Replace the shared copy with this instance's",
+        "replaceOwn": "Replace this instance's file with the shared copy",
+        "resetRecords": "Start the records afresh"
+      }
     },
     "error": {
       "nameRequired": "Name is required",
@@ -903,7 +913,7 @@
     },
     "settingsSync": {
       "failedTitle": "Game settings didn't sync",
-      "failedChoice": "You can launch without syncing this time: what you change in the game syncs at the next launch. Or stop syncing {what} in this instance.",
+      "failedChoice": "You can launch without syncing this time: the next launch tries again, and what you change in the game is kept for it. Or stop syncing {what} in this instance.",
       "failedChoiceAll": "You can launch without syncing this time, or turn off sync in this instance: the unreadable file goes to the Recycle Bin.",
       "launchWithoutSync": "Launch without sync",
       "stopKind": {
@@ -917,7 +927,13 @@
       "closedBody": "A game started in this instance before Lucerna restarted may still be running, and Lucerna can't tell. If it's open, close it first: syncing while it runs would lose what it saves when it closes.",
       "itsClosed": "It's closed",
       "exitFailedTitle": "Game settings didn't sync after the game closed",
-      "exitFailedLine": "{instance}: couldn't sync {what}. {detail} Nothing is lost: the next launch syncs first."
+      "exitFailedLine": "{instance}: couldn't sync {what}. {detail} {next}",
+      "repairAndLaunch": {
+        "replaceShared": "Replace the shared copy and launch",
+        "replaceOwn": "Replace this instance's file and launch",
+        "resetRecords": "Start the records afresh and launch"
+      },
+      "exitFixInSettings": "The fix is in the instance's Settings tab, under Shared game settings."
     }
   },
   "mods": {
@@ -3140,7 +3156,14 @@
       "other": "another error, details in the launcher log"
     },
     "settingsSyncGameRunning": "A game started before Lucerna restarted is still running in this instance. Close it, then try again.",
-    "settingsSyncAskGameClosed": "Lucerna can't tell whether a game started in this instance before it restarted is still running."
+    "settingsSyncAskGameClosed": "Lucerna can't tell whether a game started in this instance before it restarted is still running.",
+    "settingsSyncNext": {
+      "retry": "Nothing is lost: the next launch tries again.",
+      "sharedDamaged": "The shared copy is damaged: every instance that syncs it stops at it until it is replaced with one instance's own. The damaged copy is kept in a backup.",
+      "gameDamaged": "Replacing this instance's file with the shared copy puts the damaged one in the Recycle Bin.",
+      "gameDamagedOptions": "Replacing it puts the damaged file in the Recycle Bin; the shared options then apply after the next launch, once the game has written a new options.txt.",
+      "recordsDamaged": "Starting this instance's records afresh joins it again, as when turning it on; its file is kept."
+    }
   },
   "settings": {
     "title": "Settings",

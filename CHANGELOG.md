@@ -37,6 +37,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   game shares what changed here. Game options are key bindings, mouse, chat,
   sound, accessibility, language and graphics settings, on Minecraft 1.13 to
   26.3; render distance and other performance settings stay per instance.
+- **A damaged shared settings file has a way out.** The launch dialog and the
+  instance's Shared data section offer to replace it: the shared copy with this
+  instance's, or this instance's with the shared one; the damaged file is kept in
+  a backup or the Recycle Bin.
 - **A folder button for every kind of add-on.** Add-ons shows "Mods folder",
   "Resource packs folder", "Shaders folder" or "Data packs folder" above the
   list, beside the source picker while browsing; the data packs one opens the

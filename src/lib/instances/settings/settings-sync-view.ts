@@ -10,6 +10,7 @@ import type {
   Join,
   Kind,
   KindView,
+  Repair,
   SyncFailure,
   SyncFile,
   WaitReason,
@@ -117,21 +118,75 @@ const WAITING: Record<WaitReason, TranslationKey> = {
 export function kindStateKey(v: KindView): TranslationKey | null {
   if (v.availability.status === 'unreadable') return null;
   if (v.availability.status === 'unsupported') return UNSUPPORTED[v.availability.why];
-  if (v.availability.status === 'waiting') return WAITING[v.availability.why];
+  // Off, nothing is scheduled: the wait is said once the kind is on.
+  if (v.availability.status === 'waiting') return v.enabled ? WAITING[v.availability.why] : null;
   if (v.availability.status === 'older_than_shared')
     return 'instance.settingsSync.state.olderThanShared';
   return v.enabled && v.join !== 'done' ? 'instance.settingsSync.state.joining' : null;
 }
 
 /**
+ * The way out a failure's reason class has: a damaged shared copy is replaced
+ * by this instance's file, a damaged own file by the shared copy, damaged
+ * records start afresh. `null` for a passing failure (the next launch tries
+ * again) and for the sync settings themselves (their own way out).
+ */
+export function repairFor(f: { file: SyncFile | null; reason: FileReason }): Repair | null {
+  if (f.reason !== 'damaged') return null;
+  if (f.file === 'shared') return 'replace_shared';
+  if (f.file === 'game') return 'replace_own';
+  if (f.file === 'records') return 'reset_records';
+  return null;
+}
+
+export const REPAIR_LABEL: Record<Repair, TranslationKey> = {
+  replace_shared: 'instance.settingsSync.repair.replaceShared',
+  replace_own: 'instance.settingsSync.repair.replaceOwn',
+  reset_records: 'instance.settingsSync.repair.resetRecords',
+};
+
+/** The launch dialog's button: the repair, then the launch. */
+export const LAUNCH_REPAIR_LABEL: Record<Repair, TranslationKey> = {
+  replace_shared: 'launch.settingsSync.repairAndLaunch.replaceShared',
+  replace_own: 'launch.settingsSync.repairAndLaunch.replaceOwn',
+  reset_records: 'launch.settingsSync.repairAndLaunch.resetRecords',
+};
+
+/**
+ * What happens next, true for the reason class: a damaged file stays damaged
+ * until it is replaced (and a damaged shared copy stops every instance that
+ * syncs it), so only a passing failure is promised another try.
+ */
+export function nextStep(
+  tr: Translate,
+  f: { kind: Kind | null; file: SyncFile | null; reason: FileReason },
+): string {
+  switch (repairFor(f)) {
+    case 'replace_shared':
+      return tr('errors.settingsSyncNext.sharedDamaged');
+    case 'replace_own':
+      return f.kind === 'options'
+        ? tr('errors.settingsSyncNext.gameDamagedOptions')
+        : tr('errors.settingsSyncNext.gameDamaged');
+    case 'reset_records':
+      return tr('errors.settingsSyncNext.recordsDamaged');
+    default:
+      return tr('errors.settingsSyncNext.retry');
+  }
+}
+
+/**
  * The whole line under a kind's checkbox, in words: [kindStateKey]'s states,
- * and a file this row needs that cannot be read (which file and why).
+ * and a file this row needs that cannot be read (which file and why, and the
+ * way out when there is one).
  */
 export function rowLine(tr: Translate, v: KindView): string | null {
   const a = v.availability;
   if (a.status === 'unreadable') {
-    const detail = failureDetail(tr, { file: a.file, kind: v.kind, reason: a.reason });
-    return tr('instance.settingsSync.state.unreadable', { detail });
+    const f = { file: a.file, kind: v.kind, reason: a.reason };
+    const detail = failureDetail(tr, f);
+    const line = tr('instance.settingsSync.state.unreadable', { detail });
+    return repairFor(f) === null ? line : `${line} ${nextStep(tr, f)}`;
   }
   const key = kindStateKey(v);
   return key === null ? null : tr(key);
@@ -153,21 +208,37 @@ export function joinChoices(v: KindView): Exclude<Join, 'done'>[] | null {
 /** The kinds whose join asks, and the words of the question for each. */
 export type AskingKind = Extract<Kind, 'hotbars' | 'options'>;
 
+/**
+ * The question, each choice's button, and one line per choice saying what it
+ * does here AND to the other instances (the design review's D2): making this
+ * instance's the shared ones replaces what every other instance takes next.
+ */
 export const JOIN_COPY: Record<
   AskingKind,
-  { title: TranslationKey; body: TranslationKey; kept: TranslationKey; useShared: TranslationKey }
+  {
+    title: TranslationKey;
+    body: TranslationKey;
+    useShared: TranslationKey;
+    useSharedResult: TranslationKey;
+    makeShared: TranslationKey;
+    makeSharedResult: TranslationKey;
+  }
 > = {
   hotbars: {
     title: 'instance.settingsSync.joinTitle',
     body: 'instance.settingsSync.joinBody',
-    kept: 'instance.settingsSync.joinKept',
     useShared: 'instance.settingsSync.useShared',
+    useSharedResult: 'instance.settingsSync.useSharedResult',
+    makeShared: 'instance.settingsSync.makeShared',
+    makeSharedResult: 'instance.settingsSync.makeSharedResult',
   },
   options: {
     title: 'instance.settingsSync.joinTitleOptions',
     body: 'instance.settingsSync.joinBodyOptions',
-    kept: 'instance.settingsSync.joinKeptOptions',
     useShared: 'instance.settingsSync.useSharedOptions',
+    useSharedResult: 'instance.settingsSync.useSharedResultOptions',
+    makeShared: 'instance.settingsSync.makeSharedOptions',
+    makeSharedResult: 'instance.settingsSync.makeSharedResultOptions',
   },
 };
 

@@ -29,6 +29,7 @@ function deps(results: LaunchResult[], over: Partial<SyncLaunchDeps> = {}) {
     askSyncFailed: vi.fn(async () => 'cancel' as const),
     askGameClosed: vi.fn(async () => false),
     stopSyncing: vi.fn(async () => ({ status: 'ok' as const, data: null })),
+    repair: vi.fn(async () => ({ status: 'ok' as const, data: null })),
     ...over,
   };
   return { d, seen };
@@ -59,6 +60,23 @@ describe('launchWithSettingsSync', () => {
     expect(await launchWithSettingsSync(d)).toEqual(OK);
     expect(d.stopSyncing).toHaveBeenCalledWith('servers');
     expect(seen).toEqual([null, null]);
+  });
+
+  it('the repair its reason class offers runs, then the same launch again', async () => {
+    const { d, seen } = deps([FAILED_SERVERS, OK], {
+      askSyncFailed: vi.fn(async () => 'repair' as const),
+    });
+    expect(await launchWithSettingsSync(d)).toEqual(OK);
+    expect(d.repair).toHaveBeenCalledWith('servers', 'replace_own', false);
+    expect(seen).toEqual([null, null]);
+  });
+
+  it('a kind that still fails after its repair is reported, not asked again', async () => {
+    const { d } = deps([FAILED_SERVERS, FAILED_SERVERS], {
+      askSyncFailed: vi.fn(async () => 'repair' as const),
+    });
+    expect(await launchWithSettingsSync(d)).toEqual(FAILED_SERVERS);
+    expect(d.askSyncFailed).toHaveBeenCalledTimes(1);
   });
 
   it('Cancel on the failure launches nothing more', async () => {

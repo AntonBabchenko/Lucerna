@@ -3,15 +3,19 @@
 // then runs the SAME launch again with what they chose. The page owns the
 // dialogs; this owns the loop, so the order of the questions and the options
 // each answer sends are tested without the page.
-import type { Error as IpcError, Kind, LaunchOptions } from '$lib/ipc/bindings';
+import { repairFor } from '$lib/instances/settings/settings-sync-view';
+import type { Error as IpcError, Kind, LaunchOptions, Repair } from '$lib/ipc/bindings';
 
 export type LaunchResult = { status: 'ok'; data: number } | { status: 'error'; error: IpcError };
 
 /** The sync failure a launch stopped on, as its dialog shows it. */
 export type SyncFailedError = Extract<IpcError, { kind: 'settings_sync_failed' }>;
 
-/** "Launch without sync" / "Stop syncing <kind> here" / Cancel. */
-export type SyncFailedChoice = 'skip' | 'stop' | 'cancel';
+/**
+ * "Launch without sync" / "Stop syncing <kind> here" / Cancel, or, for a
+ * damaged file, the repair its reason class has, then the launch.
+ */
+export type SyncFailedChoice = 'skip' | 'stop' | 'repair' | 'cancel';
 
 export interface SyncLaunchDeps {
   /** One launch attempt of the caller's own launch (its Quick Play target included). */
@@ -23,6 +27,12 @@ export interface SyncLaunchDeps {
   stopSyncing: (
     kind: Kind | null,
   ) => Promise<{ status: 'ok'; data: null } | { status: 'error'; error: IpcError }>;
+  /** The way out of a damaged sync file for `kind`. */
+  repair: (
+    kind: Kind,
+    repair: Repair,
+    gameClosedConfirmed: boolean,
+  ) => Promise<{ status: 'ok'; data: unknown } | { status: 'error'; error: IpcError }>;
 }
 
 /** The last attempt's result, or `cancelled` when the user backed out of a question. */
@@ -54,6 +64,14 @@ export async function launchWithSettingsSync(deps: SyncLaunchDeps): Promise<Sync
       if (choice === 'cancel') return CANCELLED;
       if (choice === 'skip') {
         options = { ...(options ?? {}), skip_settings_sync: true };
+        continue;
+      }
+      const how = repairFor(e);
+      if (choice === 'repair' && how !== null && e.sync_kind !== null) {
+        const fixed = await deps.repair(e.sync_kind, how, options?.game_closed_confirmed ?? false);
+        if (fixed.status === 'error') return fixed;
+        // A kind that still fails after its repair is reported, not asked again.
+        stopped.add(e.sync_kind);
         continue;
       }
       const stop = await deps.stopSyncing(e.sync_kind);
