@@ -199,22 +199,6 @@ pub fn pack_state(pack_on_disk: bool, options_txt: Option<&str>) -> PackState {
 // Atomic, guarded write
 // ---------------------------------------------------------------------
 
-/// Pure predicate over a snapshot the caller already has — mirrors
-/// `datapacks::guard::datapack_write_allowed`. `mc_dir` alone does not carry
-/// an instance id (there is no cheap, reliable way to walk a `.minecraft`
-/// path back to the id `launch`'s process registry is keyed by), and
-/// `launch::registry()` is private with no cross-module seam, so this
-/// decision can only ever be exercised end-to-end, never faked in a unit
-/// test — exactly like the datapack guard. Kept as its own function (rather
-/// than inlined into `update_atomically`) purely so that decision is
-/// independently testable without touching a filesystem.
-fn options_write_allowed(is_running: bool) -> Result<(), crate::error::Error> {
-    if is_running {
-        return Err(crate::error::Error::InstanceBusy);
-    }
-    Ok(())
-}
-
 /// Monotonic per-process sequence, combined with the pid, to make every
 /// `update_atomically` temp file name unique. A bare `tmp.<pid>` (what
 /// `l10n::coverage::ScanCache::save` uses) is only safe because
@@ -232,31 +216,29 @@ fn options_write_allowed(is_running: bool) -> Result<(), crate::error::Error> {
 static OPTIONS_WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Read, transform and write `<mc_dir>/options.txt` atomically. Refuses
-/// while the instance is running. `Ok(false)` when the file does not exist —
+/// while the instance is running, starting or held by a long writer
+/// (`maintenance::write_allowed`): a settings-sync point reads and rewrites
+/// this file under the instance's claim, and a write between its read and
+/// its write would be lost. `Ok(false)` when the file does not exist —
 /// activation is deferred rather than the launcher inventing the game's
 /// settings file — or when `transform` returns `None`, meaning it decided
 /// there was nothing to change; `Ok(true)` iff a write actually happened.
 ///
-/// Takes `is_running` as a plain flag, not an instance id, and folds the
-/// guard directly into this signature rather than leaving it as a separate
-/// pre-flight call a future caller could forget to make: `options.txt` is
-/// the single highest-consequence file this launcher ever touches (see the
-/// module doc comment), so the one function that writes it should not
-/// compile without an answer to "is the instance running". The caller — the
-/// command layer, which already has both the instance id and `mc_dir` — is
-/// expected to compute `launch::spawn::is_running(instance_id)` and pass the
-/// snapshot in: the snapshot-in shape `datapacks::guard::datapack_write_allowed`
-/// also takes. (The world and datapack commands themselves now open with
-/// `instances::maintenance::write_allowed(id)`, which resolves the snapshot.)
+/// Takes the instance id and opens with the gate itself rather than
+/// leaving it as a separate pre-flight call a future caller could forget to
+/// make: `options.txt` is the single highest-consequence file this launcher
+/// ever touches (see the module doc comment), so the one function that
+/// writes it does not compile without the instance it belongs to. The caller
+/// must not hold that instance's claim (the gate would refuse it).
 pub fn update_atomically<F>(
     mc_dir: &Path,
-    is_running: bool,
+    instance_id: &str,
     transform: F,
 ) -> Result<bool, crate::error::Error>
 where
     F: FnOnce(&str) -> Option<String>,
 {
-    options_write_allowed(is_running)?;
+    crate::instances::maintenance::write_allowed(instance_id)?;
 
     let path = mc_dir.join("options.txt");
     let src = match std::fs::read_to_string(&path) {
@@ -544,23 +526,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // options_write_allowed (Verify-2 target)
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn a_stopped_instance_is_allowed_to_write() {
-        assert!(options_write_allowed(false).is_ok());
-    }
-
-    #[test]
-    fn a_running_instance_is_rejected() {
-        assert!(matches!(
-            options_write_allowed(true).unwrap_err(),
-            crate::error::Error::InstanceBusy
-        ));
-    }
-
-    // -----------------------------------------------------------------
     // update_atomically
     // -----------------------------------------------------------------
 
@@ -570,7 +535,7 @@ mod tests {
         let mc_dir = dir.path().join(".minecraft");
         std::fs::create_dir_all(&mc_dir).unwrap();
 
-        let wrote = update_atomically(&mc_dir, false, |s| {
+        let wrote = update_atomically(&mc_dir, "l10n-opts-missing", |s| {
             Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
         })
         .unwrap();
@@ -579,18 +544,22 @@ mod tests {
         assert!(!mc_dir.join("options.txt").exists());
     }
 
+    /// A settings-sync point holds the instance's claim while it reads and
+    /// rewrites options.txt; a write in between would be lost.
     #[test]
-    fn refuses_while_running_and_leaves_the_file_byte_identical() {
+    fn refuses_while_the_instance_is_held_and_leaves_the_file_byte_identical() {
         let dir = tempdir().unwrap();
         let mc_dir = dir.path().join(".minecraft");
         std::fs::create_dir_all(&mc_dir).unwrap();
         std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
 
-        let err = update_atomically(&mc_dir, true, |s| {
+        let claim = crate::instances::maintenance::claim_write("l10n-opts-held").unwrap();
+        let err = update_atomically(&mc_dir, "l10n-opts-held", |s| {
             Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
         })
         .unwrap_err();
 
+        drop(claim);
         assert!(matches!(err, crate::error::Error::InstanceBusy));
         let on_disk = std::fs::read_to_string(mc_dir.join("options.txt")).unwrap();
         assert_eq!(on_disk, SAMPLE);
@@ -610,7 +579,7 @@ mod tests {
         std::fs::create_dir_all(&mc_dir).unwrap();
         std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
 
-        let wrote = update_atomically(&mc_dir, false, |s| {
+        let wrote = update_atomically(&mc_dir, "l10n-opts-writes", |s| {
             Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
         })
         .unwrap();
@@ -634,7 +603,7 @@ mod tests {
         std::fs::create_dir_all(&mc_dir).unwrap();
         std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
 
-        let wrote = update_atomically(&mc_dir, false, |_s| None).unwrap();
+        let wrote = update_atomically(&mc_dir, "l10n-opts-declines", |_s| None).unwrap();
 
         assert!(!wrote);
         let on_disk = std::fs::read_to_string(mc_dir.join("options.txt")).unwrap();
@@ -657,7 +626,7 @@ mod tests {
             .map(|i| {
                 let thread_mc_dir = mc_dir.clone();
                 std::thread::spawn(move || {
-                    update_atomically(&thread_mc_dir, false, move |s| {
+                    update_atomically(&thread_mc_dir, "l10n-opts-concurrent", move |s| {
                         Some(with_pack_enabled(
                             s,
                             &format!("lucerna-translation-lang{i}.zip"),

@@ -152,6 +152,12 @@ const CLAIM_SPELLINGS: &[&str] = &[
 /// `(path relative to src/, fn name, required spelling, why it is a writer)`.
 const GATED: &[(&str, &str, &str, &str)] = &[
     (
+        "l10n/options_txt.rs",
+        "update_atomically",
+        WRITE_GATE,
+        "rewrites options.txt, which a settings-sync point reads and rewrites under the claim",
+    ),
+    (
         "commands/worlds.rs",
         "backup_world",
         WRITE_GATE,

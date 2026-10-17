@@ -176,11 +176,9 @@ pub async fn rebuild_pack(
         // options.txt entry. Emptying every override must leave no Lucerna
         // pack behind at all.
         sweep_stale_lucerna_packs(&inst_root, None).await;
-        crate::l10n::options_txt::update_atomically(
-            &mc_dir,
-            crate::launch::spawn::is_running(instance_id),
-            |s| Some(crate::l10n::options_txt::with_pack_disabled(s)),
-        )?;
+        crate::l10n::options_txt::update_atomically(&mc_dir, instance_id, |s| {
+            Some(crate::l10n::options_txt::with_pack_disabled(s))
+        })?;
         return Ok(false);
     };
 
@@ -207,18 +205,14 @@ pub async fn rebuild_pack(
     // `ApplyGate::Ready` already proved `supports_apply(fmt)`, i.e. resource
     // format >= 4 — Minecraft 1.13+, which is exactly when `options.txt`
     // stores user pack ids under the `file/` prefix (see `l10n::options_txt`'s
-    // module doc). Re-snapshot `is_running` rather than reusing the guard
-    // the command applied: real time has passed doing the work above this
-    // line.
-    let activated = crate::l10n::options_txt::update_atomically(
-        &mc_dir,
-        crate::launch::spawn::is_running(instance_id),
-        |s| {
-            Some(crate::l10n::options_txt::with_pack_enabled(
-                s, &filename, true,
-            ))
-        },
-    )?;
+    // module doc). The writer checks the instance again rather than relying
+    // on the guard the command applied: real time has passed doing the work
+    // above this line.
+    let activated = crate::l10n::options_txt::update_atomically(&mc_dir, instance_id, |s| {
+        Some(crate::l10n::options_txt::with_pack_enabled(
+            s, &filename, true,
+        ))
+    })?;
 
     Ok(activated)
 }
