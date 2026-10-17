@@ -1863,7 +1863,7 @@ pub async fn server_create_client_instance(
     let _read = crate::servers_runtime::maintenance::claim_shared_read(&server_id)?;
     crate::data_root::reject_if_root_unusable(&app)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
-    crate::servers_runtime::to_instance::create_client_instance(
+    let created = crate::servers_runtime::to_instance::create_client_instance(
         &app,
         &server_id,
         &name,
@@ -1872,7 +1872,13 @@ pub async fn server_create_client_instance(
         "https://api.curseforge.com",
         cf_key.as_deref(),
     )
-    .await
+    .await?;
+    crate::commands::join_new_instance(
+        &app,
+        &created.instance.id,
+        crate::settings_sync::creation::Origin::FromServer,
+    );
+    Ok(created)
 }
 
 /// Join info for a server: host LAN addresses + the server's port + online-mode.

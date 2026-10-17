@@ -11,6 +11,7 @@
     ModpackVersionEntry,
     ModSource,
     PackOriginFile,
+    SkippedOverride,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
@@ -530,6 +531,22 @@
       </summary>
     {/snippet}
 
+    {#snippet skippedRows(rows: SkippedOverride[])}
+      <ul class="space-y-1 pl-4">
+        {#each rows as s (s.path)}
+          <li
+            class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
+          >
+            <Icon name="info" class="flex-shrink-0" />
+            <span class="truncate flex-1" use:tooltip={{ text: s.path, whenOverflowing: true }}
+              >{s.path}</span
+            >
+            <span class="text-xs text-muted flex-shrink-0">{formatSize($t, s.size)}</span>
+          </li>
+        {/each}
+      </ul>
+    {/snippet}
+
     {#if status && status.missing_mods.length > 0}
       <details class="mt-2" open data-testid="imported-detail-missing-section">
         {@render sectionSummary(
@@ -675,28 +692,31 @@
 
     {#if status && (status.origin.skipped_overrides?.length ?? 0) > 0}
       {@const skipped = status.origin.skipped_overrides ?? []}
+      <!-- A row saved before reasons existed was a size skip. -->
+      {@const tooLarge = skipped.filter((s) => (s.reason ?? 'size') === 'size')}
+      {@const shared = skipped.filter((s) => s.reason === 'synced')}
       <details class="mt-2" open data-testid="imported-detail-skipped-section">
         {@render sectionSummary(
           $t('modpacks.imported.detail.skippedHeading', {
             count: skipped.length,
           }),
         )}
-        <p class="text-xs text-muted mb-2 pl-4">
-          {$t('modpacks.imported.detail.skippedBody')}
-        </p>
-        <ul class="space-y-1 pl-4">
-          {#each skipped as s (s.path)}
-            <li
-              class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
-            >
-              <Icon name="info" class="flex-shrink-0" />
-              <span class="truncate flex-1" use:tooltip={{ text: s.path, whenOverflowing: true }}
-                >{s.path}</span
-              >
-              <span class="text-xs text-muted flex-shrink-0">{formatSize($t, s.size)}</span>
-            </li>
-          {/each}
-        </ul>
+        {#if tooLarge.length > 0}
+          <p class="text-xs text-muted mb-2 pl-4">
+            {$t('modpacks.imported.detail.skippedBody')}
+          </p>
+          {@render skippedRows(tooLarge)}
+        {/if}
+        {#if shared.length > 0}
+          <p
+            class="text-xs text-muted mb-2 pl-4"
+            class:mt-3={tooLarge.length > 0}
+            data-testid="imported-detail-skipped-synced"
+          >
+            {$t('modpacks.imported.detail.skippedSyncedBody')}
+          </p>
+          {@render skippedRows(shared)}
+        {/if}
       </details>
     {/if}
 

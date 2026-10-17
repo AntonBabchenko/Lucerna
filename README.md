@@ -35,7 +35,9 @@ instance has its own MC version, mod loader, mods, configs, worlds, JVM args,
 and custom icon. Switching instance switches Minecraft install
 with one click, and several instances can run **concurrently** — the launcher
 tracks each running game separately and surfaces them in a running-instances
-popover. An instance can be cloned (choosing what comes along), and existing
+popover. Instances share nothing unless you ask: one can copy mod data (maps,
+schematics, replays) from another, and instances that opt in share their
+server list, command history and hotbars. An instance can be cloned (choosing what comes along), and existing
 installs can be imported from the official Mojang launcher, Prism, the
 CurseForge and Modrinth apps, ATLauncher, X Minecraft Launcher, Legacy
 Launcher, TLauncher, or a plain `.minecraft` folder. The same mod jar is stored

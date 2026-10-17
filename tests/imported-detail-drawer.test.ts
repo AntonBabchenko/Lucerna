@@ -715,6 +715,71 @@ describe('ImportedDetailDrawer', () => {
     expect(section.textContent).toContain('(1)');
   });
 
+  it('says why each skipped file was left out: too large, or shared by settings sync', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'All Of Create',
+          version: '1.0.7',
+          files: [],
+          missing_mods: [],
+          skipped_overrides: [
+            { path: 'mods/mods.rar', size: 261361205, reason: 'size' },
+            { path: 'servers.dat', size: 120, reason: 'synced' },
+          ],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const section = await findByTestId('imported-detail-skipped-section');
+    expect(section.textContent).toContain('(2)');
+    expect(section.textContent).toContain('exceed the size limit');
+    const synced = within(section).getByTestId('imported-detail-skipped-synced');
+    expect(synced.textContent).toContain('shares these files with your other instances');
+    // The synced row is listed under its own explanation, not the size one.
+    const list = synced.nextElementSibling as HTMLElement;
+    expect(list.textContent).toContain('servers.dat');
+    expect(list.textContent).not.toContain('mods/mods.rar');
+  });
+
+  it('shows only the size explanation for rows saved before reasons existed', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'All Of Create',
+          version: '1.0.7',
+          files: [],
+          missing_mods: [],
+          skipped_overrides: [{ path: 'mods/mods.rar', size: 261361205 }],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const section = await findByTestId('imported-detail-skipped-section');
+    expect(section.textContent).toContain('exceed the size limit');
+    expect(within(section).queryByTestId('imported-detail-skipped-synced')).toBeNull();
+  });
+
   /// A pack that could not bundle every file ships a completer mod that fetches
   /// the rest on first launch. The drawer is where the user finds out WHICH
   /// files those are — the same surface that already explains what the import

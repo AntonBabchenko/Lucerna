@@ -127,6 +127,18 @@
   } from '$lib/settings/state.svelte';
   import { createMcVersions } from '$lib/versions/mc-versions.svelte';
   import { pushActionToast, pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import {
+    launchWithSettingsSync,
+    type SyncFailedChoice,
+    type SyncFailedError,
+    type SyncLaunchOutcome,
+  } from '$lib/launch/settings-sync-flow';
+  import {
+    failureDetail,
+    failureWhat,
+    KIND_WHAT,
+    STOP_KIND,
+  } from '$lib/instances/settings/settings-sync-view';
   import { showUpdateToast, updateState } from '$lib/update/state.svelte';
   import { checkWhatsNew } from '$lib/changelog/whats-new.svelte';
   import { announceUpdateRecovery } from '$lib/modpacks/update-recovery.svelte';
@@ -423,6 +435,7 @@
   // unmounted-then-remounted page would otherwise double-subscribe.)
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
+  let syncExitUnlisten: (() => void) | null = null;
   let modInstalledUnlisten: (() => void) | null = null;
   let modUninstalledUnlisten: (() => void) | null = null;
   let modToggleUnlisten: (() => void) | null = null;
@@ -1146,6 +1159,25 @@
         exitUnlisten = u;
       });
 
+    // The settings sync after a game closed failed (spec §B3): said once here,
+    // and kept in the instance's Shared data section until a sync succeeds.
+    events.settingsSyncExitFailed
+      .listen(({ payload }) => {
+        const tr = get(t);
+        const name =
+          instances.find((i) => i.id === payload.instance_id)?.name ?? payload.instance_id;
+        pushWarning(tr('launch.settingsSync.exitFailedTitle'), [
+          tr('launch.settingsSync.exitFailedLine', {
+            instance: name,
+            what: tr(failureWhat(payload.failure)),
+            detail: failureDetail(tr, payload.failure),
+          }),
+        ]);
+      })
+      .then((u) => {
+        syncExitUnlisten = u;
+      });
+
     // Independent of settings — start these before the settings round-trip so
     // the MC version-manifest fetch and the account reads overlap it instead
     // of queueing behind it (cold start used to serialize 4 IPC hops before
@@ -1179,6 +1211,7 @@
     themeUnlisten?.();
     spawnUnlisten?.();
     exitUnlisten?.();
+    syncExitUnlisten?.();
     modInstalledUnlisten?.();
     modUninstalledUnlisten?.();
     modToggleUnlisten?.();
@@ -1382,12 +1415,57 @@
     }
   }
 
+  // The settings-sync questions a launch can stop on (spec §B3), each holding
+  // the answer the waiting launch resumes with.
+  let syncFailedAsk = $state<{
+    error: SyncFailedError;
+    answer: (choice: SyncFailedChoice) => void;
+  } | null>(null);
+  let gameClosedAsk = $state<{ answer: (closed: boolean) => void } | null>(null);
+
+  function answerSyncFailed(choice: SyncFailedChoice) {
+    const ask = syncFailedAsk;
+    syncFailedAsk = null;
+    ask?.answer(choice);
+  }
+
+  function answerGameClosed(closed: boolean) {
+    const ask = gameClosedAsk;
+    gameClosedAsk = null;
+    ask?.answer(closed);
+  }
+
+  // Every launch thunk's one IPC call: the launch, run again with the user's
+  // answer when settings sync stops it. `cancelled` = they backed out.
+  function launchSynced(
+    id: string,
+    quickPlay: Parameters<typeof commands.launchInstance>[1],
+  ): Promise<SyncLaunchOutcome> {
+    return launchWithSettingsSync({
+      launch: (options) => commands.launchInstance(id, quickPlay, options),
+      // One question at a time: a second launch (a shortcut while the first
+      // asks) backs out instead of replacing the open question, whose launch
+      // would then wait forever.
+      askSyncFailed: (error) =>
+        new Promise((answer) => {
+          if (syncFailedAsk || gameClosedAsk) return answer('cancel');
+          syncFailedAsk = { error, answer };
+        }),
+      askGameClosed: () =>
+        new Promise((answer) => {
+          if (syncFailedAsk || gameClosedAsk) return answer(false);
+          gameClosedAsk = { answer };
+        }),
+      stopSyncing: (kind) => commands.settingsSyncStop(id, kind),
+    });
+  }
+
   // Shared launch path: used by the normal (no violations) flow AND by
   // the gate dialog's "Launch anyway" / post-update path.
   async function doLaunch() {
     if (!activeInstance) return;
     setInstallError(null);
-    const result = await commands.launchInstance(activeInstance.id, null);
+    const result = await launchSynced(activeInstance.id, null);
     if (result.status === 'error') {
       setInstallError(formatError(result.error), result.error);
     }
@@ -1565,7 +1643,7 @@
     await startLaunch(async () => {
       if (!activeInstance) return;
       setInstallError(null);
-      const result = await commands.launchInstance(activeInstance.id, {
+      const result = await launchSynced(activeInstance.id, {
         kind: 'singleplayer',
         world: folderName,
       });
@@ -1594,14 +1672,11 @@
       async () => {
         if (!activeInstance) return;
         setInstallError(null);
-        const result = await commands.launchInstance(activeInstance.id, {
-          kind: 'multiplayer',
-          address,
-        });
+        const result = await launchSynced(activeInstance.id, { kind: 'multiplayer', address });
         quickJoinBusy = false;
         if (result.status === 'error') {
           setInstallError(formatError(result.error), result.error);
-        } else {
+        } else if (result.status === 'ok') {
           quickJoinOpen = false;
         }
       },
@@ -2118,6 +2193,39 @@
       onFixAndLaunch={onGateFixAndLaunch}
       onLaunchAnyway={onGateLaunchAnyway}
       onCancel={onGateCancel}
+    />
+  {/if}
+  {#if syncFailedAsk}
+    {@const ask = syncFailedAsk}
+    {@const what = ask.error.sync_kind === null ? null : $t(KIND_WHAT[ask.error.sync_kind])}
+    <ConfirmDialog
+      title={$t('launch.settingsSync.failedTitle')}
+      bodyText={[
+        formatError(ask.error),
+        what === null
+          ? $t('launch.settingsSync.failedChoiceAll')
+          : $t('launch.settingsSync.failedChoice', { what }),
+      ]}
+      confirmLabel={$t('launch.settingsSync.launchWithoutSync')}
+      confirmTestid="sync-failed-skip"
+      panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
+      secondaryLabel={ask.error.sync_kind === null
+        ? $t('launch.settingsSync.stopAll')
+        : $t(STOP_KIND[ask.error.sync_kind])}
+      secondaryTestid="sync-failed-stop"
+      onSecondary={() => answerSyncFailed('stop')}
+      onCancel={() => answerSyncFailed('cancel')}
+      onConfirm={() => answerSyncFailed('skip')}
+    />
+  {/if}
+  {#if gameClosedAsk}
+    <ConfirmDialog
+      title={$t('launch.settingsSync.closedTitle')}
+      bodyText={$t('launch.settingsSync.closedBody')}
+      confirmLabel={$t('launch.settingsSync.itsClosed')}
+      confirmTestid="game-closed-confirm"
+      onCancel={() => answerGameClosed(false)}
+      onConfirm={() => answerGameClosed(true)}
     />
   {/if}
   {#if launchWarningLines}

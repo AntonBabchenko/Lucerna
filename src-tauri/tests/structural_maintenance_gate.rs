@@ -213,6 +213,33 @@ const GATED: &[(&str, &str, &str, &str)] = &[
         "changes the version the migration plan's verdict was computed against",
     ),
     (
+        "commands/settings_sync.rs",
+        "settings_sync_set_kind",
+        CLAIM_WRITE_GATE,
+        "joins (writes the instance's synced files and baselines) or leaves a kind — a \
+         launch, update or migration must not run while those files change",
+    ),
+    (
+        "commands/settings_sync.rs",
+        "settings_sync_stop",
+        CLAIM_WRITE_GATE,
+        "rewrites the sync settings and removes baselines; may recycle an unreadable \
+         sidecar",
+    ),
+    (
+        "servers/mod.rs",
+        "add_server_at",
+        CLAIM_WRITE_GATE,
+        "writes servers.dat, which the running game rewrites on exit, then runs the \
+         server-list sync point, which writes the sidecar a join or stop also writes",
+    ),
+    (
+        "servers/mod.rs",
+        "remove_server_at",
+        CLAIM_WRITE_GATE,
+        "the same write and sync point as add_server_at",
+    ),
+    (
         "commands/transfer.rs",
         "transfer_mod_data",
         TRANSFER_CLAIMS,
@@ -452,6 +479,11 @@ const GATED: &[(&str, &str, &str, &str)] = &[
 /// Commands in the ratcheted files that touch nothing a migration moves:
 /// `(path relative to src/, fn name, why it needs no gate)`.
 const READ_ONLY: &[(&str, &str, &str)] = &[
+    (
+        "commands/settings_sync.rs",
+        "settings_sync_state",
+        "reads the sidecar, the shared hotbars' version and the client jar; writes nothing",
+    ),
     (
         "commands/transfer.rs",
         "transfer_scan",
@@ -748,6 +780,7 @@ const READ_ONLY: &[(&str, &str, &str)] = &[
 
 /// Files whose every `#[tauri::command]` must be gated or declared read-only.
 const RATCHETED: &[&str] = &[
+    "commands/settings_sync.rs",
     "commands/transfer.rs",
     "commands/worlds.rs",
     "commands/datapacks.rs",

@@ -5,11 +5,13 @@
 pub mod args;
 pub mod guardrail;
 pub mod natives;
+pub mod options;
 pub mod quick_play;
 pub mod spawn;
 
+pub use options::LaunchOptions;
 pub use quick_play::QuickPlay;
 pub use spawn::{
     is_any_running, is_running, kill_all_running, running_snapshot, start, stop, ProcessExited,
-    ProcessSpawned,
+    ProcessSpawned, SettingsSyncExitFailed,
 };

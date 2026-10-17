@@ -119,7 +119,18 @@ export const commands = {
 	 *  error surfaces and the user can click Install (the Settings tab → re-pick
 	 *  the loader, or the Install button reappears once ready_status flips).
 	 */
-	launchInstance: (instanceId: string, quickPlay: { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string } | null) => typedError<number, Error>(__TAURI_INVOKE("launch_instance", { instanceId, quickPlay })),
+	launchInstance: (instanceId: string, quickPlay: { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string } | null, options: {
+	/**
+	 *  This launch only: no settings sync before it or after it; the next
+	 *  sync point captures what this session changed.
+	 */
+	skip_settings_sync?: boolean,
+	/**
+	 *  The user said a game Lucerna lost track of (a launcher restart) is
+	 *  closed: its marker is removed and the sync goes ahead.
+	 */
+	game_closed_confirmed?: boolean,
+} | null) => typedError<number, Error>(__TAURI_INVOKE("launch_instance", { instanceId, quickPlay, options })),
 	/**
 	 *  Whether this instance's installed version supports MC 1.20+ Quick Play.
 	 *  Honest signal: parses the effective version JSON and checks for a
@@ -414,14 +425,20 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	annotatedDefaultPath: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("annotated_default_path", { instanceId, fileName })),
 	/**
 	 *  List the instance's saved multiplayer servers (from `servers.dat`).
-	 *  Empty Vec when the file does not exist yet.
+	 *  Empty Vec when the file does not exist yet. Async + `spawn_blocking`: a
+	 *  file read, off the main thread.
 	 */
 	listSavedServers: (instanceId: string) => typedError<SavedServer[], Error>(__TAURI_INVOKE("list_saved_servers", { instanceId })),
-	/**  Append a server to `servers.dat`. Rejected while the game is running. */
+	/**
+	 *  Append a server to `servers.dat`. Rejected while the game is running.
+	 *  On an instance that shares its server list, the shared list is updated in
+	 *  the same call (the settings-sync point runs after the write).
+	 */
 	addSavedServer: (instanceId: string, name: string, address: string) => typedError<null, Error>(__TAURI_INVOKE("add_saved_server", { instanceId, name, address })),
 	/**
 	 *  Remove the server at `index`, guarded by `expected_address`. Rejected
 	 *  while the game is running; a changed list yields `SavedServerListChanged`.
+	 *  Updates the shared list like [`add_saved_server`].
 	 */
 	removeSavedServer: (instanceId: string, index: number, expectedAddress: string) => typedError<null, Error>(__TAURI_INVOKE("remove_saved_server", { instanceId, index, expectedAddress })),
 	/**
@@ -1549,6 +1566,33 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  the clone dialog's checkbox labels. Reuses the launcher-import scanner.
 	 */
 	cloneInstanceScan: (id: string) => typedError<ContentEntry[], Error>(__TAURI_INVOKE("clone_instance_scan", { id })),
+	/**
+	 *  What the section shows: each kind's toggle, join and availability, and
+	 *  the last failure. Read-only.
+	 */
+	settingsSyncState: (instanceId: string) => typedError<SectionState, Error>(__TAURI_INVOKE("settings_sync_state", { instanceId })),
+	/**
+	 *  Turn one kind on (joining now when the version allows; `join` is the
+	 *  hotbars choice) or off. Holds the instance's claim: no launch, update or
+	 *  migration runs while its files change. A join first checks for a game
+	 *  Lucerna lost track of, as a launch does: `SettingsSyncAskGameClosed`
+	 *  comes back until the user says it is closed (`game_closed_confirmed`).
+	 */
+	settingsSyncSetKind: (instanceId: string, kind: Kind, enabled: boolean, join: "done" | 
+/**  Take the shared copy (servers / history merge; hotbars replace). */
+"use_shared" | 
+/**  Hotbars only: this instance's hotbars become the shared ones. */
+"make_shared" | null, gameClosedConfirmed: boolean) => typedError<{ kind: "synced" } | 
+/**  A join completed. */
+{ kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
+/**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
+{ kind: "older_than_shared" } | null, Error>(__TAURI_INVOKE("settings_sync_set_kind", { instanceId, kind, enabled, join, gameClosedConfirmed })),
+	/**
+	 *  "Stop syncing <kind> here", from the launch dialog or the section; `kind`
+	 *  is `None` when the sync settings themselves could not be read (they go to
+	 *  the Recycle Bin and start over with nothing on).
+	 */
+	settingsSyncStop: (instanceId: string, kind: "servers" | "history" | "hotbars" | null) => typedError<null, Error>(__TAURI_INVOKE("settings_sync_stop", { instanceId, kind })),
 	/**  What the transfer dialog shows for `source_id` → `target_id`. Read-only. */
 	transferScan: (sourceId: string, targetId: string) => typedError<TransferPreview, Error>(__TAURI_INVOKE("transfer_scan", { sourceId, targetId })),
 	/**
@@ -2656,6 +2700,7 @@ export const events = {
 	serverLogLine: makeEvent<ServerLogLine>("server-log-line"),
 	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
 	serverUploadProgress: makeEvent<ServerUploadProgress>("server-upload-progress"),
+	settingsSyncExitFailed: makeEvent<SettingsSyncExitFailed>("settings-sync-exit-failed"),
 	trayQuitRefused: makeEvent<TrayQuitRefused>("tray-quit-refused"),
 	updateInstallPhase: makeEvent<UpdateInstallPhase>("update-install-phase"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
@@ -2913,6 +2958,13 @@ export type AssetUpdateState_Serialize =
  *  Set by the command layer — never produced by `classify_asset_update`.
  */
 ({ kind: "check_failed"; reason: string }) & { latest?: never };
+
+/**  Whether this instance's version can sync a kind now. */
+export type Availability = { status: "available" } | { status: "unsupported"; why: Unsupported } | 
+/**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
+{ status: "older_than_shared" } | 
+/**  A file this row needs cannot be read; the other rows still work. */
+{ status: "unreadable"; file: SyncFile; reason: FileReason };
 
 /**  One on-disk backup zip for a world. */
 export type Backup = {
@@ -4103,6 +4155,30 @@ export type Error =
  */
 { kind: "world_migrate_instance_running"; instance_name: string; role: MigrationRole } | 
 /**
+ *  A settings sync point before a launch failed; the game did not start.
+ *  `sync_kind` is `None` when the instance's sync settings themselves
+ *  could not be read; `file` is `None` when the failure was not about a
+ *  file. The launch dialog offers to launch without sync, or to stop
+ *  syncing `sync_kind` here. The raw error is in the log.
+ */
+{ kind: "settings_sync_failed"; sync_kind: Kind | null; file: SyncFile | null; reason: FileReason } | 
+/**
+ *  A settings-sync file could not be read, parsed or written: which file
+ *  and a reason class the UI says in plain words. `path` and `details`
+ *  (the raw OS or parser text) are for the log, never shown.
+ */
+{ kind: "settings_sync_file"; file: SyncFile; file_kind: Kind | null; reason: FileReason; path: string; details: string } | 
+/**
+ *  A game started before Lucerna restarted still runs in this instance:
+ *  syncing now could overwrite what it is about to save.
+ */
+{ kind: "settings_sync_game_running" } | 
+/**
+ *  Could not tell whether a game started before Lucerna restarted still
+ *  runs; the launch asks the user and retries with their answer.
+ */
+{ kind: "settings_sync_ask_game_closed" } | 
+/**
  *  A mod-data copy needs both instances idle (`instances::transfer`).
  *  `instance_name` is the display NAME; `role` says which side it is on.
  */
@@ -4516,6 +4592,15 @@ export type Fallback =
  */
 export type Fetched = "downloaded" | "cached";
 
+/**  Why, in the words the UI uses. */
+export type FileReason = 
+/**  The file does not parse, or ends early. */
+"damaged" | 
+/**  Denied, or held by another program. */
+"no_access" | "not_found" | 
+/**  Anything else: the log has the details. */
+"other";
+
 /**
  *  What the Connect tab shows. `NotApplicable` = non-Windows; `Unknown` = port
  *  not yet known (server.properties not generated).
@@ -4671,6 +4756,7 @@ export type GeneralSettingsPatch = {
 	hidden_sidebar_buttons?: string[] | null,
 	java_defaults?: JavaDefault[] | null,
 	allow_server_ping?: boolean | null,
+	settings_sync_new_instances?: boolean | null,
 	register_url_scheme?: boolean | null,
 	allow_ai_translation?: boolean | null,
 	ai_provider?: AiProvider | null,
@@ -4773,6 +4859,13 @@ export type GeneralSettings_Deserialize = {
 	 *  user-supplied host while this is false.
 	 */
 	allow_server_ping?: boolean,
+	/**
+	 *  Settings sync (spec 2026-10-15 §B7): new instances, modpack imports
+	 *  and clients made from a server join every kind their version can
+	 *  sync; clones keep their source's choice; imports from other launchers
+	 *  do not join. Off by default.
+	 */
+	settings_sync_new_instances?: boolean,
 	/**
 	 *  LEGACY consent record. Versions 0.21.0–0.24.x let the user opt in to OS
 	 *  registration of the `lucerna://` link scheme; that toggle was retired.
@@ -4902,6 +4995,13 @@ export type GeneralSettings_Serialize = {
 	 *  user-supplied host while this is false.
 	 */
 	allow_server_ping: boolean,
+	/**
+	 *  Settings sync (spec 2026-10-15 §B7): new instances, modpack imports
+	 *  and clients made from a server join every kind their version can
+	 *  sync; clones keep their source's choice; imports from other launchers
+	 *  do not join. Off by default.
+	 */
+	settings_sync_new_instances: boolean,
 	/**
 	 *  LEGACY consent record. Versions 0.21.0–0.24.x let the user opt in to OS
 	 *  registration of the `lucerna://` link scheme; that toggle was retired.
@@ -5483,6 +5583,13 @@ export type JavaVerdict =
  */
 { kind: "requirement_unknown" };
 
+/**  A join still to complete at the next sync point that can apply the kind. */
+export type Join = "done" | 
+/**  Take the shared copy (servers / history merge; hotbars replace). */
+"use_shared" | 
+/**  Hotbars only: this instance's hotbars become the shared ones. */
+"make_shared";
+
 /**  One recorded moment in an instance's life. */
 export type JournalEntry = JournalEntry_Serialize | JournalEntry_Deserialize;
 
@@ -5697,6 +5804,28 @@ export type KeyStatus = "missing" |
  */
 export type KeyringOp = "read" | "write" | "delete";
 
+/**  One thing that syncs. Part C adds `Options`. */
+export type Kind = "servers" | "history" | "hotbars";
+
+/**  How one kind's sync point ended. */
+export type KindOutcome = { kind: "synced" } | 
+/**  A join completed. */
+{ kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
+/**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
+{ kind: "older_than_shared" };
+
+export type KindView = {
+	kind: Kind,
+	enabled: boolean,
+	join: Join,
+	availability: Availability,
+	/**
+	 *  Hotbars only: shared hotbars exist and this instance has its own, so
+	 *  turning sync on asks which to keep.
+	 */
+	join_asks: boolean,
+};
+
 /**
  *  A mod whose platform identity is already known from the source's
  *  manifest (CurseForge App / Modrinth App). Empty for Prism / raw.
@@ -5748,6 +5877,19 @@ export type LaunchIntent =
 { kind: "launch"; instance: string; quick_play: QuickPlay | null } | 
 /**  From a `lucerna://` URL (untrusted): open the import confirmation UI. */
 { kind: "open_url"; url: string };
+
+export type LaunchOptions = {
+	/**
+	 *  This launch only: no settings sync before it or after it; the next
+	 *  sync point captures what this session changed.
+	 */
+	skip_settings_sync?: boolean,
+	/**
+	 *  The user said a game Lucerna lost track of (a launcher restart) is
+	 *  closed: its marker is removed and the sync goes ahead.
+	 */
+	game_closed_confirmed?: boolean,
+};
 
 export type LaunchOutcome = 
 /**  Exited cleanly (code 0). */
@@ -8146,6 +8288,12 @@ export type SearchResult = {
 	truncated: boolean,
 };
 
+export type SectionState = {
+	sidecar: SidecarStatus,
+	kinds: KindView[],
+	last_error: SyncFailure | null,
+};
+
 /**
  *  Why the resolver chose a specific build for a dependency. Surfaced so the UI
  *  can later distinguish an author-recommended pin from a "newest compatible"
@@ -8608,6 +8756,16 @@ export type ServerWithStatus_Serialize = {
 };
 
 /**
+ *  The settings sync after a game exited failed (spec 2026-10-15 §B3).
+ *  Emitted before `ProcessExited`; the page warns, and the instance's Shared
+ *  data section shows the reason until a later sync succeeds.
+ */
+export type SettingsSyncExitFailed = {
+	instance_id: string,
+	failure: SyncFailure,
+};
+
+/**
  *  What a shortcut launches. World/Server ride on the existing Quick Play
  *  support, so they need MC 1.20+ — the UI gates on
  *  `instance_quick_play_support` before offering them.
@@ -8617,6 +8775,13 @@ export type ShortcutTarget = { kind: "instance"; instance_id: string } | { kind:
 folder: string } | { kind: "server"; instance_id: string; 
 /**  `host` or `host:port`. */
 address: string };
+
+export type SidecarStatus = { status: "readable" } | 
+/**
+ *  The instance's sync settings cannot be read: nothing syncs until
+ *  "Stop syncing" replaces them.
+ */
+{ status: "unreadable"; reason: FileReason };
 
 /**  One saved skin, PNG payload included so the grid renders in one round-trip. */
 export type SkinLibraryItem = {
@@ -8634,13 +8799,26 @@ export type SkinLibraryItem = {
  */
 export type SkinVariant = "classic" | "slim";
 
+/**  Why an override was left out. */
+export type SkipReason = 
+/**
+ *  Over the per-file size cap. In practice an inert, non-loadable blob —
+ *  most often a `.rar`/`.7z`/`.zip` an author left in `overrides/mods/`,
+ *  which Minecraft never loads (it scans `mods/*.jar` only).
+ */
+"size" | 
+/**
+ *  A re-import into an instance that shares this file with others
+ *  (settings sync, spec 2026-10-15 §B8): the instance keeps its own, so
+ *  the pack's copy does not spread to every instance sharing it.
+ */
+"synced";
+
 /**
  *  A file inside the pack's `overrides/` that the importer chose NOT to
- *  extract because it exceeded the per-file size cap. In practice this is
- *  an inert, non-loadable blob — most often a `.rar`/`.7z`/`.zip` an author
- *  left in `overrides/mods/`, which Minecraft never loads (it scans
- *  `mods/*.jar` only). The import still succeeds; this is surfaced purely
- *  so the user is told what was deliberately left out (transparency).
+ *  extract, and why ([`SkipReason`]). The import still succeeds; this is
+ *  surfaced purely so the user is told what was deliberately left out
+ *  (transparency).
  */
 export type SkippedOverride = {
 	/**  The override-relative path of the skipped entry, e.g. `mods/mods.rar`. */
@@ -8650,6 +8828,8 @@ export type SkippedOverride = {
 	 *  specta forbids BigInt-style exports.
 	 */
 	size: number | null,
+	/**  Rows saved before reasons existed were all size skips. */
+	reason?: SkipReason,
 };
 
 export type SkippedRestore = {
@@ -8821,6 +9001,31 @@ export type StrandedWorld = {
 	/**  Which operation parked it — see [`StrandedKind`]. */
 	kind: StrandedKind,
 };
+
+/**
+ *  Why a sync did not happen, as the UI says it: the kind that was syncing
+ *  (`None`: the sync settings themselves), the file (`None`: not a file
+ *  problem) and a reason class. The raw error is in the log.
+ */
+export type SyncFailure = {
+	kind: Kind | null,
+	file: SyncFile | null,
+	reason: FileReason,
+};
+
+/**  Which file a sync step failed on. */
+export type SyncFile = 
+/**  This instance's own file in `.minecraft/` (`servers.dat`, …). */
+"game" | 
+/**  The shared copy every member instance syncs with. */
+"shared" | 
+/**  This instance's sync settings (`lucerna/settings-sync.json`). */
+"settings" | 
+/**
+ *  Lucerna's own records of the last sync (baselines, pending files,
+ *  the running-game marker).
+ */
+"records";
 
 /**  One file's provenance and outcome — a row in a per-file install report. */
 export type TaskDetail = {
@@ -9005,6 +9210,16 @@ export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | 
  *  (trust-on-first-use); it is surfaced as manually unresolvable instead.
  */
 "missing_checksum";
+
+export type Unsupported = 
+/**  command_history.txt exists from 1.20.2. */
+"history_too_old" | 
+/**  The game records no DataVersion (before 1.14). */
+"hotbars_not_recorded" | 
+/**  The game files are not installed yet (or the jar is damaged). */
+"hotbars_not_installed" | 
+/**  A snapshot or pre-release. */
+"hotbars_not_release";
 
 /**
  *  The result of an update check. `available` is false when up-to-date.
