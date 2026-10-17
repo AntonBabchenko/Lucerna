@@ -940,10 +940,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	assetsList: (instanceId: string, kind: ContentKind) => typedError<AssetListing, Error>(__TAURI_INVOKE("assets_list", { instanceId, kind })),
 	/**
-	 *  Remove a pack — its file, or a folder pack to the OS recycle bin — and
+	 *  Remove a pack — a file Lucerna can download again is deleted, one it cannot
+	 *  (no source: put there by hand, or shipped in a modpack's overrides) and a
+	 *  folder pack go to the OS recycle bin (`asset_folder::if_file_for`) — and
 	 *  then its registry row. The folder is the truth: a file that stays would be
 	 *  listed again, so a removal that fails keeps the row and says why; a file
-	 *  already gone is fine (a ghost row's repair).
+	 *  already gone is fine (a ghost row's repair). Returns where the pack went,
+	 *  for the toast.
 	 * 
 	 *  Every asset writer here runs under the instance's SHARED maintenance claim
 	 *  (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
@@ -951,7 +954,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  them — holds the instance; admitted alongside other item writers and while
 	 *  the game runs.
 	 */
-	assetUninstall: (instanceId: string, kind: ContentKind, filename: string) => typedError<null, Error>(__TAURI_INVOKE("asset_uninstall", { instanceId, kind, filename })),
+	assetUninstall: (instanceId: string, kind: ContentKind, filename: string) => typedError<AssetRemoval, Error>(__TAURI_INVOKE("asset_uninstall", { instanceId, kind, filename })),
 	/**
 	 *  Install a local resource-pack / shader `.zip` from disk into the instance as
 	 *  a manual asset (`source: None`). Validity-only: rejects a non-zip, or a
@@ -2905,6 +2908,15 @@ export type AssetListing = {
 	 */
 	folders: string[] | null,
 };
+
+/**  What a removal did, for the toast: the user is told where the pack went. */
+export type AssetRemoval = 
+/**  Nothing was there any more (a ghost row's repair). */
+"already_gone" | 
+/**  Deleted; Lucerna can download it again. */
+"deleted" | 
+/**  Moved to the OS recycle bin. */
+"recycle_bin";
 
 /**  One installed resource-pack/shader's update-check result. */
 export type AssetUpdateCheck = AssetUpdateCheck_Serialize | AssetUpdateCheck_Deserialize;
