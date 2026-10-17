@@ -391,10 +391,11 @@ pub async fn start(
         None
     } else {
         let data_root = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
-        let (inst, versions_at, mc) = (
+        let (inst, versions_at, mc, loader) = (
             sync_root.clone(),
             versions.clone(),
             instance.mc_version.clone(),
+            instance.loader,
         );
         let confirmed = options.game_closed_confirmed;
         let facts = tokio::task::spawn_blocking(move || {
@@ -403,6 +404,7 @@ pub async fn start(
                 &inst,
                 &versions_at,
                 &mc,
+                loader,
                 confirmed,
                 &|pid| crate::platform::process_image_probe(pid, "java"),
             )

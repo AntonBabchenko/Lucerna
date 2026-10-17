@@ -13,6 +13,11 @@ use super::keys::{self, Modifier};
 /// Strings are JSON-quoted from 1.19 (verified on game-written files).
 pub(crate) const QUOTED_FROM_DV: i32 = 3105;
 
+/// The oldest and the newest release the catalog knows: 1.13 and 26.3. A
+/// newer release waits for the catalog to learn it (spec §C3).
+pub(crate) const OLDEST_DV: i32 = 1519;
+pub(crate) const NEWEST_DV: i32 = 5023;
+
 /// One synced value, the same in every release.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -81,7 +86,7 @@ const fn e(
     }
 }
 
-const ALL: i32 = 1519; // 1.13
+const ALL: i32 = OLDEST_DV; // 1.13
 const V1_14: i32 = 1952;
 const V1_15: i32 = 2225;
 const V1_16: i32 = 2566;

@@ -164,6 +164,7 @@ pub fn launch_sync(
     instance_root: &Path,
     versions_dir: &Path,
     mc_version: &str,
+    loader: crate::instances::schema::LoaderKind,
     game_closed_confirmed: bool,
     probe: &dyn Fn(u32) -> crate::platform::ImageMatch,
 ) -> crate::error::Result<Option<version::VersionFacts>> {
@@ -178,7 +179,7 @@ pub fn launch_sync(
         return Ok(None);
     }
     guard_orphan(instance_root, game_closed_confirmed, probe)?;
-    let facts = version::VersionFacts::read(versions_dir, mc_version);
+    let facts = version::VersionFacts::read(versions_dir, mc_version, loader);
     before_launch(data_root, instance_root, &facts).map_err(Error::from)?;
     Ok(Some(facts))
 }
@@ -292,6 +293,8 @@ mod api_tests {
         VersionFacts {
             mc_version: "1.21.1".into(),
             data: DataVersion::Version { n: 3955 },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 
@@ -337,6 +340,7 @@ mod api_tests {
             inst,
             &data.join("versions"),
             "1.21.1",
+            crate::instances::schema::LoaderKind::Vanilla,
             confirmed,
             &move |_| probe,
         )

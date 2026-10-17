@@ -298,6 +298,8 @@ mod tests {
         VersionFacts {
             mc_version: mc.into(),
             data: DataVersion::Version { n: 3955 },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 

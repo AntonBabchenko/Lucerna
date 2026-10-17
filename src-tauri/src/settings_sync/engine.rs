@@ -482,6 +482,8 @@ mod tests {
         VersionFacts {
             mc_version: mc.into(),
             data: DataVersion::Version { n: 3955 },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 
@@ -615,6 +617,8 @@ mod tests {
         VersionFacts {
             mc_version: mc.into(),
             data: DataVersion::Version { n },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 
@@ -929,6 +933,8 @@ mod tests {
         let old = VersionFacts {
             mc_version: "1.12.2".into(),
             data: DataVersion::NotRecorded,
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         };
         assert_eq!(
             sync_kind(

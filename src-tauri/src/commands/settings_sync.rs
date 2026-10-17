@@ -17,6 +17,7 @@ struct Roots {
     instance_root: PathBuf,
     versions: PathBuf,
     mc_version: String,
+    loader: crate::instances::schema::LoaderKind,
 }
 
 fn roots(app: &tauri::AppHandle, instance_id: &str) -> Result<Roots, Error> {
@@ -27,6 +28,7 @@ fn roots(app: &tauri::AppHandle, instance_id: &str) -> Result<Roots, Error> {
             .map_err(|e| Error::io("<instance_dir>", e))?,
         versions: crate::paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?,
         mc_version: instance.mc_version,
+        loader: instance.loader,
     })
 }
 
@@ -57,7 +59,7 @@ pub async fn settings_sync_state(
 ) -> Result<SectionState, Error> {
     let r = roots(&app, &instance_id)?;
     tokio::task::spawn_blocking(move || {
-        let facts = VersionFacts::read(&r.versions, &r.mc_version);
+        let facts = VersionFacts::read(&r.versions, &r.mc_version, r.loader);
         membership::state(&r.data_root, &r.instance_root, &facts)
     })
     .await
@@ -82,7 +84,7 @@ pub async fn settings_sync_set_kind(
     let claim = crate::instances::maintenance::claim_write(&instance_id)?;
     let r = roots(&app, &instance_id)?;
     let outcome = tokio::task::spawn_blocking(move || {
-        let facts = VersionFacts::read(&r.versions, &r.mc_version);
+        let facts = VersionFacts::read(&r.versions, &r.mc_version, r.loader);
         membership::join_or_leave(
             &r.data_root,
             &r.instance_root,
