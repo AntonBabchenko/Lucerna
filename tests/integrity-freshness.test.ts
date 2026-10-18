@@ -33,6 +33,18 @@ describe('isIntegrityStale', () => {
     expect(isIntegrityStale(makeStatus({ checked_unix_ms: SESSION + 5 }), SESSION)).toBe(false);
   });
 
+  it('a result with only notes from a previous session is stale, like a healthy one (spec 2026-10-18)', () => {
+    const status = makeStatus({
+      healthy: false,
+      problem_count: 3,
+      checked_unix_ms: SESSION - 999,
+      categories: [
+        { category: 'libraries', total: 40, ok: 37, missing: 0, corrupt: 0, built_differently: 3 },
+      ],
+    });
+    expect(isIntegrityStale(status, SESSION)).toBe(true);
+  });
+
   it('never marks a problem result stale, even from a previous session', () => {
     const status = makeStatus({ healthy: false, problem_count: 3, checked_unix_ms: SESSION - 999 });
     expect(isIntegrityStale(status, SESSION)).toBe(false);

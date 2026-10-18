@@ -574,7 +574,11 @@
             data-testid="overview-integrity-notes"
           >
             <Icon name="info" />
-            {$t('instance.integrity.statusNoDamage')}
+            {$t(
+              activeInstance.integrity.forge_installer
+                ? 'instance.integrity.statusForgeUnchecked'
+                : 'instance.integrity.statusNoDamage',
+            )}
           </span>
         {:else}
           <span class="text-sm text-warning-text flex items-center gap-1.5">

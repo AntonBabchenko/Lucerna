@@ -5546,6 +5546,12 @@ export type IntegrityStatus = {
 	problem_count: number,
 	/**  [`VerifyReport::forge_installer`]. Absent from reports saved before it existed. */
 	forge_installer?: ForgeInstallerGap | null,
+	/**
+	 *  [`VerifyReport::manifest_recoverable`]: the version JSON or the asset index could not be read,
+	 *  so files went unchecked with no problem of their own — damage, never a note. Absent from
+	 *  reports saved before it existed.
+	 */
+	manifest_recoverable?: boolean,
 };
 
 export type ItemPreview = {

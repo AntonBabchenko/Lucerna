@@ -1445,6 +1445,7 @@ mod tests {
             }],
             problem_count: 2,
             forge_installer: None,
+            manifest_recoverable: false,
         }
     }
 

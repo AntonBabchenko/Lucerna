@@ -42,7 +42,7 @@ pub fn status_for(origin: crate::verify::plan::Origin, status: ArtifactStatus) -
 /// files could not be checked. Category Libraries with no URL, so Repair runs the full install
 /// (`repair::needs_full_install`), which downloads the installer; status [`ArtifactStatus::Unchecked`],
 /// so no category counts it.
-fn installer_unchecked(rel_path: String) -> ProblemArtifact {
+pub(crate) fn installer_unchecked(rel_path: String) -> ProblemArtifact {
     ProblemArtifact {
         category: VerifyCategory::Libraries,
         rel_path,

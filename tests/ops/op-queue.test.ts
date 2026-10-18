@@ -205,6 +205,33 @@ describe('op-queue store', () => {
     expect(pushWarning).not.toHaveBeenCalled();
   });
 
+  it('verify whose Forge installer is not saved → a warning that Forge files were not checked', async () => {
+    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: {
+        ...healthyReport,
+        healthy: false,
+        forge_installer: 'not_saved',
+        problems: [
+          {
+            category: 'libraries',
+            rel_path: 'forge/installers/x.jar',
+            expected_sha: '',
+            url: null,
+            status: 'unchecked',
+          },
+        ],
+      },
+    });
+
+    enqueueIntegrity('a', 'Alpha', 'verify');
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
+
+    expect(pushWarning).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(pushWarning).mock.calls[0][0]).toContain('toastVerifyForgeUnchecked');
+    expect(pushSuccess).not.toHaveBeenCalled();
+  });
+
   it('verify with problems → pushWarning with the problem count', async () => {
     (commands.verifyInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',

@@ -94,9 +94,13 @@ async function runIntegrityOp(
         const summary = summarizeIntegrity({ ...report, problem_count: report.problems.length });
         if (report.healthy) {
           pushSuccess(tr('instance.integrity.toastVerifyOk', { name }));
+        } else if (summary.state === 'notes' && report.forge_installer) {
+          // Forge's own files could not be checked: no damage found is true, a full pass is
+          // not, so this is not a success (spec 2026-10-18).
+          pushWarning(tr('instance.integrity.toastVerifyForgeUnchecked', { name }));
         } else if (summary.state === 'notes') {
-          // Only notes (Forge files built differently, or not checked): no damage, and the
-          // Integrity section explains them (spec 2026-10-18).
+          // Only Forge files built differently: no damage, and the Integrity section explains
+          // them (spec 2026-10-18).
           pushSuccess(tr('instance.integrity.toastVerifyNoDamage', { name }));
         } else {
           pushWarning(

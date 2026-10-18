@@ -217,7 +217,7 @@ describe('IntegritySection', () => {
       },
     });
     expect(getByTestId('integrity-forge-installer').textContent).toMatch(
-      /Forge's installer isn't saved on this computer, so the files it builds weren't checked. Repair downloads it./,
+      /Forge's installer isn't saved on this computer, so the files it builds weren't checked. Repair downloads it and rebuilds any of its files that differ./,
     );
     expect(container.textContent).not.toMatch(/missing/i);
   });

@@ -50,6 +50,17 @@ describe('summarizeIntegrity', () => {
     expect(s).toEqual({ state: 'damaged', notes: 3, problemCount: 4 });
   });
 
+  it('notes beside an unreadable manifest are damage: files went unchecked with no problem of their own', () => {
+    const s = summarizeIntegrity({
+      healthy: false,
+      problem_count: 1,
+      categories: [libs()],
+      forge_installer: 'not_saved',
+      manifest_recoverable: true,
+    });
+    expect(s.state).toBe('damaged');
+  });
+
   it('an unhealthy result with nothing counted (an unreadable manifest) is damage', () => {
     const s = summarizeIntegrity({ healthy: false, problem_count: 0, categories: [] });
     expect(s.state).toBe('damaged');

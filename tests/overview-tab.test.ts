@@ -858,3 +858,25 @@ describe('OverviewTab — Forge files that are only notes (spec 2026-10-18)', ()
     expect(getByTestId('overview-integrity-notes').textContent).toMatch(/No damage found/);
   });
 });
+
+describe('OverviewTab — Forge files not checked (spec 2026-10-18)', () => {
+  it('the card says no damage was found and that Forge files were not checked', () => {
+    const unchecked = {
+      ...fabricInst,
+      integrity: {
+        healthy: false,
+        checked_unix_ms: Date.now(),
+        categories: [],
+        problem_count: 1,
+        forge_installer: 'not_saved' as const,
+      },
+    };
+    const { getByTestId, queryByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: unchecked },
+    });
+    expect(queryByTestId('overview-attention-integrity')).toBeNull();
+    expect(getByTestId('overview-integrity-notes').textContent).toMatch(
+      /Forge's files not checked/,
+    );
+  });
+});

@@ -171,6 +171,11 @@ pub struct IntegrityStatus {
     /// [`VerifyReport::forge_installer`]. Absent from reports saved before it existed.
     #[serde(default)]
     pub forge_installer: Option<ForgeInstallerGap>,
+    /// [`VerifyReport::manifest_recoverable`]: the version JSON or the asset index could not be read,
+    /// so files went unchecked with no problem of their own — damage, never a note. Absent from
+    /// reports saved before it existed.
+    #[serde(default)]
+    pub manifest_recoverable: bool,
 }
 
 impl IntegrityStatus {
@@ -181,6 +186,7 @@ impl IntegrityStatus {
             categories: report.categories.clone(),
             problem_count: report.problems.len() as u32,
             forge_installer: report.forge_installer,
+            manifest_recoverable: report.manifest_recoverable,
         }
     }
 }
@@ -357,13 +363,10 @@ mod tests {
     // missing — no category counts it, and Repair still runs the full install that fetches it.
     #[test]
     fn an_unchecked_problem_is_counted_in_no_category() {
-        let unchecked = ProblemArtifact {
-            category: VerifyCategory::Libraries,
-            rel_path: "forge/installers/1.20.1-47.2.0.jar".into(),
-            expected_sha: String::new(),
-            url: None,
-            status: ArtifactStatus::Unchecked,
-        };
+        // The real builder: a change to its category or URL would stop Repair fetching the installer.
+        let unchecked =
+            crate::verify::scan::installer_unchecked("forge/installers/1.20.1-47.2.0.jar".into());
+        assert_eq!(unchecked.status, ArtifactStatus::Unchecked);
         let cats = aggregate_categories(&[(VerifyCategory::Libraries, 3)], &[unchecked.clone()]);
         assert_eq!(cats[0].missing, 0, "never «1 missing library»");
         assert_eq!(cats[0].corrupt, 0);
@@ -388,6 +391,13 @@ mod tests {
         let old = r#"{"healthy":false,"checked_unix_ms":1.0,"categories":[],"problem_count":1}"#;
         let status: IntegrityStatus = serde_json::from_str(old).unwrap();
         assert_eq!(status.forge_installer, None);
+        assert!(!status.manifest_recoverable);
+    }
+
+    #[test]
+    fn an_unreadable_manifest_is_kept_with_the_status() {
+        let report = VerifyReport::build("i".into(), "1.20.1".into(), &[], vec![], true);
+        assert!(IntegrityStatus::from_report(&report, 1.0).manifest_recoverable);
     }
 
     #[test]

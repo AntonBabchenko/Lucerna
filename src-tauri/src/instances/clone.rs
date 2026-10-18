@@ -372,6 +372,7 @@ mod tests {
                 categories: vec![],
                 problem_count: 2,
                 forge_installer: None,
+                manifest_recoverable: false,
             }),
             imported_from: Some(ImportProvenance {
                 launcher: crate::instances::schema::ForeignLauncher::Prism,

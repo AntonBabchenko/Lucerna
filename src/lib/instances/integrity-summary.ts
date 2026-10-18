@@ -22,14 +22,17 @@ type Status = {
   problem_count: number;
   categories: CategoryReport[];
   forge_installer?: ForgeInstallerGap | null;
+  /** The version JSON or the asset index could not be read: files went unchecked with no problem
+   *  of their own. Damage, never a note. */
+  manifest_recoverable?: boolean;
 };
 
 export function summarizeIntegrity(status: Status): IntegritySummary {
   const builtDifferently = status.categories.reduce((n, c) => n + (c.built_differently ?? 0), 0);
   const notes = builtDifferently + (status.forge_installer ? 1 : 0);
   if (status.healthy) return { state: 'ok', notes: 0, problemCount: 0 };
-  // An unhealthy result with nothing counted (an unreadable manifest) is damage, not a note.
+  // An unreadable manifest, or an unhealthy result with nothing counted, is damage, not a note.
   const damaged = status.problem_count - notes;
-  const state = notes > 0 && damaged <= 0 ? 'notes' : 'damaged';
+  const state = notes > 0 && damaged <= 0 && !status.manifest_recoverable ? 'notes' : 'damaged';
   return { state, notes, problemCount: status.problem_count };
 }
