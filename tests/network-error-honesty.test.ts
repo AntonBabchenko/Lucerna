@@ -29,7 +29,13 @@ beforeAll(() => locale.set('en'));
 
 describe('the version list under a picker that shows no version', () => {
   it('says it is loading while it loads, not that the connection failed', () => {
-    render(VersionListNotice, { total: 0, loading: true, failure: null, onReload: vi.fn() });
+    render(VersionListNotice, {
+      total: 0,
+      loading: true,
+      failure: null,
+      onReload: vi.fn(),
+      pickerId: 'picker',
+    });
     expect(screen.getByTestId('version-list-loading')).toBeTruthy();
     expect(screen.queryByText(/check your connection/)).toBeNull();
   });
@@ -42,6 +48,7 @@ describe('the version list under a picker that shows no version', () => {
       failure:
         "Couldn't load the Minecraft version list. piston-meta.mojang.com is having problems.",
       onReload,
+      pickerId: 'picker',
     });
     expect(screen.getByText(/Couldn't load the Minecraft version list/)).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
@@ -49,7 +56,13 @@ describe('the version list under a picker that shows no version', () => {
   });
 
   it('a loaded empty list says so, without blaming the connection', () => {
-    render(VersionListNotice, { total: 0, loading: false, failure: null, onReload: vi.fn() });
+    render(VersionListNotice, {
+      total: 0,
+      loading: false,
+      failure: null,
+      onReload: vi.fn(),
+      pickerId: 'picker',
+    });
     expect(screen.getByText('No Minecraft versions are available.')).toBeTruthy();
   });
 });
