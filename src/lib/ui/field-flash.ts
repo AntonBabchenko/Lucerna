@@ -76,29 +76,77 @@ function focusTargetIn(node: HTMLElement): HTMLElement | null {
   return firstDisabled;
 }
 
+/** What a user does to take the scroll themselves; programmatic scrolls fire none of these. */
+const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+
 /**
  * Svelte action. On the `active: false → true` edge it opens any disclosure
  * around the focus target, scrolls the node into view (a block taller than
  * its scrollport aligns to its start, so a long block shows its heading, not
  * its middle), paints `.field-flash` for FLASH_MS, and — only when asked —
- * focuses the target, waiting for a disabled one to enable. Deactivation lets
- * a running highlight finish; only destroy cuts it short.
+ * focuses the target, waiting for a disabled one to enable. While the flash
+ * runs it keeps the node aligned as the layout settles (a section still
+ * loading, content above it growing), until the user scrolls themselves.
+ * Deactivation lets a running highlight finish; only destroy cuts it short.
  */
 export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let wasActive = false;
   let enableWatch: MutationObserver | null = null;
+  let settleWatch: ResizeObserver | null = null;
+  let stopUserWatch: (() => void) | null = null;
 
   function stopWatch() {
     enableWatch?.disconnect();
     enableWatch = null;
   }
 
+  function stopSettle() {
+    settleWatch?.disconnect();
+    settleWatch = null;
+    stopUserWatch?.();
+    stopUserWatch = null;
+  }
+
   function clear() {
     if (timer) clearTimeout(timer);
     timer = null;
     stopWatch();
+    stopSettle();
     node.classList.remove('field-flash');
+  }
+
+  function align(p: FieldFlashParams) {
+    const taller = node.getBoundingClientRect().height > scrollParentOf(node).clientHeight;
+    // happy-dom has no layout, so scrollIntoView is absent there.
+    node.scrollIntoView?.({
+      block: taller ? 'start' : 'center',
+      ...(p.behavior ? { behavior: p.behavior } : {}),
+    });
+  }
+
+  /**
+   * The flash is delivered when the field mounts, which can be before what it
+   * sits in has loaded: content above it grows, or its own rows arrive, and a
+   * single scroll leaves it off-screen. Re-align on every size change of the
+   * node or of the scroll container's children until the flash ends or the
+   * user scrolls.
+   */
+  function keepAligned(p: FieldFlashParams) {
+    if (typeof ResizeObserver !== 'function') return;
+    const scroller = scrollParentOf(node);
+    settleWatch = new ResizeObserver(() => align(p));
+    settleWatch.observe(node);
+    for (const child of Array.from(scroller.children)) {
+      if (child !== node) settleWatch.observe(child);
+    }
+    const userTookOver = () => stopSettle();
+    for (const ev of USER_SCROLL_EVENTS) {
+      scroller.addEventListener(ev, userTookOver, { capture: true, passive: true });
+    }
+    stopUserWatch = () => {
+      for (const ev of USER_SCROLL_EVENTS) scroller.removeEventListener(ev, userTookOver, { capture: true });
+    };
   }
 
   function focusWhenUsable(target: HTMLElement) {
@@ -134,17 +182,14 @@ export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
     if (target) openDisclosures(target, node);
     // This layout read also flushes clear()'s class removal, so a re-flash
     // while a highlight still runs restarts its animation instead of continuing it.
-    const taller = node.getBoundingClientRect().height > scrollParentOf(node).clientHeight;
-    // happy-dom has no layout, so scrollIntoView is absent there.
-    node.scrollIntoView?.({
-      block: taller ? 'start' : 'center',
-      ...(p.behavior ? { behavior: p.behavior } : {}),
-    });
+    align(p);
+    keepAligned(p);
     node.style.setProperty('--field-flash-duration', `${FLASH_MS}ms`);
     node.classList.add('field-flash');
     timer = setTimeout(() => {
       timer = null;
       stopWatch();
+      stopSettle();
       node.classList.remove('field-flash');
     }, FLASH_MS);
     if (target) focusWhenUsable(target);

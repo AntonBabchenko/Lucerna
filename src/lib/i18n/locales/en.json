@@ -480,7 +480,7 @@
         "olderThanShared": "The shared hotbars were saved by a newer Minecraft version, so this instance keeps its own.",
         "unreadable": "Not available. {detail}",
         "optionsFirstLaunch": "Shared settings apply after the first launch.",
-        "optionsGameSave": "Waits until Minecraft saves its options once: launch the game and close it.",
+        "optionsGameSave": "Waits until Minecraft saves its options once: in the game, open Options and press Done.",
         "optionsTooOld": "Needs Minecraft 1.13 or newer",
         "optionsTooNew": "Not supported for this Minecraft version yet",
         "optionsNotRelease": "Not available for snapshots and pre-releases",

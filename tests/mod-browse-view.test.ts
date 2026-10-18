@@ -513,6 +513,8 @@ describe('ModBrowseView', () => {
     });
 
     const retry = await screen.findByRole('button', { name: 'Reload' });
+    // The search could not tell: it must not also claim there is nothing to find.
+    expect(screen.queryByText('No results.')).toBeNull();
     const callsBefore = search.mock.calls.length;
     await fireEvent.click(retry);
     await waitFor(() => expect(search.mock.calls.length).toBeGreaterThan(callsBefore));
