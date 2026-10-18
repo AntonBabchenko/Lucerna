@@ -34,10 +34,13 @@ pub async fn assets_list(
     Ok(listing)
 }
 
-/// Remove a pack — its file, or a folder pack to the OS recycle bin — and
+/// Remove a pack — a file Lucerna can download again is deleted, one it cannot
+/// (no source: put there by hand, or shipped in a modpack's overrides) and a
+/// folder pack go to the OS recycle bin (`asset_folder::if_file_for`) — and
 /// then its registry row. The folder is the truth: a file that stays would be
 /// listed again, so a removal that fails keeps the row and says why; a file
-/// already gone is fine (a ghost row's repair).
+/// already gone is fine (a ghost row's repair). Returns where the pack went,
+/// for the toast.
 ///
 /// Every asset writer here runs under the instance's SHARED maintenance claim
 /// (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
@@ -51,17 +54,22 @@ pub async fn asset_uninstall(
     instance_id: String,
     kind: crate::mods::platform::ContentKind,
     filename: String,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<crate::mods::asset_folder::AssetRemoval> {
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     // Guard against path escape before touching the filesystem (defense-in-depth:
     // install_asset validates the same way, so any registry basename always passes).
     let path = crate::mods::install::safe_asset_remove_path(&inst_root, kind, &filename)?;
-    // Resolve the display name before the registry row goes away.
-    let name = asset_display_name(&inst_root, kind, &filename).await;
+    // Read the row before it goes away: its name for the journal, its source for
+    // where the file goes. A registry that cannot be read is `None` — the bin.
+    let row = asset_row(&inst_root, kind, &filename).await;
+    let name = row
+        .as_ref()
+        .map_or_else(|| filename.clone(), |a| a.name.clone());
     let removed = crate::mods::asset_folder::remove_entry(
         &path,
+        crate::mods::asset_folder::if_file_for(row.as_ref()),
         crate::platform::recycle_bin::to_recycle_bin,
     )
     .await?;
@@ -75,26 +83,25 @@ pub async fn asset_uninstall(
         crate::journal::content(crate::journal::ContentAction::AssetRemoved, name),
     );
     drop(write);
-    Ok(())
+    Ok(removed.into())
 }
 
-/// Display name of an installed asset, falling back to its filename when the
-/// registry can't be read or has no row for it. Journal rows should carry the
-/// name the user saw in the Installed list.
-async fn asset_display_name(
+/// The registry row for `filename`, or `None` when there is none OR the
+/// registry could not be read. Both resolve to the restrictive removal (the
+/// bin, `asset_folder::if_file_for`) and to the file name for the journal row,
+/// which otherwise carries the name the user saw in the Installed list.
+async fn asset_row(
     inst_root: &std::path::Path,
     kind: crate::mods::platform::ContentKind,
     filename: &str,
-) -> String {
+) -> Option<crate::mods::platform::InstalledAsset> {
     crate::mods::assets::list(inst_root, kind)
         .await
         .ok()
         .and_then(|list| {
             list.into_iter()
                 .find(|a| a.filename.eq_ignore_ascii_case(filename))
-                .map(|a| a.name)
         })
-        .unwrap_or_else(|| filename.to_string())
 }
 
 /// Download + install a resource pack or shader version into an instance,
@@ -292,4 +299,51 @@ pub async fn asset_update_one(
         .await;
     drop(write);
     updated
+}
+
+#[cfg(test)]
+mod asset_row_tests {
+    use super::asset_row;
+    use crate::mods::platform::ContentKind;
+
+    // `asset_row`'s `None` decides where a removed pack goes (the bin), so what
+    // reads as `None` is pinned, not left to the one `.ok()`.
+
+    #[tokio::test]
+    async fn a_registry_that_cannot_be_read_is_no_row() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(crate::mods::assets::registry_path(td.path()), b"{ not json").unwrap();
+        assert!(asset_row(td.path(), ContentKind::ResourcePack, "A.zip")
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn no_registry_is_no_row() {
+        let td = tempfile::tempdir().unwrap();
+        assert!(asset_row(td.path(), ContentKind::ResourcePack, "A.zip")
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn the_row_is_found_whatever_the_case_of_its_name() {
+        let td = tempfile::tempdir().unwrap();
+        let row = crate::mods::assets::make_asset(
+            ContentKind::ResourcePack,
+            "Faithful.zip",
+            "aa",
+            Some(crate::mods::platform::ModSource::Modrinth),
+            Some("faithful".into()),
+            Some("v1".into()),
+            "Faithful",
+            "2026-10-17T00:00:00+00:00".into(),
+        );
+        crate::mods::assets::add(td.path(), row).await.unwrap();
+        let found = asset_row(td.path(), ContentKind::ResourcePack, "faithful.ZIP").await;
+        assert_eq!(found.map(|a| a.name), Some("Faithful".to_string()));
+        assert!(asset_row(td.path(), ContentKind::Shader, "Faithful.zip")
+            .await
+            .is_none());
+    }
 }

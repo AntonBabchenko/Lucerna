@@ -14,6 +14,12 @@ import { formatError } from '$lib/ipc/format-error';
  * wording; everything else delegates to `formatError`, so no variant can reach
  * the picker as raw JSON or as its English `Display`.
  */
+/** A failure worth trying again: the list could not be fetched (a network failure). A refusal —
+ *  «Quilt does not support 26.1.2», no builds — is an answer, and a retry would repeat it. */
+export function isRetryableListError(e: IpcError): boolean {
+  return e.kind === 'network' || e.kind === 'mods_network';
+}
+
 export function formatLoaderListError(e: IpcError, loader: LoaderKind): string {
   const translate = get(t);
   if (e.kind === 'network' || e.kind === 'mods_network')

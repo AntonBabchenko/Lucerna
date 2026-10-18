@@ -18,11 +18,14 @@
 
   let {
     instance,
+    running = false,
     focusField = null,
     onFocusDelivered = () => {},
     onChanged,
   }: {
     instance: InstanceWithStatus;
+    /** This instance's game is up: what changes here applies at its next start. */
+    running?: boolean;
     focusField?: ManageFocusField | null;
     onFocusDelivered?: () => void;
     onChanged: () => void;
@@ -87,6 +90,10 @@
   // The Java field probes and looks for Javas when it mounts, so it mounts only
   // once Advanced is open, not on every visit to the tab (#508).
   let advancedOpen = $state(false);
+  // «Choose another Java» (Overview, a chosen Java that cannot be used) lands on the Java list.
+  $effect(() => {
+    if (focusField === 'java') advancedOpen = true;
+  });
 
   async function save(
     field: SavedField | null,
@@ -142,6 +149,13 @@
 
 <section class="flex flex-col">
   <h3 class="mb-2 text-sm font-medium text-primary">{$t('instance.settings.launchSection')}</h3>
+  {#if running}
+    <!-- The server tab's «Restart the server to apply…» sibling: memory, Java and JVM arguments
+         stay editable while the game runs, and the game keeps what it started with. -->
+    <p class="mb-2 text-xs text-muted" data-testid="launch-applies-next-start">
+      {$t('instance.settings.launchNextStart')}
+    </p>
+  {/if}
 
   <div
     data-focus-field="memory"
@@ -204,15 +218,24 @@
       />
       <p class="mt-1 text-xs text-placeholder">{$t('instance.manage.minHeapHint')}</p>
       {#if advancedOpen}
-        <JavaPathField
-          instanceId={instance.id}
-          value={instance.java}
-          mcVersion={instance.mc_version}
-          loader={instance.loader}
-          loaderVersion={instance.loader_version}
-          ready={instance.ready}
-          onChanged={() => onChanged()}
-        />
+        <div
+          data-focus-field="java"
+          use:fieldFlash={{
+            active: focusField === 'java',
+            focus: shouldFocusField('java'),
+            onDelivered: onFocusDelivered,
+          }}
+        >
+          <JavaPathField
+            instanceId={instance.id}
+            value={instance.java}
+            mcVersion={instance.mc_version}
+            loader={instance.loader}
+            loaderVersion={instance.loader_version}
+            ready={instance.ready}
+            onChanged={() => onChanged()}
+          />
+        </div>
       {/if}
     </div>
   </details>

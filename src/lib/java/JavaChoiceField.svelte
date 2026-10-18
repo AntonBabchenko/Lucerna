@@ -7,10 +7,13 @@
   /** What a save confirmed: the stored choice and the probe's report. */
   export type JavaSavedValue = { value: JavaChoice | null; report: JavaReport | null };
 
-  /** The «Default» option — `null` choice — and how it reads for a need. */
+  /** The «Default» option — `null` choice — and how it reads for a need. Where it exists, the
+   *  Lucerna option beside it is a pin, and reads as one (`pinnedLabel`, `pinnedStatus`). */
   export type DefaultOption = {
     labelFor: (required: number | null) => string;
     statusFor: (required: number | null) => string;
+    pinnedLabel: () => string;
+    pinnedStatus: () => string;
   };
 </script>
 
@@ -22,13 +25,14 @@
   // detection, the verdict, the errors and the saved mark. Wrapped by
   // `JavaPathField` (an instance), `JavaDefaultsSection` (Settings, a row per Java major) and
   // `ServerJavaField` (a server).
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { t, type Translate } from '$lib/i18n';
   import { commands, type DetectedJava } from '$lib/ipc/bindings';
   import { formatError, javaUnusableReasonText } from '$lib/ipc/format-error';
   import Icon from '$lib/ui/icons/Icon.svelte';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import { LEGACY_JAVA_MAJOR } from './legacy-java';
   import { pickJavaFile } from './pick-java-file';
 
   let {
@@ -41,6 +45,7 @@
     lucernaWrites,
     bundledStatus = null,
     gpuNote = true,
+    statusScope = 'version',
     testid = 'java-path-field',
   }: {
     /** Reload when it changes BY VALUE — hosts replace their lists wholesale. */
@@ -60,6 +65,9 @@
     /** Say that Settings' graphics-card choice skips this Java. A server has
      *  no window, so its field leaves it out. */
     gpuNote?: boolean;
+    /** Whom the verdict speaks for: one version (an instance, a server), or — a Settings row —
+     *  every instance on that Java version that follows Settings. */
+    statusScope?: 'version' | 'row';
     testid?: string;
   } = $props();
 
@@ -88,6 +96,36 @@
 
   function reasonOf(e: IpcError): string {
     return e.kind === 'java_unusable' ? javaUnusableReasonText(e.reason) : formatError(e);
+  }
+
+  // A refused save keeps the previous Java, which stays on screen: say nothing changed, and
+  // name the refused Java, so the reason is not read as a fault of the one still shown.
+  function refusedText(e: IpcError): string {
+    return e.kind === 'java_unusable'
+      ? $t('instance.manage.java.refusedPick', {
+          path: e.path,
+          reason: javaUnusableReasonText(e.reason),
+        })
+      : $t('instance.manage.java.notChanged', { reason: formatError(e) });
+  }
+
+  // The controls turn disabled while busy, and a focused control that turns disabled drops the
+  // focus to <body> (Chromium): the keyboard user would start again from the top of the page.
+  // Remember the focused control and give the focus back when the work ends — only if it was
+  // lost meanwhile, never taken back from wherever the user moved it.
+  let fieldEl: HTMLDivElement | undefined = $state();
+  async function keepingFocus(work: () => Promise<void>): Promise<void> {
+    const was = document.activeElement;
+    const back = was instanceof HTMLElement && fieldEl?.contains(was) ? was : null;
+    try {
+      await work();
+    } finally {
+      if (back) {
+        await tick();
+        const now = document.activeElement;
+        if (now === null || now === document.body) back.focus({ preventScroll: true });
+      }
+    }
   }
 
   // A rejected IPC promise is a bridge failure, not a backend answer
@@ -174,7 +212,10 @@
     const tr = $t;
     const list: SelectOption[] = [];
     if (defaultOption) list.push({ value: DEFAULT, label: defaultOption.labelFor(required) });
-    list.push({ value: LUCERNA, label: tr('instance.manage.java.bundled') });
+    list.push({
+      value: LUCERNA,
+      label: defaultOption ? defaultOption.pinnedLabel() : tr('instance.manage.java.bundled'),
+    });
     // The Java the version names first, then the newer ones newest first,
     // then the ones too old for it.
     const rank = (j: DetectedJava) =>
@@ -205,7 +246,7 @@
           saved = true;
         }
       } else if (mine === seq) {
-        refusal = reasonOf(r.error);
+        refusal = refusedText(r.error);
       }
     } catch (e) {
       if (mine === seq) refusal = thrownText(e);
@@ -218,20 +259,22 @@
   }
 
   function onPick(v: string | number) {
-    if (v === DEFAULT) void commit(null);
-    else if (v === LUCERNA) void commit(lucernaWrites);
-    else void commit({ kind: 'custom', path: String(v) });
+    const choice: JavaChoice | null =
+      v === DEFAULT ? null : v === LUCERNA ? lucernaWrites : { kind: 'custom', path: String(v) };
+    void keepingFocus(() => commit(choice));
   }
 
-  async function browse() {
-    let picked: string | null;
-    try {
-      picked = await pickJavaFile();
-    } catch (e) {
-      refusal = thrownText(e);
-      return;
-    }
-    if (picked !== null) await commit({ kind: 'custom', path: picked });
+  function browse() {
+    void keepingFocus(async () => {
+      let picked: string | null;
+      try {
+        picked = await pickJavaFile();
+      } catch (e) {
+        refusal = thrownText(e);
+        return;
+      }
+      if (picked !== null) await commit({ kind: 'custom', path: picked });
+    });
   }
 
   const status = $derived.by((): { tone: 'success' | 'warning' | 'info'; text: string } | null => {
@@ -240,23 +283,37 @@
       if (current === null && defaultOption) {
         return { tone: 'info', text: defaultOption.statusFor(required) };
       }
+      if (current?.kind === 'bundled' && defaultOption) {
+        return { tone: 'info', text: defaultOption.pinnedStatus() };
+      }
       return { tone: 'info', text: bundledStatus ?? tr('instance.manage.java.statusBundled') };
     }
     if (report === null) return null;
     const v = report.verdict;
+    const row = statusScope === 'row';
     switch (v.kind) {
       case 'matches':
         return {
           tone: 'success',
-          text: tr('instance.manage.java.statusMatches', { version: report.version }),
+          text: row
+            ? tr('settings.general.java.statusMatches', {
+                version: report.version,
+                major: required ?? report.major,
+              })
+            : tr('instance.manage.java.statusMatches', { version: report.version }),
         };
       case 'newer':
         return {
           tone: 'warning',
           text:
-            v.required === 8
-              ? tr('instance.manage.java.statusNewerLegacy', { found: v.found })
-              : tr('instance.manage.java.statusNewer', {
+            v.required === LEGACY_JAVA_MAJOR
+              ? tr(
+                  row
+                    ? 'settings.general.java.statusNewerLegacy'
+                    : 'instance.manage.java.statusNewerLegacy',
+                  { found: v.found },
+                )
+              : tr(row ? 'settings.general.java.statusNewer' : 'instance.manage.java.statusNewer', {
                   found: v.found,
                   required: v.required,
                 }),
@@ -272,7 +329,7 @@
   const tone = $derived(refusal ? 'danger' : busy ? 'info' : (status?.tone ?? 'info'));
 </script>
 
-<div class="mt-3" data-testid={testid}>
+<div class="mt-3" data-testid={testid} bind:this={fieldEl}>
   <div class="mb-1 flex items-center justify-between">
     <span id="java-label-{uid}" class="text-xs text-secondary">{label}</span>
     {#if saved}
@@ -308,7 +365,7 @@
       type="button"
       class="btn-secondary btn-sm inline-flex items-center gap-1"
       disabled={busy || detected === null}
-      onclick={() => detect(true)}
+      onclick={() => void keepingFocus(() => detect(true))}
     >
       <Icon name="refresh" class="icon-spin-hover" />
       {$t('instance.manage.java.refresh')}

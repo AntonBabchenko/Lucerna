@@ -48,5 +48,13 @@ export function defaultOptionFor(owner: 'instance' | 'server'): DefaultOption {
         ? tr('java.default.statusSettings', { major: required, path: answer.row.path })
         : tr('instance.manage.java.statusBundled');
     },
+    // Beside Default, Lucerna's Java is a pin: it ignores what Settings names later.
+    pinnedLabel: () => get(t)('java.default.pinnedLabel'),
+    pinnedStatus: () =>
+      get(t)(
+        owner === 'instance'
+          ? 'java.default.pinnedStatusInstance'
+          : 'java.default.pinnedStatusServer',
+      ),
   };
 }
