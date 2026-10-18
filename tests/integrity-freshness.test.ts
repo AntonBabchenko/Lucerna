@@ -7,7 +7,14 @@ import type { IntegrityStatus } from '$lib/ipc/bindings';
 const SESSION = 1_000_000;
 
 function makeStatus(p: Partial<IntegrityStatus> = {}): IntegrityStatus {
-  return { healthy: true, checked_unix_ms: SESSION, categories: [], problem_count: 0, ...p };
+  return {
+    healthy: true,
+    checked_unix_ms: SESSION,
+    categories: [],
+    problem_count: 0,
+    forge_installer: null,
+    ...p,
+  };
 }
 
 describe('isIntegrityStale', () => {

@@ -2928,7 +2928,14 @@ export type ArtifactStatus = "ok" | "missing" |
  *  with Forge's own processors. A scan cannot tell such a file from one
  *  damaged later; Repair fixes both (spec 2026-10-16 §5.5).
  */
-"built_differently";
+"built_differently" | 
+/**
+ *  Not checked: Forge's cached installer, which says what its processors' files must be, is
+ *  not saved or cannot be read ([`ForgeInstallerGap`]). Not damage and not a game file, so no
+ *  category counts it; the problem stays so Repair runs the full install, which downloads the
+ *  installer and rebuilds what is stale (spec 2026-10-18).
+ */
+"unchecked";
 
 /**
  *  What `assets_list` answers: the registry rows of one kind, reconciled with
@@ -4752,6 +4759,16 @@ export type ForeignLauncher = "prism" | "curseforge_app" | "modrinth_app" | "atl
 "legacy_launcher";
 
 /**
+ *  Why Forge's processor outputs were not checked. The Integrity section says which, on a line of
+ *  its own, never as a missing library.
+ */
+export type ForgeInstallerGap = 
+/**  The installer is not in Lucerna's cache. */
+"not_saved" | 
+/**  It is there but could not be read or parsed. */
+"unreadable";
+
+/**
  *  Why a translation was rejected. Carries the offending detail so the UI can
  *  say what is wrong rather than "invalid".
  * 
@@ -5527,6 +5544,8 @@ export type IntegrityStatus = {
 	checked_unix_ms: number | null,
 	categories: CategoryReport[],
 	problem_count: number,
+	/**  [`VerifyReport::forge_installer`]. Absent from reports saved before it existed. */
+	forge_installer?: ForgeInstallerGap | null,
 };
 
 export type ItemPreview = {
@@ -9483,6 +9502,8 @@ export type VerifyReport = {
 	 *  can recover it, NOT "everything's fine". (true = there IS a problem.)
 	 */
 	manifest_recoverable: boolean,
+	/**  Set when Forge's processor outputs could not be checked ([`ArtifactStatus::Unchecked`]). */
+	forge_installer: ForgeInstallerGap | null,
 };
 
 /**

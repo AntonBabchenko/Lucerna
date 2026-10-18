@@ -68,6 +68,7 @@ const healthyReport = {
   problems: [],
   healthy: true,
   manifest_recoverable: false,
+  forge_installer: null,
 };
 
 const brokenReport = {
@@ -167,6 +168,40 @@ describe('op-queue store', () => {
     await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
 
     expect(pushSuccess).toHaveBeenCalledTimes(1);
+    expect(pushWarning).not.toHaveBeenCalled();
+  });
+
+  it('verify with only Forge files built differently → a success, no warning (spec 2026-10-18)', async () => {
+    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: {
+        ...healthyReport,
+        healthy: false,
+        categories: [
+          {
+            category: 'libraries',
+            total: 40,
+            ok: 37,
+            missing: 0,
+            corrupt: 0,
+            built_differently: 3,
+          },
+        ],
+        problems: [1, 2, 3].map((i) => ({
+          category: 'libraries',
+          rel_path: `forge-${i}.jar`,
+          expected_sha: 'x',
+          url: null,
+          status: 'built_differently',
+        })),
+      },
+    });
+
+    enqueueIntegrity('a', 'Alpha', 'verify');
+    await vi.waitFor(() => expect(opCompletionTick()).toBe(1));
+
+    expect(pushSuccess).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(pushSuccess).mock.calls[0][0]).toContain('toastVerifyNoDamage');
     expect(pushWarning).not.toHaveBeenCalled();
   });
 

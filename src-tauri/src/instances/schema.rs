@@ -1444,6 +1444,7 @@ mod tests {
                 built_differently: 0,
             }],
             problem_count: 2,
+            forge_installer: None,
         }
     }
 

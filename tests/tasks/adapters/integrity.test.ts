@@ -39,6 +39,7 @@ const report = (instanceId: string, healthy = true) => ({
   problems: [],
   healthy,
   manifest_recoverable: false,
+  forge_installer: null,
 });
 
 const manifest = (instanceId: string) => ({

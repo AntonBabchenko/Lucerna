@@ -68,7 +68,13 @@ const fabricInst = {
   mrpack_source: null,
   mrpack_summary: null,
   mrpack_version_id: null,
-  integrity: { healthy: true, checked_unix_ms: Date.now(), categories: [], problem_count: 0 },
+  integrity: {
+    healthy: true,
+    checked_unix_ms: Date.now(),
+    categories: [],
+    problem_count: 0,
+    forge_installer: null,
+  },
   imported_from: null,
   created_from_server: null,
   java: null,
@@ -210,6 +216,7 @@ describe('OverviewTab', () => {
         checked_unix_ms: Date.now(),
         categories: [],
         problem_count: 3,
+        forge_installer: null,
       },
     };
     const { getByTestId } = render(OverviewTab, {
@@ -820,5 +827,34 @@ describe('OverviewTab — a chosen Java that cannot be used', () => {
       props: { ...baseProps, activeInstance: fabricInst, installError: "Couldn't reach a site." },
     });
     expect(screen.queryByRole('button', { name: 'Choose another Java' })).toBeNull();
+  });
+});
+
+describe('OverviewTab — Forge files that are only notes (spec 2026-10-18)', () => {
+  it('raise no attention item, and the card says no damage was found', () => {
+    const notesOnly = {
+      ...fabricInst,
+      integrity: {
+        healthy: false,
+        checked_unix_ms: Date.now(),
+        categories: [
+          {
+            category: 'libraries' as const,
+            total: 40,
+            ok: 37,
+            missing: 0,
+            corrupt: 0,
+            built_differently: 3,
+          },
+        ],
+        problem_count: 3,
+        forge_installer: null,
+      },
+    };
+    const { queryByTestId, getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: notesOnly },
+    });
+    expect(queryByTestId('overview-attention-integrity')).toBeNull();
+    expect(getByTestId('overview-integrity-notes').textContent).toMatch(/No damage found/);
   });
 });

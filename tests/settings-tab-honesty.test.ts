@@ -115,7 +115,13 @@ describe('an instance list that could not be read is not «no instances»', () =
 describe('the dropdown’s status glyphs explain themselves', () => {
   it('the integrity triangle has a tooltip', () => {
     const inst = instance({
-      integrity: { healthy: false, problem_count: 3 } as never,
+      integrity: {
+        healthy: false,
+        problem_count: 3,
+        checked_unix_ms: 1,
+        categories: [],
+        forge_installer: null,
+      },
     });
     render(Sidebar, {
       props: sidebarProps({ instances: [inst], activeInstance: inst }),
@@ -124,6 +130,31 @@ describe('the dropdown’s status glyphs explain themselves', () => {
     revealTooltip(glyph.parentElement as Element);
     expect(tooltipState.visible).toBe(true);
     expect(tooltipState.text).toMatch(/3 integrity problems/i);
+  });
+});
+
+describe('Forge files that are only notes raise no glyph (spec 2026-10-18)', () => {
+  it('built differently only: no triangle in the dropdown', () => {
+    const inst = instance({
+      integrity: {
+        healthy: false,
+        problem_count: 3,
+        checked_unix_ms: 1,
+        categories: [
+          {
+            category: 'libraries',
+            total: 40,
+            ok: 37,
+            missing: 0,
+            corrupt: 0,
+            built_differently: 3,
+          },
+        ],
+        forge_installer: null,
+      },
+    });
+    render(Sidebar, { props: sidebarProps({ instances: [inst], activeInstance: inst }) });
+    expect(screen.queryByRole('img', { name: /integrity problem/i })).toBeNull();
   });
 });
 

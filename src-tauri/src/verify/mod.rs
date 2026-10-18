@@ -65,6 +65,22 @@ pub enum ArtifactStatus {
     /// with Forge's own processors. A scan cannot tell such a file from one
     /// damaged later; Repair fixes both (spec 2026-10-16 §5.5).
     BuiltDifferently,
+    /// Not checked: Forge's cached installer, which says what its processors' files must be, is
+    /// not saved or cannot be read ([`ForgeInstallerGap`]). Not damage and not a game file, so no
+    /// category counts it; the problem stays so Repair runs the full install, which downloads the
+    /// installer and rebuilds what is stale (spec 2026-10-18).
+    Unchecked,
+}
+
+/// Why Forge's processor outputs were not checked. The Integrity section says which, on a line of
+/// its own, never as a missing library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgeInstallerGap {
+    /// The installer is not in Lucerna's cache.
+    NotSaved,
+    /// It is there but could not be read or parsed.
+    Unreadable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -114,6 +130,8 @@ pub struct VerifyReport {
     /// re-fetch/regenerate the manifest first. Naming: "recoverable" = repair
     /// can recover it, NOT "everything's fine". (true = there IS a problem.)
     pub manifest_recoverable: bool,
+    /// Set when Forge's processor outputs could not be checked ([`ArtifactStatus::Unchecked`]).
+    pub forge_installer: Option<ForgeInstallerGap>,
 }
 
 impl VerifyReport {
@@ -136,6 +154,7 @@ impl VerifyReport {
             problems,
             healthy,
             manifest_recoverable,
+            forge_installer: None,
         }
     }
 }
@@ -149,6 +168,9 @@ pub struct IntegrityStatus {
     pub checked_unix_ms: f64,
     pub categories: Vec<CategoryReport>,
     pub problem_count: u32,
+    /// [`VerifyReport::forge_installer`]. Absent from reports saved before it existed.
+    #[serde(default)]
+    pub forge_installer: Option<ForgeInstallerGap>,
 }
 
 impl IntegrityStatus {
@@ -158,6 +180,7 @@ impl IntegrityStatus {
             checked_unix_ms,
             categories: report.categories.clone(),
             problem_count: report.problems.len() as u32,
+            forge_installer: report.forge_installer,
         }
     }
 }
@@ -328,6 +351,43 @@ mod tests {
         assert_eq!(status.problem_count, 2);
         assert_eq!(status.categories.len(), 2);
         assert_eq!(status.checked_unix_ms, 1_700_000_000_000.0);
+    }
+
+    // Forge's cached installer not saved or not readable (spec 2026-10-18): not checked is not
+    // missing — no category counts it, and Repair still runs the full install that fetches it.
+    #[test]
+    fn an_unchecked_problem_is_counted_in_no_category() {
+        let unchecked = ProblemArtifact {
+            category: VerifyCategory::Libraries,
+            rel_path: "forge/installers/1.20.1-47.2.0.jar".into(),
+            expected_sha: String::new(),
+            url: None,
+            status: ArtifactStatus::Unchecked,
+        };
+        let cats = aggregate_categories(&[(VerifyCategory::Libraries, 3)], &[unchecked.clone()]);
+        assert_eq!(cats[0].missing, 0, "never «1 missing library»");
+        assert_eq!(cats[0].corrupt, 0);
+        assert_eq!(cats[0].built_differently, 0);
+        assert_eq!(cats[0].ok, 3, "the three libraries that were checked");
+        assert!(
+            crate::verify::repair::needs_full_install(false, &[unchecked]),
+            "Repair runs the full install, which downloads the installer"
+        );
+    }
+
+    #[test]
+    fn the_installer_gap_is_kept_with_the_status() {
+        let mut report = VerifyReport::build("i".into(), "1.20.1".into(), &[], vec![], false);
+        report.forge_installer = Some(ForgeInstallerGap::NotSaved);
+        let status = IntegrityStatus::from_report(&report, 1.0);
+        assert_eq!(status.forge_installer, Some(ForgeInstallerGap::NotSaved));
+    }
+
+    #[test]
+    fn a_status_saved_before_the_gap_existed_loads_without_one() {
+        let old = r#"{"healthy":false,"checked_unix_ms":1.0,"categories":[],"problem_count":1}"#;
+        let status: IntegrityStatus = serde_json::from_str(old).unwrap();
+        assert_eq!(status.forge_installer, None);
     }
 
     #[test]

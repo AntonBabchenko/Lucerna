@@ -158,6 +158,7 @@ describe('Sidebar instance list status', () => {
         problem_count: 2,
         checked_unix_ms: 1,
         categories: [],
+        forge_installer: null,
       } as unknown as InstanceWithStatus['integrity'],
     });
     const fresh = instance({ id: 'inst-4', name: 'Fresh', ready: false });

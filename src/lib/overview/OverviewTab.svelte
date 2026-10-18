@@ -5,6 +5,7 @@
   import { relativeTime } from '$lib/format/relative-time';
   import { formatDateTime } from '$lib/format/date-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
+  import { summarizeIntegrity } from '$lib/instances/integrity-summary';
   import JavaRescuePanel, { type JavaProblem } from '$lib/java/JavaRescuePanel.svelte';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
@@ -143,10 +144,13 @@
   // An unhealthy integrity result is always an actionable problem (never
   // "stale"); a healthy-but-stale or absent result is shown as "not checked"
   // in the Integrity card, not as an attention problem.
+  const integritySummary = $derived(
+    activeInstance?.integrity ? summarizeIntegrity(activeInstance.integrity) : null,
+  );
+  // Notes only (Forge files built differently, or not checked) raise nothing: the Integrity
+  // section explains them, and the card says no damage was found (spec 2026-10-18).
   const integrityProblemCount = $derived(
-    activeInstance?.integrity && !activeInstance.integrity.healthy
-      ? activeInstance.integrity.problem_count
-      : 0,
+    integritySummary?.state === 'damaged' ? integritySummary.problemCount : 0,
   );
 
   // What the readiness pill may say about the mods: how many stop the game — the attention
@@ -564,6 +568,14 @@
               })}
             </span>
           {/if}
+        {:else if integritySummary?.state === 'notes'}
+          <span
+            class="text-sm text-secondary flex items-center gap-1.5"
+            data-testid="overview-integrity-notes"
+          >
+            <Icon name="info" />
+            {$t('instance.integrity.statusNoDamage')}
+          </span>
         {:else}
           <span class="text-sm text-warning-text flex items-center gap-1.5">
             <Icon name="warning" class="text-warning-text" />
