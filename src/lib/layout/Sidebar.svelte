@@ -37,6 +37,7 @@
   import { SIDEBAR_BUTTONS, type SidebarButtonId } from '$lib/layout/sidebar-buttons';
   import SidebarSection from '$lib/layout/SidebarSection.svelte';
   import HideableSidebarButton from '$lib/layout/HideableSidebarButton.svelte';
+  import { summarizeIntegrity } from '$lib/instances/integrity-summary';
 
   let {
     accounts,
@@ -657,7 +658,9 @@
                    instance shows nothing. Also the trigger's leading snippet,
                    so the active instance carries it while the list is shut. -->
               <!-- Each glyph says what it means on hover, as the running dot does. -->
-              {#if inst.integrity && !inst.integrity.healthy}
+              <!-- Damage only: Forge files built differently, or not checked, are notes the Integrity
+                   section explains, not an exceptional state (spec 2026-10-18). -->
+              {#if inst.integrity && summarizeIntegrity(inst.integrity).state === 'damaged'}
                 {@const problems = $t('instance.integrity.statusProblems', {
                   count: inst.integrity.problem_count,
                 })}

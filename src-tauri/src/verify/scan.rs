@@ -38,6 +38,20 @@ pub fn status_for(origin: crate::verify::plan::Origin, status: ArtifactStatus) -
     }
 }
 
+/// The problem for Forge's cached installer that is not saved or not readable: its processors'
+/// files could not be checked. Category Libraries with no URL, so Repair runs the full install
+/// (`repair::needs_full_install`), which downloads the installer; status [`ArtifactStatus::Unchecked`],
+/// so no category counts it.
+pub(crate) fn installer_unchecked(rel_path: String) -> ProblemArtifact {
+    ProblemArtifact {
+        category: VerifyCategory::Libraries,
+        rel_path,
+        expected_sha: String::new(),
+        url: None,
+        status: ArtifactStatus::Unchecked,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,9 +384,11 @@ pub async fn verify_instance_report(
 
     // Forge/NeoForge: what the installer declares about its processor outputs
     // (spec 2026-10-16 §5.3.3). It is read from the cached installer and never
-    // fetched; verify is read-only. Without it the outputs cannot be checked,
-    // and that is a problem, not a pass.
+    // fetched; verify is read-only. Without it the outputs cannot be checked:
+    // not a pass, and not damage either — `Unchecked`, said on a line of its own
+    // (`forge_installer_gap`), never as a missing library (spec 2026-10-18).
     let mut forge_installer_problem: Option<ProblemArtifact> = None;
+    let mut forge_installer_gap: Option<crate::verify::ForgeInstallerGap> = None;
     if let Some((loader, loader_ver, mc)) = crate::versions::loaders::parse_synth_id(effective_id) {
         let is_forge = matches!(
             loader,
@@ -382,13 +398,7 @@ pub async fn verify_instance_report(
             let app_data = crate::paths::app_dir(app).map_err(|e| Error::io("<app_data>", e))?;
             let installer = crate::forge::meta::installer_cache_path(&app_data, &mc, &loader_ver);
             let rel = format!("forge/installers/{mc}-{loader_ver}.jar");
-            let problem = |status| ProblemArtifact {
-                category: VerifyCategory::Libraries,
-                rel_path: rel.clone(),
-                expected_sha: String::new(),
-                url: None,
-                status,
-            };
+            let problem = || installer_unchecked(rel.clone());
             match tokio::fs::read(&installer).await {
                 Ok(bytes) => {
                     let parsed = crate::forge::installer::read_install_profile(&bytes)
@@ -411,19 +421,23 @@ pub async fn verify_instance_report(
                                 "verify: Forge installer {} unusable: {why}",
                                 installer.display()
                             );
-                            forge_installer_problem = Some(problem(ArtifactStatus::Corrupt));
+                            forge_installer_problem = Some(problem());
+                            forge_installer_gap =
+                                Some(crate::verify::ForgeInstallerGap::Unreadable);
                         }
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    forge_installer_problem = Some(problem(ArtifactStatus::Missing));
+                    forge_installer_problem = Some(problem());
+                    forge_installer_gap = Some(crate::verify::ForgeInstallerGap::NotSaved);
                 }
                 Err(e) => {
                     crate::diag!(
                         "verify: Forge installer {} unreadable: {e}",
                         installer.display()
                     );
-                    forge_installer_problem = Some(problem(ArtifactStatus::Corrupt));
+                    forge_installer_problem = Some(problem());
+                    forge_installer_gap = Some(crate::verify::ForgeInstallerGap::Unreadable);
                 }
             }
         }
@@ -504,7 +518,6 @@ pub async fn verify_instance_report(
             });
         }
     }
-    let forge_installer_counted = forge_installer_problem.is_some();
     problems.extend(forge_installer_problem);
     if !jre_ok {
         problems.push(ProblemArtifact {
@@ -516,22 +529,17 @@ pub async fn verify_instance_report(
         });
     }
 
-    let mut totals = category_totals(&planned, needs_managed_jre.then_some(1));
-    if forge_installer_counted {
-        if let Some(t) = totals
-            .iter_mut()
-            .find(|(c, _)| *c == VerifyCategory::Libraries)
-        {
-            t.1 += 1;
-        }
-    }
-    let report = VerifyReport::build(
+    // The unchecked installer is in no category's total: it is not a game file, and an
+    // uncounted problem added to a total would read as one more file «OK».
+    let totals = category_totals(&planned, needs_managed_jre.then_some(1));
+    let mut report = VerifyReport::build(
         instance_id.to_string(),
         effective_id.to_string(),
         &totals,
         problems,
         manifest_recoverable,
     );
+    report.forge_installer = forge_installer_gap;
 
     emit(app, instance_id, VerifyPhase::Complete, 1, 1, None);
     Ok(report)

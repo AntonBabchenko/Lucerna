@@ -1,4 +1,5 @@
 import type { IntegrityStatus } from '$lib/ipc/bindings';
+import { summarizeIntegrity } from './integrity-summary';
 
 // Captured once when this module is first imported — i.e. at launcher startup,
 // since the webview reloads on each launch and re-initialises module state.
@@ -15,6 +16,9 @@ const SESSION_START_MS = Date.now();
  *
  * Problem results (⚠ N) are deliberately *not* stale: they are an actionable
  * reminder that a repair is still pending, valid until the user re-verifies.
+ * A result with only notes (Forge files built differently, or not checked) is no
+ * such reminder — it says «no damage found» — so it is session-scoped like a
+ * healthy one (spec 2026-10-18).
  *
  * `sessionStartMs` is injectable for deterministic tests; production callers use
  * the module default.
@@ -23,7 +27,7 @@ export function isIntegrityStale(
   status: IntegrityStatus | null | undefined,
   sessionStartMs: number = SESSION_START_MS,
 ): boolean {
-  if (!status?.healthy) return false;
+  if (!status || summarizeIntegrity(status).state === 'damaged') return false;
   if (status.checked_unix_ms === null) return false;
   return status.checked_unix_ms < sessionStartMs;
 }

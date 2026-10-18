@@ -43,6 +43,7 @@ import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import type { CloneRequest } from '$lib/instances/clone-request';
 import type { LauncherImportRequest } from '$lib/instances/import/launcher-import-runner';
+import { summarizeIntegrity } from '$lib/instances/integrity-summary';
 import type { TransferRequest } from '$lib/instances/transfer/transfer-runner';
 import { outcomeLines } from '$lib/instances/transfer/transfer-view';
 import { commands } from '$lib/ipc/bindings';
@@ -90,8 +91,17 @@ async function runIntegrityOp(
     if (outcome.status === 'ok') {
       const report = outcome.data;
       if (kind === 'verify') {
+        const summary = summarizeIntegrity({ ...report, problem_count: report.problems.length });
         if (report.healthy) {
           pushSuccess(tr('instance.integrity.toastVerifyOk', { name }));
+        } else if (summary.state === 'notes' && report.forge_installer) {
+          // Forge's own files could not be checked: no damage found is true, a full pass is
+          // not, so this is not a success (spec 2026-10-18).
+          pushWarning(tr('instance.integrity.toastVerifyForgeUnchecked', { name }));
+        } else if (summary.state === 'notes') {
+          // Only Forge files built differently: no damage, and the Integrity section explains
+          // them (spec 2026-10-18).
+          pushSuccess(tr('instance.integrity.toastVerifyNoDamage', { name }));
         } else {
           pushWarning(
             tr('instance.integrity.toastVerifyProblems', {

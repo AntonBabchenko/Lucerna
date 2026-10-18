@@ -15,6 +15,7 @@
     type VerifyCategory,
   } from '$lib/ipc/bindings';
   import { settingsRowFor } from '$lib/java/default-option';
+  import { summarizeIntegrity } from './integrity-summary';
 
   // Observer view: the verify/repair op is owned by the task registry
   // (`$lib/tasks/registry.svelte`), not this section — `op-queue.svelte.ts`
@@ -85,6 +86,9 @@
   const anyBuiltDifferently = $derived(
     effective?.categories.some((c) => (c.built_differently ?? 0) > 0) ?? false,
   );
+  // Only notes (built differently, not checked): no damage, so Repair is not the page's most
+  // important action — the note says it is optional (spec 2026-10-18).
+  const notesOnly = $derived(effective ? summarizeIntegrity(effective).state === 'notes' : false);
   // Buttons are blocked while the game runs OR while an op for this instance is
   // running/queued (dedupe is also enforced in the store, but disabling gives
   // the user feedback).
@@ -191,6 +195,21 @@
           </li>
         {/each}
       </ul>
+      {#if effective.forge_installer}
+        <!-- Not checked is not missing: Forge's installer says what its files must be, and it is
+             not saved or not readable (spec 2026-10-18). -->
+        <p
+          class="mt-2 text-xs text-warning-text flex items-start gap-1.5"
+          data-testid="integrity-forge-installer"
+        >
+          <Icon name="info" />
+          {$t(
+            effective.forge_installer === 'not_saved'
+              ? 'instance.integrity.forgeInstallerNotSaved'
+              : 'instance.integrity.forgeInstallerUnreadable',
+          )}
+        </p>
+      {/if}
       {#if anyBuiltDifferently}
         <!-- Not damage (spec 2026-10-16 §5.5): Forge files an older Lucerna
              built with its own code. Say so, and what Repair does. -->
@@ -206,7 +225,7 @@
         <span class="inline-flex" use:tooltip={{ text: blockTitle, describe: false }}>
           <button
             type="button"
-            class="btn-primary btn-sm"
+            class="{notesOnly ? 'btn-secondary' : 'btn-primary'} btn-sm"
             disabled={blocked}
             onclick={() => enqueueIntegrity(instanceId, name, 'repair')}
           >

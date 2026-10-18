@@ -19,6 +19,7 @@ const brokenStatus: IntegrityStatus = {
     { category: 'client', total: 5, ok: 3, missing: 1, corrupt: 1, built_differently: 0 },
   ],
   problem_count: 2,
+  forge_installer: null,
 };
 
 // Forge files an older Lucerna built with its own code (spec 2026-10-16
@@ -30,6 +31,7 @@ const builtDifferentlyStatus: IntegrityStatus = {
     { category: 'libraries', total: 40, ok: 37, missing: 0, corrupt: 0, built_differently: 3 },
   ],
   problem_count: 3,
+  forge_installer: null,
 };
 
 describe('IntegritySection', () => {
@@ -46,7 +48,9 @@ describe('IntegritySection', () => {
     expect(text).toMatch(/3 built differently from Forge's own installer/);
     const note = getByTestId('integrity-built-differently').textContent ?? '';
     expect(note).toMatch(/If the game started with them before, it still does/);
-    expect(note).toMatch(/Repair rebuilds them the way Forge's installer does/);
+    // Optional, and said so: Repair deletes before it rebuilds (spec 2026-10-18, F1).
+    expect(note).toMatch(/you can leave them as they are/);
+    expect(note).toMatch(/Repair is optional: it rebuilds them the way Forge's installer does/);
     expect(getByRole('button', { name: 'Repair (3)' })).toBeTruthy();
   });
 
@@ -171,5 +175,63 @@ describe('IntegritySection', () => {
       props: { instanceId: 'inst-1', name: 'Inst', java: { kind: 'bundled' } },
     });
     expect(queryByTestId('integrity-own-java')).toBeNull();
+  });
+
+  it('with only notes, Repair is not the page’s primary action', () => {
+    const { getByRole } = render(IntegritySection, {
+      props: { instanceId: 'inst-1', name: 'Inst', status: builtDifferentlyStatus },
+    });
+    const repair = getByRole('button', { name: 'Repair (3)' });
+    expect(repair.className).toContain('btn-secondary');
+    expect(repair.className).not.toContain('btn-primary');
+  });
+
+  it('with damage, Repair stays primary', () => {
+    const { getByRole } = render(IntegritySection, {
+      props: { instanceId: 'inst-1', name: 'Inst', status: brokenStatus },
+    });
+    expect(getByRole('button', { name: 'Repair (2)' }).className).toContain('btn-primary');
+  });
+
+  it('an unsaved Forge installer is said on its own line, never as a missing library', () => {
+    const { getByTestId, container } = render(IntegritySection, {
+      props: {
+        instanceId: 'inst-1',
+        name: 'Inst',
+        status: {
+          healthy: false,
+          checked_unix_ms: null,
+          categories: [
+            {
+              category: 'libraries',
+              total: 40,
+              ok: 40,
+              missing: 0,
+              corrupt: 0,
+              built_differently: 0,
+            },
+          ],
+          problem_count: 1,
+          forge_installer: 'not_saved',
+        },
+      },
+    });
+    expect(getByTestId('integrity-forge-installer').textContent).toMatch(
+      /Forge's installer isn't saved on this computer, so the files it builds weren't checked. Repair downloads it and rebuilds any of its files that differ./,
+    );
+    expect(container.textContent).not.toMatch(/missing/i);
+  });
+
+  it('an unreadable Forge installer says so', () => {
+    const { getByTestId } = render(IntegritySection, {
+      props: {
+        instanceId: 'inst-1',
+        name: 'Inst',
+        status: { ...builtDifferentlyStatus, forge_installer: 'unreadable' },
+      },
+    });
+    expect(getByTestId('integrity-forge-installer').textContent).toMatch(
+      /Forge's saved installer can't be read/,
+    );
   });
 });
