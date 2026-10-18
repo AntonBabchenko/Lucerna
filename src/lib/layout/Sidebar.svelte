@@ -13,6 +13,8 @@
   import Select from '$lib/ui/Select.svelte';
   import type { SelectOption } from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
+  import { focusInstancePickerIfLost } from './picker-focus';
   import { Icon } from '$lib/ui/icons';
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { t } from '$lib/i18n';
@@ -89,6 +91,8 @@
     launcherImportBlockedReason = null,
     dataRootFallbackReason = null,
     instancesLoaded = true,
+    instancesListError = null,
+    onRetryInstances = () => {},
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -198,6 +202,9 @@
     // Defaults to true so mounts that never load asynchronously (tests)
     // keep the old semantics.
     instancesLoaded?: boolean;
+    /** The instance list could not be read: «could not tell», never shown as «no instances». */
+    instancesListError?: string | null;
+    onRetryInstances?: () => Promise<unknown> | void;
   } = $props();
 
   const accountOptions = $derived(
@@ -210,6 +217,18 @@
       })`,
     })),
   );
+  let retryingInstances = $state(false);
+  async function retryInstances() {
+    if (retryingInstances) return;
+    retryingInstances = true;
+    try {
+      await onRetryInstances();
+    } finally {
+      retryingInstances = false;
+    }
+    await focusInstancePickerIfLost();
+  }
+
   const instanceOptions = $derived(
     instances.map((i) => ({
       value: i.id,
@@ -535,6 +554,26 @@
           <div class="py-1" data-testid="sidebar-instances-loading">
             <Spinner size="sm" delayMs={150} class="text-muted" />
           </div>
+        {:else if instances.length === 0 && instancesListError}
+          <div class="flex flex-col items-start gap-1" data-testid="sidebar-instances-failed">
+            <StatusMessage
+              tone="danger"
+              message={`${$t('sidebar.instancesFailed')} ${instancesListError}`}
+              class="text-xs"
+            />
+            <!-- Never disabled while it runs (the focus would fall to <body>): busy, then the
+                 focus goes to the instance list it filled, or stays here if it failed again. -->
+            <button
+              type="button"
+              class="btn-secondary btn-xs inline-flex items-center gap-1"
+              aria-disabled={retryingInstances}
+              aria-busy={retryingInstances}
+              onclick={() => void retryInstances()}
+            >
+              {#if retryingInstances}<Spinner size="sm" />{/if}
+              {$t('sidebar.instancesRetry')}
+            </button>
+          </div>
         {:else if instances.length === 0}
           <p class="text-xs text-muted">
             {$t(dataLocation.fellBack ? 'sidebar.noInstancesFallback' : 'sidebar.noInstances')}
@@ -617,22 +656,25 @@
                    problems outrank a missing download; a ready, healthy
                    instance shows nothing. Also the trigger's leading snippet,
                    so the active instance carries it while the list is shut. -->
+              <!-- Each glyph says what it means on hover, as the running dot does. -->
               {#if inst.integrity && !inst.integrity.healthy}
-                <Icon
-                  name="warning"
-                  size={14}
-                  class="order-last flex-shrink-0 text-warning-text"
-                  label={$t('instance.integrity.statusProblems', {
-                    count: inst.integrity.problem_count,
-                  })}
-                />
+                {@const problems = $t('instance.integrity.statusProblems', {
+                  count: inst.integrity.problem_count,
+                })}
+                <span
+                  class="order-last inline-flex flex-shrink-0"
+                  use:tooltip={{ text: problems, describe: false }}
+                >
+                  <Icon name="warning" size={14} class="text-warning-text" label={problems} />
+                </span>
               {:else if !inst.ready}
-                <Icon
-                  name="download"
-                  size={14}
-                  class="order-last flex-shrink-0 text-muted"
-                  label={$t('instance.manage.iconDownloadNeeded')}
-                />
+                {@const needed = $t('instance.manage.iconDownloadNeeded')}
+                <span
+                  class="order-last inline-flex flex-shrink-0"
+                  use:tooltip={{ text: needed, describe: false }}
+                >
+                  <Icon name="download" size={14} class="text-muted" label={needed} />
+                </span>
               {/if}
               <span class="relative inline-flex flex-shrink-0">
                 <InstanceAvatar instance={inst} size={20} />

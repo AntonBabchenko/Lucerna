@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import {
     commands,
     type LoaderKind,
@@ -7,7 +8,7 @@
   } from '$lib/ipc/bindings';
   import { displayCore, coreToLoaderKind, pluginCapable } from '$lib/servers/core-display';
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
-  import { formatLoaderListError } from '$lib/instances/loader-list-error';
+  import { formatLoaderListError, isRetryableListError } from '$lib/instances/loader-list-error';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -44,6 +45,16 @@
 
   let versions = $state<LoaderVersion[]>([]);
   let error = $state<string | null>(null);
+  // The failure was a fetch that may work next time: the message gets a Reload.
+  let retryable = $state(false);
+  let reloadBtn: HTMLButtonElement | undefined = $state();
+  // Reload holds the focus: set when it gets it, cleared only when the user moves it to another
+  // control (a blur with a target). The button leaves while the list loads, which blurs it with
+  // none (a dialog's trap may then park the focus on its first field), so the flag survives that.
+  let reloadFocused = false;
+  // Every fetch takes a number; only the latest one's answer is applied (as LoaderPicker does), so a
+  // slow Reload never lands on top of a newer core's list.
+  let loadSeq = 0;
   let isLoadingVersions = $state(false);
 
   // Tracks the core value the LAST $effect run dispatched a load() for.
@@ -81,13 +92,16 @@
     const coreChanged = prevCore !== undefined && prevCore !== c;
     prevCore = c;
     isLoadingVersions = true;
+    const seq = loadSeq + 1;
     void load(lk, m, coreChanged).finally(() => {
-      isLoadingVersions = false;
+      if (seq === loadSeq) isLoadingVersions = false;
     });
   });
 
   async function load(k: LoaderKind, m: string, resetToStable: boolean): Promise<void> {
+    const seq = ++loadSeq;
     error = null;
+    retryable = false;
     const result =
       k === 'fabric'
         ? await commands.listFabricLoaders(m)
@@ -96,6 +110,7 @@
           : k === 'neoforge'
             ? await commands.listNeoforgeLoaders(m)
             : await commands.listForgeLoaders(m);
+    if (seq !== loadSeq) return;
     if (result.status === 'ok') {
       versions = result.data;
       // resetToStable=true when this load was triggered by a user-driven
@@ -121,7 +136,23 @@
       versions = [];
       coreVersion = null;
       error = formatLoaderListError(result.error, k);
+      retryable = isRetryableListError(result.error);
     }
+  }
+
+  // The same fetch again, for the shown core (the effect re-runs only when MC or the core change).
+  // As LoaderPicker's: a focus Reload held goes to the filled version list, or back to Reload.
+  async function reload() {
+    const lk = coreToLoaderKind(core);
+    if (lk === null || core === 'vanilla' || !mc) return;
+    const seq = loadSeq + 1;
+    isLoadingVersions = true;
+    await load(lk, mc, false);
+    if (seq === loadSeq) isLoadingVersions = false;
+    if (!reloadFocused) return;
+    reloadFocused = false;
+    await tick();
+    (document.getElementById(versionSelectId) ?? reloadBtn)?.focus();
   }
 
   function pickCore(c: ServerCore) {
@@ -199,4 +230,22 @@
   <p class="text-xs text-muted mb-3">{$t('servers.core.latestBuildHint')}</p>
 {/if}
 
-<StatusMessage tone="danger" message={error} class="mb-2" />
+{#if error && retryable}
+  <div class="mb-2 flex items-start gap-2">
+    <StatusMessage tone="danger" message={error} class="min-w-0 flex-1" />
+    <button
+      bind:this={reloadBtn}
+      type="button"
+      class="btn-secondary btn-xs flex-shrink-0"
+      onfocus={() => (reloadFocused = true)}
+      onblur={(e) => {
+        if (e.relatedTarget !== null) reloadFocused = false;
+      }}
+      onclick={() => void reload()}
+    >
+      {$t('instance.loader.reload')}
+    </button>
+  </div>
+{:else}
+  <StatusMessage tone="danger" message={error} class="mb-2" />
+{/if}
