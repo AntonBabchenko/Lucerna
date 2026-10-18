@@ -136,6 +136,12 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
   profile without a mod loader, where neither works; now it checks the
   profile's Minecraft version and says so when nothing fits.
+- **The text fields in four dialogs look like fields.** The name in Clone and in
+  Create a desktop shortcut, the instance name in Import from launcher and the
+  link in Import from URL had no border and read as plain text.
+- **A failed mod search no longer also says nothing was found.** When Modrinth
+  or CurseForge didn't answer, Add-ons showed the error and "No results." under
+  it; now it shows the error and Reload.
 - **A modpack with every mod inside it imports.** A CurseForge .zip or .mrpack
   that lists no mods to download, only bundled ones, could not be imported: the
   CurseForge pack stopped at "api.curseforge.com refused the request (error

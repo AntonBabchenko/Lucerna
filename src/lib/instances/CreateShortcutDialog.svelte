@@ -228,7 +228,7 @@
       <span class="mb-1 block text-sm font-medium text-secondary">{$t('shortcut.nameLabel')}</span>
       <input
         type="text"
-        class="input mt-1 w-full"
+        class="mt-1 w-full rounded border px-2 py-1"
         bind:value={name}
         oninput={() => (nameEdited = true)}
         data-testid="shortcut-name-input"
