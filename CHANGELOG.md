@@ -23,90 +23,110 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
-- **Copy maps, schematics, replays and other mod data from another profile.**
-  Settings → Shared data copies Xaero's and JourneyMap's multiplayer maps,
-  Litematica and Create schematics, Flashback and ReplayMod replays, Distant
-  Horizons, Voxy and Bobby data, or any other folder a mod made; files with the
-  same name are replaced (the old ones go to the recycle bin) or kept, your
-  choice. Clone gained a "Mod data" option, and a cloned profile's resource and
-  shader packs keep their update checks.
+- **Copy maps, schematics, replays and other mod data from another instance.**
+  Shared data, on an instance's Settings tab, copies Xaero's and JourneyMap's
+  multiplayer maps, Litematica and Create schematics, Flashback and ReplayMod
+  replays, Distant Horizons and Voxy multiplayer data, Bobby data, or another
+  folder a mod keeps in the game folder; files with the same name are replaced
+  (the old ones go to the recycle bin) or kept, your choice. Clone gained a
+  "Mod data" option.
 - **Share the server list, command history, hotbars and game options between
-  instances.** Turn each on in an instance's Settings tab, under Shared data
-  (Settings → Game makes new instances and modpack imports join from the
-  start): a launch brings in what the other instances changed, and closing the
-  game shares what changed here. Game options are key bindings, mouse, chat,
-  sound, accessibility, language and graphics settings, on Minecraft 1.13 to
-  26.3; render distance and other performance settings stay per instance.
-- **A damaged shared settings file has a way out.** The launch dialog and the
-  instance's Shared data section offer to replace it: the shared copy with this
-  instance's, or this instance's with the shared one; the damaged file is kept in
-  a backup or the Recycle Bin.
+  instances.** Turn each on in an instance's Settings tab, under Shared data,
+  or for every new instance, modpack import and client made from a server with
+  a checkbox in the launcher's Settings → Game, off by default: a launch brings
+  in what the other instances changed, and closing the game shares what changed
+  here. Game options are key bindings, mouse, chat, sound, accessibility,
+  language and how the game looks, on Minecraft releases 1.13 to 26.3, while
+  render distance and other performance settings stay per instance; command
+  history needs 1.20.2 or newer, and hotbars a release from 1.14 on.
+- **A damaged settings file has a way out.** The launch dialog and the
+  instance's Shared data section offer to replace whichever file is damaged,
+  the shared copy with this instance's file or this instance's file with the
+  shared copy; the damaged file is kept in a backup or the recycle bin.
 - **A folder button for every kind of add-on.** Add-ons shows "Mods folder",
   "Resource packs folder", "Shaders folder" or "Data packs folder" above the
   list, beside the source picker while browsing; the data packs one opens the
-  profile's library.
+  instance's data pack library. That library takes zip files only, and the
+  Installed list names any folder put there.
 - **Packs you put in a folder yourself show up.** Resource packs and shaders
   dropped into their folder, zipped or unpacked, are listed and can be removed
-  (one Lucerna can't download again goes to the recycle bin), and an Installed
-  list re-reads itself when you come back to the launcher.
+  (an unpacked one, or a zip that didn't come from Modrinth or CurseForge, goes
+  to the recycle bin; the others are deleted), and an Installed list re-reads
+  itself when you come back to the launcher.
 - **Run an instance on your own Java.** Advanced → Java on the instance's
   Settings tab lists the Javas found on this computer and has a Browse button.
-  Lucerna checks the chosen Java before every launch and refuses one that
-  cannot run the game, saying why and offering the way to choose another,
-  rather than starting it on its own Java instead.
+  Lucerna checks the chosen Java before every launch and, if it can't run the
+  game, refuses to start, says why and offers to choose another, instead of
+  switching to Lucerna's Java.
 - **One Java for every instance on a Java version, and a Java for servers.**
   Settings → Game → Java picks the Java that instances and own servers needing
   each Java version run on, and a server's settings can pick its own. When
-  Lucerna can't get its Java for a version, it offers a Java found on this
+  Lucerna can't get its Java to run the game, it offers a Java found on this
   computer that can run it (for Minecraft 1.16 and older only a Java 8, the one
-  they were made for), for that instance or for every instance on that version.
+  they were made for), for that instance or, if it follows Settings, for every
+  instance on that Java version that follows Settings.
 
 ### Changed
 
-- **Instance settings are a tab.** An instance's version, loader, memory, Java
-  and the rest moved from the Manage window to a Settings tab next to
-  Screenshots; New instance in the sidebar creates one, right-clicking an
-  instance in the sidebar list offers every action on it, and with more than
-  eight instances typing filters that list by name. Add-ons keeps the Browse
-  search and sort when you switch tabs.
+- **Instance settings are a tab.** An instance's version, loader, memory and
+  the rest moved from the Manage window to a Settings tab next to Screenshots;
+  New instance in the sidebar creates one, and right-clicking an instance in
+  the sidebar list now offers Rename, Clone, Delete and its other actions.
+  With more than eight instances, typing filters that list by name, and Add-ons
+  keeps the Browse search and sort when you switch tabs.
 - **Deleting an instance asks once.** No more typing Delete: as when deleting a
   world or a server, one confirmation warns that it cannot be undone.
-- **A language added by translators shows up properly.** The language picker
-  shows each language under its own name where the system knows it, and how
-  much of a partly translated one is done; System switches to the system's
-  language once at least 90% of it is translated, where it used to know only
-  Russian.
-
-### Fixed
-
-- **OptiFine runs on Forge.** Forge and NeoForge games now start with the
-  classpath the official Minecraft launcher gives them. OptiFine on Forge 1.20.1
-  used to load but stay inactive.
-- **Forge installs are built the way Forge's own installer builds them.**
-  Repair now fixes the Forge 1.20.6+ file Verify used to report after every
-  check. A Forge 1.13 or newer profile installed by an earlier version may show
-  some files as built differently from Forge's own installer: the game still
-  launches with them, and one Repair rebuilds them the official way.
-- **The game no longer receives `${clientid}` and `${auth_xuid}` as text.**
-  Lucerna passes neither a client id nor an Xbox id.
 - **Import, clone and export say when a folder is a link.** A content folder
   that is really a symbolic link or junction (XMCL's shared resource packs, or
   one made with `mklink`) is marked with where it points; the files it points
-  to are what gets copied, or packed into the modpack.
-- **A folder that can't be read is shown instead of quietly skipped.** Import,
-  clone and export now list such a folder, or a link whose folder is gone, with
-  the reason, and don't copy it.
+  to are copied, or packed into the modpack, as before.
+- **Lucerna builds Forge installs the way Forge's own installer does.** A Forge
+  1.13 or newer instance installed by an earlier version may show some files as
+  built differently from Forge's installer: a game that ran with them still
+  does, and Repair rebuilds them the official way.
+
+### Fixed
+
+- **OptiFine works on Forge 1.20.1.** It used to load but stay inactive. Forge
+  and NeoForge games now start with the game's own jar loaded the way the
+  official Minecraft launcher loads it.
+- **Verify no longer reports a Forge 1.20.6+ problem Repair couldn't fix.** It
+  flagged one of Forge's files after every check, and Repair left it as it was.
+- **A Forge installer with no published checksum is no longer called
+  corrupted.** The launcher says it can't verify the installer and still won't
+  install it; when the checksum can't be fetched, it shows that network error
+  instead.
+- **The game no longer receives `${clientid}` and `${auth_xuid}` as text.** On
+  Minecraft 1.18 and newer Lucerna passes neither a client id nor an Xbox id,
+  so the game gets empty values.
+- **Network errors say which site failed and why.** They used to say little
+  more than "check your internet connection", whatever went wrong, or show a
+  technical dump in the loader version lists; now the message names the site
+  and the cause, such as no connection, no answer in time, a secure connection
+  that couldn't be set up (often an antivirus checking HTTPS) or an error on
+  the site's side. A Minecraft, loader or server core version list that
+  couldn't be fetched says so and offers Reload; Logs now keep the full cause,
+  and the message points there when the cause isn't recognised.
+- **An instance list that can't be read no longer looks empty.** The sidebar
+  says it couldn't read your instances and offers Try again, instead of "No
+  instances yet" and Create.
+- **A content folder that can't be read is shown instead of quietly skipped.**
+  Import, clone and export list such a folder, or a link whose folder is gone,
+  with the reason, and don't copy it. Making a server from an instance, or an
+  instance from a server, now stops with an error when the mods folder is a
+  broken link, instead of producing a copy with no mods.
 - **A broken link to the mods folder no longer erases the mod list.** If the
   mods folder linked to a place that was missing, such as an unplugged drive,
-  the launcher forgot where every mod came from; it now reports the broken link
-  and keeps the list.
-- **A pack deleted from its folder by hand leaves the list, and one still on
-  disk stays in it.** Removing or updating a pack the running game holds open
-  now says the file stayed instead of dropping its row, and packs a modpack
-  update installs are listed too.
-- **A folder in the data pack library is named instead of ignored.** The library
-  takes zip files only, and the Installed list now says which folders it cannot
-  use.
+  the launcher forgot where every mod came from; it now stops with an error
+  naming the missing place and keeps the list.
+- **The pack lists follow the folder.** A resource pack or shader you deleted
+  by hand no longer lingers in Installed, and packs a modpack update installs
+  are listed too. Removing or updating one the running game holds open keeps
+  its row and says what went wrong, instead of hiding a file that is still
+  there.
+- **A cloned instance's resource packs and shaders show in Installed, with
+  their update checks.** The clone got the pack files but not their list, so
+  packs installed from Add-ons were missing from its Installed tab.
 - **Deleting a screenshot on macOS no longer asks to control Finder.** The
   launcher asked Finder to delete it, which could bring up a permission prompt,
   froze the window while that prompt was open, and kept failing if you said no;
@@ -116,18 +136,6 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
   profile without a mod loader, where neither works; now it checks the
   profile's Minecraft version and says so when nothing fits.
-- **Network errors say which site failed and why.** Instead of a technical dump
-  with the address three times, the message says what failed and names the site
-  and the cause: no connection, no answer in time, a secure connection blocked
-  (often by an antivirus checking HTTPS), or an error on the site's side, and a
-  version list that didn't load offers Reload. Logs now keep the full cause, and
-  the message points there when the cause isn't recognised.
-- **An instance list that can't be read no longer looks empty.** The sidebar
-  says it couldn't read your instances and offers Try again, instead of "No
-  instances yet" and Create.
-- **A Forge installer that can't be checked is no longer called corrupted.** If
-  the site publishes no checksum for it, or the checksum didn't load, the
-  launcher says exactly that, and still won't install it.
 
 ### Security
 
