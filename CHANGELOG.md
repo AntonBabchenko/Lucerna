@@ -21,6 +21,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-10-18
+
 ### Added
 
 - **Copy maps, schematics, replays and other mod data from another instance.**
@@ -81,9 +83,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   one made with `mklink`) is marked with where it points; the files it points
   to are copied, or packed into the modpack, as before.
 - **Lucerna builds Forge installs the way Forge's own installer does.** A Forge
-  1.13 or newer instance installed by an earlier version may show some files as
+  1.13 or newer instance installed by an earlier version may note some files as
   built differently from Forge's installer: a game that ran with them still
-  does, and Repair rebuilds them the official way.
+  does, so you can leave them, and Repair rebuilds them the official way if you
+  want.
 
 ### Fixed
 
@@ -107,6 +110,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the site's side. A Minecraft, loader or server core version list that
   couldn't be fetched says so and offers Reload; Logs now keep the full cause,
   and the message points there when the cause isn't recognised.
+- **A failed mod search no longer also says nothing was found.** When Modrinth
+  or CurseForge didn't answer, Add-ons showed the error and "No results." under
+  it; now it shows the error and Reload.
 - **An instance list that can't be read no longer looks empty.** The sidebar
   says it couldn't read your instances and offers Try again, instead of "No
   instances yet" and Create.
@@ -119,6 +125,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   mods folder linked to a place that was missing, such as an unplugged drive,
   the launcher forgot where every mod came from; it now stops with an error
   naming the missing place and keeps the list.
+- **A modpack with every mod inside it imports.** A CurseForge .zip or .mrpack
+  that lists no mods to download, only bundled ones, could not be imported: the
+  CurseForge pack stopped at an error from CurseForge before its preview opened,
+  and Install stayed disabled for both.
 - **The pack lists follow the folder.** A resource pack or shader you deleted
   by hand no longer lingers in Installed, and packs a modpack update installs
   are listed too. Removing or updating one the running game holds open keeps
@@ -127,6 +137,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A cloned instance's resource packs and shaders show in Installed, with
   their update checks.** The clone got the pack files but not their list, so
   packs installed from Add-ons were missing from its Installed tab.
+- **The text fields in four dialogs look like fields.** The name in Clone and in
+  Create a desktop shortcut, the instance name in Import from launcher and the
+  link in Import from URL had no border and read as plain text.
 - **Deleting a screenshot on macOS no longer asks to control Finder.** The
   launcher asked Finder to delete it, which could bring up a permission prompt,
   froze the window while that prompt was open, and kept failing if you said no;
@@ -136,16 +149,6 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
   profile without a mod loader, where neither works; now it checks the
   profile's Minecraft version and says so when nothing fits.
-- **The text fields in four dialogs look like fields.** The name in Clone and in
-  Create a desktop shortcut, the instance name in Import from launcher and the
-  link in Import from URL had no border and read as plain text.
-- **A failed mod search no longer also says nothing was found.** When Modrinth
-  or CurseForge didn't answer, Add-ons showed the error and "No results." under
-  it; now it shows the error and Reload.
-- **A modpack with every mod inside it imports.** A CurseForge .zip or .mrpack
-  that lists no mods to download, only bundled ones, could not be imported: the
-  CurseForge pack stopped at "api.curseforge.com refused the request (error
-  400)", and Install stayed disabled for both.
 
 ### Security
 
@@ -2260,7 +2263,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.24.0...v0.25.0
