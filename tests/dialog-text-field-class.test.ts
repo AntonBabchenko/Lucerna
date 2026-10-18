@@ -3,7 +3,8 @@
  * preflight's zero border and no padding: it reads as a line of text, not as something to edit
  * (four dialogs did, found by the v0.28 regression pass). Text fields spell the modal input recipe
  * (`border rounded px-2 py-1`, DESIGN.md) inline. This guard keeps the undefined class from coming
- * back unless someone defines it.
+ * back unless someone defines it. It reads static `class="…"` attributes only: a `class={…}`
+ * expression or a `class:input` directive is not seen.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -17,7 +18,8 @@ function svelteFiles(dir: string): string[] {
   });
 }
 
-const css = readFileSync(resolve('src/app.css'), 'utf8');
+// Comments do not define a rule: strip them so a mention of «.input» in one cannot disable the guard.
+const css = readFileSync(resolve('src/app.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const inputRuleDefined = /(^|[\s,}])\.input(?![-\w])/m.test(css);
 
 describe('text field classes', () => {
@@ -26,11 +28,13 @@ describe('text field classes', () => {
     for (const file of svelteFiles(resolve('src'))) {
       const src = readFileSync(file, 'utf8');
       for (const m of src.matchAll(/class="([^"]*)"/g)) {
-        if (m[1].split(/\s+/).includes('input')) offenders.push(file.replace(resolve('.'), '').replaceAll('\\', '/'));
+        if (m[1].split(/\s+/).includes('input'))
+          offenders.push(file.replace(resolve('.'), '').replaceAll('\\', '/'));
       }
     }
-    expect(inputRuleDefined || offenders.length === 0, `undefined .input class in: ${offenders.join(', ')}`).toBe(
-      true,
-    );
+    expect(
+      inputRuleDefined || offenders.length === 0,
+      `undefined .input class in: ${offenders.join(', ')}`,
+    ).toBe(true);
   });
 });

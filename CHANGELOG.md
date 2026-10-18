@@ -137,7 +137,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile without a mod loader, where neither works; now it checks the
   profile's Minecraft version and says so when nothing fits.
 - **The text fields in four dialogs look like fields.** The name in Clone and in
-  Create desktop shortcut, the instance name in Import from launcher and the
+  Create a desktop shortcut, the instance name in Import from launcher and the
   link in Import from URL had no border and read as plain text.
 - **A failed mod search no longer also says nothing was found.** When Modrinth
   or CurseForge didn't answer, Add-ons showed the error and "No results." under

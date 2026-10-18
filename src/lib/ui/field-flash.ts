@@ -129,23 +129,25 @@ export function fieldFlash(node: HTMLElement, params: FieldFlashParams) {
    * The flash is delivered when the field mounts, which can be before what it
    * sits in has loaded: content above it grows, or its own rows arrive, and a
    * single scroll leaves it off-screen. Re-align on every size change of the
-   * node or of the scroll container's children until the flash ends or the
-   * user scrolls.
+   * node, of its ancestors below the scroll container (content growing above
+   * the node grows its parent, even in a column beside a taller one) and of
+   * the container's children, until the flash ends or the user scrolls.
    */
   function keepAligned(p: FieldFlashParams) {
     if (typeof ResizeObserver !== 'function') return;
     const scroller = scrollParentOf(node);
+    const watched = new Set<Element>([node]);
+    for (let el = node.parentElement; el && el !== scroller; el = el.parentElement) watched.add(el);
+    for (const child of Array.from(scroller.children)) watched.add(child);
     settleWatch = new ResizeObserver(() => align(p));
-    settleWatch.observe(node);
-    for (const child of Array.from(scroller.children)) {
-      if (child !== node) settleWatch.observe(child);
-    }
+    for (const el of watched) settleWatch.observe(el);
     const userTookOver = () => stopSettle();
     for (const ev of USER_SCROLL_EVENTS) {
       scroller.addEventListener(ev, userTookOver, { capture: true, passive: true });
     }
     stopUserWatch = () => {
-      for (const ev of USER_SCROLL_EVENTS) scroller.removeEventListener(ev, userTookOver, { capture: true });
+      for (const ev of USER_SCROLL_EVENTS)
+        scroller.removeEventListener(ev, userTookOver, { capture: true });
     };
   }
 

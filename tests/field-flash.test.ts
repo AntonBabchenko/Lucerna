@@ -307,6 +307,49 @@ describe('fieldFlash — keeps the field in view while the layout settles', () =
     expect(scroll).toHaveBeenCalledTimes(1);
   });
 
+  it('also watches the field’s ancestors below the scroll container', () => {
+    // A column beside a taller one: content growing above the field changes the column, not the
+    // scroll container's child that holds both columns.
+    const parent = document.createElement('div');
+    parent.setAttribute('style', 'overflow-y: auto');
+    Object.defineProperty(parent, 'clientHeight', { value: 400, configurable: true });
+    const grid = document.createElement('div');
+    const column = document.createElement('div');
+    const host = document.createElement('div');
+    column.appendChild(host);
+    grid.appendChild(column);
+    parent.appendChild(grid);
+    document.body.appendChild(parent);
+    host.scrollIntoView = vi.fn();
+    host.getBoundingClientRect = () => ({ height: 50 }) as DOMRect;
+    fieldFlash(host, { active: true });
+    const watched = FakeResizeObserver.all.flatMap((o) => o.observed);
+    expect(watched).toContain(column);
+    expect(watched).toContain(grid);
+    expect(watched).not.toContain(parent);
+  });
+
+  it.each([
+    'pointerdown',
+    'keydown',
+    'touchstart',
+  ])('a %s in the scroll container hands the scroll back', (type) => {
+    const { parent, host, scroll } = mountScrolled();
+    fieldFlash(host, { active: true });
+    expect(FakeResizeObserver.all.length).toBeGreaterThan(0);
+    parent.dispatchEvent(new Event(type));
+    fireAll();
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('a re-flash while running leaves exactly one live watcher', () => {
+    const { host } = mountScrolled();
+    const action = fieldFlash(host, { active: true });
+    action.update({ active: false });
+    action.update({ active: true });
+    expect(FakeResizeObserver.all.filter((o) => !o.disconnected)).toHaveLength(1);
+  });
+
   it('stops when the flash ends, and on destroy', () => {
     const a = mountScrolled();
     fieldFlash(a.host, { active: true });
