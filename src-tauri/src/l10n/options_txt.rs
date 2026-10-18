@@ -51,6 +51,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use specta::Type;
 
+use crate::options_file::ParsedOptions;
+
 /// Filename prefix identifying a pack Lucerna generated. Matching the whole
 /// prefix (not one exact filename) is what makes switching target language
 /// correct: the stale ru_ru entry must go when a de_de pack replaces it.
@@ -63,159 +65,24 @@ const FILE_PREFIX: &str = "file/";
 const RESOURCE_PACKS_KEY: &str = "resourcePacks";
 
 // ---------------------------------------------------------------------
-// Lossless line-oriented parsing
+// resourcePacks on the shared parser (`crate::options_file`)
 // ---------------------------------------------------------------------
 
-/// Which line terminator `options.txt` uses. Minecraft's `PrintWriter` picks
-/// one separator (`System.lineSeparator()`) for the entire file and uses it
-/// consistently — CRLF on Windows, LF on Linux/macOS — never mixed within a
-/// single write.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LineEnding {
-    Lf,
-    Crlf,
+/// `resourcePacks`, defaulting to empty when the key is absent OR its
+/// value fails to parse as a JSON array of strings — a malformed value
+/// is treated the same as a missing one, never propagated.
+fn resource_packs(doc: &ParsedOptions) -> Vec<String> {
+    doc.get(RESOURCE_PACKS_KEY)
+        .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
+        .unwrap_or_default()
 }
 
-impl LineEnding {
-    fn as_str(self) -> &'static str {
-        match self {
-            LineEnding::Lf => "\n",
-            LineEnding::Crlf => "\r\n",
-        }
-    }
-}
-
-/// One physical line, preserved losslessly. Splitting on the FIRST `:` only
-/// (via `str::split_once`) is what keeps a value containing its own `:`
-/// (e.g. `lastServer:127.0.0.1:25565`) intact rather than truncated at the
-/// second colon.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Line {
-    Pair(String, String),
-    /// No colon found (a blank line, or a corrupted one). Reproduced
-    /// byte-for-byte on render — this is what makes "preserve every other
-    /// line verbatim, including keys we do not understand" hold even for
-    /// lines this module cannot interpret at all, not just ones it chooses
-    /// not to touch.
-    Other(String),
-}
-
-impl Line {
-    fn render(&self) -> String {
-        match self {
-            Line::Pair(k, v) => format!("{k}:{v}"),
-            Line::Other(s) => s.clone(),
-        }
-    }
-}
-
-/// A parsed `options.txt`: ordered lines plus enough information to
-/// reproduce the original byte stream when nothing changes.
-///
-/// Line-ending strategy: split on bare `'\n'` and strip a trailing `'\r'`
-/// from each resulting segment, then pick ONE ending for the whole document
-/// — CRLF if any segment carried a `'\r'`, LF otherwise. For any file with a
-/// single consistent terminator (100% of files Minecraft itself writes) this
-/// round-trips byte-for-byte: `render(parse(src)) == src` whenever no
-/// transform touches a line (see the `parsing_with_no_transform_is_the_identity_for_*`
-/// tests below). A hand-edited file with genuinely MIXED endings is
-/// normalised to one style rather than reproduced exactly — a defensible,
-/// non-corrupting best effort for a case Minecraft's own writer can never
-/// produce, and strictly better than the alternative bug this design avoids:
-/// an earlier draft that split on `"\r\n"` as a literal separator would, on
-/// a mixed file, silently fold a bare trailing `'\n'` into the last line's
-/// VALUE and then append a spurious extra terminator on render.
-struct ParsedOptions {
-    lines: Vec<Line>,
-    ending: LineEnding,
-    trailing_newline: bool,
-}
-
-impl ParsedOptions {
-    fn parse(src: &str) -> Self {
-        let trailing_newline = src.ends_with('\n');
-        let body = src.strip_suffix('\n').unwrap_or(src);
-        let raw_lines: Vec<&str> = if body.is_empty() && !trailing_newline {
-            Vec::new()
-        } else {
-            body.split('\n').collect()
-        };
-
-        let ending = if raw_lines.iter().any(|l| l.ends_with('\r')) {
-            LineEnding::Crlf
-        } else {
-            LineEnding::Lf
-        };
-
-        let lines = raw_lines
-            .into_iter()
-            .map(|raw| {
-                let raw = raw.strip_suffix('\r').unwrap_or(raw);
-                match raw.split_once(':') {
-                    Some((k, v)) => Line::Pair(k.to_string(), v.to_string()),
-                    None => Line::Other(raw.to_string()),
-                }
-            })
-            .collect();
-
-        Self {
-            lines,
-            ending,
-            trailing_newline,
-        }
-    }
-
-    fn render(&self) -> String {
-        let sep = self.ending.as_str();
-        let mut out = self
-            .lines
-            .iter()
-            .map(Line::render)
-            .collect::<Vec<_>>()
-            .join(sep);
-        if self.trailing_newline {
-            out.push_str(sep);
-        }
-        out
-    }
-
-    /// The value of the first line whose key matches, if any.
-    fn get_first(&self, key: &str) -> Option<&str> {
-        self.lines.iter().find_map(|l| match l {
-            Line::Pair(k, v) if k.as_str() == key => Some(v.as_str()),
-            _ => None,
-        })
-    }
-
-    /// Overwrite the first matching key's value in place, or append a new
-    /// `key:value` line at the end when no line has that key yet.
-    fn set_or_append(&mut self, key: &str, value: String) {
-        let existing = self.lines.iter_mut().find_map(|l| match l {
-            Line::Pair(k, v) if k.as_str() == key => Some(v),
-            _ => None,
-        });
-        match existing {
-            Some(slot) => *slot = value,
-            None => self.lines.push(Line::Pair(key.to_string(), value)),
-        }
-    }
-
-    /// `resourcePacks`, defaulting to empty when the key is absent OR its
-    /// value fails to parse as a JSON array of strings — a malformed value
-    /// is treated the same as a missing one, never propagated.
-    fn resource_packs(&self) -> Vec<String> {
-        self.get_first(RESOURCE_PACKS_KEY)
-            .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
-            .unwrap_or_default()
-    }
-
-    fn set_resource_packs(&mut self, packs: &[String]) {
-        // A `Vec<String>` cannot fail to serialize (no floats, no non-UTF8
-        // content possible in a Rust `String`); the fallback exists only so
-        // this stays total rather than needing an `unwrap()` justification.
-        let json = serde_json::to_string(packs).unwrap_or_else(|_| "[]".to_string());
-        self.set_or_append(RESOURCE_PACKS_KEY, json);
-    }
+fn set_resource_packs(doc: &mut ParsedOptions, packs: &[String]) {
+    // A `Vec<String>` cannot fail to serialize (no floats, no non-UTF8
+    // content possible in a Rust `String`); the fallback exists only so
+    // this stays total rather than needing an `unwrap()` justification.
+    let json = serde_json::to_string(packs).unwrap_or_else(|_| "[]".to_string());
+    doc.set_or_append(RESOURCE_PACKS_KEY, json);
 }
 
 /// Whether `entry` (a raw `resourcePacks` array element, with or without the
@@ -243,14 +110,14 @@ fn is_ours(entry: &str) -> bool {
 /// never be `None`.
 pub fn with_pack_enabled(src: &str, pack_filename: &str, file_prefix: bool) -> String {
     let mut doc = ParsedOptions::parse(src);
-    let mut packs = doc.resource_packs();
+    let mut packs = resource_packs(&doc);
     packs.retain(|p| !is_ours(p.as_str()));
     packs.push(if file_prefix {
         format!("{FILE_PREFIX}{pack_filename}")
     } else {
         pack_filename.to_string()
     });
-    doc.set_resource_packs(&packs);
+    set_resource_packs(&mut doc, &packs);
     doc.render()
 }
 
@@ -262,20 +129,19 @@ pub fn with_pack_enabled(src: &str, pack_filename: &str, file_prefix: bool) -> S
 /// propagated.
 pub fn with_pack_disabled(src: &str) -> String {
     let mut doc = ParsedOptions::parse(src);
-    if doc.get_first(RESOURCE_PACKS_KEY).is_none() {
+    if doc.get(RESOURCE_PACKS_KEY).is_none() {
         return doc.render();
     }
-    let mut packs = doc.resource_packs();
+    let mut packs = resource_packs(&doc);
     packs.retain(|p| !is_ours(p.as_str()));
-    doc.set_resource_packs(&packs);
+    set_resource_packs(&mut doc, &packs);
     doc.render()
 }
 
 /// Whether a Lucerna-generated pack is currently listed (in any position) in
 /// `resourcePacks`.
 pub fn is_pack_enabled(src: &str) -> bool {
-    ParsedOptions::parse(src)
-        .resource_packs()
+    resource_packs(&ParsedOptions::parse(src))
         .iter()
         .any(|p| is_ours(p.as_str()))
 }
@@ -333,22 +199,6 @@ pub fn pack_state(pack_on_disk: bool, options_txt: Option<&str>) -> PackState {
 // Atomic, guarded write
 // ---------------------------------------------------------------------
 
-/// Pure predicate over a snapshot the caller already has — mirrors
-/// `datapacks::guard::datapack_write_allowed`. `mc_dir` alone does not carry
-/// an instance id (there is no cheap, reliable way to walk a `.minecraft`
-/// path back to the id `launch`'s process registry is keyed by), and
-/// `launch::registry()` is private with no cross-module seam, so this
-/// decision can only ever be exercised end-to-end, never faked in a unit
-/// test — exactly like the datapack guard. Kept as its own function (rather
-/// than inlined into `update_atomically`) purely so that decision is
-/// independently testable without touching a filesystem.
-fn options_write_allowed(is_running: bool) -> Result<(), crate::error::Error> {
-    if is_running {
-        return Err(crate::error::Error::InstanceBusy);
-    }
-    Ok(())
-}
-
 /// Monotonic per-process sequence, combined with the pid, to make every
 /// `update_atomically` temp file name unique. A bare `tmp.<pid>` (what
 /// `l10n::coverage::ScanCache::save` uses) is only safe because
@@ -365,32 +215,32 @@ fn options_write_allowed(is_running: bool) -> Result<(), crate::error::Error> {
 /// see `concurrent_updates_do_not_race_on_the_temp_file_name` below.
 static OPTIONS_WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Read, transform and write `<mc_dir>/options.txt` atomically. Refuses
-/// while the instance is running. `Ok(false)` when the file does not exist —
+/// Read, transform and write `<mc_dir>/options.txt` atomically, holding the
+/// instance (`maintenance::claim_write`) from the read to the rename: refused
+/// while it runs, starts or is held by another writer, and no launch starts
+/// meanwhile. A settings-sync point reads and rewrites this file under the
+/// same claim. `Ok(false)` when the file does not exist —
 /// activation is deferred rather than the launcher inventing the game's
 /// settings file — or when `transform` returns `None`, meaning it decided
 /// there was nothing to change; `Ok(true)` iff a write actually happened.
 ///
-/// Takes `is_running` as a plain flag, not an instance id, and folds the
-/// guard directly into this signature rather than leaving it as a separate
-/// pre-flight call a future caller could forget to make: `options.txt` is
-/// the single highest-consequence file this launcher ever touches (see the
-/// module doc comment), so the one function that writes it should not
-/// compile without an answer to "is the instance running". The caller — the
-/// command layer, which already has both the instance id and `mc_dir` — is
-/// expected to compute `launch::spawn::is_running(instance_id)` and pass the
-/// snapshot in: the snapshot-in shape `datapacks::guard::datapack_write_allowed`
-/// also takes. (The world and datapack commands themselves now open with
-/// `instances::maintenance::write_allowed(id)`, which resolves the snapshot.)
+/// Takes the instance id and opens with the gate itself rather than
+/// leaving it as a separate pre-flight call a future caller could forget to
+/// make: `options.txt` is the single highest-consequence file this launcher
+/// ever touches (see the module doc comment), so the one function that
+/// writes it does not compile without the instance it belongs to. The caller
+/// must not hold that instance's claim (the gate would refuse it).
 pub fn update_atomically<F>(
     mc_dir: &Path,
-    is_running: bool,
+    instance_id: &str,
     transform: F,
 ) -> Result<bool, crate::error::Error>
 where
     F: FnOnce(&str) -> Option<String>,
 {
-    options_write_allowed(is_running)?;
+    // Held through the rename: a launch's sync point reads and rewrites this
+    // file, and one starting between the read and the rename would lose a write.
+    let claim = crate::instances::maintenance::claim_write(instance_id)?;
 
     let path = mc_dir.join("options.txt");
     let src = match std::fs::read_to_string(&path) {
@@ -412,6 +262,7 @@ where
         let _ = std::fs::remove_file(&tmp);
         return Err(crate::error::Error::io(path.display().to_string(), e));
     }
+    drop(claim);
 
     Ok(true)
 }
@@ -436,8 +287,7 @@ mod tests {
     );
 
     fn packs_of(src: &str) -> Vec<String> {
-        let doc = ParsedOptions::parse(src);
-        doc.resource_packs()
+        resource_packs(&ParsedOptions::parse(src))
     }
 
     // -----------------------------------------------------------------
@@ -635,7 +485,7 @@ mod tests {
         // even though byte-for-byte preservation is not guaranteed here.
         let mixed = "a:1\r\nb:2\nc:3\r\n";
         let doc = ParsedOptions::parse(mixed);
-        assert_eq!(doc.lines.len(), 3);
+        assert_eq!(doc.pairs().count(), 3);
         let out = doc.render();
         assert!(out.contains("a:1"));
         assert!(out.contains("b:2"));
@@ -679,23 +529,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // options_write_allowed (Verify-2 target)
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn a_stopped_instance_is_allowed_to_write() {
-        assert!(options_write_allowed(false).is_ok());
-    }
-
-    #[test]
-    fn a_running_instance_is_rejected() {
-        assert!(matches!(
-            options_write_allowed(true).unwrap_err(),
-            crate::error::Error::InstanceBusy
-        ));
-    }
-
-    // -----------------------------------------------------------------
     // update_atomically
     // -----------------------------------------------------------------
 
@@ -705,7 +538,7 @@ mod tests {
         let mc_dir = dir.path().join(".minecraft");
         std::fs::create_dir_all(&mc_dir).unwrap();
 
-        let wrote = update_atomically(&mc_dir, false, |s| {
+        let wrote = update_atomically(&mc_dir, "l10n-opts-missing", |s| {
             Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
         })
         .unwrap();
@@ -714,18 +547,22 @@ mod tests {
         assert!(!mc_dir.join("options.txt").exists());
     }
 
+    /// A settings-sync point holds the instance's claim while it reads and
+    /// rewrites options.txt; a write in between would be lost.
     #[test]
-    fn refuses_while_running_and_leaves_the_file_byte_identical() {
+    fn refuses_while_the_instance_is_held_and_leaves_the_file_byte_identical() {
         let dir = tempdir().unwrap();
         let mc_dir = dir.path().join(".minecraft");
         std::fs::create_dir_all(&mc_dir).unwrap();
         std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
 
-        let err = update_atomically(&mc_dir, true, |s| {
+        let claim = crate::instances::maintenance::claim_write("l10n-opts-held").unwrap();
+        let err = update_atomically(&mc_dir, "l10n-opts-held", |s| {
             Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
         })
         .unwrap_err();
 
+        drop(claim);
         assert!(matches!(err, crate::error::Error::InstanceBusy));
         let on_disk = std::fs::read_to_string(mc_dir.join("options.txt")).unwrap();
         assert_eq!(on_disk, SAMPLE);
@@ -745,7 +582,7 @@ mod tests {
         std::fs::create_dir_all(&mc_dir).unwrap();
         std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
 
-        let wrote = update_atomically(&mc_dir, false, |s| {
+        let wrote = update_atomically(&mc_dir, "l10n-opts-writes", |s| {
             Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
         })
         .unwrap();
@@ -769,11 +606,34 @@ mod tests {
         std::fs::create_dir_all(&mc_dir).unwrap();
         std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
 
-        let wrote = update_atomically(&mc_dir, false, |_s| None).unwrap();
+        let wrote = update_atomically(&mc_dir, "l10n-opts-declines", |_s| None).unwrap();
 
         assert!(!wrote);
         let on_disk = std::fs::read_to_string(mc_dir.join("options.txt")).unwrap();
         assert_eq!(on_disk, SAMPLE);
+    }
+
+    /// A launch's sync point reads and rewrites this file; one starting
+    /// between this writer's read and its rename would lose a write.
+    #[test]
+    fn holds_the_instance_from_the_read_to_the_write() {
+        let dir = tempdir().unwrap();
+        let mc_dir = dir.path().join(".minecraft");
+        std::fs::create_dir_all(&mc_dir).unwrap();
+        std::fs::write(mc_dir.join("options.txt"), SAMPLE).unwrap();
+        let mut held = None;
+        update_atomically(&mc_dir, "l10n-opts-held-throughout", |s| {
+            held = Some(
+                crate::instances::maintenance::claim_write("l10n-opts-held-throughout").is_err(),
+            );
+            Some(with_pack_enabled(s, "lucerna-translation-ru_ru.zip", true))
+        })
+        .unwrap();
+        assert_eq!(
+            held,
+            Some(true),
+            "no other writer gets the instance meanwhile"
+        );
     }
 
     #[test]
@@ -792,7 +652,8 @@ mod tests {
             .map(|i| {
                 let thread_mc_dir = mc_dir.clone();
                 std::thread::spawn(move || {
-                    update_atomically(&thread_mc_dir, false, move |s| {
+                    let id = format!("l10n-opts-concurrent-{i}");
+                    update_atomically(&thread_mc_dir, &id, move |s| {
                         Some(with_pack_enabled(
                             s,
                             &format!("lucerna-translation-lang{i}.zip"),

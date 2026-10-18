@@ -14,6 +14,8 @@
 // imperative and torn down in `dispose()`. The consuming page instantiates one
 // and calls `load()` on mount, `dispose()` on destroy.
 
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import { commands, type VersionEntry } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { mcVersions } from '$lib/settings/state.svelte';
@@ -25,6 +27,10 @@ const BACKOFF_MS = [2000, 5000, 10000];
 export function createMcVersions() {
   let value = $state<VersionEntry[]>([]);
   let error = $state<string | null>(null);
+  // The last load failed: the same text as `error`, but not dismissible. `error` is the Overview's
+  // banner, which the user may close; where a version is picked, the list must still say it failed
+  // rather than look empty, and the `online` self-heal must still run.
+  let failure = $state<string | null>(null);
   let loading = $state(false);
 
   let seq = 0;
@@ -71,9 +77,12 @@ export function createMcVersions() {
       // browsers and the Settings tab read the list without prop drilling.
       mcVersions.value = r.data;
       error = null;
+      failure = null;
       backoffStep = 0; // recovered — reset the schedule
     } else {
-      error = formatError(r.error);
+      // What failed, then why: the failure's own sentence names the site and the reason.
+      error = `${get(t)('page.overview.versionListFailed')} ${formatError(r.error)}`;
+      failure = error;
       scheduleBackoff();
     }
   }
@@ -88,7 +97,7 @@ export function createMcVersions() {
   // Refetch when connectivity returns — but only while in the error state, so a
   // healthy list is never disturbed.
   function onOnline() {
-    if (error !== null) void load();
+    if (failure !== null) void load();
   }
 
   if (typeof window !== 'undefined') {
@@ -104,6 +113,9 @@ export function createMcVersions() {
     },
     get loading() {
       return loading;
+    },
+    get failure() {
+      return failure;
     },
     load,
     // Hide the banner without cancelling self-heal (a later trigger can refill it).
@@ -122,3 +134,13 @@ export function createMcVersions() {
 }
 
 export type McVersions = ReturnType<typeof createMcVersions>;
+
+/** What a version picker needs to say about the list beside the versions themselves. */
+export type VersionListState = { loading: boolean; failure: string | null; reload: () => void };
+
+/** A list that is loaded and did not fail — what a host passes when it has nothing to say. */
+export const LOADED_VERSION_LIST: VersionListState = {
+  loading: false,
+  failure: null,
+  reload: () => {},
+};

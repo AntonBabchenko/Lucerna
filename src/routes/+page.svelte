@@ -6,6 +6,7 @@
     type CrashReport,
     type Error as IpcError,
     type InstanceWithStatus,
+    type JavaOrigin,
     type OptimisePlan,
   } from '$lib/ipc/bindings';
   import { isJavaProblem, type JavaProblem } from '$lib/java/JavaRescuePanel.svelte';
@@ -109,6 +110,7 @@
   import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
+  import { focusInstancePicker, focusInstancePickerIfLost } from '$lib/layout/picker-focus';
   import { debounceTrailing } from '$lib/ui/debounce';
   import { modalBlocksFileDrops } from '$lib/ui/layer-stack.svelte';
   import { openExternalHttps } from '$lib/ui/safe-open';
@@ -137,6 +139,9 @@
     failureDetail,
     failureWhat,
     KIND_WHAT,
+    LAUNCH_REPAIR_LABEL,
+    nextStep,
+    repairFor,
     STOP_KIND,
   } from '$lib/instances/settings/settings-sync-view';
   import { showUpdateToast, updateState } from '$lib/update/state.svelte';
@@ -184,6 +189,12 @@
   // recovery). Powers the Settings tab's version picker and publishes to the
   // shared `mcVersions` rune for the browsers' version combobox.
   const mcv = createMcVersions();
+  // What a version picker says beside the versions: loading, or the last load failed (with Reload).
+  const versionList = $derived({
+    loading: mcv.loading,
+    failure: mcv.failure,
+    reload: () => void mcv.load(),
+  });
 
   let instances = $state<InstanceWithStatus[]>([]);
   let activeInstance = $state<InstanceWithStatus | null>(null);
@@ -222,6 +233,13 @@
   }
   // Opened from the Overview Mods card's translation row.
   let l10nOpen = $state(false);
+  // The translations dialog closes through its own binding; the row menu that opened it is gone.
+  let l10nWasOpen = false;
+  $effect(() => {
+    const open = l10nOpen;
+    if (l10nWasOpen && !open) void focusInstancePickerIfLost();
+    l10nWasOpen = open;
+  });
   // Why the AI pre-fill is or is not usable, handed to LocalizationModal as a
   // prop. Both non-ready answers are fixable in Settings, so the modal renders
   // its translate buttons disabled WITH the reason rather than hiding them.
@@ -329,9 +347,28 @@
   // runtime cannot be had, or is not downloaded). Written only through
   // `setInstallError`, so it never outlives the message it belongs to.
   let javaProblem = $state<JavaProblem | null>(null);
+  // Where the Java behind `installError` was chosen, when that Java cannot be used: the line then
+  // offers the way back to the choice (`chooseJava`).
+  let javaUnusableOrigin = $state<JavaOrigin | null>(null);
   function setInstallError(message: string | null, error: IpcError | null = null) {
     installError = message;
     javaProblem = isJavaProblem(error) ? error : null;
+    // A client launch never runs on a server's Java, so only the two origins it can meet.
+    javaUnusableOrigin =
+      error?.kind === 'java_unusable' && error.origin.kind !== 'server' ? error.origin : null;
+  }
+  function chooseJava(origin: JavaOrigin) {
+    switch (origin.kind) {
+      case 'instance':
+        requestInstanceSettings(activeInstance?.id ?? null, 'java');
+        return;
+      case 'default':
+        void openSettingsAt('game.java');
+        return;
+      case 'server':
+        // A client launch never runs on a server's Java; nothing to open.
+        return;
+    }
   }
   // Client (game) processes, keyed by instance_id — multiple instances can run
   // at once. `exited` mirrors it: the LAST exit per instance (crash / exit
@@ -1171,6 +1208,10 @@
             instance: name,
             what: tr(failureWhat(payload.failure)),
             detail: failureDetail(tr, payload.failure),
+            next:
+              repairFor(payload.failure) === null
+                ? nextStep(tr, payload.failure)
+                : `${nextStep(tr, payload.failure)} ${tr('launch.settingsSync.exitFixInSettings')}`,
           }),
         ]);
       })
@@ -1394,7 +1435,7 @@
       pushSuccess(get(t)('instance.settings.deletedNowActive', { name: deleted.name, other }));
     }
     await tick();
-    document.querySelector<HTMLElement>('[data-tour="instance-picker"] [role="combobox"]')?.focus();
+    focusInstancePicker();
   }
 
   async function onInstall() {
@@ -1403,10 +1444,16 @@
     if (dataLocation.fellBack) return;
     installing = true;
     setInstallError(null);
-    const result = await installGame(activeInstance.id, activeInstance.name);
+    const name = activeInstance.name;
+    const result = await installGame(activeInstance.id, name);
     installing = false;
     if (result.status === 'error') {
-      setInstallError(formatError(result.error), result.error);
+      // What failed, then why (the `withCause` shape): the cause alone names a site and a reason,
+      // and the install the user just asked for is what failed.
+      setInstallError(
+        `${get(t)('page.overview.installFailed', { name })} ${formatError(result.error)}`,
+        result.error,
+      );
     } else {
       // Refresh so `activeInstance.ready` flips to true and the button
       // swaps from blue Install to green Play. No auto-launch — the
@@ -1457,6 +1504,7 @@
           gameClosedAsk = { answer };
         }),
       stopSyncing: (kind) => commands.settingsSyncStop(id, kind),
+      repair: (kind, how, confirmed) => commands.settingsSyncRepair(id, kind, how, confirmed),
     });
   }
 
@@ -1784,6 +1832,8 @@
       {activeAccount}
       {instances}
       {instancesLoaded}
+      {instancesListError}
+      onRetryInstances={() => refreshInstances()}
       {activeInstance}
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}
@@ -1947,6 +1997,7 @@
               listError={instancesListError}
               fellBack={dataLocation.fellBack}
               versions={mcv.value}
+              {versionList}
               running={selectedRunning}
               anyRunning={runningCount > 0}
               onChanged={refreshInstances}
@@ -2007,6 +2058,8 @@
               versionsRetrying={mcv.loading}
               onDismissInstallError={() => setInstallError(null)}
               {javaProblem}
+              {javaUnusableOrigin}
+              onChooseJava={chooseJava}
               onJavaProblem={(e) => setInstallError(formatError(e), e)}
               onJavaSaved={(id) => {
                 // The user may have switched instances while the write ran.
@@ -2067,6 +2120,7 @@
   {#if createInstanceOpen}
     <CreateInstanceDialog
       versions={mcv.value}
+      {versionList}
       activate={activateInstance}
       onCreated={() => void refreshInstances()}
       onClose={() => (createInstanceOpen = false)}
@@ -2078,7 +2132,10 @@
     <DeleteInstanceDialog
       instance={target}
       refresh={refreshAfterDelete}
-      onClose={() => (deleteTarget = null)}
+      onClose={() => {
+        deleteTarget = null;
+        void focusInstancePickerIfLost();
+      }}
       onDeleted={() => void afterDelete(target)}
     />
   {/if}
@@ -2094,14 +2151,26 @@
   {#if cloneTargetId !== null}
     {@const cloneSource = instances.find((i) => i.id === cloneTargetId)}
     {#if cloneSource}
-      <CloneInstanceDialog instance={cloneSource} onClose={() => (cloneTargetId = null)} />
+      <CloneInstanceDialog
+        instance={cloneSource}
+        onClose={() => {
+          cloneTargetId = null;
+          void focusInstancePickerIfLost();
+        }}
+      />
     {/if}
   {/if}
 
   {#if shortcutTargetId !== null}
     {@const shortcutSource = instances.find((i) => i.id === shortcutTargetId)}
     {#if shortcutSource}
-      <CreateShortcutDialog instance={shortcutSource} onClose={() => (shortcutTargetId = null)} />
+      <CreateShortcutDialog
+        instance={shortcutSource}
+        onClose={() => {
+          shortcutTargetId = null;
+          void focusInstancePickerIfLost();
+        }}
+      />
     {/if}
   {/if}
 
@@ -2198,25 +2267,50 @@
   {#if syncFailedAsk}
     {@const ask = syncFailedAsk}
     {@const what = ask.error.sync_kind === null ? null : $t(KIND_WHAT[ask.error.sync_kind])}
-    <ConfirmDialog
-      title={$t('launch.settingsSync.failedTitle')}
-      bodyText={[
-        formatError(ask.error),
-        what === null
-          ? $t('launch.settingsSync.failedChoiceAll')
-          : $t('launch.settingsSync.failedChoice', { what }),
-      ]}
-      confirmLabel={$t('launch.settingsSync.launchWithoutSync')}
-      confirmTestid="sync-failed-skip"
-      panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
-      secondaryLabel={ask.error.sync_kind === null
-        ? $t('launch.settingsSync.stopAll')
-        : $t(STOP_KIND[ask.error.sync_kind])}
-      secondaryTestid="sync-failed-stop"
-      onSecondary={() => answerSyncFailed('stop')}
-      onCancel={() => answerSyncFailed('cancel')}
-      onConfirm={() => answerSyncFailed('skip')}
-    />
+    {@const how = ask.error.sync_kind === null ? null : repairFor(ask.error)}
+    {#if how}
+      <!-- A damaged file stays damaged until it is replaced: the way out is
+           the headline, and nothing promises "next time". -->
+      <ConfirmDialog
+        title={$t('launch.settingsSync.failedTitle')}
+        bodyText={[
+          formatError(ask.error),
+          nextStep($t, {
+            kind: ask.error.sync_kind,
+            file: ask.error.file,
+            reason: ask.error.reason,
+          }),
+        ]}
+        confirmLabel={$t(LAUNCH_REPAIR_LABEL[how])}
+        confirmTestid="sync-failed-repair"
+        panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
+        secondaryLabel={$t('launch.settingsSync.launchWithoutSync')}
+        secondaryTestid="sync-failed-skip"
+        onSecondary={() => answerSyncFailed('skip')}
+        onCancel={() => answerSyncFailed('cancel')}
+        onConfirm={() => answerSyncFailed('repair')}
+      />
+    {:else}
+      <ConfirmDialog
+        title={$t('launch.settingsSync.failedTitle')}
+        bodyText={[
+          formatError(ask.error),
+          what === null
+            ? $t('launch.settingsSync.failedChoiceAll')
+            : $t('launch.settingsSync.failedChoice', { what }),
+        ]}
+        confirmLabel={$t('launch.settingsSync.launchWithoutSync')}
+        confirmTestid="sync-failed-skip"
+        panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
+        secondaryLabel={ask.error.sync_kind === null
+          ? $t('launch.settingsSync.stopAll')
+          : $t(STOP_KIND[ask.error.sync_kind])}
+        secondaryTestid="sync-failed-stop"
+        onSecondary={() => answerSyncFailed('stop')}
+        onCancel={() => answerSyncFailed('cancel')}
+        onConfirm={() => answerSyncFailed('skip')}
+      />
+    {/if}
   {/if}
   {#if gameClosedAsk}
     <ConfirmDialog
@@ -2242,7 +2336,10 @@
     <ExportPackDialog
       instanceId={exportTarget.id}
       instanceName={exportTarget.name}
-      onClose={() => (exportTargetId = null)}
+      onClose={() => {
+        exportTargetId = null;
+        void focusInstancePickerIfLost();
+      }}
     />
   {/if}
   {#if optimiseOpen && optimisePlan && activeInstance}

@@ -328,8 +328,9 @@ pub fn l10n_set_override(
 }
 
 /// Pure predicate over a snapshot the caller already has — mirrors
-/// `datapacks::guard::datapack_write_allowed` and the identical internal
-/// check `l10n::options_txt::update_atomically` performs on every write.
+/// `datapacks::guard::datapack_write_allowed`. (`l10n::options_txt::
+/// update_atomically` holds the instance's claim for its own write, a
+/// stricter check.)
 /// `options.txt` and the pack files under `.minecraft/` are files this
 /// launcher shares with the game, so a write while the instance runs would
 /// be discarded at best (the game rewrites `options.txt` wholesale on exit)

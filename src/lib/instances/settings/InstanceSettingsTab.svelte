@@ -9,6 +9,7 @@
   // name IS the id), and a remount would close Advanced, drop focus and tear down
   // a dialog or the tour mid-way. The sections seed their drafts per id instead.
   import { commands, type InstanceWithStatus, type VersionEntry } from '$lib/ipc/bindings';
+  import type { VersionListState } from '$lib/versions/mc-versions.svelte';
   import { deleteBlockedReason } from '$lib/instances/instance-menu';
   import { instanceIpcErrorMessage } from '$lib/instances/instance-ipc-error';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
@@ -42,6 +43,7 @@
     listError,
     fellBack,
     versions,
+    versionList,
     running,
     anyRunning,
     onChanged,
@@ -62,6 +64,7 @@
     /** The data folder is unavailable (a recovery session). */
     fellBack: boolean;
     versions: VersionEntry[];
+    versionList?: VersionListState;
     /** THIS instance's game is up. */
     running: boolean;
     /** Verify/repair touch shared libraries and refuse while ANY game runs. */
@@ -175,13 +178,20 @@
           <InstanceGameSection
             {instance}
             {versions}
+            {versionList}
             {running}
             {busy}
             {focusField}
             onFocusDelivered={delivered}
             {onChanged}
           />
-          <InstanceLaunchSection {instance} {focusField} onFocusDelivered={delivered} {onChanged} />
+          <InstanceLaunchSection
+            {instance}
+            {running}
+            {focusField}
+            onFocusDelivered={delivered}
+            {onChanged}
+          />
         </div>
 
         <div class="flex flex-col">

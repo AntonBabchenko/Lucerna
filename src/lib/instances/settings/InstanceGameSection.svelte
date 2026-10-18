@@ -26,10 +26,13 @@
   import { tooltip } from '$lib/ui/tooltip';
   import { cfgBusy, cfgSuperseded, enqueueCfgChange } from './cfg-queue.svelte';
   import { reportLateFailure } from './late-failure';
+  import VersionListNotice from '$lib/versions/VersionListNotice.svelte';
+  import { LOADED_VERSION_LIST, type VersionListState } from '$lib/versions/mc-versions.svelte';
 
   let {
     instance,
     versions,
+    versionList = LOADED_VERSION_LIST,
     running,
     busy,
     focusField = null,
@@ -38,6 +41,8 @@
   }: {
     instance: InstanceWithStatus;
     versions: VersionEntry[];
+    /** Loading / failed state of `versions`, said under the picker when it shows none. */
+    versionList?: VersionListState;
     /** This instance's game is up: its version and loader stay as they are. */
     running: boolean;
     /** A task runs on this instance (install, verify, mod install…). */
@@ -423,11 +428,13 @@
     </label>
   </div>
   {#if visibleVersions.length === 0}
-    <p class="mb-3 text-xs text-warning-text">
-      {versions.length === 0
-        ? $t('instance.manage.noVersions')
-        : $t('instance.manage.noReleasesEnableSnapshots')}
-    </p>
+    <VersionListNotice
+      total={versions.length}
+      loading={versionList.loading}
+      failure={versionList.failure}
+      onReload={versionList.reload}
+      pickerId="detail-mc-version"
+    />
   {/if}
 
   <!--

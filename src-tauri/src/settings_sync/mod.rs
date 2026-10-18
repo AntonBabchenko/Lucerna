@@ -18,6 +18,8 @@ pub(crate) mod history;
 pub mod hotbars;
 pub mod marker;
 pub mod membership;
+pub(crate) mod options;
+pub mod repair;
 pub(crate) mod servers;
 pub mod sidecar;
 pub mod store;
@@ -27,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// One thing that syncs. Part C adds `Options`.
+/// One thing that syncs.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type,
 )]
@@ -36,18 +38,28 @@ pub enum Kind {
     Servers,
     History,
     Hotbars,
+    Options,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 3] = [Kind::Servers, Kind::History, Kind::Hotbars];
+    pub const ALL: [Kind; 4] = [Kind::Servers, Kind::History, Kind::Hotbars, Kind::Options];
 
-    /// The file the game keeps for this kind, in `.minecraft/` and in the
-    /// shared store alike.
+    /// The file the game keeps for this kind in `.minecraft/`.
     pub fn file(self) -> &'static str {
         match self {
             Kind::Servers => "servers.dat",
             Kind::History => "command_history.txt",
             Kind::Hotbars => "hotbar.nbt",
+            Kind::Options => "options.txt",
+        }
+    }
+
+    /// The shared copy's file: the game's own format, except options, kept
+    /// version-neutral (a game reads only its own version's options.txt).
+    pub fn store_file(self) -> &'static str {
+        match self {
+            Kind::Options => "options.json",
+            other => other.file(),
         }
     }
 
@@ -56,6 +68,7 @@ impl Kind {
             Kind::Servers => "servers",
             Kind::History => "history",
             Kind::Hotbars => "hotbars",
+            Kind::Options => "options",
         }
     }
 }
@@ -163,6 +176,7 @@ pub fn launch_sync(
     instance_root: &Path,
     versions_dir: &Path,
     mc_version: &str,
+    loader: crate::instances::schema::LoaderKind,
     game_closed_confirmed: bool,
     probe: &dyn Fn(u32) -> crate::platform::ImageMatch,
 ) -> crate::error::Result<Option<version::VersionFacts>> {
@@ -177,7 +191,7 @@ pub fn launch_sync(
         return Ok(None);
     }
     guard_orphan(instance_root, game_closed_confirmed, probe)?;
-    let facts = version::VersionFacts::read(versions_dir, mc_version);
+    let facts = version::VersionFacts::read(versions_dir, mc_version, loader);
     before_launch(data_root, instance_root, &facts).map_err(Error::from)?;
     Ok(Some(facts))
 }
@@ -291,6 +305,8 @@ mod api_tests {
         VersionFacts {
             mc_version: "1.21.1".into(),
             data: DataVersion::Version { n: 3955 },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 
@@ -336,6 +352,7 @@ mod api_tests {
             inst,
             &data.join("versions"),
             "1.21.1",
+            crate::instances::schema::LoaderKind::Vanilla,
             confirmed,
             &move |_| probe,
         )

@@ -178,3 +178,42 @@ describe('CreateInstanceDialog', () => {
     expect(errorText()).toBeTruthy();
   });
 });
+
+describe('CreateInstanceDialog — the version list says what it is', () => {
+  beforeAll(() => locale.set('en'));
+
+  it('a failed list shows the failure and Reload; a reload that succeeds hands the focus to the picker', async () => {
+    const reload = vi.fn();
+    const failed = {
+      loading: false,
+      failure:
+        "Couldn't load the Minecraft version list. piston-meta.mojang.com is having problems.",
+      reload,
+    };
+    const { rerender } = render(CreateInstanceDialog, {
+      props: {
+        versions: [],
+        versionList: failed,
+        activate: vi.fn().mockResolvedValue(null),
+        onCreated: vi.fn(),
+        onClose: vi.fn(),
+      },
+    });
+    expect(screen.getByText(/Couldn't load the Minecraft version list/)).toBeTruthy();
+    expect(screen.queryByText(/check your connection/)).toBeNull();
+    const button = screen.getByRole('button', { name: 'Reload' });
+    button.focus();
+    await fireEvent.click(button);
+    expect(reload).toHaveBeenCalledOnce();
+    // While it reloads, the failure and its button stay (busy), so the focus is not dropped.
+    await rerender({ versionList: { ...failed, loading: true } });
+    // Busy, as BusyButton says it: the spinner's «Loading…» joins the name.
+    expect(screen.getByRole('button', { name: /Reload/ }).getAttribute('aria-busy')).toBe('true');
+    expect(document.activeElement).toBe(button);
+    await rerender({
+      versions: [version],
+      versionList: { loading: false, failure: null, reload },
+    });
+    await waitFor(() => expect(document.activeElement?.id).toBe('create-mc-version'));
+  });
+});

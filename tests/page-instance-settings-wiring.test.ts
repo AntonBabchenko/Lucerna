@@ -87,3 +87,34 @@ describe('+page — the instance Settings tab', () => {
     expect(body).toContain('reportActivationFailure(');
   });
 });
+
+describe('+page — v0.28 design review wiring', () => {
+  it('every dialog the row menu opens gives a lost focus to the instance picker on close', () => {
+    for (const dialog of [
+      '<DeleteInstanceDialog',
+      '<CloneInstanceDialog',
+      '<CreateShortcutDialog',
+      '<ExportPackDialog',
+    ]) {
+      const at = src.indexOf(dialog);
+      expect(at, `${dialog} must be mounted`).toBeGreaterThan(-1);
+      const close = src.indexOf('onClose=', at);
+      const body = src.slice(close, src.indexOf('}}', close));
+      expect(body, `${dialog}'s onClose`).toContain('focusInstancePickerIfLost()');
+    }
+    // The translations dialog closes through its binding: an effect watches it.
+    expect(src).toMatch(/if \(l10nWasOpen && !open\) void focusInstancePickerIfLost\(\);/);
+  });
+
+  it('the version pickers get the list’s state, and an install failure says what failed', () => {
+    const create = src.slice(
+      src.indexOf('<CreateInstanceDialog'),
+      src.indexOf('/>', src.indexOf('<CreateInstanceDialog')),
+    );
+    expect(create).toContain('{versionList}');
+    const tab = src.slice(src.indexOf('<InstanceSettingsTab'));
+    // Among its props (the opening tag is a few hundred characters long).
+    expect(tab.slice(0, 1200)).toContain('{versionList}');
+    expect(functionBody('async function onInstall()')).toContain("'page.overview.installFailed'");
+  });
+});

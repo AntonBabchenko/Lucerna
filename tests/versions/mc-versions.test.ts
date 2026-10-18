@@ -47,7 +47,8 @@ describe('createMcVersions self-heal', () => {
       .mockResolvedValue({ status: 'ok', data: [entry('1.20.1')] });
     const m = createMcVersions();
     await m.load();
-    expect(m.error).toBe('net down');
+    // What failed, then why: the headline, then the failure's own sentence.
+    expect(m.error).toMatch(/^Couldn't load the Minecraft version list. net down$/);
     expect(listVersionsMock).toHaveBeenCalledTimes(1);
     // First backoff step is 2000ms.
     await vi.advanceTimersByTimeAsync(2000);
@@ -64,7 +65,8 @@ describe('createMcVersions self-heal', () => {
     listVersionsMock.mockResolvedValueOnce({ status: 'error', error: 'net down' });
     const m = createMcVersions();
     await m.load();
-    expect(m.error).toBe('net down');
+    // What failed, then why: the headline, then the failure's own sentence.
+    expect(m.error).toMatch(/^Couldn't load the Minecraft version list. net down$/);
     listVersionsMock.mockResolvedValue({ status: 'ok', data: [entry('1.20.1')] });
     window.dispatchEvent(new Event('online'));
     // onOnline → load() → attempt() → await listVersions() is a 2-await chain, so

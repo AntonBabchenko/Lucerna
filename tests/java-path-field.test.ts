@@ -192,7 +192,7 @@ describe('JavaPathField', () => {
     });
     await fireEvent.click(await screen.findByRole('combobox', { name: 'Java' }));
     await fireEvent.mouseDown(
-      await screen.findByRole('option', { name: /^Lucerna's Java \(recommended\)/ }),
+      await screen.findByRole('option', { name: /^Always Lucerna's Java$/ }),
     );
     await waitFor(() =>
       expect(commands.setInstanceJava).toHaveBeenCalledWith('a', { kind: 'bundled' }),

@@ -26,10 +26,11 @@ use super::baseline::{self, Slot, Snapshot};
 use super::failure::{self, At};
 use super::history::{self, Sep};
 use super::hotbars::{self, Hotbars};
+use super::options::doc::{self as options_doc, OptionsFile, OptionsRead, Values, WaitReason};
 use super::servers::{self, Entry};
 use super::sidecar::Join;
 use super::store::StoreLock;
-use super::version::{DataVersion, VersionFacts};
+use super::version::{DataVersion, OptionsUnsupported, VersionFacts};
 use super::{game_file, Kind};
 use crate::datapacks::level_dat::{self, Framing};
 use crate::error::{Error, Result};
@@ -90,6 +91,11 @@ pub enum KindOutcome {
     },
     /// Shared hotbars were saved by a newer Minecraft: this instance keeps its own.
     OlderThanShared,
+    /// options.txt is not this game's own yet: nothing was read or written,
+    /// and a join still waits.
+    Waiting {
+        why: WaitReason,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
@@ -103,6 +109,14 @@ pub enum Unsupported {
     HotbarsNotInstalled,
     /// A snapshot or pre-release.
     HotbarsNotRelease,
+    /// 1.12.2 and older.
+    OptionsTooOld,
+    /// A release newer than the options catalog.
+    OptionsTooNew,
+    /// A snapshot or pre-release.
+    OptionsNotRelease,
+    /// The game files are not installed yet (or are damaged).
+    OptionsNotInstalled,
 }
 
 pub fn sync_kind(
@@ -117,16 +131,27 @@ pub fn sync_kind(
         return Ok(KindOutcome::Unsupported { why });
     }
     let path = game_file(instance_root, kind);
-    resolve_pending(instance_root, kind, &path)?;
-
-    let now = read_doc(kind, &path)?;
+    resolve_pending(instance_root, kind, &path, facts)
+        .map_err(|e| forget_on_damage(instance_root, kind, e))?;
+    let now = read_now(kind, &path, facts).map_err(|e| forget_on_damage(instance_root, kind, e))?;
+    let base = baseline::read(instance_root, kind, Slot::Baseline)?;
+    let base = if outlived(base.as_ref(), &now) {
+        forget_records(instance_root, kind)?;
+        None
+    } else {
+        base
+    };
+    let now = match now {
+        Now::Waiting { why, .. } => return Ok(KindOutcome::Waiting { why }),
+        Now::Present(doc) => Some(doc),
+        Now::Absent => None,
+    };
     let shared = match store.load(kind)? {
         Some(bytes) => Some(parse_doc(kind, &bytes).map_err(|why| {
-            failure::damaged(At::shared(kind), &store.dir().join(kind.file()), why)
+            failure::damaged(At::shared(kind), &store.dir().join(kind.store_file()), why)
         })?),
         None => None,
     };
-    let base = baseline::read(instance_root, kind, Slot::Baseline)?;
 
     if kind == Kind::Hotbars && join != Join::MakeShared {
         if let (Some(Doc::Hotbars(s)), Some(dv)) = (&shared, facts.hotbar_version()) {
@@ -165,7 +190,7 @@ pub fn sync_kind(
         None => !merged.is_empty(),
     };
     if changed {
-        store.save(kind, &merged.bytes()?)?;
+        store.save(kind, &merged.store_bytes()?)?;
         (seams.after_capture_save)().map_err(|e| Error::io("<after capture>", e))?;
     }
 
@@ -189,14 +214,15 @@ pub fn sync_kind(
         None => !next.is_empty(),
     };
     if differs {
-        // A join that replaces this instance's own hotbars keeps them first.
-        if outcome == KindOutcome::Joined && kind == Kind::Hotbars && now.is_some() {
-            set_aside_own_hotbars(&path, seams)?;
+        // A join that replaces this instance's own hotbars or options keeps
+        // them first.
+        if let (KindOutcome::Joined, Some(_), Some(name)) = (outcome, &now, set_aside_name(kind)) {
+            set_aside_own(kind, &path, name, seams)?;
         }
         let snap = snapshot(facts, &next);
         baseline::write(instance_root, kind, Slot::Pending, &snap)?;
         (seams.after_pending_write)().map_err(|e| Error::io("<after pending>", e))?;
-        super::fsio::write_atomic(At::game(kind), &path, &next.bytes()?)?;
+        super::fsio::write_atomic(At::game(kind), &path, &next.file_bytes()?)?;
         (seams.after_instance_write)().map_err(|e| Error::io("<after instance>", e))?;
         baseline::write(instance_root, kind, Slot::Baseline, &snap)?;
         baseline::remove(instance_root, kind, Slot::Pending)?;
@@ -222,28 +248,134 @@ pub(crate) fn unsupported(kind: Kind, facts: &VersionFacts) -> Option<Unsupporte
             DataVersion::JarUnavailable => Some(Unsupported::HotbarsNotInstalled),
             DataVersion::NotRelease => Some(Unsupported::HotbarsNotRelease),
         },
+        Kind::Options => facts.options_version().err().map(|why| match why {
+            OptionsUnsupported::TooOld => Unsupported::OptionsTooOld,
+            OptionsUnsupported::TooNew => Unsupported::OptionsTooNew,
+            OptionsUnsupported::NotRelease => Unsupported::OptionsNotRelease,
+            OptionsUnsupported::NotInstalled => Unsupported::OptionsNotInstalled,
+        }),
     }
 }
 
-/// The name the instance's own hotbars get in the Recycle Bin when a join
-/// replaces them.
-const SET_ASIDE_NAME: &str = "hotbar (before shared hotbars).nbt";
+/// The name the instance's own file gets in the Recycle Bin when a join
+/// replaces it; `None` for a kind whose join merges (servers, history).
+fn set_aside_name(kind: Kind) -> Option<&'static str> {
+    match kind {
+        Kind::Hotbars => Some("hotbar (before shared hotbars).nbt"),
+        Kind::Options => Some("options (before shared settings).txt"),
+        Kind::Servers | Kind::History => None,
+    }
+}
 
-/// A copy of the instance's own hotbars goes to the Recycle Bin before a
-/// join replaces them (spec §B7). If that fails the join stops here and
+/// This instance's records of the last sync (baseline and pending), gone so
+/// that the next sync point is a join. Each removal is checked.
+pub(crate) fn forget_records(instance_root: &Path, kind: Kind) -> Result<()> {
+    baseline::remove(instance_root, kind, Slot::Pending)?;
+    baseline::remove(instance_root, kind, Slot::Baseline)
+}
+
+/// This instance's file does not parse. Its records describe a file that is
+/// gone, and what the game writes next (its defaults after a failed load, a
+/// list of only what was added since) is no edit: the records go, so the
+/// next readable file joins. The damage stays the error; a record that cannot
+/// be removed is logged with it.
+fn forget_on_damage(instance_root: &Path, kind: Kind, e: Error) -> Error {
+    if failure::classify(&e) == (Some(failure::SyncFile::Game), failure::FileReason::Damaged) {
+        if let Err(r) = forget_records(instance_root, kind) {
+            crate::diag!(
+                "settings sync: the records of a damaged {} stay ({r})",
+                kind.file()
+            );
+        }
+    }
+    e
+}
+
+/// options.txt: the records describe a file this one does not continue. The
+/// game re-created it (deleted, or a pack's copy without this game's
+/// `version`), or an OLDER version saved it, dropping what it cannot name:
+/// either way it holds the game's defaults where the user's values were, and
+/// compared with the records those would read as edits and reach every
+/// instance. Such a file joins instead (the shared values win). A newer
+/// version's save continues the records: an upgrade captures what changed.
+fn outlived(base: Option<&Snapshot>, now: &Now) -> bool {
+    let Some(base) = base else {
+        return false;
+    };
+    match now {
+        Now::Waiting {
+            why: WaitReason::FirstLaunch,
+            ..
+        } => true,
+        Now::Waiting {
+            why: WaitReason::GameSave,
+            version,
+        } => *version != base.stamp,
+        Now::Present(Doc::Options(_, Some(file))) => base.stamp.is_none_or(|s| file.dv < s),
+        _ => false,
+    }
+}
+
+/// `ReplaceShared`: this instance's file becomes the shared copy (what was
+/// there rotates into `backups/`, damaged or not) and its records start from
+/// it. A file this game has not written (options) changes nothing.
+pub(crate) fn share_own(
+    instance_root: &Path,
+    store: &StoreLock,
+    facts: &VersionFacts,
+    kind: Kind,
+) -> Result<KindOutcome> {
+    if let Some(why) = unsupported(kind, facts) {
+        return Ok(KindOutcome::Unsupported { why });
+    }
+    let path = game_file(instance_root, kind);
+    let now = match read_now(kind, &path, facts)? {
+        Now::Waiting { why, .. } => return Ok(KindOutcome::Waiting { why }),
+        Now::Present(doc) => doc,
+        Now::Absent => Doc::empty(kind),
+    };
+    store.save(kind, &now.store_bytes()?)?;
+    baseline::write(instance_root, kind, Slot::Baseline, &snapshot(facts, &now))?;
+    baseline::remove(instance_root, kind, Slot::Pending)?;
+    Ok(KindOutcome::Synced)
+}
+
+/// `ReplaceOwn`: this instance's file goes to the Recycle Bin as
+/// `<name> (damaged).<ext>` and leaves `.minecraft/`; nothing happens to an
+/// absent file. A Recycle Bin that refuses leaves the file where it was.
+pub(crate) fn set_aside_damaged(
+    instance_root: &Path,
+    kind: Kind,
+    set_aside: &dyn Fn(PathBuf) -> io::Result<()>,
+) -> Result<()> {
+    let path = game_file(instance_root, kind);
+    let name = match kind.file().rsplit_once('.') {
+        Some((stem, ext)) => format!("{stem} (damaged).{ext}"),
+        None => format!("{} (damaged)", kind.file()),
+    };
+    let seams = Seams {
+        set_aside,
+        ..Seams::none()
+    };
+    set_aside_own(kind, &path, &name, &seams)?;
+    super::fsio::remove_if_present(At::game(kind), &path)
+}
+
+/// A copy of the instance's own file goes to the Recycle Bin before a join
+/// replaces it (spec §B7, §C4). If that fails the join stops here and
 /// nothing has changed: the copy is removed (checked) and the instance's
 /// file is untouched.
-fn set_aside_own_hotbars(path: &Path, seams: &Seams) -> Result<()> {
-    let at = At::game(Kind::Hotbars);
+fn set_aside_own(kind: Kind, path: &Path, name: &str, seams: &Seams) -> Result<()> {
+    let at = At::game(kind);
     let Some(bytes) = super::fsio::read_if_present(at, path)? else {
         return Ok(());
     };
-    let aside = path.with_file_name(SET_ASIDE_NAME);
+    let aside = path.with_file_name(name);
     super::fsio::write_atomic(at, &aside, &bytes)?;
     if let Err(e) = (seams.set_aside)(aside.clone()) {
         if let Err(r) = super::fsio::remove_if_present(at, &aside) {
             crate::diag!(
-                "settings sync: could not remove the hotbars copy {} ({r})",
+                "settings sync: could not remove the set-aside copy {} ({r})",
                 aside.display()
             );
         }
@@ -262,11 +394,19 @@ fn too_new_for(doc: &Doc, facts: &VersionFacts) -> bool {
 
 /// Step 1: a pending file whose content landed becomes the baseline; one
 /// whose write never landed is dropped. Its removal is checked.
-fn resolve_pending(instance_root: &Path, kind: Kind, path: &Path) -> Result<()> {
+fn resolve_pending(
+    instance_root: &Path,
+    kind: Kind,
+    path: &Path,
+    facts: &VersionFacts,
+) -> Result<()> {
     let Some(pending) = baseline::read(instance_root, kind, Slot::Pending)? else {
         return Ok(());
     };
-    let now = read_doc(kind, path)?;
+    let now = match read_now(kind, path, facts)? {
+        Now::Present(doc) => Some(doc),
+        Now::Absent | Now::Waiting { .. } => None,
+    };
     if now.is_some_and(|n| n.data() == pending.data && n.stamp() == pending.stamp) {
         baseline::write(instance_root, kind, Slot::Baseline, &pending)?;
     }
@@ -286,6 +426,9 @@ fn joined(kind: Kind, join: Join, now: Option<&Doc>, shared: Option<&Doc>) -> Do
                 Doc::History(history::capture(&[], n, s), *sep)
             }
             (Doc::Hotbars(_), Doc::Hotbars(_)) if join == Join::MakeShared => n.clone(),
+            (Doc::Options(s, _), Doc::Options(n, _)) => {
+                Doc::Options(options_doc::join(s, n, join == Join::MakeShared), None)
+            }
             _ => s.clone(),
         },
     }
@@ -305,6 +448,9 @@ fn capture(before: &Doc, now: &Doc, shared: &Doc, facts: &VersionFacts) -> Doc {
             // stamped as that newer game's.
             let dv = n.data_version.or(facts.hotbar_version()).unwrap_or(0);
             Doc::Hotbars(hotbars::capture(b, n, s, dv))
+        }
+        (Doc::Options(b, _), Doc::Options(n, _), Doc::Options(s, _)) => {
+            Doc::Options(options_doc::capture(b, n, s), None)
         }
         // Kinds never mix: every Doc here was read for one `kind`.
         _ => shared.clone(),
@@ -332,6 +478,15 @@ fn render(now: Option<&Doc>, shared: &Doc, facts: &VersionFacts) -> Doc {
                 ..h.clone()
             })
         }
+        // Edited in place in this game's own file; there always is one (an
+        // absent file waits instead).
+        Doc::Options(values, _) => match now {
+            Some(Doc::Options(_, Some(file))) => {
+                let out = options_doc::render(file, values, facts.has_key_modifiers());
+                Doc::Options(out.values.clone(), Some(out))
+            }
+            _ => shared.clone(),
+        },
     }
 }
 
@@ -349,6 +504,20 @@ enum Doc {
     Servers(Vec<Entry>),
     History(Vec<String>, Sep),
     Hotbars(Hotbars),
+    /// The values, and the instance's file they were read from (`None` for
+    /// the shared copy and for a merge).
+    Options(Values, Option<OptionsFile>),
+}
+
+/// The instance's file as a sync point finds it.
+enum Now {
+    Present(Doc),
+    Absent,
+    /// options.txt only: not this game's own yet (`version`: its own line).
+    Waiting {
+        why: WaitReason,
+        version: Option<i32>,
+    },
 }
 
 impl Doc {
@@ -361,6 +530,7 @@ impl Doc {
                 data_version: None,
                 framing: Framing::Raw,
             }),
+            Kind::Options => Doc::Options(Values::new(), None),
         }
     }
 
@@ -369,6 +539,7 @@ impl Doc {
             Doc::Servers(s) => s.is_empty(),
             Doc::History(l, _) => l.is_empty(),
             Doc::Hotbars(h) => h.rows.is_empty(),
+            Doc::Options(v, _) => v.is_empty(),
         }
     }
 
@@ -378,12 +549,16 @@ impl Doc {
             Doc::Servers(s) => servers::to_value(s),
             Doc::History(l, _) => Value::List(l.iter().cloned().map(Value::String).collect()),
             Doc::Hotbars(h) => hotbars::rows_value(h),
+            Doc::Options(v, _) => options_doc::to_value(v),
         }
     }
 
+    /// The file's own version: hotbars' `DataVersion`, options.txt's
+    /// `version` line.
     fn stamp(&self) -> Option<i32> {
         match self {
             Doc::Hotbars(h) => h.data_version,
+            Doc::Options(_, file) => file.as_ref().map(|f| f.dv),
             _ => None,
         }
     }
@@ -392,21 +567,54 @@ impl Doc {
         self.data() == other.data() && self.stamp() == other.stamp()
     }
 
-    fn bytes(&self) -> Result<Vec<u8>> {
+    /// The shared copy's bytes.
+    fn store_bytes(&self) -> Result<Vec<u8>> {
+        match self {
+            Doc::Options(v, _) => options_doc::store_bytes(v),
+            other => other.file_bytes(),
+        }
+    }
+
+    /// The instance's file's bytes.
+    fn file_bytes(&self) -> Result<Vec<u8>> {
         match self {
             Doc::Servers(s) => servers::to_bytes(s),
             Doc::History(l, sep) => Ok(history::render(l, *sep)),
             Doc::Hotbars(h) => hotbars::to_bytes(h),
+            Doc::Options(_, Some(file)) => Ok(file.parsed.render().into_bytes()),
+            // Never reached: render keeps the instance's file, and an absent
+            // one waits. An error rather than a file Lucerna would create.
+            Doc::Options(_, None) => Err(Error::io(
+                "options.txt",
+                "no file of this game's to edit".to_string(),
+            )),
         }
     }
 }
 
-fn read_doc(kind: Kind, path: &Path) -> Result<Option<Doc>> {
-    Ok(match kind {
+fn read_now(kind: Kind, path: &Path, facts: &VersionFacts) -> Result<Now> {
+    let doc = match kind {
         Kind::Servers => servers::read(path)?.map(Doc::Servers),
         Kind::History => history::read(path)?.map(|(l, sep)| Doc::History(l, sep)),
         Kind::Hotbars => hotbars::read(path)?.map(Doc::Hotbars),
-    })
+        Kind::Options => {
+            // `unsupported` turned every such version away first; were one
+            // to get here, absence would let a file be created.
+            let Ok(dv) = facts.options_version() else {
+                return Err(Error::io(
+                    "options.txt",
+                    "no options catalog for this Minecraft version".to_string(),
+                ));
+            };
+            return Ok(match options_doc::read(At::game(kind), path, dv)? {
+                OptionsRead::File(file) => {
+                    Now::Present(Doc::Options(file.values.clone(), Some(file)))
+                }
+                OptionsRead::Waiting { why, version } => Now::Waiting { why, version },
+            });
+        }
+    };
+    Ok(doc.map_or(Now::Absent, Now::Present))
 }
 
 fn parse_doc(kind: Kind, bytes: &[u8]) -> std::result::Result<Doc, String> {
@@ -421,6 +629,7 @@ fn parse_doc(kind: Kind, bytes: &[u8]) -> std::result::Result<Doc, String> {
             let (root, framing) = level_dat::parse(bytes).map_err(|e| e.to_string())?;
             hotbars::from_root(root, framing).map(Doc::Hotbars)
         }
+        Kind::Options => options_doc::parse_store(bytes).map(|v| Doc::Options(v, None)),
     }
 }
 
@@ -446,6 +655,7 @@ fn doc_from_snapshot(kind: Kind, snap: &Snapshot) -> std::result::Result<Doc, St
             })),
             _ => Err("the hotbars are not a compound".into()),
         },
+        Kind::Options => options_doc::from_value(&snap.data).map(|v| Doc::Options(v, None)),
     }
 }
 
@@ -482,6 +692,8 @@ mod tests {
         VersionFacts {
             mc_version: mc.into(),
             data: DataVersion::Version { n: 3955 },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 
@@ -584,6 +796,20 @@ mod tests {
         assert_eq!(shared_servers(&w), ["A"]);
     }
 
+    /// The game reads nothing from a server list it cannot parse and saves
+    /// only what is added since: that is no list of removals.
+    #[test]
+    fn a_damaged_server_list_rejoins_instead_of_reading_removals() {
+        let w = world();
+        put_servers(&w.a, &["A", "B"]);
+        sync(&w, &w.a, Kind::Servers, "1.21.1").unwrap();
+        std::fs::write(game_file(&w.a, Kind::Servers), b"not nbt").unwrap();
+        assert!(sync(&w, &w.a, Kind::Servers, "1.21.1").is_err());
+        put_servers(&w.a, &["C"]);
+        sync(&w, &w.a, Kind::Servers, "1.21.1").unwrap();
+        assert_eq!(shared_servers(&w), ["A", "B", "C"]);
+    }
+
     #[test]
     fn a_missing_file_captures_nothing_and_gets_the_shared_list() {
         let w = world();
@@ -615,6 +841,8 @@ mod tests {
         VersionFacts {
             mc_version: mc.into(),
             data: DataVersion::Version { n },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 
@@ -929,6 +1157,8 @@ mod tests {
         let old = VersionFacts {
             mc_version: "1.12.2".into(),
             data: DataVersion::NotRecorded,
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         };
         assert_eq!(
             sync_kind(

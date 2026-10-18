@@ -489,9 +489,26 @@ describe('a change that finishes after the tab is gone', () => {
 });
 
 describe('the Game section', () => {
-  it('says the version list is unavailable when there are no versions at all', () => {
+  it('says no version is available when a loaded list holds none', () => {
     render(InstanceGameSection, { props: props({ versions: [] }) });
-    expect(screen.getByText(/version list unavailable/i)).toBeTruthy();
+    expect(screen.getByText(/no minecraft versions are available/i)).toBeTruthy();
+  });
+
+  it('says the list failed, with Reload, instead of blaming the connection', () => {
+    const reload = vi.fn();
+    render(InstanceGameSection, {
+      props: props({
+        versions: [],
+        versionList: {
+          loading: false,
+          failure: "Couldn't load the Minecraft version list. Offline.",
+          reload,
+        },
+      }),
+    });
+    expect(screen.getByText(/Couldn't load the Minecraft version list/)).toBeTruthy();
+    screen.getByRole('button', { name: 'Reload' }).click();
+    expect(reload).toHaveBeenCalledOnce();
   });
 
   it('nudges to show snapshots when only snapshot versions exist', () => {

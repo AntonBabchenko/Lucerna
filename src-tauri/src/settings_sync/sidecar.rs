@@ -30,9 +30,10 @@ pub struct KindState {
 pub enum Join {
     #[default]
     Done,
-    /// Take the shared copy (servers / history merge; hotbars replace).
+    /// Take the shared copy (servers / history merge; hotbars replace;
+    /// options: the shared values win for keys both have).
     UseShared,
-    /// Hotbars only: this instance's hotbars become the shared ones.
+    /// Hotbars and options: this instance's become the shared ones.
     MakeShared,
 }
 

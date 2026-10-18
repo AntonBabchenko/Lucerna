@@ -940,10 +940,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	assetsList: (instanceId: string, kind: ContentKind) => typedError<AssetListing, Error>(__TAURI_INVOKE("assets_list", { instanceId, kind })),
 	/**
-	 *  Remove a pack — its file, or a folder pack to the OS recycle bin — and
+	 *  Remove a pack — a file Lucerna can download again is deleted, one it cannot
+	 *  (no source: put there by hand, or shipped in a modpack's overrides) and a
+	 *  folder pack go to the OS recycle bin (`asset_folder::if_file_for`) — and
 	 *  then its registry row. The folder is the truth: a file that stays would be
 	 *  listed again, so a removal that fails keeps the row and says why; a file
-	 *  already gone is fine (a ghost row's repair).
+	 *  already gone is fine (a ghost row's repair). Returns where the pack went,
+	 *  for the toast.
 	 * 
 	 *  Every asset writer here runs under the instance's SHARED maintenance claim
 	 *  (`instances::maintenance::claim_shared_write`): refused with `InstanceBusy`
@@ -951,7 +954,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  them — holds the instance; admitted alongside other item writers and while
 	 *  the game runs.
 	 */
-	assetUninstall: (instanceId: string, kind: ContentKind, filename: string) => typedError<null, Error>(__TAURI_INVOKE("asset_uninstall", { instanceId, kind, filename })),
+	assetUninstall: (instanceId: string, kind: ContentKind, filename: string) => typedError<AssetRemoval, Error>(__TAURI_INVOKE("asset_uninstall", { instanceId, kind, filename })),
 	/**
 	 *  Install a local resource-pack / shader `.zip` from disk into the instance as
 	 *  a manual asset (`source: None`). Validity-only: rejects a non-zip, or a
@@ -1579,20 +1582,46 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  comes back until the user says it is closed (`game_closed_confirmed`).
 	 */
 	settingsSyncSetKind: (instanceId: string, kind: Kind, enabled: boolean, join: "done" | 
-/**  Take the shared copy (servers / history merge; hotbars replace). */
+/**
+ *  Take the shared copy (servers / history merge; hotbars replace;
+ *  options: the shared values win for keys both have).
+ */
 "use_shared" | 
-/**  Hotbars only: this instance's hotbars become the shared ones. */
+/**  Hotbars and options: this instance's become the shared ones. */
 "make_shared" | null, gameClosedConfirmed: boolean) => typedError<{ kind: "synced" } | 
 /**  A join completed. */
 { kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
 /**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
-{ kind: "older_than_shared" } | null, Error>(__TAURI_INVOKE("settings_sync_set_kind", { instanceId, kind, enabled, join, gameClosedConfirmed })),
+{ kind: "older_than_shared" } | 
+/**
+ *  options.txt is not this game's own yet: nothing was read or written,
+ *  and a join still waits.
+ */
+{ kind: "waiting"; why: WaitReason } | null, Error>(__TAURI_INVOKE("settings_sync_set_kind", { instanceId, kind, enabled, join, gameClosedConfirmed })),
 	/**
 	 *  "Stop syncing <kind> here", from the launch dialog or the section; `kind`
 	 *  is `None` when the sync settings themselves could not be read (they go to
 	 *  the Recycle Bin and start over with nothing on).
+	 * 
+	 *  (The repair command below is the way out of a damaged sync file.)
 	 */
-	settingsSyncStop: (instanceId: string, kind: "servers" | "history" | "hotbars" | null) => typedError<null, Error>(__TAURI_INVOKE("settings_sync_stop", { instanceId, kind })),
+	settingsSyncStop: (instanceId: string, kind: "servers" | "history" | "hotbars" | "options" | null) => typedError<null, Error>(__TAURI_INVOKE("settings_sync_stop", { instanceId, kind })),
+	/**
+	 *  The way out of a sync file that does not parse, for its reason class
+	 *  (spec §15): the shared copy replaced by this instance's, this instance's
+	 *  file replaced by the shared copy, or its records started afresh. Holds the
+	 *  instance's claim; asks about a game Lucerna lost track of as a join does.
+	 */
+	settingsSyncRepair: (instanceId: string, kind: Kind, repair: Repair, gameClosedConfirmed: boolean) => typedError<{ kind: "synced" } | 
+/**  A join completed. */
+{ kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
+/**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
+{ kind: "older_than_shared" } | 
+/**
+ *  options.txt is not this game's own yet: nothing was read or written,
+ *  and a join still waits.
+ */
+{ kind: "waiting"; why: WaitReason } | null, Error>(__TAURI_INVOKE("settings_sync_repair", { instanceId, kind, repair, gameClosedConfirmed })),
 	/**  What the transfer dialog shows for `source_id` → `target_id`. Read-only. */
 	transferScan: (sourceId: string, targetId: string) => typedError<TransferPreview, Error>(__TAURI_INVOKE("transfer_scan", { sourceId, targetId })),
 	/**
@@ -2915,6 +2944,15 @@ export type AssetListing = {
 	folders: string[] | null,
 };
 
+/**  What a removal did, for the toast: the user is told where the pack went. */
+export type AssetRemoval = 
+/**  Nothing was there any more (a ghost row's repair). */
+"already_gone" | 
+/**  Deleted; Lucerna can download it again. */
+"deleted" | 
+/**  Moved to the OS recycle bin. */
+"recycle_bin";
+
 /**  One installed resource-pack/shader's update-check result. */
 export type AssetUpdateCheck = AssetUpdateCheck_Serialize | AssetUpdateCheck_Deserialize;
 
@@ -2972,6 +3010,11 @@ export type AssetUpdateState_Serialize =
 export type Availability = { status: "available" } | { status: "unsupported"; why: Unsupported } | 
 /**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
 { status: "older_than_shared" } | 
+/**
+ *  options.txt is not this game's own yet (spec §C4): nothing syncs
+ *  until the game has written it.
+ */
+{ status: "waiting"; why: WaitReason } | 
 /**  A file this row needs cannot be read; the other rows still work. */
 { status: "unreadable"; file: SyncFile; reason: FileReason };
 
@@ -5611,9 +5654,12 @@ export type JavaVerdict =
 
 /**  A join still to complete at the next sync point that can apply the kind. */
 export type Join = "done" | 
-/**  Take the shared copy (servers / history merge; hotbars replace). */
+/**
+ *  Take the shared copy (servers / history merge; hotbars replace;
+ *  options: the shared values win for keys both have).
+ */
 "use_shared" | 
-/**  Hotbars only: this instance's hotbars become the shared ones. */
+/**  Hotbars and options: this instance's become the shared ones. */
 "make_shared";
 
 /**  One recorded moment in an instance's life. */
@@ -5830,15 +5876,20 @@ export type KeyStatus = "missing" |
  */
 export type KeyringOp = "read" | "write" | "delete";
 
-/**  One thing that syncs. Part C adds `Options`. */
-export type Kind = "servers" | "history" | "hotbars";
+/**  One thing that syncs. */
+export type Kind = "servers" | "history" | "hotbars" | "options";
 
 /**  How one kind's sync point ended. */
 export type KindOutcome = { kind: "synced" } | 
 /**  A join completed. */
 { kind: "joined" } | { kind: "unsupported"; why: Unsupported } | 
 /**  Shared hotbars were saved by a newer Minecraft: this instance keeps its own. */
-{ kind: "older_than_shared" };
+{ kind: "older_than_shared" } | 
+/**
+ *  options.txt is not this game's own yet: nothing was read or written,
+ *  and a join still waits.
+ */
+{ kind: "waiting"; why: WaitReason };
 
 export type KindView = {
 	kind: Kind,
@@ -5846,8 +5897,8 @@ export type KindView = {
 	join: Join,
 	availability: Availability,
 	/**
-	 *  Hotbars only: shared hotbars exist and this instance has its own, so
-	 *  turning sync on asks which to keep.
+	 *  Hotbars and options: shared ones exist and this instance has its
+	 *  own, so turning sync on asks which to keep.
 	 */
 	join_asks: boolean,
 };
@@ -7964,6 +8015,23 @@ export type RemovedAccount = {
 	details: string | null,
 };
 
+export type Repair = 
+/**
+ *  This instance's file becomes the shared copy; the damaged copy is kept
+ *  in the shared folder's backups.
+ */
+"replace_shared" | 
+/**
+ *  This instance's file goes to the Recycle Bin and the shared copy is
+ *  taken (options: once the game has written a new file).
+ */
+"replace_own" | 
+/**
+ *  This instance's records of the last sync start afresh; its file is
+ *  joined with the shared copy as on turning the kind on.
+ */
+"reset_records";
+
 /**  The user's confirmed choice, sent back to `execute_repair`. */
 export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "reinstall_loader" } | 
 /**
@@ -9245,7 +9313,15 @@ export type Unsupported =
 /**  The game files are not installed yet (or the jar is damaged). */
 "hotbars_not_installed" | 
 /**  A snapshot or pre-release. */
-"hotbars_not_release";
+"hotbars_not_release" | 
+/**  1.12.2 and older. */
+"options_too_old" | 
+/**  A release newer than the options catalog. */
+"options_too_new" | 
+/**  A snapshot or pre-release. */
+"options_not_release" | 
+/**  The game files are not installed yet (or are damaged). */
+"options_not_installed";
 
 /**
  *  The result of an update check. `available` is false when up-to-date.
@@ -9541,6 +9617,16 @@ export type VtPack = {
 	description?: string,
 	incompatible?: string[],
 };
+
+/**  Why an instance's options.txt is neither read nor written yet. */
+export type WaitReason = 
+/**  No options.txt yet: the game writes it on its first launch. */
+"first_launch" | 
+/**
+ *  The file is not this game's own (no `version` line, or another
+ *  version's): the game rewrites it the next time it saves its settings.
+ */
+"game_save";
 
 /**  One `whitelist.json` entry. Minecraft matches whitelisted players by UUID. */
 export type WhitelistEntry = {
