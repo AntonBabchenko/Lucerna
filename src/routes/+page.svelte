@@ -6,6 +6,7 @@
     type CrashReport,
     type Error as IpcError,
     type InstanceWithStatus,
+    type JavaOrigin,
     type OptimisePlan,
   } from '$lib/ipc/bindings';
   import { isJavaProblem, type JavaProblem } from '$lib/java/JavaRescuePanel.svelte';
@@ -329,9 +330,28 @@
   // runtime cannot be had, or is not downloaded). Written only through
   // `setInstallError`, so it never outlives the message it belongs to.
   let javaProblem = $state<JavaProblem | null>(null);
+  // Where the Java behind `installError` was chosen, when that Java cannot be used: the line then
+  // offers the way back to the choice (`chooseJava`).
+  let javaUnusableOrigin = $state<JavaOrigin | null>(null);
   function setInstallError(message: string | null, error: IpcError | null = null) {
     installError = message;
     javaProblem = isJavaProblem(error) ? error : null;
+    // A client launch never runs on a server's Java, so only the two origins it can meet.
+    javaUnusableOrigin =
+      error?.kind === 'java_unusable' && error.origin.kind !== 'server' ? error.origin : null;
+  }
+  function chooseJava(origin: JavaOrigin) {
+    switch (origin.kind) {
+      case 'instance':
+        requestInstanceSettings(activeInstance?.id ?? null, 'java');
+        return;
+      case 'default':
+        void openSettingsAt('game.java');
+        return;
+      case 'server':
+        // A client launch never runs on a server's Java; nothing to open.
+        return;
+    }
   }
   // Client (game) processes, keyed by instance_id — multiple instances can run
   // at once. `exited` mirrors it: the LAST exit per instance (crash / exit
@@ -2007,6 +2027,8 @@
               versionsRetrying={mcv.loading}
               onDismissInstallError={() => setInstallError(null)}
               {javaProblem}
+              {javaUnusableOrigin}
+              onChooseJava={chooseJava}
               onJavaProblem={(e) => setInstallError(formatError(e), e)}
               onJavaSaved={(id) => {
                 // The user may have switched instances while the write ran.

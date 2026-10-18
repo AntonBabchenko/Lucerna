@@ -87,6 +87,10 @@
   // The Java field probes and looks for Javas when it mounts, so it mounts only
   // once Advanced is open, not on every visit to the tab (#508).
   let advancedOpen = $state(false);
+  // «Choose another Java» (Overview, a chosen Java that cannot be used) lands on the Java list.
+  $effect(() => {
+    if (focusField === 'java') advancedOpen = true;
+  });
 
   async function save(
     field: SavedField | null,
@@ -204,15 +208,24 @@
       />
       <p class="mt-1 text-xs text-placeholder">{$t('instance.manage.minHeapHint')}</p>
       {#if advancedOpen}
-        <JavaPathField
-          instanceId={instance.id}
-          value={instance.java}
-          mcVersion={instance.mc_version}
-          loader={instance.loader}
-          loaderVersion={instance.loader_version}
-          ready={instance.ready}
-          onChanged={() => onChanged()}
-        />
+        <div
+          data-focus-field="java"
+          use:fieldFlash={{
+            active: focusField === 'java',
+            focus: shouldFocusField('java'),
+            onDelivered: onFocusDelivered,
+          }}
+        >
+          <JavaPathField
+            instanceId={instance.id}
+            value={instance.java}
+            mcVersion={instance.mc_version}
+            loader={instance.loader}
+            loaderVersion={instance.loader_version}
+            ready={instance.ready}
+            onChanged={() => onChanged()}
+          />
+        </div>
       {/if}
     </div>
   </details>
