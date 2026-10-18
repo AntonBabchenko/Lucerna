@@ -597,6 +597,47 @@ describe('optional badge', () => {
     expect(onConfirm).toHaveBeenCalledWith([]);
   });
 
+  it('says what a pack that lists no files installs, in place of an empty pick', () => {
+    const summary = { ...baseSummary, files: [], has_overrides: true };
+    const { getByText, queryByText, queryByTestId } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect(getByText(/what it installs is bundled inside it/)).toBeTruthy();
+    expect(queryByText(/0 of 0 selected/)).toBeNull();
+    expect(queryByTestId('picker-select-all')).toBeNull();
+  });
+
+  it('a pack with only mods it could not resolve still imports (the completion flow)', () => {
+    const summary = {
+      ...baseSummary,
+      files: [],
+      unresolvable: [
+        {
+          reason: 'distribution_disabled' as const,
+          mod_name: 'Blocked Mod',
+          manual_action_url: 'https://www.curseforge.com/projects/1',
+          filename: 'blocked.jar',
+          size: 1,
+          sha1: null,
+          project_id: '1',
+        },
+      ],
+    };
+    const { getByRole } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect((getByRole('button', { name: 'Install' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a pack with nothing to install keeps Install off and says so', () => {
+    const summary = { ...baseSummary, files: [] };
+    const { getByRole, getByText } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect((getByRole('button', { name: 'Install' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(getByText(/nothing to install/)).toBeTruthy();
+  });
+
   it('a pack that lists files still needs one picked', async () => {
     const { getByText, getByLabelText } = render(ImportPickerDialog, {
       props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },

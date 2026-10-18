@@ -74,6 +74,13 @@
 
   const unresolvable: ModpackUnresolvable[] = $derived(summary.unresolvable);
 
+  // A pack that lists no files has nothing to pick. It still installs what its
+  // overrides bundle, or the mods it names for completing by hand; with neither
+  // it has nothing to install. Mirrors `import::selection_refusal`.
+  const listsFiles = $derived(summary.files.length > 0);
+  const bundlesContent = $derived(summary.has_overrides || summary.has_client_overrides);
+  const nothingToInstall = $derived(!listsFiles && unresolvable.length === 0 && !bundlesContent);
+
   // ── Category grouping ───────────────────────────────────────────────────
   type CategoryKey =
     | 'groupMods'
@@ -196,20 +203,26 @@
     </div>
   {/if}
 
-  <div class="px-4 pt-3 flex items-center justify-between text-sm">
-    <span class="text-muted"
-      >{$t('modpacks.import.picker.selectionCount', {
-        selected: selectedShas.length,
-        total: allShas.length,
-      })}</span
-    >
-    <SelectAllCheckbox
-      {allSelected}
-      indeterminate={selectedShas.length > 0 && !allSelected}
-      onToggle={() => toggleAll()}
-      testid="picker-select-all"
-    />
-  </div>
+  {#if listsFiles}
+    <div class="px-4 pt-3 flex items-center justify-between text-sm">
+      <span class="text-muted"
+        >{$t('modpacks.import.picker.selectionCount', {
+          selected: selectedShas.length,
+          total: allShas.length,
+        })}</span
+      >
+      <SelectAllCheckbox
+        {allSelected}
+        indeterminate={selectedShas.length > 0 && !allSelected}
+        onToggle={() => toggleAll()}
+        testid="picker-select-all"
+      />
+    </div>
+  {:else if nothingToInstall}
+    <p class="px-4 pt-3 text-sm text-muted">{$t('modpacks.import.picker.nothingToInstall')}</p>
+  {:else if bundlesContent}
+    <p class="px-4 pt-3 text-sm text-muted">{$t('modpacks.import.picker.bundledOnlyNotice')}</p>
+  {/if}
 
   <div class="flex-1 overflow-y-auto p-4 space-y-2">
     {#each fileGroups as group (group.key)}
@@ -336,16 +349,16 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
       >{$t('common.cancel')}</button
     >
-    <!-- A pack that lists no files (every mod rides in its overrides) has
-         nothing to pick and still imports; one that lists files needs one. -->
+    <!-- A pack that lists files needs one picked; one that lists none has
+         nothing to pick and imports what it bundles, unless it has nothing. -->
     <button
       type="button"
       class="btn-primary btn-sm inline-flex items-center gap-1.5"
-      disabled={summary.files.length > 0 && selectedShas.length === 0}
+      disabled={(listsFiles && selectedShas.length === 0) || nothingToInstall}
       onclick={() => onConfirm(selectedShas)}
     >
       <Icon name="download" size={14} />
-      {summary.files.length > 0
+      {listsFiles
         ? $t('common.installCount', { count: selectedShas.length })
         : $t('common.install')}
     </button>

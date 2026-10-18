@@ -1605,7 +1605,9 @@
         "requiredBadge": "Required",
         "optionalBadge": "Optional",
         "requiredModsUncheckedWarning": "Required mods unchecked: {count} — the pack may not launch.",
-        "otherFilesUncheckedNotice": "Pack files unchecked: {count} — the pack will differ from the author's build, but it will still launch."
+        "otherFilesUncheckedNotice": "Pack files unchecked: {count} — the pack will differ from the author's build, but it will still launch.",
+        "nothingToInstall": "This pack has nothing to install.",
+        "bundledOnlyNotice": "This pack lists no files to download: what it installs is bundled inside it."
       },
       "progress": {
         "ariaLabel": "Modpack import progress",

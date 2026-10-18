@@ -1060,7 +1060,9 @@ describe('ImportPickerDialog — Cancel and Install buttons', () => {
     expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('Install N selected is disabled when no required files and no optional selected', () => {
+  // A pack with no files to pick, nothing it could not resolve and no overrides has nothing to
+  // install: Install stays off and says why (v0.28 regression pass, F5).
+  it('Install is disabled for a pack that has nothing to install', () => {
     render(ImportPickerDialog, {
       props: {
         summary: makeSummary({ files: [], unresolvable: [] }),
@@ -1068,8 +1070,9 @@ describe('ImportPickerDialog — Cancel and Install buttons', () => {
         onConfirm: () => {},
       },
     });
-    const btn = screen.getByRole('button', { name: /install \d+ selected/i });
+    const btn = screen.getByRole('button', { name: /^install$/i });
     expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/nothing to install/i)).toBeTruthy();
   });
 });
 

@@ -276,9 +276,9 @@ fn install_dir(class_id: Option<u32>) -> &'static str {
     }
 }
 
-/// `POST /v1/mods/files` in batches of [`super::cf_api::CF_MAX_BULK_FILE_IDS`] (CurseForge
-/// answers 400 above it, as the sibling clients know), stitched in request order. The first
-/// failing batch is the error: a partial list would quietly drop files from the pack.
+/// `POST /v1/mods/files` in batches of [`super::cf_api::CF_MAX_BULK_FILE_IDS`], the limit
+/// the sibling clients already batch by, stitched in request order. The first failing batch
+/// is the error: a partial list would quietly drop files from the pack.
 async fn fetch_files(base_url: &str, key: &str, ids: &[u64]) -> Result<Vec<CfFile>, Error> {
     let url = format!("{base_url}/v1/mods/files");
     let mut out = Vec::with_capacity(ids.len());
@@ -778,8 +778,82 @@ mod tests {
         assert_eq!(r.loader, LoaderKind::Fabric);
     }
 
-    // CurseForge refuses more than CF_MAX_BULK_FILE_IDS ids in one bulk POST;
-    // the sibling clients (cf_api, mods/curseforge) already batch.
+    // Round trip through the export's own pieces: an instance whose mods came
+    // from Modrinth, exported as a CurseForge zip in lightweight mode, lists
+    // no files and bundles the jars; importing that archive must preview and
+    // pass the selection rule. Shipped broken in v0.27.0 and earlier.
+    #[tokio::test]
+    async fn lucernas_own_curseforge_export_imports() {
+        use crate::mods::modpack::export::assembly::{write_archive, ZipEntry, ZipSource};
+        use crate::mods::modpack::export::classify::classify;
+        use crate::mods::modpack::export::manifest::build_cf_manifest;
+        use crate::mods::modpack::export::types::{ExportMetadata, ExportMode};
+        use crate::mods::platform::{InstalledMod, ModSource};
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        clear_test_key();
+        let mods = vec![InstalledMod {
+            filename: "sodium.jar".into(),
+            sha1: "aa".into(),
+            source: Some(ModSource::Modrinth),
+            project_id: Some("AANobbMI".into()),
+            version_id: Some("OihdIimA".into()),
+            name: "Sodium".into(),
+            version_number: None,
+            installed_at: "2026-10-18T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: Vec::new(),
+        }];
+        let (referenced, bundled) =
+            classify(ModpackFormat::Curseforge, ExportMode::Lightweight, &mods);
+        assert!(referenced.is_empty());
+        assert_eq!(bundled.len(), 1);
+        let meta = ExportMetadata {
+            name: "smoke".into(),
+            version: "1.0.0".into(),
+            author: String::new(),
+            summary: String::new(),
+        };
+        let manifest =
+            build_cf_manifest(&meta, "1.20.1", LoaderKind::Fabric, Some("0.19.3"), &[]).unwrap();
+        let td = tempfile::tempdir().unwrap();
+        let dest = td.path().join("smoke-cf.zip");
+        write_archive(
+            &dest,
+            &[
+                ZipEntry {
+                    archive_path: "manifest.json".into(),
+                    source: ZipSource::Bytes(manifest.into_bytes()),
+                },
+                ZipEntry {
+                    archive_path: "overrides/mods/sodium.jar".into(),
+                    source: ZipSource::Bytes(b"jar".to_vec()),
+                },
+            ],
+        )
+        .unwrap();
+
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400))
+            .expect(0)
+            .mount(&s)
+            .await;
+        let summary = parse(&std::fs::read(&dest).unwrap(), &s.uri())
+            .await
+            .unwrap();
+        assert!(summary.files.is_empty());
+        assert!(summary.has_overrides);
+        assert!(
+            crate::mods::modpack::import::selection_refusal(&summary, 0).is_none(),
+            "a pack with nothing to pick must not be refused for an empty pick"
+        );
+    }
+
+    // The sibling clients (cf_api, mods/curseforge) batch the bulk POST by
+    // CF_MAX_BULK_FILE_IDS; this one now does too.
     #[tokio::test]
     async fn more_than_a_batch_of_entries_is_resolved_in_batches() {
         let _seam =
@@ -827,7 +901,7 @@ mod tests {
         let err = parse(&zip, &s.uri()).await.unwrap_err();
         clear_test_key();
         match err {
-            Error::ModsNetwork { failure, .. } | Error::Network { failure, .. } => {
+            Error::ModsNetwork { failure, .. } => {
                 assert_eq!(
                     failure,
                     crate::error::NetworkFailure::HttpStatus { status: 503 }
@@ -835,5 +909,14 @@ mod tests {
             }
             other => panic!("expected the 503, got {other:?}"),
         }
+        // The first batch went through; the second one is the failure.
+        let posts = s
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|q| q.url.path() == "/v1/mods/files")
+            .count();
+        assert_eq!(posts, 2);
     }
 }
