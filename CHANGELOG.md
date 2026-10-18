@@ -63,15 +63,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
   each Java version run on, and a server's settings can pick its own. When
   Lucerna can't get its Java to run the game, it offers a Java found on this
   computer that can run it (for Minecraft 1.16 and older only a Java 8, the one
-  they were made for), for that instance or, if the instance follows Settings,
-  for all instances that need the same Java version.
+  they were made for), for that instance or, if it follows Settings, for every
+  instance on that Java version that follows Settings.
 
 ### Changed
 
 - **Instance settings are a tab.** An instance's version, loader, memory and
   the rest moved from the Manage window to a Settings tab next to Screenshots;
   New instance in the sidebar creates one, and right-clicking an instance in
-  the sidebar list now offers Rename, Export, Delete and its other actions.
+  the sidebar list now offers Rename, Clone, Delete and its other actions.
   With more than eight instances, typing filters that list by name, and Add-ons
   keeps the Browse search and sort when you switch tabs.
 - **Deleting an instance asks once.** No more typing Delete: as when deleting a
@@ -104,9 +104,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
   technical dump in the loader version lists; now the message names the site
   and the cause, such as no connection, no answer in time, a secure connection
   that couldn't be set up (often an antivirus checking HTTPS) or an error on
-  the site's side. A Minecraft, loader or server version list that didn't load
-  says so and offers Reload; Logs now keep the full cause, and the message
-  points there when the cause isn't recognised.
+  the site's side. A Minecraft, loader or server core version list that
+  couldn't be fetched says so and offers Reload; Logs now keep the full cause,
+  and the message points there when the cause isn't recognised.
 - **An instance list that can't be read no longer looks empty.** The sidebar
   says it couldn't read your instances and offers Try again, instead of "No
   instances yet" and Create.
