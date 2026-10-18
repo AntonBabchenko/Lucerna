@@ -80,17 +80,18 @@ behaviour is worth knowing, it is stated as a property of the feature under
   that is really a symbolic link or junction (XMCL's shared resource packs, or
   one made with `mklink`) is marked with where it points; the files it points
   to are copied, or packed into the modpack, as before.
+- **Lucerna builds Forge installs the way Forge's own installer does.** A Forge
+  1.13 or newer instance installed by an earlier version may show some files as
+  built differently from Forge's installer: a game that ran with them still
+  does, and Repair rebuilds them the official way.
 
 ### Fixed
 
 - **OptiFine works on Forge 1.20.1.** It used to load but stay inactive. Forge
   and NeoForge games now start with the game's own jar loaded the way the
   official Minecraft launcher loads it.
-- **Forge installs are built the way Forge's own installer builds them.**
-  Repair now fixes the Forge 1.20.6+ file Verify used to report after every
-  check. A Forge 1.13 or newer profile installed by an earlier version may show
-  some files as built differently from Forge's own installer: a game that ran
-  with them still does, and one Repair rebuilds them the official way.
+- **Verify no longer reports a Forge 1.20.6+ problem Repair couldn't fix.** It
+  flagged one of Forge's files after every check, and Repair left it as it was.
 - **A Forge installer with no published checksum is no longer called
   corrupted.** The launcher says it can't verify the installer and still won't
   install it; when the checksum can't be fetched, it shows that network error
