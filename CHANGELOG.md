@@ -41,26 +41,28 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile's library.
 - **Packs you put in a folder yourself show up.** Resource packs and shaders
   dropped into their folder, zipped or unpacked, are listed and can be removed
-  (an unpacked one goes to the recycle bin), and an Installed list re-reads
-  itself when you come back to the launcher.
+  (one Lucerna can't download again goes to the recycle bin), and an Installed
+  list re-reads itself when you come back to the launcher.
 - **Run an instance on your own Java.** Advanced → Java on the instance's
   Settings tab lists the Javas found on this computer and has a Browse button.
   Lucerna checks the chosen Java before every launch and refuses one that
-  cannot run the game, saying why, rather than starting it on its own Java
-  instead.
+  cannot run the game, saying why and offering the way to choose another,
+  rather than starting it on its own Java instead.
 - **One Java for every instance on a Java version, and a Java for servers.**
   Settings → Game → Java picks the Java that instances and own servers needing
   each Java version run on, and a server's settings can pick its own. When
   Lucerna can't get its Java for a version, it offers a Java found on this
-  computer instead, for that instance or for every instance on that version.
+  computer that can run it (for Minecraft 1.16 and older only a Java 8, the one
+  they were made for), for that instance or for every instance on that version.
 
 ### Changed
 
 - **Instance settings are a tab.** An instance's version, loader, memory, Java
   and the rest moved from the Manage window to a Settings tab next to
-  Screenshots; New instance in the sidebar creates one, and right-clicking an
-  instance in the sidebar list offers every action on it. Add-ons keeps the
-  Browse search and sort when you switch tabs.
+  Screenshots; New instance in the sidebar creates one, right-clicking an
+  instance in the sidebar list offers every action on it, and with more than
+  eight instances typing filters that list by name. Add-ons keeps the Browse
+  search and sort when you switch tabs.
 - **Deleting an instance asks once.** No more typing Delete: as when deleting a
   world or a server, one confirmation warns that it cannot be undone.
 - **A language added by translators shows up properly.** The language picker
@@ -113,7 +115,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Security
 
-- Bumped `ammonia` 4.1.4 → 4.1.7 for RUSTSEC-2021-0157 and RUSTSEC-2021-0158.
+- Bumped `ammonia` 4.1.4 → 4.1.8 for RUSTSEC-2021-0157, RUSTSEC-2021-0158 and
+  RUSTSEC-2026-0373.
 - Bumped `rustls` 0.23.45 → 0.23.46 for RUSTSEC-2026-0346, RUSTSEC-2026-0347,
   RUSTSEC-2026-0348 and RUSTSEC-2026-0349.
 

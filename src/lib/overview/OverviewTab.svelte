@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { InstanceWithStatus, PlaytimeStats } from '$lib/ipc/bindings';
+  import type { InstanceWithStatus, JavaOrigin, PlaytimeStats } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatDuration } from '$lib/format/duration';
   import { relativeTime } from '$lib/format/relative-time';
@@ -59,6 +59,8 @@
     onJavaProblem = () => {},
     onJavaSaved = () => {},
     onRuntimeReady = () => {},
+    javaUnusableOrigin = null,
+    onChooseJava = () => {},
     onDismissModsError,
     onOpenLogs,
     onOpenServers,
@@ -110,6 +112,10 @@
     onJavaSaved?: (instanceId: string) => void;
     /** Lucerna's runtime was downloaded for that instance. */
     onRuntimeReady?: (instanceId: string) => void;
+    /** Where the Java behind `installError` was chosen, when it cannot be used (missing, moved,
+     *  not a Java): the line then offers the way back to that choice. */
+    javaUnusableOrigin?: JavaOrigin | null;
+    onChooseJava?: (origin: JavaOrigin) => void;
     onDismissModsError: () => void;
     onOpenLogs: () => void;
     onOpenServers: () => void;
@@ -586,6 +592,15 @@
         {:else if installError}
           <span class="text-xs text-danger flex items-center gap-1">
             {installError}
+            {#if javaUnusableOrigin}
+              {@const origin = javaUnusableOrigin}
+              <button
+                type="button"
+                class="btn-secondary btn-xs flex-shrink-0"
+                data-testid="overview-choose-java"
+                onclick={() => onChooseJava(origin)}>{$t('page.overview.chooseJava')}</button
+              >
+            {/if}
             <CloseButton
               onClick={onDismissInstallError}
               ariaLabel={$t('page.overview.dismissError')}

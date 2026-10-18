@@ -78,7 +78,7 @@ afterEach(() => {
 describe('JavaRescuePanel', () => {
   it('offers the Javas that can run the version, the one it names first', async () => {
     setup();
-    expect(await screen.findByText(/A Java 17 or newer on this computer/)).toBeTruthy();
+    expect(await screen.findByText(/run on a Java 17 or newer from this computer/)).toBeTruthy();
     const names = await optionNames();
     expect(names).toHaveLength(2);
     expect(names[0]).toMatch(/17\.0\.2/);

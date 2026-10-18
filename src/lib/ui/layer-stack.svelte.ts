@@ -197,18 +197,20 @@ export function onLayersChange(fn: () => void): () => void {
 /**
  * Register a popover while `isOpen()` is true. Call during component
  * initialisation. The effect's teardown releases the layer on every way out —
- * close, or the component unmounting while open.
+ * close, or the component unmounting while open. Returns the layer's id, for a
+ * caller that asks `isTopmost` (Select: is a press outside it really outside?).
  */
 export function useLayer(
   kind: 'modal' | 'popover',
   isOpen: () => boolean,
   onEscape: () => void,
-): void {
+): LayerId {
   const id = newLayerId(kind);
   $effect(() => {
     if (!isOpen()) return;
     return pushLayer(id, kind, onEscape);
   });
+  return id;
 }
 
 const HOST_KEY = Symbol('layer-host');

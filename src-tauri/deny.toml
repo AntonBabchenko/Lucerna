@@ -43,6 +43,13 @@ ignore = [
   # Unmaintained proc-macro ecosystem crates, transitive via build deps.
   "RUSTSEC-2024-0370", # proc-macro-error
   "RUSTSEC-2024-0436", # paste
+  # zbus 5 companions (unmaintained 2026-10-16: merged into zbus 6 as its `wire`
+  # module, "no safe upgrade"). Linux D-Bus only, pulled in via
+  # tauri-plugin-opener and tauri-plugin-single-instance -> zbus 5.15; leaves
+  # when those plugins move to zbus 6.
+  "RUSTSEC-2026-0370", # zvariant
+  "RUSTSEC-2026-0371", # zbus_names
+  "RUSTSEC-2026-0372", # zvariant_derive
   # ── Build-dependency-only quick-xml DoS (the "never ignore a vuln" exception) ──
   # Our RUNTIME quick-xml is pinned to >= 0.41.0 (patched — see Cargo.toml). These
   # two flag ONLY the copy pulled at BUILD time by `plist`

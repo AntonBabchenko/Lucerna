@@ -469,7 +469,8 @@ describe('InstalledAssetsView', () => {
 
   it('removing a folder pack says it went to the recycle bin', async () => {
     spies.assetsList.mockResolvedValue(listing([], ['Dev Pack']));
-    spies.assetUninstall.mockResolvedValue(ok(null));
+    // What `asset_uninstall` answers for a folder pack: it went to the bin.
+    spies.assetUninstall.mockResolvedValue(ok('recycle_bin'));
     render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'resource_pack' });
     await screen.findByText('Dev Pack');
     await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));

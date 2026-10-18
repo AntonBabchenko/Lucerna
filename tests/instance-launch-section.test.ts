@@ -179,3 +179,19 @@ describe('InstanceLaunchSection', () => {
     expect(vi.mocked(toasts.pushWarning)).not.toHaveBeenCalled();
   });
 });
+
+describe('InstanceLaunchSection — «Choose another Java» lands on the Java list', () => {
+  it('opens Advanced, flashes the Java field and delivers the focus', async () => {
+    const onFocusDelivered = vi.fn();
+    const { container } = render(InstanceLaunchSection, {
+      props: { instance: makeInstance(), onChanged: vi.fn(), focusField: 'java', onFocusDelivered },
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-focus-field="java"]')?.classList).toContain(
+        'field-flash',
+      ),
+    );
+    expect((screen.getByText('Advanced').closest('details') as HTMLDetailsElement).open).toBe(true);
+    await waitFor(() => expect(onFocusDelivered).toHaveBeenCalled());
+  });
+});
