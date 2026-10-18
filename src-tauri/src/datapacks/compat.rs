@@ -300,17 +300,6 @@ pub(crate) enum JarWorldVersion {
     Version(i32),
 }
 
-/// The jar's `version.json` `stable` flag: `Some(true)` for a release,
-/// `Some(false)` for a snapshot or pre-release, `None` when the jar, the
-/// entry or the flag is missing (pre-1.14 jars have no `version.json`).
-/// Present in real client jars (`"stable": true` in 1.20.1 and 1.21.1,
-/// checked 2026-10-16). Same opener and decoding as [`world_version_of_jar`].
-#[must_use]
-pub(crate) fn jar_is_stable(versions_dir: &Path, mc_version: &str) -> Option<bool> {
-    let zip = open_client_jar(versions_dir, mc_version)?;
-    version_json_from_archive(zip)?.get("stable")?.as_bool()
-}
-
 /// Same jar, same entry and same decoding as [`game_data_format`] — only
 /// the field differs. Never an error, never a panic.
 ///

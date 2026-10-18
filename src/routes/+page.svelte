@@ -139,6 +139,9 @@
     failureDetail,
     failureWhat,
     KIND_WHAT,
+    LAUNCH_REPAIR_LABEL,
+    nextStep,
+    repairFor,
     STOP_KIND,
   } from '$lib/instances/settings/settings-sync-view';
   import { showUpdateToast, updateState } from '$lib/update/state.svelte';
@@ -1205,6 +1208,10 @@
             instance: name,
             what: tr(failureWhat(payload.failure)),
             detail: failureDetail(tr, payload.failure),
+            next:
+              repairFor(payload.failure) === null
+                ? nextStep(tr, payload.failure)
+                : `${nextStep(tr, payload.failure)} ${tr('launch.settingsSync.exitFixInSettings')}`,
           }),
         ]);
       })
@@ -1497,6 +1504,7 @@
           gameClosedAsk = { answer };
         }),
       stopSyncing: (kind) => commands.settingsSyncStop(id, kind),
+      repair: (kind, how, confirmed) => commands.settingsSyncRepair(id, kind, how, confirmed),
     });
   }
 
@@ -2259,25 +2267,50 @@
   {#if syncFailedAsk}
     {@const ask = syncFailedAsk}
     {@const what = ask.error.sync_kind === null ? null : $t(KIND_WHAT[ask.error.sync_kind])}
-    <ConfirmDialog
-      title={$t('launch.settingsSync.failedTitle')}
-      bodyText={[
-        formatError(ask.error),
-        what === null
-          ? $t('launch.settingsSync.failedChoiceAll')
-          : $t('launch.settingsSync.failedChoice', { what }),
-      ]}
-      confirmLabel={$t('launch.settingsSync.launchWithoutSync')}
-      confirmTestid="sync-failed-skip"
-      panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
-      secondaryLabel={ask.error.sync_kind === null
-        ? $t('launch.settingsSync.stopAll')
-        : $t(STOP_KIND[ask.error.sync_kind])}
-      secondaryTestid="sync-failed-stop"
-      onSecondary={() => answerSyncFailed('stop')}
-      onCancel={() => answerSyncFailed('cancel')}
-      onConfirm={() => answerSyncFailed('skip')}
-    />
+    {@const how = ask.error.sync_kind === null ? null : repairFor(ask.error)}
+    {#if how}
+      <!-- A damaged file stays damaged until it is replaced: the way out is
+           the headline, and nothing promises "next time". -->
+      <ConfirmDialog
+        title={$t('launch.settingsSync.failedTitle')}
+        bodyText={[
+          formatError(ask.error),
+          nextStep($t, {
+            kind: ask.error.sync_kind,
+            file: ask.error.file,
+            reason: ask.error.reason,
+          }),
+        ]}
+        confirmLabel={$t(LAUNCH_REPAIR_LABEL[how])}
+        confirmTestid="sync-failed-repair"
+        panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
+        secondaryLabel={$t('launch.settingsSync.launchWithoutSync')}
+        secondaryTestid="sync-failed-skip"
+        onSecondary={() => answerSyncFailed('skip')}
+        onCancel={() => answerSyncFailed('cancel')}
+        onConfirm={() => answerSyncFailed('repair')}
+      />
+    {:else}
+      <ConfirmDialog
+        title={$t('launch.settingsSync.failedTitle')}
+        bodyText={[
+          formatError(ask.error),
+          what === null
+            ? $t('launch.settingsSync.failedChoiceAll')
+            : $t('launch.settingsSync.failedChoice', { what }),
+        ]}
+        confirmLabel={$t('launch.settingsSync.launchWithoutSync')}
+        confirmTestid="sync-failed-skip"
+        panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
+        secondaryLabel={ask.error.sync_kind === null
+          ? $t('launch.settingsSync.stopAll')
+          : $t(STOP_KIND[ask.error.sync_kind])}
+        secondaryTestid="sync-failed-stop"
+        onSecondary={() => answerSyncFailed('stop')}
+        onCancel={() => answerSyncFailed('cancel')}
+        onConfirm={() => answerSyncFailed('skip')}
+      />
+    {/if}
   {/if}
   {#if gameClosedAsk}
     <ConfirmDialog

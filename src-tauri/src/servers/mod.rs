@@ -113,10 +113,11 @@ fn try_sync_after_edit(app: &tauri::AppHandle, instance_id: &str) -> Result<()> 
     let versions = crate::paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let json = crate::paths::instance_json(app, instance_id)
         .map_err(|e| Error::io("<instance_json>", e))?;
-    let mc = crate::instances::store::read_instance_json(&json)?.mc_version;
+    let instance = crate::instances::store::read_instance_json(&json)?;
+    let (mc, loader) = (instance.mc_version, instance.loader);
     let probe = |pid| crate::platform::process_image_probe(pid, "java");
     crate::settings_sync::after_local_edit(&data_root, &root, Kind::Servers, &probe, || {
-        crate::settings_sync::version::VersionFacts::read(&versions, &mc)
+        crate::settings_sync::version::VersionFacts::read(&versions, &mc, loader)
     })
     .map_err(Error::from)
 }

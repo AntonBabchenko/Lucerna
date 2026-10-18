@@ -85,7 +85,7 @@ impl StoreLock {
     }
 
     fn file(&self, kind: Kind) -> PathBuf {
-        self.dir.join(kind.file())
+        self.dir.join(kind.store_file())
     }
 
     /// The shared file's bytes; `None` when there is no shared copy yet.
@@ -110,7 +110,7 @@ impl StoreLock {
     /// `.2 → .3`, `.1 → .2`, then the current version → `.1`.
     fn rotate(&self, kind: Kind, current: &[u8]) -> Result<()> {
         let backups = self.dir.join("backups");
-        let at = |n: u32| backups.join(format!("{}.{n}", kind.file()));
+        let at = |n: u32| backups.join(format!("{}.{n}", kind.store_file()));
         for n in (1..BACKUPS).rev() {
             match std::fs::rename(at(n), at(n + 1)) {
                 Ok(()) => {}

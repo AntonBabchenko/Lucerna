@@ -2,21 +2,27 @@
   // Shared game settings (spec 2026-10-15 §B9): one checkbox per kind this
   // instance can share with the others, each with what it is doing now. The
   // backend owns every decision (§B7); this asks only the two questions a
-  // join can raise: which hotbars to keep, and whether a game Lucerna lost
-  // track of is closed.
+  // join can raise: which hotbars or game options to keep, and whether a game
+  // Lucerna lost track of is closed.
   import { commands } from '$lib/ipc/bindings';
-  import type { Join, Kind, KindView, SectionState } from '$lib/ipc/bindings';
+  import type { Join, Kind, KindView, Repair, SectionState } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import {
+    type AskingKind,
     failureDetail,
     failureWhat,
+    JOIN_COPY,
     joinChoices,
     KIND_LABEL,
+    nextStep,
     REASON,
+    REPAIR_LABEL,
+    repairFor,
+    RULE,
     rowLine,
   } from './settings-sync-view';
 
@@ -40,7 +46,7 @@
   /** The kind whose change is in flight. */
   let changing = $state<Kind | null>(null);
   let changeError = $state<string | null>(null);
-  let joinAsk = $state<{ choices: Exclude<Join, 'done'>[] } | null>(null);
+  let joinAsk = $state<{ kind: AskingKind; choices: Exclude<Join, 'done'>[] } | null>(null);
   let closedAsk = $state<{ retry: () => Promise<void> } | null>(null);
   // The checkbox the user just clicked. `checked` follows the backend, which
   // a cancelled question or a failed change leaves as it was, and Svelte only
@@ -122,11 +128,35 @@
     const on = el.checked;
     clicked = { el, was: v.enabled };
     const choices = on ? joinChoices(v) : null;
-    if (choices) {
-      joinAsk = { choices };
+    if (choices && (v.kind === 'hotbars' || v.kind === 'options')) {
+      joinAsk = { kind: v.kind, choices };
       return;
     }
     void apply(v.kind, on, null);
+  }
+
+  /** The way out of a damaged sync file, then the section read again. */
+  async function repair(kind: Kind, how: Repair, confirmed = false) {
+    const id = instanceId;
+    changing = kind;
+    changeError = null;
+    try {
+      const r = await commands.settingsSyncRepair(id, kind, how, confirmed);
+      if (r.status === 'error') {
+        if (r.error.kind === 'settings_sync_ask_game_closed' && !confirmed) {
+          closedAsk = { retry: () => repair(kind, how, true) };
+          return;
+        }
+        changeError = $t('instance.settingsSync.changeFailed', { error: formatError(r.error) });
+      }
+    } catch (e) {
+      changeError = $t('instance.settingsSync.changeFailed', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      changing = null;
+    }
+    await load(id);
   }
 
   let stopping = $state(false);
@@ -208,6 +238,7 @@
       <ul class="flex flex-col gap-2">
         {#each data.kinds as v (v.kind)}
           {@const line = rowLine($t, v)}
+          {@const rule = RULE[v.kind]}
           <li data-testid="settings-sync-row-{v.kind}">
             <label class="flex items-start gap-2 cursor-pointer">
               <input
@@ -230,26 +261,68 @@
                 {line}
               </p>
             {/if}
-            {#if v.kind === 'hotbars' && !v.enabled}
-              <p class="pl-6 text-xs text-muted">{$t('instance.settingsSync.hotbarsRule')}</p>
+            {#if v.availability.status === 'unreadable'}
+              {@const how = repairFor({
+                file: v.availability.file,
+                reason: v.availability.reason,
+              })}
+              {#if how}
+                <div class="pl-6 mt-1">
+                  <button
+                    type="button"
+                    class="btn-secondary btn-sm"
+                    disabled={locked || changing !== null}
+                    onclick={() => void repair(v.kind, how)}
+                    data-testid="settings-sync-repair-{v.kind}"
+                  >
+                    {$t(REPAIR_LABEL[how])}
+                  </button>
+                </div>
+              {/if}
+            {/if}
+            {#if rule && !v.enabled}
+              <p class="pl-6 text-xs text-muted" data-testid="settings-sync-rule-{v.kind}">
+                {$t(rule)}
+              </p>
             {/if}
           </li>
         {/each}
       </ul>
     {/if}
     {#if data.last_error}
+      {@const failure = data.last_error}
+      {@const how = repairFor(failure)}
       <StatusMessage
         class="mt-2"
         dataTestid="settings-sync-last-error"
         message={$t('instance.settingsSync.lastError', {
-          what: $t(failureWhat(data.last_error)),
-          detail: failureDetail($t, data.last_error),
+          what: $t(failureWhat(failure)),
+          detail: failureDetail($t, failure),
+          next: nextStep($t, failure),
         })}
         tone="warning"
       />
+      {#if how && failure.kind !== null}
+        {@const kind = failure.kind}
+        <div class="mt-1">
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            disabled={locked || changing !== null}
+            onclick={() => void repair(kind, how)}
+            data-testid="settings-sync-repair-last"
+          >
+            {$t(REPAIR_LABEL[how])}
+          </button>
+        </div>
+      {/if}
     {/if}
     {#if locked}
-      <p class="mt-1 text-xs text-muted" data-testid="settings-sync-locked">
+      <p
+        id="settings-sync-locked"
+        class="mt-1 text-xs text-muted"
+        data-testid="settings-sync-locked"
+      >
         {running
           ? $t('instance.settingsSync.lockedRunning')
           : $t('instance.settingsSync.lockedBusy')}
@@ -265,28 +338,36 @@
 </div>
 
 {#if joinAsk}
+  {@const kind = joinAsk?.kind ?? 'hotbars'}
+  {@const copy = JOIN_COPY[kind]}
   {@const choices = joinAsk?.choices ?? []}
   {@const both = choices.includes('use_shared')}
-  <!-- Joining means taking the shared hotbars: that is the headline. Making
-       this instance's the shared ones overwrites every other instance's, so it
-       is the alternative, and the only choice for an older instance. -->
+  <!-- Joining means taking the shared hotbars or options: that is the
+       headline. Making this instance's the shared ones replaces what every
+       other instance takes next, so it is the alternative, each choice says
+       what it does to them, and it is the only choice for an instance older
+       than the shared hotbars (which keeps its own: no Recycle Bin there). -->
   <ConfirmDialog
-    title={$t('instance.settingsSync.joinTitle')}
-    bodyText={[
-      both ? $t('instance.settingsSync.joinBody') : $t('instance.settingsSync.joinOlderBody'),
-      $t('instance.settingsSync.joinKept'),
-      $t('instance.settingsSync.hotbarsRule'),
-    ]}
-    confirmLabel={both
-      ? $t('instance.settingsSync.useShared')
-      : $t('instance.settingsSync.makeShared')}
+    title={$t(copy.title)}
+    bodyText={both
+      ? [
+          $t(copy.body),
+          $t(copy.useSharedResult),
+          $t(copy.makeSharedResult),
+          $t(RULE[kind] ?? 'instance.settingsSync.hotbarsRule'),
+        ]
+      : [$t('instance.settingsSync.joinOlderBody'), $t('instance.settingsSync.joinOlderResult')]}
+    confirmLabel={both ? $t(copy.useShared) : $t('instance.settingsSync.replaceSharedHotbars')}
     confirmTestid={both ? 'settings-sync-use-shared' : 'settings-sync-make-shared'}
-    secondaryLabel={both ? $t('instance.settingsSync.makeShared') : undefined}
+    panelClass="w-[680px] max-w-full p-5 flex flex-col gap-3"
+    secondaryLabel={both ? $t(copy.makeShared) : undefined}
     secondaryTestid="settings-sync-make-shared"
     onSecondary={both
       ? () => {
+          // Taken before clearing: `kind` derives from `joinAsk`.
+          const k = kind;
           joinAsk = null;
-          void apply('hotbars', true, 'make_shared');
+          void apply(k, true, 'make_shared');
         }
       : undefined}
     onCancel={() => {
@@ -294,10 +375,11 @@
       undoClick();
     }}
     onConfirm={() => {
-      // Read before clearing: `both` derives from `joinAsk` and reads false after.
+      // Read before clearing: `both` and `kind` derive from `joinAsk`.
       const join = both ? 'use_shared' : 'make_shared';
+      const k = kind;
       joinAsk = null;
-      void apply('hotbars', true, join);
+      void apply(k, true, join);
     }}
   />
 {/if}

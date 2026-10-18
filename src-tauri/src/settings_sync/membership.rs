@@ -9,6 +9,7 @@ use serde::Serialize;
 use super::baseline::{self, Slot};
 use super::engine::{self, KindOutcome, Unsupported};
 use super::failure::At;
+use super::options::doc::{self as options_doc, OptionsRead, WaitReason};
 use super::sidecar::{self, Join, KindState, Sidecar, SidecarRead, SyncFailure};
 use super::store;
 use super::version::VersionFacts;
@@ -25,6 +26,11 @@ pub enum Availability {
     },
     /// Shared hotbars were saved by a newer Minecraft: this instance keeps its own.
     OlderThanShared,
+    /// options.txt is not this game's own yet (spec §C4): nothing syncs
+    /// until the game has written it.
+    Waiting {
+        why: WaitReason,
+    },
     /// A file this row needs cannot be read; the other rows still work.
     Unreadable {
         file: super::failure::SyncFile,
@@ -38,8 +44,8 @@ pub struct KindView {
     pub enabled: bool,
     pub join: Join,
     pub availability: Availability,
-    /// Hotbars only: shared hotbars exist and this instance has its own, so
-    /// turning sync on asks which to keep.
+    /// Hotbars and options: shared ones exist and this instance has its
+    /// own, so turning sync on asks which to keep.
     pub join_asks: bool,
 }
 
@@ -97,6 +103,7 @@ pub fn state(data_root: &Path, instance_root: &Path, facts: &VersionFacts) -> Re
             ((None, false), false, Some(unreadable))
         }
     };
+    let options = options_row(&store, instance_root, facts);
     let kinds = Kind::ALL
         .iter()
         .map(|&kind| {
@@ -106,6 +113,7 @@ pub fn state(data_root: &Path, instance_root: &Path, facts: &VersionFacts) -> Re
             });
             let availability = match engine::unsupported(kind, facts) {
                 Some(why) => Availability::Unsupported { why },
+                None if kind == Kind::Options => options.0,
                 None if kind == Kind::Hotbars && hotbars_unreadable.is_some() => {
                     hotbars_unreadable.unwrap_or(Availability::Available)
                 }
@@ -124,7 +132,11 @@ pub fn state(data_root: &Path, instance_root: &Path, facts: &VersionFacts) -> Re
                 enabled: st.enabled,
                 join: st.join,
                 availability,
-                join_asks: kind == Kind::Hotbars && shared_hotbars.1 && has_own_hotbars,
+                join_asks: match kind {
+                    Kind::Hotbars => shared_hotbars.1 && has_own_hotbars,
+                    Kind::Options => options.1,
+                    Kind::Servers | Kind::History => false,
+                },
             }
         })
         .collect();
@@ -133,6 +145,58 @@ pub fn state(data_root: &Path, instance_root: &Path, facts: &VersionFacts) -> Re
         kinds,
         last_error: sidecar.last_error,
     })
+}
+
+/// The options row (for a version the catalog serves): waiting until the
+/// game has written this instance's options.txt, unreadable when it or the
+/// shared copy cannot be read, else available, and a join asks when shared
+/// settings exist. The other rows stay usable either way.
+fn options_row(
+    store: &store::StoreLock,
+    instance_root: &Path,
+    facts: &VersionFacts,
+) -> (Availability, bool) {
+    let Ok(dv) = facts.options_version() else {
+        // `engine::unsupported` names the reason for this row.
+        return (Availability::Available, false);
+    };
+    let files = shared_options_exist(store).and_then(|shared| {
+        let own = options_doc::read(
+            At::game(Kind::Options),
+            &game_file(instance_root, Kind::Options),
+            dv,
+        )?;
+        Ok((shared, own))
+    });
+    match files {
+        Ok((_, OptionsRead::Waiting { why, .. })) => (Availability::Waiting { why }, false),
+        Ok((shared, OptionsRead::File(_))) => (Availability::Available, shared),
+        Err(e) => {
+            crate::diag!("settings sync: the game options cannot be read ({e})");
+            let (file, reason) = super::failure::classify(&e);
+            let unreadable = Availability::Unreadable {
+                file: file.unwrap_or(super::failure::SyncFile::Shared),
+                reason,
+            };
+            (unreadable, false)
+        }
+    }
+}
+
+/// Whether there are shared settings; a shared copy that does not parse is
+/// an error naming it.
+fn shared_options_exist(store: &store::StoreLock) -> Result<bool> {
+    let Some(bytes) = store.load(Kind::Options)? else {
+        return Ok(false);
+    };
+    options_doc::parse_store(&bytes).map_err(|why| {
+        super::failure::damaged(
+            At::shared(Kind::Options),
+            &store.dir().join(Kind::Options.store_file()),
+            why,
+        )
+    })?;
+    Ok(true)
 }
 
 /// The shared hotbars' `DataVersion`, and whether there are shared hotbars.
@@ -270,7 +334,7 @@ pub fn stop(
 /// A kept failure about one of `kinds`, or about the sync settings
 /// themselves, no longer applies once those kinds stopped or synced; one
 /// about another kind stays until that kind syncs.
-fn clear_failure_of(sc: &mut Sidecar, kinds: &[Kind]) {
+pub(super) fn clear_failure_of(sc: &mut Sidecar, kinds: &[Kind]) {
     if sc
         .last_error
         .as_ref()
@@ -283,8 +347,7 @@ fn clear_failure_of(sc: &mut Sidecar, kinds: &[Kind]) {
 /// A kind this instance left: its baseline and pending go (checked), so a
 /// later join starts as a join.
 fn forget(instance_root: &Path, kind: Kind) -> Result<()> {
-    baseline::remove(instance_root, kind, Slot::Pending)?;
-    baseline::remove(instance_root, kind, Slot::Baseline)
+    engine::forget_records(instance_root, kind)
 }
 
 #[cfg(test)]
@@ -298,6 +361,8 @@ mod tests {
         VersionFacts {
             mc_version: mc.into(),
             data: DataVersion::Version { n: 3955 },
+            release: Some(true),
+            loader: crate::instances::schema::LoaderKind::Vanilla,
         }
     }
 
@@ -404,6 +469,93 @@ mod tests {
 
     fn read_sidecar_or_none(root: &Path) -> bool {
         matches!(sidecar::read(root).unwrap(), SidecarRead::Member(_))
+    }
+
+    const OPTIONS: &[u8] = b"version:3955\nfov:0.5\nlang:ru_ru\n";
+
+    fn options_view(data: &Path, inst: &Path) -> KindView {
+        state(data, inst, &facts("1.21.1"))
+            .unwrap()
+            .kinds
+            .into_iter()
+            .find(|k| k.kind == Kind::Options)
+            .unwrap()
+    }
+
+    #[test]
+    fn the_options_row_waits_for_a_file_the_game_wrote_and_says_why() {
+        use crate::settings_sync::failure::{FileReason, SyncFile};
+        let td = tempfile::tempdir().unwrap();
+        let (data, inst) = (td.path().join("root"), td.path().join("inst"));
+        assert_eq!(
+            options_view(&data, &inst).availability,
+            Availability::Waiting {
+                why: WaitReason::FirstLaunch
+            }
+        );
+        put(&inst, Kind::Options, b"fov:0.5\n");
+        assert_eq!(
+            options_view(&data, &inst).availability,
+            Availability::Waiting {
+                why: WaitReason::GameSave
+            }
+        );
+        put(&inst, Kind::Options, OPTIONS);
+        assert_eq!(
+            options_view(&data, &inst).availability,
+            Availability::Available
+        );
+        put(&inst, Kind::Options, b"version:3955\nlang:\xff\n");
+        assert_eq!(
+            options_view(&data, &inst).availability,
+            Availability::Unreadable {
+                file: SyncFile::Game,
+                reason: FileReason::Damaged
+            }
+        );
+    }
+
+    #[test]
+    fn turning_options_on_asks_only_when_both_sides_have_settings() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, a, b) = (
+            td.path().join("root"),
+            td.path().join("a"),
+            td.path().join("b"),
+        );
+        put(&a, Kind::Options, OPTIONS);
+        assert!(!options_view(&data, &a).join_asks, "no shared settings yet");
+        set_kind(&data, &a, &facts("1.21.1"), Kind::Options, true, None).unwrap();
+        assert!(
+            !options_view(&data, &b).join_asks,
+            "b has no options.txt yet"
+        );
+        put(&b, Kind::Options, b"version:3955\nfov:0.9\n");
+        assert!(options_view(&data, &b).join_asks);
+    }
+
+    #[test]
+    fn an_options_join_before_the_first_launch_waits_and_stays_pending() {
+        let td = tempfile::tempdir().unwrap();
+        let (data, a, b) = (
+            td.path().join("root"),
+            td.path().join("a"),
+            td.path().join("b"),
+        );
+        put(&a, Kind::Options, OPTIONS);
+        set_kind(&data, &a, &facts("1.21.1"), Kind::Options, true, None).unwrap();
+        let got = set_kind(&data, &b, &facts("1.21.1"), Kind::Options, true, None).unwrap();
+        assert_eq!(
+            got,
+            Some(KindOutcome::Waiting {
+                why: WaitReason::FirstLaunch
+            })
+        );
+        assert_eq!(
+            read_sidecar(&b).kind(Kind::Options).map(|k| k.join),
+            Some(Join::UseShared)
+        );
+        assert!(!game_file(&b, Kind::Options).exists());
     }
 
     #[test]

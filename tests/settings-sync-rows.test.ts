@@ -12,11 +12,19 @@ vi.mock('$lib/ipc/bindings', () => ({
     settingsSyncState: vi.fn(),
     settingsSyncSetKind: vi.fn(),
     settingsSyncStop: vi.fn(),
+    settingsSyncRepair: vi.fn(),
   },
 }));
 
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import SettingsSyncRows from '$lib/instances/settings/SettingsSyncRows.svelte';
-import { joinChoices, kindStateKey } from '$lib/instances/settings/settings-sync-view';
+import {
+  joinChoices,
+  kindStateKey,
+  nextStep,
+  repairFor,
+} from '$lib/instances/settings/settings-sync-view';
 import { commands } from '$lib/ipc/bindings';
 
 const view = (over: Partial<KindView> & Pick<KindView, 'kind'>): KindView => ({
@@ -34,7 +42,12 @@ const state = (kinds: KindView[], over: Partial<SectionState> = {}): SectionStat
   ...over,
 });
 
-const ALL_OFF = [view({ kind: 'servers' }), view({ kind: 'history' }), view({ kind: 'hotbars' })];
+const ALL_OFF = [
+  view({ kind: 'servers' }),
+  view({ kind: 'history' }),
+  view({ kind: 'hotbars' }),
+  view({ kind: 'options' }),
+];
 
 function serve(s: SectionState) {
   vi.mocked(commands.settingsSyncState).mockResolvedValue({ status: 'ok', data: s });
@@ -51,6 +64,34 @@ beforeEach(() => {
   vi.mocked(commands.settingsSyncState).mockReset();
   vi.mocked(commands.settingsSyncSetKind).mockReset();
   vi.mocked(commands.settingsSyncStop).mockReset();
+  vi.mocked(commands.settingsSyncRepair).mockReset();
+});
+
+describe('what a failure offers, per reason class', () => {
+  it('offers a repair only for a damaged file it can replace', () => {
+    expect(repairFor({ file: 'shared', reason: 'damaged' })).toBe('replace_shared');
+    expect(repairFor({ file: 'game', reason: 'damaged' })).toBe('replace_own');
+    expect(repairFor({ file: 'records', reason: 'damaged' })).toBe('reset_records');
+    expect(repairFor({ file: 'settings', reason: 'damaged' })).toBeNull();
+    expect(repairFor({ file: 'shared', reason: 'no_access' })).toBeNull();
+    expect(repairFor({ file: null, reason: 'other' })).toBeNull();
+  });
+
+  it('promises the next launch only where it can deliver', () => {
+    const tr = get(t);
+    const next = (
+      kind: 'servers' | 'options',
+      file: 'shared' | 'game',
+      reason: 'damaged' | 'no_access',
+    ) => nextStep(tr, { kind, file, reason });
+    expect(next('servers', 'shared', 'damaged')).toContain('The shared copy is damaged');
+    expect(next('servers', 'shared', 'damaged')).not.toContain('next launch tries again');
+    expect(next('servers', 'game', 'damaged')).toContain('Recycle Bin');
+    expect(next('options', 'game', 'damaged')).toContain('after the next launch');
+    expect(next('servers', 'shared', 'no_access')).toBe(
+      'Nothing is lost: the next launch tries again.',
+    );
+  });
 });
 
 describe('kindStateKey', () => {
@@ -68,6 +109,44 @@ describe('kindStateKey', () => {
     expect(
       kindStateKey(view({ kind: 'hotbars', availability: { status: 'older_than_shared' } })),
     ).toBe('instance.settingsSync.state.olderThanShared');
+  });
+});
+
+describe('the options row', () => {
+  it('says why it waits and why a version cannot sync it', () => {
+    const waiting = (why: 'first_launch' | 'game_save') =>
+      kindStateKey(
+        view({ kind: 'options', enabled: true, availability: { status: 'waiting', why } }),
+      );
+    expect(waiting('first_launch')).toBe('instance.settingsSync.state.optionsFirstLaunch');
+    expect(waiting('game_save')).toBe('instance.settingsSync.state.optionsGameSave');
+    const unsupported = (
+      why: 'options_too_old' | 'options_too_new' | 'options_not_release' | 'options_not_installed',
+    ) => kindStateKey(view({ kind: 'options', availability: { status: 'unsupported', why } }));
+    expect(unsupported('options_too_old')).toBe('instance.settingsSync.state.optionsTooOld');
+    expect(unsupported('options_too_new')).toBe('instance.settingsSync.state.optionsTooNew');
+    expect(unsupported('options_not_release')).toBe(
+      'instance.settingsSync.state.optionsNotRelease',
+    );
+    expect(unsupported('options_not_installed')).toBe(
+      'instance.settingsSync.state.optionsNotInstalled',
+    );
+  });
+
+  it('says nothing about waiting while it is off: nothing is scheduled', () => {
+    expect(
+      kindStateKey(
+        view({ kind: 'options', availability: { status: 'waiting', why: 'first_launch' } }),
+      ),
+    ).toBeNull();
+  });
+
+  it('asks which settings to keep only when both sides have some', () => {
+    expect(joinChoices(view({ kind: 'options' }))).toBeNull();
+    expect(joinChoices(view({ kind: 'options', join_asks: true }))).toEqual([
+      'use_shared',
+      'make_shared',
+    ]);
   });
 });
 
@@ -228,6 +307,127 @@ describe('SettingsSyncRows', () => {
     expect(box.disabled).toBe(true);
     expect(screen.getByTestId('settings-sync-locked').textContent).toContain('Stop the game');
     expect(box.getAttribute('aria-describedby')).toContain('settings-sync-locked');
+    expect(document.getElementById('settings-sync-locked')?.textContent).toContain('Stop the game');
+  });
+
+  it('a damaged own options file offers to replace it, and says what happens next', async () => {
+    serve(
+      state([
+        view({
+          kind: 'options',
+          enabled: true,
+          availability: { status: 'unreadable', file: 'game', reason: 'damaged' },
+        }),
+      ]),
+    );
+    vi.mocked(commands.settingsSyncRepair).mockResolvedValue({
+      status: 'ok',
+      data: { kind: 'waiting', why: 'first_launch' },
+    });
+    renderRows();
+    expect((await screen.findByTestId('settings-sync-state-options')).textContent).toContain(
+      'after the next launch',
+    );
+    await fireEvent.click(screen.getByTestId('settings-sync-repair-options'));
+    await waitFor(() =>
+      expect(commands.settingsSyncRepair).toHaveBeenCalledWith(
+        'inst-1',
+        'options',
+        'replace_own',
+        false,
+      ),
+    );
+  });
+
+  it("a damaged shared copy in the last error offers to replace it with this instance's", async () => {
+    serve(
+      state([view({ kind: 'servers', enabled: true })], {
+        last_error: { kind: 'servers', file: 'shared', reason: 'damaged' },
+      }),
+    );
+    vi.mocked(commands.settingsSyncRepair).mockResolvedValue({
+      status: 'ok',
+      data: { kind: 'synced' },
+    });
+    renderRows();
+    const line = await screen.findByTestId('settings-sync-last-error');
+    expect(line.textContent).toContain('The shared copy is damaged');
+    expect(line.textContent).not.toContain('next launch tries again');
+    await fireEvent.click(screen.getByTestId('settings-sync-repair-last'));
+    await waitFor(() =>
+      expect(commands.settingsSyncRepair).toHaveBeenCalledWith(
+        'inst-1',
+        'servers',
+        'replace_shared',
+        false,
+      ),
+    );
+  });
+
+  it('a passing failure promises only that the next launch tries again, and offers no repair', async () => {
+    serve(
+      state([view({ kind: 'history', enabled: true })], {
+        last_error: { kind: 'history', file: 'game', reason: 'no_access' },
+      }),
+    );
+    renderRows();
+    const line = await screen.findByTestId('settings-sync-last-error');
+    expect(line.textContent).toContain('Nothing is lost: the next launch tries again.');
+    expect(screen.queryByTestId('settings-sync-repair-last')).toBeNull();
+  });
+
+  it('says what each hotbars choice does to the other instances', async () => {
+    serve(state([view({ kind: 'hotbars', join_asks: true })]));
+    renderRows();
+    await fireEvent.click(await screen.findByTestId('settings-sync-toggle-hotbars'));
+    const dialog = (await screen.findByTestId('settings-sync-use-shared')).closest(
+      '[role="dialog"]',
+    );
+    expect(dialog?.textContent).toContain(
+      "Use the shared hotbars: this instance's own go to the Recycle Bin",
+    );
+    expect(dialog?.textContent).toContain(
+      'the other instances that sync hotbars take them at their next launch',
+    );
+  });
+
+  it('an older instance is offered to replace the shared hotbars, with no Recycle Bin promise', async () => {
+    serve(
+      state([
+        view({ kind: 'hotbars', join_asks: true, availability: { status: 'older_than_shared' } }),
+      ]),
+    );
+    renderRows();
+    await fireEvent.click(await screen.findByTestId('settings-sync-toggle-hotbars'));
+    const button = await screen.findByTestId('settings-sync-make-shared');
+    expect(button.textContent).toContain('Replace the shared hotbars');
+    expect(button.closest('[role="dialog"]')?.textContent).not.toContain('Recycle Bin');
+  });
+
+  it('joins options with the shared ones from the primary button', async () => {
+    serve(state([view({ kind: 'options', join_asks: true })]));
+    vi.mocked(commands.settingsSyncSetKind).mockResolvedValue({
+      status: 'ok',
+      data: { kind: 'joined' },
+    });
+    renderRows();
+    await fireEvent.click(await screen.findByTestId('settings-sync-toggle-options'));
+    const dialog = (await screen.findByTestId('settings-sync-use-shared')).closest(
+      '[role="dialog"]',
+    );
+    expect(dialog?.textContent).toContain(
+      'the other instances that sync options take them at their next launch',
+    );
+    await fireEvent.click(screen.getByTestId('settings-sync-use-shared'));
+    await waitFor(() =>
+      expect(commands.settingsSyncSetKind).toHaveBeenCalledWith(
+        'inst-1',
+        'options',
+        true,
+        'use_shared',
+        false,
+      ),
+    );
   });
 
   it("never shows another instance's rows while this one's are read", async () => {
@@ -271,7 +471,11 @@ describe('SettingsSyncRows', () => {
     renderRows();
     const line = await screen.findByTestId('settings-sync-state-hotbars');
     expect(line.textContent).toBe(
-      'Not available. File: the shared hotbars. Reason: the file is damaged or cut short.',
+      'Not available. File: the shared hotbars. Reason: the file is damaged or cut short. ' +
+        "The shared copy is damaged: every instance that syncs it stops at it until it is replaced with one instance's own. The damaged copy is kept in a backup.",
+    );
+    expect(screen.getByTestId('settings-sync-repair-hotbars').textContent).toContain(
+      "Replace the shared copy with this instance's",
     );
     expect(screen.queryByTestId('settings-sync-state-servers')).toBeNull();
   });
@@ -290,6 +494,55 @@ describe('SettingsSyncRows', () => {
       expect(commands.settingsSyncSetKind).toHaveBeenCalledWith(
         'inst-1',
         'hotbars',
+        true,
+        'make_shared',
+        false,
+      ),
+    );
+  });
+
+  it('says before the first launch when shared options apply, and what they cover', async () => {
+    serve(
+      state([
+        view({
+          kind: 'options',
+          enabled: true,
+          join: 'use_shared',
+          availability: { status: 'waiting', why: 'first_launch' },
+        }),
+      ]),
+    );
+    renderRows();
+    expect((await screen.findByTestId('settings-sync-state-options')).textContent).toBe(
+      'Shared settings apply after the first launch.',
+    );
+  });
+
+  it('says under the row, while it is off, what is shared and what stays', async () => {
+    serve(state([view({ kind: 'options' })]));
+    renderRows();
+    expect((await screen.findByTestId('settings-sync-rule-options')).textContent).toContain(
+      'Render distance',
+    );
+  });
+
+  it('asks about game options in their own words and joins with the choice', async () => {
+    serve(state([view({ kind: 'options', join_asks: true })]));
+    vi.mocked(commands.settingsSyncSetKind).mockResolvedValue({
+      status: 'ok',
+      data: { kind: 'joined' },
+    });
+    renderRows();
+    await fireEvent.click(await screen.findByTestId('settings-sync-toggle-options'));
+    expect(await screen.findByText('Shared game options already exist')).toBeTruthy();
+    expect(screen.getByTestId('settings-sync-use-shared').textContent).toContain(
+      'Use the shared options',
+    );
+    await fireEvent.click(screen.getByTestId('settings-sync-make-shared'));
+    await waitFor(() =>
+      expect(commands.settingsSyncSetKind).toHaveBeenCalledWith(
+        'inst-1',
+        'options',
         true,
         'make_shared',
         false,
