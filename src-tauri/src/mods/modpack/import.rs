@@ -935,6 +935,14 @@ async fn install_selected_files(
     (failures, resolved_for_origin, details)
 }
 
+/// «Choose at least one mod» applies to a pack that lists files: picking none
+/// of them is refused. A pack that lists none — every mod rides in its
+/// overrides, as in Lucerna's own export of an instance with mods from disk —
+/// has nothing to pick and imports its overrides, loader and version.
+fn selection_refusal(listed_files: usize, selected: usize) -> Option<Error> {
+    (listed_files > 0 && selected == 0).then_some(Error::ModpackNoFilesSelected)
+}
+
 /// Shared install pipeline for a pack whose manifest has already been
 /// resolved into a `ModpackSummary`. Called by `import()` (Modrinth/CF
 /// archive path, passes `archive_bytes = Some(bytes)`) and by the FTB
@@ -973,8 +981,8 @@ pub async fn install_resolved_pack(
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
 ) -> Result<crate::mods::modpack::schema::ModpackImportOutcome, Error> {
-    if selected_shas.is_empty() {
-        return Err(Error::ModpackNoFilesSelected);
+    if let Some(refusal) = selection_refusal(summary.files.len(), selected_shas.len()) {
+        return Err(refusal);
     }
 
     // Best-effort project-metadata fetch. The .mrpack / .zip archive
@@ -1433,6 +1441,23 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A pack whose mods all ride in overrides/ (Lucerna's own CurseForge or
+    // .mrpack export of an instance with mods from disk) lists no files: there
+    // is nothing to select and it must import (v0.28 regression pass, F5).
+    #[test]
+    fn a_pack_that_lists_no_files_needs_no_selection() {
+        assert!(selection_refusal(0, 0).is_none());
+    }
+
+    #[test]
+    fn a_pack_that_lists_files_needs_one_selected() {
+        assert!(matches!(
+            selection_refusal(3, 0),
+            Some(Error::ModpackNoFilesSelected)
+        ));
+        assert!(selection_refusal(3, 1).is_none());
+    }
 
     #[tokio::test]
     async fn register_asset_tracks_resourcepacks_skips_mods() {

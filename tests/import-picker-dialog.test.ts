@@ -378,15 +378,6 @@ describe('ImportPickerDialog selection', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it('disables the Install button when there are zero selected files', () => {
-    const summary = { ...baseSummary, files: [] };
-    const { getByText } = render(ImportPickerDialog, {
-      props: { summary, onCancel: () => {}, onConfirm: () => {} },
-    });
-    const button = getByText(/Install 0 selected/) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-  });
-
   it('deduplicates sha1s when FTB packs have duplicate sha1s', async () => {
     // Two required files sharing the same sha1 (FTB pack pattern)
     const summary = {
@@ -589,5 +580,30 @@ describe('optional badge', () => {
       props: { summary, onCancel: () => {}, onConfirm: () => {} },
     });
     expect(getAllByText('Optional')).toHaveLength(1);
+  });
+
+  // A pack whose mods all ride in overrides/ (Lucerna's own CurseForge or .mrpack export of an
+  // instance with mods from disk) lists no files: there is nothing to pick, and the pack must
+  // still import (v0.28 regression pass, F5).
+  it('a pack that lists no files imports with a plain Install', async () => {
+    const onConfirm = vi.fn();
+    const summary = { ...baseSummary, files: [], has_overrides: true };
+    const { getByRole } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm },
+    });
+    const install = getByRole('button', { name: 'Install' });
+    expect((install as HTMLButtonElement).disabled).toBe(false);
+    await fireEvent.click(install);
+    expect(onConfirm).toHaveBeenCalledWith([]);
+  });
+
+  it('a pack that lists files still needs one picked', async () => {
+    const { getByText, getByLabelText } = render(ImportPickerDialog, {
+      props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    await fireEvent.click(getByLabelText(/Install Iris/));
+    await fireEvent.click(getByLabelText(/Install Sodium/));
+    const install = getByText(/Install 0 selected/).closest('button') as HTMLButtonElement;
+    expect(install.disabled).toBe(true);
   });
 });

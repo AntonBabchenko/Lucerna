@@ -336,14 +336,18 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
       >{$t('common.cancel')}</button
     >
+    <!-- A pack that lists no files (every mod rides in its overrides) has
+         nothing to pick and still imports; one that lists files needs one. -->
     <button
       type="button"
       class="btn-primary btn-sm inline-flex items-center gap-1.5"
-      disabled={selectedShas.length === 0}
+      disabled={summary.files.length > 0 && selectedShas.length === 0}
       onclick={() => onConfirm(selectedShas)}
     >
       <Icon name="download" size={14} />
-      {$t('common.installCount', { count: selectedShas.length })}
+      {summary.files.length > 0
+        ? $t('common.installCount', { count: selectedShas.length })
+        : $t('common.install')}
     </button>
   </footer>
 </Modal>

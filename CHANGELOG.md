@@ -136,6 +136,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   profile.** It used to suggest Oculus on NeoForge 1.21 and OptiFine on a
   profile without a mod loader, where neither works; now it checks the
   profile's Minecraft version and says so when nothing fits.
+- **A modpack with every mod inside it imports.** A CurseForge .zip or .mrpack
+  that lists no mods to download, only bundled ones, could not be imported: the
+  CurseForge pack stopped at "api.curseforge.com refused the request (error
+  400)", and Install stayed disabled for both.
 
 ### Security
 

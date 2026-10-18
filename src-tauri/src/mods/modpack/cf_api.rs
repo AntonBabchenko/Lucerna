@@ -27,7 +27,7 @@ const CF_MAX_PAGE_SIZE: u32 = 50;
 /// CurseForge's `POST /v1/mods/files` accepts at most 100 fileIds per request
 /// (HTTP 400 above it). `resolve_files` chunks larger id lists into batches of
 /// this size, mirroring the sibling CF client in `mods/curseforge`.
-const CF_MAX_BULK_FILE_IDS: usize = 100;
+pub(crate) const CF_MAX_BULK_FILE_IDS: usize = 100;
 
 // ---- response shapes -------------------------------------------------
 
