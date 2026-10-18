@@ -81,6 +81,10 @@
   // not-checked (session-scoped confidence); problem results persist. See
   // integrity-freshness.ts. The live op branches below take precedence over this.
   const effective = $derived(effectiveIntegrityStatus(status));
+  // A report saved before the count existed has none (`?? 0`).
+  const anyBuiltDifferently = $derived(
+    effective?.categories.some((c) => (c.built_differently ?? 0) > 0) ?? false,
+  );
   // Buttons are blocked while the game runs OR while an op for this instance is
   // running/queued (dedupe is also enforced in the store, but disabling gives
   // the user feedback).
@@ -158,22 +162,46 @@
       <ul class="mt-2 space-y-1" aria-live="polite">
         {#each effective.categories as cat (cat.category)}
           {@const bad = cat.missing + cat.corrupt}
+          {@const rebuilt = cat.built_differently ?? 0}
           <li class="flex items-center justify-between text-xs">
             <span class="flex items-center gap-1.5">
-              <Icon name={bad === 0 ? 'success' : 'warning'} />
+              <Icon name={bad > 0 ? 'warning' : rebuilt > 0 ? 'info' : 'success'} />
               {$t(catKey[cat.category])}
             </span>
-            <span class={bad === 0 ? 'text-muted' : 'text-danger'}>
-              {bad === 0
-                ? $t('instance.integrity.countOk', { ok: cat.ok, total: cat.total })
-                : $t('instance.integrity.countProblems', {
+            <span class="flex flex-col items-end">
+              {#if bad > 0}
+                <span class="text-danger">
+                  {$t('instance.integrity.countProblems', {
                     corrupt: cat.corrupt,
                     missing: cat.missing,
                   })}
+                </span>
+              {/if}
+              {#if rebuilt > 0}
+                <span class="text-warning-text">
+                  {$t('instance.integrity.countBuiltDifferently', { count: rebuilt })}
+                </span>
+              {/if}
+              {#if bad === 0 && rebuilt === 0}
+                <span class="text-muted">
+                  {$t('instance.integrity.countOk', { ok: cat.ok, total: cat.total })}
+                </span>
+              {/if}
             </span>
           </li>
         {/each}
       </ul>
+      {#if anyBuiltDifferently}
+        <!-- Not damage (spec 2026-10-16 §5.5): Forge files an older Lucerna
+             built with its own code. Say so, and what Repair does. -->
+        <p
+          class="mt-2 text-xs text-muted flex items-start gap-1.5"
+          data-testid="integrity-built-differently"
+        >
+          <Icon name="info" />
+          {$t('instance.integrity.builtDifferentlyNote')}
+        </p>
+      {/if}
       <div class="mt-2 flex justify-end">
         <span class="inline-flex" use:tooltip={{ text: blockTitle, describe: false }}>
           <button

@@ -3,11 +3,13 @@
 //! in a shared `ProcessRegistry`.
 
 pub mod args;
+pub mod classpath;
 pub mod guardrail;
 pub mod natives;
 pub mod options;
 pub mod quick_play;
 pub mod spawn;
+pub mod version_jar;
 
 pub use options::LaunchOptions;
 pub use quick_play::QuickPlay;

@@ -51,29 +51,6 @@ fn install_profile_has_4_processors() {
     );
 }
 
-#[test]
-fn every_processor_coord_recognised() {
-    let Some((_, profile)) = load_or_skip() else {
-        return;
-    };
-    let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
-    let recognised = &[
-        ("net.minecraftforge", "installertools"),
-        ("net.minecraftforge", "jarsplitter"),
-        ("net.md-5", "SpecialSource"),
-        ("net.minecraftforge", "binarypatcher"),
-    ];
-    for p in &parsed.processors {
-        let parts: Vec<&str> = p.jar.split(':').collect();
-        let (g, a) = (parts[0], parts[1]);
-        assert!(
-            recognised.iter().any(|(rg, ra)| *rg == g && *ra == a),
-            "unrecognised processor coord: {} — extend run_processor",
-            p.jar
-        );
-    }
-}
-
 #[tokio::test]
 async fn substitute_args_reserved_placeholders() {
     let data: HashMap<String, DataEntry> = HashMap::new();

@@ -111,6 +111,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   // Built from the version pair only — nothing to truncate.
   forge_installer_unverifiable: 'clean',
   forge_patcher_failed: 'opaque',
+  forge_processor_output_mismatch: 'opaque',
   mods_decode: 'opaque',
   mods_cache_io: 'opaque',
   mods_instance_path: 'opaque',
@@ -294,6 +295,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   java_settings_unreadable: 'opaque',
   // A component name only.
   managed_java_missing: 'clean',
+  client_jar_invalid: 'clean',
   // Clean like `java_unusable`: the reason is typed, and a download's cause
   // is a typed error worded by its own class.
   jre_unavailable: 'clean',
@@ -650,6 +652,10 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.javaSettingsUnreadable'), e.details);
     case 'managed_java_missing':
       return translate('errors.managedJavaMissing');
+    case 'client_jar_invalid':
+      return translate(e.missing ? 'errors.clientJarMissing' : 'errors.clientJarDamaged', {
+        mc: e.mc_version,
+      });
     case 'jre_unavailable':
       return translate(
         e.stage === 'game_runtime' ? 'errors.jreUnavailable' : 'errors.jreUnavailableInstaller',
@@ -727,6 +733,11 @@ export function formatError(e: IpcError): string {
     case 'forge_patcher_failed':
       return withDetailTail(
         translate('errors.forgePatcherFailed', { processor: e.processor }),
+        e.details,
+      );
+    case 'forge_processor_output_mismatch':
+      return withDetailTail(
+        translate('errors.forgeProcessorOutputMismatch', { processor: e.processor }),
         e.details,
       );
     case 'forge_mappings_missing':

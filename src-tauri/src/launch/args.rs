@@ -10,12 +10,9 @@
 use crate::accounts::{Account, AccountKind};
 use crate::error::Result;
 use crate::launch::quick_play::QuickPlay;
-use crate::versions::libraries::artifacts_to_install;
-use crate::versions::version_json::{
-    Argument, ArgumentValue, Library, Rule, RuleAction, VersionDetails,
-};
+use crate::versions::version_json::{Argument, ArgumentValue, Rule, RuleAction, VersionDetails};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const LAUNCHER_NAME: &str = "Lucerna";
 
@@ -27,13 +24,10 @@ pub struct ArgvInput<'a> {
     pub assets_dir: PathBuf,
     pub natives_dir: PathBuf,
     pub game_dir: PathBuf,
-    /// Vanilla MC client jar to append to the classpath. `None` for
-    /// modern Forge / NeoForge installs that ship a patched MC in their
-    /// libraries — adding vanilla there duplicates the MC bytecode and
-    /// triggers a JPMS ResolutionException on the modern Java 9+ module
-    /// path bootstrap. Legacy-era Forge (launchwrapper) and
-    /// Vanilla / Fabric / Quilt do get the vanilla jar.
-    pub client_jar: Option<PathBuf>,
+    /// The jar that ends the classpath: the vanilla client jar, or the named
+    /// version jar `launch::version_jar::ensure` placed (spec 2026-10-16 §3).
+    /// Every era gets one, as the official launcher does.
+    pub version_jar: PathBuf,
     pub os: &'static str,
     pub arch: &'static str,
     /// Optional direct-launch target. When set, the matching quick-play
@@ -44,10 +38,10 @@ pub struct ArgvInput<'a> {
 
 /// Build the full argv. Returns `[..jvm_args, main_class, ..game_args]`.
 pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
-    let classpath = build_classpath(
+    let classpath = crate::launch::classpath::build_classpath(
         &input.details.libraries,
         &input.libraries_dir,
-        input.client_jar.as_deref(),
+        &input.version_jar,
         input.os,
         input.arch,
     );
@@ -102,6 +96,14 @@ fn substitution_map<'a>(
         }
     }
     m.insert("user_properties", "{}".into());
+    // The official launcher passes its own client id and the account's Xbox
+    // user id here; the game files both into its telemetry. Lucerna invents no
+    // stable id and hands over no identifier the game does not need for play
+    // (PRINCIPLES: no fingerprinting). An empty value is "not given": MC's
+    // `Main` maps "" to `Optional.empty()` for both (checked with javap on
+    // 1.20.1, 1.21.11 and 26.2). Spec 2026-10-16 §4.
+    m.insert("clientid", String::new());
+    m.insert("auth_xuid", String::new());
     m.insert("version_name", input.details.id.clone());
     m.insert("version_type", "release".into());
     m.insert(
@@ -134,7 +136,10 @@ fn substitution_map<'a>(
     );
     m.insert("launcher_name", LAUNCHER_NAME.into());
     m.insert("launcher_version", env!("CARGO_PKG_VERSION").into());
-    m.insert("classpath_separator", classpath_sep(input.os).into());
+    m.insert(
+        "classpath_separator",
+        crate::launch::classpath::classpath_sep(input.os).into(),
+    );
     m.insert(
         "library_directory",
         input.libraries_dir.to_string_lossy().into_owned(),
@@ -149,39 +154,6 @@ fn substitution_map<'a>(
         None => {}
     }
     Ok(m)
-}
-
-fn classpath_sep(os: &str) -> &'static str {
-    if os == "windows" {
-        ";"
-    } else {
-        ":"
-    }
-}
-
-/// Join all platform-applicable library artifact paths with the OS's
-/// classpath separator. Optionally appends `client_jar` — pass `None`
-/// for modern Forge / NeoForge installs whose libraries already include
-/// a patched MC (adding vanilla there duplicates the bytecode and on
-/// the modern Java module-path bootstrap triggers a JPMS
-/// ResolutionException for `net.minecraft.*` packages).
-pub fn build_classpath(
-    libs: &[Library],
-    libraries_dir: &Path,
-    client_jar: Option<&Path>,
-    os: &str,
-    arch: &str,
-) -> String {
-    let sep = classpath_sep(os);
-    let mut parts: Vec<String> = libs
-        .iter()
-        .flat_map(|lib| artifacts_to_install(lib, os, arch))
-        .map(|(rel_path, _, _, _)| libraries_dir.join(rel_path).to_string_lossy().into_owned())
-        .collect();
-    if let Some(cj) = client_jar {
-        parts.push(cj.to_string_lossy().into_owned());
-    }
-    parts.join(sep)
 }
 
 /// The quick-play feature keys to enable for a given target. We enable ONLY
@@ -490,7 +462,7 @@ mod tests {
             assets_dir: PathBuf::from("C:/assets"),
             natives_dir: PathBuf::from("C:/instance/natives"),
             game_dir: PathBuf::from("C:/instance/.minecraft"),
-            client_jar: Some(PathBuf::from("C:/versions/1.20.4/1.20.4.jar")),
+            version_jar: PathBuf::from("C:/versions/1.20.4/1.20.4.jar"),
             os: "windows",
             arch: "x64",
             quick_play: None,
@@ -665,26 +637,62 @@ mod tests {
         assert!(!rules_match(&[rule], "windows", "x64", &[]));
     }
 
+    const FIXTURE_1_20_1_FULL_ARGS: &str = r#"{
+      "id": "1.20.1",
+      "mainClass": "net.minecraft.client.main.Main",
+      "assetIndex": {"id": "5", "url": "u", "sha1": "x", "size": 1},
+      "assets": "5",
+      "downloads": {"client": {"url": "u", "sha1": "y", "size": 1}},
+      "libraries": [],
+      "arguments": {
+        "jvm": [
+          {"rules":[{"action":"allow","os":{"name":"windows"}}],"value":"-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump"},
+          "-Djava.library.path=${natives_directory}", "-Djna.tmpdir=${natives_directory}",
+          "-Dorg.lwjgl.system.SharedLibraryExtractPath=${natives_directory}",
+          "-Dio.netty.native.workdir=${natives_directory}",
+          "-Dminecraft.launcher.brand=${launcher_name}", "-Dminecraft.launcher.version=${launcher_version}",
+          "-cp", "${classpath}",
+          "-DignoreList=forge-,${version_name}.jar", "-DlibraryDirectory=${library_directory}",
+          "-p", "${library_directory}/a.jar${classpath_separator}${library_directory}/b.jar"
+        ],
+        "game": [
+          "--username", "${auth_player_name}", "--version", "${version_name}",
+          "--gameDir", "${game_directory}", "--assetsDir", "${assets_root}",
+          "--assetIndex", "${assets_index_name}", "--uuid", "${auth_uuid}",
+          "--accessToken", "${auth_access_token}", "--clientId", "${clientid}",
+          "--xuid", "${auth_xuid}", "--userType", "${user_type}", "--versionType", "${version_type}",
+          {"rules":[{"action":"allow","features":{"is_demo_user":true}}],"value":"--demo"},
+          {"rules":[{"action":"allow","features":{"has_custom_resolution":true}}],"value":["--width","${resolution_width}"]},
+          {"rules":[{"action":"allow","features":{"is_quick_play_singleplayer":true}}],"value":["--quickPlaySingleplayer","${quickPlaySingleplayer}"]}
+        ]
+      }
+    }"#;
+
     #[test]
-    fn build_classpath_windows_separator() {
-        let libs = vec![];
-        let cp = build_classpath(
-            &libs,
-            Path::new("C:/libs"),
-            Some(Path::new("C:/client.jar")),
-            "windows",
-            "x64",
-        );
-        assert_eq!(cp, "C:/client.jar");
+    fn client_id_and_xuid_are_empty_not_literal_placeholders() {
+        let details = parse(FIXTURE_1_20_1_FULL_ARGS).expect("parse");
+        let acct = account();
+        let argv = build_argv(&input(&details, &acct)).expect("build");
+        let after = |flag: &str| {
+            let i = argv
+                .iter()
+                .position(|a| a == flag)
+                .unwrap_or_else(|| panic!("{flag}"));
+            argv[i + 1].clone()
+        };
+        assert_eq!(after("--clientId"), "");
+        assert_eq!(after("--xuid"), "");
     }
 
     #[test]
-    fn build_classpath_skips_client_jar_when_none() {
-        // Forge / NeoForge installs pass None to avoid duplicating the
-        // patched MC bytecode on the JPMS module path.
-        let libs = vec![];
-        let cp = build_classpath(&libs, Path::new("C:/libs"), None, "windows", "x64");
-        assert_eq!(cp, "");
+    fn no_placeholder_survives_substitution_in_any_era_fixture() {
+        let acct = account();
+        for fixture in [FIXTURE_1_20_4, FIXTURE_1_7_10, FIXTURE_1_20_1_FULL_ARGS] {
+            let details = parse(fixture).expect("parse");
+            let argv = build_argv(&input(&details, &acct)).expect("build");
+            let left: Vec<&String> = argv.iter().filter(|a| a.contains("${")).collect();
+            assert!(left.is_empty(), "unsubstituted in {}: {left:?}", details.id);
+        }
     }
 
     #[test]

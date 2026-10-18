@@ -83,7 +83,6 @@ quick-xml = { version = "0.41", default-features = false, features = ["serialize
 # directly (no gzip layer). Used only by the local-file `servers::` module.
 fastnbt = "2"
 async-recursion = "1.1.1"
-xz2 = "0.1"
 async-trait = "0.1.83"
 chrono = { version = "0.4.39", default-features = false, features = ["serde", "clock"] }
 # Pattern-matching for the crash log diagnoser (logs/diagnose). Already

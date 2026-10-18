@@ -1,0 +1,43 @@
+# {"id":"com.example.mappings","version":"1.0"}
+# Synthetic ProGuard mappings for the srgutils 0.5.10 port test. Made-up names only.
+org.example.alpha.Widget -> a:
+# {"fileName":"Widget.java","id":"sourceFile"}
+    int count -> a
+    java.lang.String label -> b
+    org.example.alpha.Widget$Part[] parts -> c
+    long stamp -> d # inline comment drops the char before it
+    1:1:void <init>() -> <init>
+    2:3:void <init>(int) -> <init>
+    4:5:void <init>(java.lang.String,int[][]) -> <init>
+    6:6:void <clinit>() -> <clinit>
+    7:9:int size() -> e
+    10:12:void render(float) -> f
+    13:13:void render(double,boolean) -> f
+    14:14:void render() -> f
+    15:15:void render(org.example.alpha.Widget) -> f
+    16:16:void render(long,long,long) -> f
+    17:17:void render(char[]) -> f
+    18:18:void render(byte,short) -> f
+    19:22:boolean isEmpty() -> g
+    23:24:java.lang.String describe(int):30:31 -> h
+    25:26:java.lang.String describe(int):40:41 -> h
+    27:27:org.example.alpha.Widget$Part part(int) -> i
+    28:28:java.util.List parts() -> j
+    29:29:void of(int) -> k
+    30:30:void of(long) -> k
+    31:31:void of(java.lang.Object) -> k
+    32:32:void of(int,int) -> k
+org.example.alpha.Widget$Part -> a$a:
+    float weight -> a
+    1:1:void <init>(float) -> <init>
+    2:2:float weight() -> a
+org.example.beta.Gadget -> b:
+    boolean[] flags -> a
+    1:1:void <init>() -> <init>
+    2:2:void tick() -> a
+    3:3:void tick(int) -> a
+    4:4:void tick(int,int) -> a
+    5:5:void tick(java.lang.String) -> a
+    6:6:void apply(org.example.alpha.Widget[]) -> b
+org.example.Aardvark -> c:
+    1:1:void <init>() -> <init>

@@ -6,7 +6,8 @@
 //! crate to confirm the public surface is well-formed.
 
 use lucerna_lib::accounts::{Account, AccountKind};
-use lucerna_lib::launch::args::{build_argv, build_classpath, ArgvInput};
+use lucerna_lib::launch::args::{build_argv, ArgvInput};
+use lucerna_lib::launch::classpath::build_classpath;
 use lucerna_lib::versions::version_json::parse;
 use std::path::PathBuf;
 
@@ -57,9 +58,9 @@ fn full_argv_for_1_20_4_has_all_required_pieces() {
         game_dir: PathBuf::from(
             "C:/Users/foo/AppData/Roaming/com.lucerna.app/instances/default/.minecraft",
         ),
-        client_jar: Some(PathBuf::from(
+        version_jar: PathBuf::from(
             "C:/Users/foo/AppData/Roaming/com.lucerna.app/versions/1.20.4/1.20.4.jar",
-        )),
+        ),
         os: "windows",
         arch: "x64",
         quick_play: None,
@@ -104,7 +105,7 @@ fn classpath_with_one_lib_uses_semicolon_on_windows() {
     let cp = build_classpath(
         &details.libraries,
         std::path::Path::new("C:/libs"),
-        Some(std::path::Path::new("C:/client.jar")),
+        std::path::Path::new("C:/client.jar"),
         "windows",
         "x64",
     );

@@ -15,13 +15,71 @@ import { __resetTasksForTest, start } from '$lib/tasks/registry.svelte';
 const brokenStatus: IntegrityStatus = {
   healthy: false,
   checked_unix_ms: null,
-  categories: [{ category: 'client', total: 5, ok: 3, missing: 1, corrupt: 1 }],
+  categories: [
+    { category: 'client', total: 5, ok: 3, missing: 1, corrupt: 1, built_differently: 0 },
+  ],
   problem_count: 2,
+};
+
+// Forge files an older Lucerna built with its own code (spec 2026-10-16
+// §5.5): they differ from Forge's declared bytes but are not damaged.
+const builtDifferentlyStatus: IntegrityStatus = {
+  healthy: false,
+  checked_unix_ms: null,
+  categories: [
+    { category: 'libraries', total: 40, ok: 37, missing: 0, corrupt: 0, built_differently: 3 },
+  ],
+  problem_count: 3,
 };
 
 describe('IntegritySection', () => {
   beforeEach(() => {
     __resetTasksForTest();
+  });
+
+  it('says Forge files built differently are not damaged, and that Repair rebuilds them', () => {
+    const { container, getByRole, getByTestId } = render(IntegritySection, {
+      props: { instanceId: 'inst-1', name: 'Inst', status: builtDifferentlyStatus },
+    });
+    const text = container.textContent ?? '';
+    expect(text).not.toMatch(/corrupt|damaged/i);
+    expect(text).toMatch(/3 built differently from Forge's own installer/);
+    const note = getByTestId('integrity-built-differently').textContent ?? '';
+    expect(note).toMatch(/If the game started with them before, it still does/);
+    expect(note).toMatch(/Repair rebuilds them the way Forge's installer does/);
+    expect(getByRole('button', { name: 'Repair (3)' })).toBeTruthy();
+  });
+
+  it('keeps real damage and files built differently apart in one row', () => {
+    const { container } = render(IntegritySection, {
+      props: {
+        instanceId: 'inst-1',
+        name: 'Inst',
+        status: {
+          ...builtDifferentlyStatus,
+          categories: [
+            {
+              category: 'libraries',
+              total: 40,
+              ok: 37,
+              missing: 1,
+              corrupt: 0,
+              built_differently: 2,
+            },
+          ],
+        },
+      },
+    });
+    const text = container.textContent ?? '';
+    expect(text).toMatch(/0 corrupt, 1 missing/);
+    expect(text).toMatch(/2 built differently from Forge's own installer/);
+  });
+
+  it('has no such note when nothing was built differently', () => {
+    const { queryByTestId } = render(IntegritySection, {
+      props: { instanceId: 'inst-1', name: 'Inst', status: brokenStatus },
+    });
+    expect(queryByTestId('integrity-built-differently')).toBeNull();
   });
 
   it('leaves Verify enabled when no task is active for this instance', () => {

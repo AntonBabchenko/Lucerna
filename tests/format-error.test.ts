@@ -361,6 +361,7 @@ describe('formatError', () => {
       },
       java_settings_unreadable: { kind: 'java_settings_unreadable', details: 'expected value' },
       managed_java_missing: { kind: 'managed_java_missing', component: 'java-runtime-delta' },
+      client_jar_invalid: { kind: 'client_jar_invalid', mc_version: '1.20.1', missing: false },
       jre_unavailable: {
         kind: 'jre_unavailable',
         component: 'java-runtime-delta',
@@ -421,6 +422,11 @@ describe('formatError', () => {
       },
       forge_unsupported_processor: { kind: 'forge_unsupported_processor', coord: 'a:b:c' },
       forge_patcher_failed: { kind: 'forge_patcher_failed', processor: 'ss', details: 'd' },
+      forge_processor_output_mismatch: {
+        kind: 'forge_processor_output_mismatch',
+        processor: 'net.minecraftforge:jarsplitter:1.1.4',
+        details: 'd',
+      },
       forge_mappings_missing: { kind: 'forge_mappings_missing', mc: '1.20.1' },
       instance_name_empty: { kind: 'instance_name_empty' },
       instance_name_too_long: { kind: 'instance_name_too_long', max: 32, actual: 50 },

@@ -4,6 +4,7 @@
 
 pub mod legacy;
 pub mod modern;
+pub mod processors;
 pub mod transitional;
 
 use crate::error::{Error, Result};
@@ -70,7 +71,9 @@ pub async fn install(
 /// Read `install_profile.json` from the installer ZIP and parse it as
 /// raw JSON. Returns `Err(details_string)` on any failure for the
 /// caller to wrap into `ForgeInstallerCorrupted`.
-fn read_install_profile(installer_bytes: &[u8]) -> std::result::Result<serde_json::Value, String> {
+pub(crate) fn read_install_profile(
+    installer_bytes: &[u8],
+) -> std::result::Result<serde_json::Value, String> {
     use std::io::Read;
     let cursor = std::io::Cursor::new(installer_bytes);
     let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("zip open: {e}"))?;

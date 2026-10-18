@@ -27,7 +27,7 @@
 //! construct a Wry AppHandle (would need WebView2 DLLs in test PATH).
 
 use lucerna_lib::forge::installer::{detect_era, Era};
-use lucerna_lib::forge::patcher::{maven_coord_to_relative_path, run_processor, ProcessorContext};
+use lucerna_lib::forge::patcher::maven_coord_to_relative_path;
 use lucerna_lib::network;
 use lucerna_lib::versions::libraries::artifacts_to_install;
 use lucerna_lib::versions::loaders::{list_loaders, synth_id, Loader};
@@ -317,6 +317,20 @@ async fn download_file(url: &str, dest: &Path, sha1: &str) -> Result<(), Install
         })
 }
 
+/// This harness's library downloads, for the production processor stage.
+struct MatrixIo;
+
+impl lucerna_lib::forge::installer::processors::StageIo for MatrixIo {
+    async fn run(
+        &self,
+        coord: &str,
+        args: Vec<String>,
+        ctx: &lucerna_lib::forge::patcher::ProcessorContext,
+    ) -> lucerna_lib::error::Result<()> {
+        lucerna_lib::forge::patcher::run_processor(coord, args, ctx).await
+    }
+}
+
 // ─── Vanilla install ────────────────────────────────────────────────────────
 
 async fn fetch_vanilla_details(mc: &str) -> Result<VersionDetails, InstallError> {
@@ -437,7 +451,7 @@ async fn install_fabric_or_quilt(
     // 3. Merge.
     let merged = merge_loader_into_vanilla(&combo.synth_id(), &loader_profile, vanilla);
     // 4. Download loader-specific libs (the new entries vs vanilla).
-    download_vanilla_payload(&merged, &combo.synth_id(), paths).await?;
+    download_vanilla_payload(&merged, &combo.mc, paths).await?;
     Ok(merged)
 }
 
@@ -726,7 +740,7 @@ async fn install_forge_legacy(
         stage: "forge-legacy".into(),
         error: format!("parse: {e}"),
     })?;
-    child.id = combo.synth_id();
+    // Production keeps the installer's own id (versionInfo.id).
     let vanilla = fetch_vanilla_details(&combo.mc).await?;
     child.inherits_from = Some(vanilla.id.clone());
     let merged = merge_inherits(child, vanilla);
@@ -734,7 +748,7 @@ async fn install_forge_legacy(
     // Step 3: Download libraries. The `forge-<v>.jar` (no-classifier) entry is
     // URL-less in the merged profile but we placed it on disk above; the
     // download loop's existence-check + TOFU treatment skips it.
-    download_vanilla_payload(&merged, &combo.synth_id(), paths).await?;
+    download_vanilla_payload(&merged, &combo.mc, paths).await?;
     Ok(merged)
 }
 
@@ -745,9 +759,7 @@ async fn install_forge_processor_era(
     profile_value: &serde_json::Value,
     _is_modern: bool,
 ) -> Result<VersionDetails, InstallError> {
-    use lucerna_lib::forge::installer::transitional::{
-        classpath_coords_to_libraries, parse_install_profile, substitute_args,
-    };
+    use lucerna_lib::forge::installer::transitional::parse_install_profile;
 
     let raw_text = serde_json::to_string(profile_value).unwrap();
     let profile = parse_install_profile(&raw_text).map_err(|e| InstallError {
@@ -799,7 +811,6 @@ async fn install_forge_processor_era(
 
     let cache_dir = paths.forge_cache(&combo.mc, &combo.loader_version);
     tokio::fs::create_dir_all(&cache_dir).await.ok();
-    let cache_dir_str = cache_dir.display().to_string();
     let installer_path_str = paths
         .installer_jar(&combo.mc, &combo.loader_version)
         .display()
@@ -831,66 +842,34 @@ async fn install_forge_processor_era(
         }
     }
 
-    // Run client-side processors.
-    for (i, p) in profile.processors.iter().enumerate() {
-        if let Some(sides) = &p.sides {
-            if !sides.iter().any(|s| s == "client") {
-                continue;
-            }
-        }
-        let cp_libs = classpath_coords_to_libraries(&p.classpath);
-        for lib in &cp_libs {
-            for (rel, url, sha1, _size) in artifacts_to_install(lib, os, arch) {
-                if url.is_empty() {
-                    continue;
-                }
-                download_file(&url, &libs_root.join(&rel), &sha1).await?;
-            }
-        }
-        let resolved = substitute_args(
-            &p.args,
-            &profile.data,
-            "client",
-            &libs_root,
-            installer_bytes,
-            &installer_path_str,
-            &cache_dir_str,
-            &minecraft_jar,
-        )
-        .await
-        .map_err(|e| InstallError {
-            stage: format!("forge-substitute-args[{i}]"),
-            error: format!("{e:?}"),
-        })?;
-        let mut cp_paths: Vec<PathBuf> = p
-            .classpath
-            .iter()
-            .filter_map(|c| maven_coord_to_relative_path(c))
-            .map(|rel| libs_root.join(rel))
-            .collect();
-        if let Some(rel) = maven_coord_to_relative_path(&p.jar) {
-            cp_paths.push(libs_root.join(rel));
-        }
-        let ctx = ProcessorContext {
-            classpath: cp_paths,
-            cache_dir: cache_dir.clone(),
-            java_bin: Some(java_bin.clone()),
-        };
-        run_processor(&p.jar, resolved, &ctx)
-            .await
-            .map_err(|e| InstallError {
-                stage: format!("forge-processor[{i}]:{}", p.jar),
-                error: format!("{e:?}"),
-            })?;
-    }
+    // Run client-side processors: the production stage (spec 2026-10-16 §5.1),
+    // with this harness's own downloader.
+    let env = lucerna_lib::forge::installer::processors::StageEnv {
+        libs_root: libs_root.clone(),
+        cache_dir: cache_dir.clone(),
+        installer_path: PathBuf::from(&installer_path_str),
+        minecraft_jar: PathBuf::from(&minecraft_jar),
+        java_bin: Some(java_bin.clone()),
+    };
+    lucerna_lib::forge::installer::processors::run_client_processors(
+        &profile,
+        installer_bytes,
+        &env,
+        &MatrixIo,
+    )
+    .await
+    .map_err(|e| InstallError {
+        stage: "forge-processors".into(),
+        error: format!("{e:?}"),
+    })?;
 
     // Use the same merge as production launch path.
+    // Production keeps the installer's own id: it becomes ${version_name}.
     let mut child = version_details;
-    child.id = combo.synth_id();
     child.inherits_from = Some(combo.mc.clone());
     let merged = merge_inherits(child, vanilla);
 
-    download_vanilla_payload(&merged, &combo.synth_id(), paths).await?;
+    download_vanilla_payload(&merged, &combo.mc, paths).await?;
     Ok(merged)
 }
 
@@ -1010,14 +989,29 @@ async fn launch_and_watch(
         kind: lucerna_lib::accounts::AccountKind::Offline,
     };
 
-    // Mirror production spawn.rs: Forge/NeoForge ship a patched MC in
-    // libraries and the loader's own MinecraftLocator finds it; adding the
-    // vanilla jar to the classpath duplicates net.minecraft.* and triggers
-    // a JPMS ResolutionException on the BootstrapLauncher / ForgeBootstrap
-    // module-path. Vanilla/Fabric/Quilt do need it on the classpath.
-    let client_jar = match combo.loader {
-        MatrixLoader::Real(Loader::Forge) | MatrixLoader::Real(Loader::NeoForge) => None,
-        _ => Some(paths.versions().join(&synth).join(format!("{synth}.jar"))),
+    // The production version jar (spec 2026-10-16 §3): the vanilla jar, or a
+    // link/copy of it named `<version_name>.jar` when the profile's ignore
+    // list names it.
+    let plan = match lucerna_lib::launch::classpath::plan_version_jar(
+        details,
+        &paths.versions(),
+        &synth,
+        &combo.mc,
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            return Outcome::LaunchSpawnFailed {
+                error: format!("plan_version_jar: {e:?}"),
+            }
+        }
+    };
+    let version_jar = match lucerna_lib::launch::version_jar::ensure(&plan, &combo.mc).await {
+        Ok(p) => p,
+        Err(e) => {
+            return Outcome::LaunchSpawnFailed {
+                error: format!("version_jar: {e:?}"),
+            }
+        }
     };
     let argv_input = lucerna_lib::launch::args::ArgvInput {
         details,
@@ -1027,7 +1021,7 @@ async fn launch_and_watch(
         assets_dir: paths.assets(),
         natives_dir: natives_dir.clone(),
         game_dir: game_dir.clone(),
-        client_jar,
+        version_jar,
         os,
         arch,
         quick_play: None,

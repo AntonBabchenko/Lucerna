@@ -19,3 +19,9 @@
 *.dll  binary
 *.class binary
 *.icns  binary
+
+# Mojang-mappings fixtures: the ProGuard input carries deliberate CRLF lines
+# (the sanitize port must split lines as Java does), and the expected TSRG is
+# compared byte for byte. Store both exactly as written.
+src-tauri/tests/fixtures/mojmaps/*.proguard -text
+src-tauri/tests/fixtures/mojmaps/*.tsrg -text

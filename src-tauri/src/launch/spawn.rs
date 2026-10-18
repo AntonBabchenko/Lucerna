@@ -20,11 +20,9 @@ use crate::paths::{
     minecraft_dir, versions_dir,
 };
 use crate::process::registry::ProcessRegistry;
-use crate::versions::loaders::Loader;
 use crate::versions::version_json::{parse, VersionDetails};
 use serde::Serialize;
 use specta::Type;
-use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use tauri::AppHandle;
 use tauri_specta::Event;
@@ -371,6 +369,12 @@ pub async fn start(
     if crate::instances::maintenance::maintenance_is_active(&instance.id) {
         return Err(Error::InstanceBusy);
     }
+    // The same two-sided check against a rebuild of installed Forge files
+    // (`forge::installer::processors`), which rewrites shared libraries in place:
+    // it marks itself, then checks for running and starting games.
+    if crate::forge::installer::processors::rebuild_in_progress() {
+        return Err(Error::InstanceBusy);
+    }
     // Fresh run: clear any stale stop request for THIS instance.
     let _ = take_stop_requested(&instance.id);
 
@@ -414,24 +418,8 @@ pub async fn start(
         .map_err(|e| Error::io("<settings sync>", e))??;
         facts
     };
-    // Vanilla MC client.jar lives at `versions/<mc>/<mc>.jar` only — see
-    // `versions::install` comment. For synth installs, resolve to the parent
-    // MC id so we don't reference the orphaned synth-path jar. We know the MC
-    // version from the instance, so use the unambiguous mc-aware parse (a
-    // loader version may itself contain `-`, e.g. `0.24.0-beta.1`).
-    let synth_loader = crate::versions::loaders::parse_synth_id_with_mc(
-        effective_version_id,
-        &instance.mc_version,
-    )
-    .map(|(loader, _lv)| loader);
-    let client_jar_id = if synth_loader.is_some() {
-        instance.mc_version.clone()
-    } else {
-        effective_version_id.to_string()
-    };
-
-    // The version JSON is parsed here — before the `client_jar` decision
-    // below — because that decision keys off `details.main_class`.
+    // The version JSON is parsed here: the version jar decision reads its JVM
+    // arguments (spec 2026-10-16 §3.1).
     let version_json_path = versions
         .join(effective_version_id)
         .join(format!("{effective_version_id}.json"));
@@ -445,24 +433,24 @@ pub async fn start(
         )
     })?;
 
-    // Whether to append the vanilla MC client jar to the launch
-    // classpath. Modern Forge / NeoForge ship a patched MC inside their
-    // libraries (`libraries/net/minecraft/client/.../client-*-srg.jar`);
-    // adding the vanilla jar on top duplicates the `net.minecraft.*`
-    // bytecode and, on the modern Java module-path bootstrap, crashes
-    // with a JPMS ResolutionException. Legacy-era Forge (≤1.12.2,
-    // launchwrapper) ships no patched MC and runtime-patches the vanilla
-    // jar — `needs_vanilla_client_jar` keys this off `details.main_class`.
-    let client_jar: Option<PathBuf> = if needs_vanilla_client_jar(synth_loader, &details.main_class)
+    // The vanilla client jar is `versions/<mc>/<mc>.jar`. A loader install's id
+    // is not the MC id, and the instance knows its MC version: the mc-aware
+    // parse is unambiguous, while a loader version may itself contain `-`.
+    let mc = if crate::versions::loaders::parse_synth_id_with_mc(
+        effective_version_id,
+        &instance.mc_version,
+    )
+    .is_some()
     {
-        Some(
-            versions
-                .join(&client_jar_id)
-                .join(format!("{client_jar_id}.jar")),
-        )
+        instance.mc_version.clone()
     } else {
-        None
+        effective_version_id.to_string()
     };
+    // Every era ends its classpath with a version jar, as the official launcher
+    // does. A profile whose ignore list names `${version_name}.jar` gets that
+    // name; any other profile gets the vanilla jar itself.
+    let version_jar_plan =
+        crate::launch::classpath::plan_version_jar(&details, &versions, effective_version_id, &mc)?;
 
     let component = details
         .java_version
@@ -510,6 +498,8 @@ pub async fn start(
     let os = current_os();
     let arch = current_arch();
 
+    let version_jar = crate::launch::version_jar::ensure(&version_jar_plan, &mc).await?;
+
     extract_natives(&details.libraries, &libraries, &natives_dir, os, arch).await?;
 
     tokio::fs::create_dir_all(&game_dir)
@@ -527,7 +517,7 @@ pub async fn start(
         assets_dir: assets,
         natives_dir,
         game_dir: game_dir.clone(),
-        client_jar,
+        version_jar,
         os,
         arch,
         quick_play,
@@ -818,34 +808,6 @@ pub fn kill_all_running() {
     }
 }
 
-/// `mainClass` of the legacy launchwrapper era (Minecraft ≤ 1.12.2).
-/// Legacy-era Forge launches through launchwrapper and runtime-patches
-/// the vanilla client jar, so the vanilla jar must be on the classpath.
-const LAUNCHWRAPPER_MAIN_CLASS: &str = "net.minecraft.launchwrapper.Launch";
-
-/// Whether the launch classpath needs the vanilla MC client jar.
-///
-/// Vanilla / Fabric / Quilt always need it — no patched MC; the loader
-/// transforms bytecode at runtime. Forge / NeoForge need it ONLY in the
-/// legacy launchwrapper era (MC ≤ 1.12.2): legacy Forge ships no patched
-/// MC and runtime-patches the vanilla jar. Modern Forge / NeoForge ship
-/// a patched MC inside their libraries — adding the vanilla jar there
-/// duplicates `net.minecraft.*` bytecode and, on the modern Java
-/// module-path bootstrap, throws a JPMS `ResolutionException`.
-///
-/// The version JSON's `mainClass` is the era signal: legacy Forge uses
-/// `net.minecraft.launchwrapper.Launch`; modern Forge uses
-/// `cpw.mods.modlauncher.Launcher` (1.13–1.16) or
-/// `cpw.mods.bootstraplauncher.BootstrapLauncher` (1.17+); NeoForge uses
-/// `BootstrapLauncher`.
-fn needs_vanilla_client_jar(loader: Option<Loader>, main_class: &str) -> bool {
-    match loader {
-        Some(Loader::Forge) | Some(Loader::NeoForge) => main_class == LAUNCHWRAPPER_MAIN_CLASS,
-        // Vanilla (None) / Fabric / Quilt.
-        _ => true,
-    }
-}
-
 fn current_os() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows"
@@ -912,62 +874,6 @@ mod tests {
                 "stamp char {ch:?} not filename-safe",
             );
         }
-    }
-
-    #[test]
-    fn needs_vanilla_jar_legacy_forge_true() {
-        assert!(needs_vanilla_client_jar(
-            Some(Loader::Forge),
-            "net.minecraft.launchwrapper.Launch",
-        ));
-    }
-
-    #[test]
-    fn needs_vanilla_jar_modern_forge_bootstraplauncher_false() {
-        assert!(!needs_vanilla_client_jar(
-            Some(Loader::Forge),
-            "cpw.mods.bootstraplauncher.BootstrapLauncher",
-        ));
-    }
-
-    #[test]
-    fn needs_vanilla_jar_modern_forge_modlauncher_false() {
-        assert!(!needs_vanilla_client_jar(
-            Some(Loader::Forge),
-            "cpw.mods.modlauncher.Launcher",
-        ));
-    }
-
-    #[test]
-    fn needs_vanilla_jar_neoforge_false() {
-        assert!(!needs_vanilla_client_jar(
-            Some(Loader::NeoForge),
-            "cpw.mods.bootstraplauncher.BootstrapLauncher",
-        ));
-    }
-
-    #[test]
-    fn needs_vanilla_jar_vanilla_true() {
-        assert!(needs_vanilla_client_jar(
-            None,
-            "net.minecraft.client.main.Main"
-        ));
-    }
-
-    #[test]
-    fn needs_vanilla_jar_fabric_true() {
-        assert!(needs_vanilla_client_jar(
-            Some(Loader::Fabric),
-            "net.fabricmc.loader.impl.launch.knot.KnotClient",
-        ));
-    }
-
-    #[test]
-    fn needs_vanilla_jar_quilt_true() {
-        assert!(needs_vanilla_client_jar(
-            Some(Loader::Quilt),
-            "org.quiltmc.loader.impl.launch.knot.KnotClient",
-        ));
     }
 
     // `is_running()` / `stop()` share process-wide state; behavioural

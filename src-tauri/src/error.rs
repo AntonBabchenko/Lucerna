@@ -194,6 +194,12 @@ pub enum Error {
     #[error("Lucerna's Java runtime {component} is not installed")]
     ManagedJavaMissing { component: String },
 
+    /// The vanilla client jar a launch derives its named version jar from
+    /// (spec 2026-10-16 §3.2) is absent (`missing`) or does not match the
+    /// checksum Mojang publishes for it. Repair re-downloads it.
+    #[error("Minecraft {mc_version} client jar is missing or damaged")]
+    ClientJarInvalid { mc_version: String, missing: bool },
+
     /// Lucerna's runtime for this version could not be obtained. `stage`
     /// says whether the game itself needs it (a Java on this computer can stand
     /// in) or a Forge/NeoForge install step does (it cannot).
@@ -297,6 +303,14 @@ pub enum Error {
 
     #[error("Forge installation failed during {processor}: {details}")]
     ForgePatcherFailed { processor: String, details: String },
+
+    /// A Forge/NeoForge install processor produced an output whose SHA-1 is not
+    /// the one `install_profile.json` declares (spec 2026-10-16 §5.1). The bad
+    /// file has been deleted. `details` names the file and both checksums.
+    #[error(
+        "Forge installation step {processor} produced a file with the wrong checksum: {details}"
+    )]
+    ForgeProcessorOutputMismatch { processor: String, details: String },
 
     #[error("Mappings for Minecraft {mc} are unavailable")]
     ForgeMappingsMissing { mc: String },
@@ -1533,6 +1547,38 @@ mod tests {
         );
         assert!(
             json.contains(r#""coord":"net.example:tool:1.0""#),
+            "got: {json}"
+        );
+    }
+
+    #[test]
+    fn client_jar_invalid_says_which_jar_and_whether_it_is_missing() {
+        let e = Error::ClientJarInvalid {
+            mc_version: "1.20.1".into(),
+            missing: true,
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"client_jar_invalid""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""mc_version":"1.20.1""#), "got: {json}");
+        assert!(json.contains(r#""missing":true"#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_processor_output_mismatch_carries_processor_and_details() {
+        let e = Error::ForgeProcessorOutputMismatch {
+            processor: "net.minecraftforge:jarsplitter:1.1.4".into(),
+            details: "x.jar: expected aa, got bb".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"forge_processor_output_mismatch""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""details":"x.jar: expected aa, got bb""#),
             "got: {json}"
         );
     }

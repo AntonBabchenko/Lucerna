@@ -607,7 +607,7 @@ pub(crate) fn cached_raw_version(flavor: ForgeFlavor, mc: &str, fv: &str) -> Opt
 
 use std::path::PathBuf;
 
-fn installer_cache_path(app_data_dir: &std::path::Path, mc: &str, fv: &str) -> PathBuf {
+pub(crate) fn installer_cache_path(app_data_dir: &std::path::Path, mc: &str, fv: &str) -> PathBuf {
     app_data_dir
         .join("forge")
         .join("installers")
