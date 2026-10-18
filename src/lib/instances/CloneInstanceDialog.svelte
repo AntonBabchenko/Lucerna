@@ -228,7 +228,7 @@
       </span>
       <input
         type="text"
-        class="input mt-1 w-full"
+        class="mt-1 w-full rounded border px-2 py-1"
         maxlength={INSTANCE_NAME_MAX}
         bind:value={name}
         data-testid="clone-name-input"

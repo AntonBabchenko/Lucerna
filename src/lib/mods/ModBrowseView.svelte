@@ -1485,7 +1485,9 @@
           {/snippet}
         </Pagination>
       </div>
-    {:else}
+    {:else if !error}
+      <!-- Only a search that answered can say there is nothing: a failed one
+           says so in the bar above (siblings: ModpackBrowseView, Server*Browser). -->
       <div class="text-placeholder text-sm py-8 text-center">{$t('mods.browse.noResults')}</div>
     {/if}
   </div>

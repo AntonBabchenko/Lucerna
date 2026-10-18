@@ -94,7 +94,7 @@
       </span>
       <input
         type="text"
-        class="input mt-1 w-full"
+        class="mt-1 w-full rounded border px-2 py-1"
         placeholder={$t('modpacks.import.url.placeholder')}
         bind:value={url}
         onkeydown={onKeydown}

@@ -486,7 +486,7 @@
         <span class="text-sm font-medium text-secondary">{$t('instances.import.nameLabel')}</span>
         <input
           type="text"
-          class="input mt-1 w-full"
+          class="mt-1 w-full rounded border px-2 py-1"
           bind:value={targetName}
           data-testid="name-input"
         />
