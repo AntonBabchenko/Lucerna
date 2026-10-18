@@ -142,6 +142,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **A failed mod search no longer also says nothing was found.** When Modrinth
   or CurseForge didn't answer, Add-ons showed the error and "No results." under
   it; now it shows the error and Reload.
+- **A modpack with every mod inside it imports.** A CurseForge .zip or .mrpack
+  that lists no mods to download, only bundled ones, could not be imported: the
+  CurseForge pack stopped at "api.curseforge.com refused the request (error
+  400)", and Install stayed disabled for both.
 
 ### Security
 

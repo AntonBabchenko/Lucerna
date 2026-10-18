@@ -378,15 +378,6 @@ describe('ImportPickerDialog selection', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it('disables the Install button when there are zero selected files', () => {
-    const summary = { ...baseSummary, files: [] };
-    const { getByText } = render(ImportPickerDialog, {
-      props: { summary, onCancel: () => {}, onConfirm: () => {} },
-    });
-    const button = getByText(/Install 0 selected/) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-  });
-
   it('deduplicates sha1s when FTB packs have duplicate sha1s', async () => {
     // Two required files sharing the same sha1 (FTB pack pattern)
     const summary = {
@@ -589,5 +580,71 @@ describe('optional badge', () => {
       props: { summary, onCancel: () => {}, onConfirm: () => {} },
     });
     expect(getAllByText('Optional')).toHaveLength(1);
+  });
+
+  // A pack whose mods all ride in overrides/ (Lucerna's own CurseForge or .mrpack export of an
+  // instance with mods from disk) lists no files: there is nothing to pick, and the pack must
+  // still import (v0.28 regression pass, F5).
+  it('a pack that lists no files imports with a plain Install', async () => {
+    const onConfirm = vi.fn();
+    const summary = { ...baseSummary, files: [], has_overrides: true };
+    const { getByRole } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm },
+    });
+    const install = getByRole('button', { name: 'Install' });
+    expect((install as HTMLButtonElement).disabled).toBe(false);
+    await fireEvent.click(install);
+    expect(onConfirm).toHaveBeenCalledWith([]);
+  });
+
+  it('says what a pack that lists no files installs, in place of an empty pick', () => {
+    const summary = { ...baseSummary, files: [], has_overrides: true };
+    const { getByText, queryByText, queryByTestId } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect(getByText(/what it installs is bundled inside it/)).toBeTruthy();
+    expect(queryByText(/0 of 0 selected/)).toBeNull();
+    expect(queryByTestId('picker-select-all')).toBeNull();
+  });
+
+  it('a pack with only mods it could not resolve still imports (the completion flow)', () => {
+    const summary = {
+      ...baseSummary,
+      files: [],
+      unresolvable: [
+        {
+          reason: 'distribution_disabled' as const,
+          mod_name: 'Blocked Mod',
+          manual_action_url: 'https://www.curseforge.com/projects/1',
+          filename: 'blocked.jar',
+          size: 1,
+          sha1: null,
+          project_id: '1',
+        },
+      ],
+    };
+    const { getByRole } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect((getByRole('button', { name: 'Install' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a pack with nothing to install keeps Install off and says so', () => {
+    const summary = { ...baseSummary, files: [] };
+    const { getByRole, getByText } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect((getByRole('button', { name: 'Install' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(getByText(/nothing to install/)).toBeTruthy();
+  });
+
+  it('a pack that lists files still needs one picked', async () => {
+    const { getByText, getByLabelText } = render(ImportPickerDialog, {
+      props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    await fireEvent.click(getByLabelText(/Install Iris/));
+    await fireEvent.click(getByLabelText(/Install Sodium/));
+    const install = getByText(/Install 0 selected/).closest('button') as HTMLButtonElement;
+    expect(install.disabled).toBe(true);
   });
 });

@@ -935,6 +935,22 @@ async fn install_selected_files(
     (failures, resolved_for_origin, details)
 }
 
+/// «Choose at least one mod» applies to a pack that lists files: picking none
+/// of them is refused. A pack that lists none — every mod rides in its
+/// overrides, as in Lucerna's own export of an instance with mods from disk —
+/// has nothing to pick and imports its overrides, loader and version; one
+/// with only mods it could not resolve imports so they can be completed by
+/// hand. A pack with none of these has nothing to install and is refused.
+pub(crate) fn selection_refusal(summary: &ModpackSummary, selected: usize) -> Option<Error> {
+    let listed_files = !summary.files.is_empty();
+    let carries_content = listed_files
+        || !summary.unresolvable.is_empty()
+        || summary.has_overrides
+        || summary.has_client_overrides;
+    let refused = (listed_files && selected == 0) || !carries_content;
+    refused.then_some(Error::ModpackNoFilesSelected)
+}
+
 /// Shared install pipeline for a pack whose manifest has already been
 /// resolved into a `ModpackSummary`. Called by `import()` (Modrinth/CF
 /// archive path, passes `archive_bytes = Some(bytes)`) and by the FTB
@@ -973,8 +989,8 @@ pub async fn install_resolved_pack(
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
 ) -> Result<crate::mods::modpack::schema::ModpackImportOutcome, Error> {
-    if selected_shas.is_empty() {
-        return Err(Error::ModpackNoFilesSelected);
+    if let Some(refusal) = selection_refusal(&summary, selected_shas.len()) {
+        return Err(refusal);
     }
 
     // Best-effort project-metadata fetch. The .mrpack / .zip archive
@@ -1433,6 +1449,56 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A pack whose mods all ride in overrides/ (Lucerna's own CurseForge or
+    // .mrpack export of an instance with mods from disk) lists no files: there
+    // is nothing to select and it must import (v0.28 regression pass, F5).
+    #[test]
+    fn a_pack_that_lists_no_files_needs_no_selection() {
+        let mut summary = sample_summary(ModpackFormat::Curseforge);
+        summary.has_overrides = true;
+        assert!(selection_refusal(&summary, 0).is_none());
+
+        let mut client_only = sample_summary(ModpackFormat::Modrinth);
+        client_only.has_client_overrides = true;
+        assert!(selection_refusal(&client_only, 0).is_none());
+    }
+
+    #[test]
+    fn a_pack_with_only_unresolvable_mods_imports_for_completion() {
+        let mut summary = sample_summary(ModpackFormat::Curseforge);
+        summary.unresolvable = vec![ModpackUnresolvable {
+            reason: UnresolvableReason::DistributionDisabled,
+            mod_name: "Blocked".into(),
+            manual_action_url: "https://www.curseforge.com/projects/1".into(),
+            filename: "blocked.jar".into(),
+            size: 1.0,
+            sha1: None,
+            project_id: Some("1".into()),
+        }];
+        assert!(selection_refusal(&summary, 0).is_none());
+    }
+
+    #[test]
+    fn a_pack_with_nothing_to_install_is_refused() {
+        let summary = sample_summary(ModpackFormat::Curseforge);
+        assert!(matches!(
+            selection_refusal(&summary, 0),
+            Some(Error::ModpackNoFilesSelected)
+        ));
+    }
+
+    #[test]
+    fn a_pack_that_lists_files_needs_one_selected() {
+        let mut summary = sample_summary(ModpackFormat::Modrinth);
+        summary.files = vec![sample_file("a"), sample_file("b"), sample_file("c")];
+        summary.has_overrides = true;
+        assert!(matches!(
+            selection_refusal(&summary, 0),
+            Some(Error::ModpackNoFilesSelected)
+        ));
+        assert!(selection_refusal(&summary, 1).is_none());
+    }
 
     #[tokio::test]
     async fn register_asset_tracks_resourcepacks_skips_mods() {

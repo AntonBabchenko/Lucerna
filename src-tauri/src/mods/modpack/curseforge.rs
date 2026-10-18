@@ -131,42 +131,24 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
     )?;
     let (loader, loader_version) = parse_cf_loader_id(&primary.id)?;
 
-    // Bulk-resolve every fileID.
-    let key = keyring::resolve().ok_or(Error::ModsPlatformAuth {
-        kind: crate::error::ModsAuthKind::Missing,
-    })?;
-    let url = format!("{}/v1/mods/files", base_url);
-    let body = serde_json::json!({
-        "fileIds": m.files.iter().map(|f| f.file_id).collect::<Vec<_>>()
-    });
-    // `request::post` takes a raw byte body — serialise the JSON here and
-    // set content-type explicitly (reqwest's `.json()` did both).
-    // unreachable: serialising a `serde_json::Value` to bytes is infallible
-    // (no non-string map keys, no IO). Per CLAUDE.md `.unwrap()` rule.
-    let body_bytes = serde_json::to_vec(&body).unwrap();
-    let resp = crate::network::request::post(
-        &url,
-        &[
-            ("x-api-key", key.as_str()),
-            ("content-type", "application/json"),
-        ],
-        &body_bytes,
-        "modpacks",
-    )
-    .await
-    .map_err(|e| Error::mods_network(url.clone(), e))?;
-    if !(200..300).contains(&resp.status) {
-        return Err(Error::mods_http_status(url, resp.status));
-    }
-    let bulk: CfBulkResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
-        platform: "curseforge".into(),
-        details: e.to_string(),
-    })?;
-
-    let mod_ids: Vec<u64> = bulk.data.iter().map(|f| f.mod_id).collect();
-    let class_ids = fetch_class_ids(base_url, &key, &mod_ids)
-        .await
-        .unwrap_or_default();
+    // Bulk-resolve every fileID. A pack whose mods are all bundled in
+    // overrides/ — Lucerna's own CurseForge export of an instance with mods
+    // from Modrinth or from disk — lists none: there is nothing to ask and no
+    // key is needed (CurseForge answers 400 to an empty list).
+    let (resolved, class_ids) = if m.files.is_empty() {
+        (Vec::new(), Default::default())
+    } else {
+        let key = keyring::resolve().ok_or(Error::ModsPlatformAuth {
+            kind: crate::error::ModsAuthKind::Missing,
+        })?;
+        let ids: Vec<u64> = m.files.iter().map(|f| f.file_id).collect();
+        let resolved = fetch_files(base_url, &key, &ids).await?;
+        let mod_ids: Vec<u64> = resolved.iter().map(|f| f.mod_id).collect();
+        let class_ids = fetch_class_ids(base_url, &key, &mod_ids)
+            .await
+            .unwrap_or_default();
+        (resolved, class_ids)
+    };
 
     let mut files = vec![];
     let mut unresolvable = vec![];
@@ -177,7 +159,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
         // the unresolvable path — the rest of the pack still installs and the
         // user gets a manual CurseForge route, matching the
         // DistributionDisabled handling below.
-        let Some(detail) = bulk.data.iter().find(|f| f.id == entry.file_id) else {
+        let Some(detail) = resolved.iter().find(|f| f.id == entry.file_id) else {
             unresolvable.push(ModpackUnresolvable {
                 reason: UnresolvableReason::DistributionDisabled,
                 // No project metadata came back — the fileID is all we have.
@@ -292,6 +274,40 @@ fn install_dir(class_id: Option<u32>) -> &'static str {
         Some(6552) => "shaderpacks",
         _ => "mods",
     }
+}
+
+/// `POST /v1/mods/files` in batches of [`super::cf_api::CF_MAX_BULK_FILE_IDS`], the limit
+/// the sibling clients already batch by, stitched in request order. The first failing batch
+/// is the error: a partial list would quietly drop files from the pack.
+async fn fetch_files(base_url: &str, key: &str, ids: &[u64]) -> Result<Vec<CfFile>, Error> {
+    let url = format!("{base_url}/v1/mods/files");
+    let mut out = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(super::cf_api::CF_MAX_BULK_FILE_IDS) {
+        let body = serde_json::json!({ "fileIds": chunk });
+        // `request::post` takes a raw byte body — serialise the JSON here and
+        // set content-type explicitly (reqwest's `.json()` did both).
+        // unreachable: serialising a `serde_json::Value` to bytes is infallible
+        // (no non-string map keys, no IO). Per CLAUDE.md `.unwrap()` rule.
+        let body_bytes = serde_json::to_vec(&body).unwrap();
+        let resp = crate::network::request::post(
+            &url,
+            &[("x-api-key", key), ("content-type", "application/json")],
+            &body_bytes,
+            "modpacks",
+        )
+        .await
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::mods_http_status(url, resp.status));
+        }
+        let bulk: CfBulkResp =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "curseforge".into(),
+                details: e.to_string(),
+            })?;
+        out.extend(bulk.data);
+    }
+    Ok(out)
 }
 
 /// Best-effort bulk lookup of project `classId`s via `POST /v1/mods`.
@@ -690,5 +706,217 @@ mod tests {
         assert_eq!(r.unresolvable.len(), 1);
         let u = &r.unresolvable[0];
         assert!(u.mod_name.contains("4499899"));
+    }
+
+    fn manifest_with_files(n: u64) -> String {
+        let files: Vec<serde_json::Value> = (0..n)
+            .map(|i| serde_json::json!({ "projectID": 100_000 + i, "fileID": 1_000_000 + i, "required": true }))
+            .collect();
+        serde_json::json!({
+            "minecraft": { "version": "1.20.1", "modLoaders": [{ "id": "fabric-0.19.3", "primary": true }] },
+            "manifestType": "minecraftModpack",
+            "manifestVersion": 1,
+            "name": "Batch Pack",
+            "version": "1.0.0",
+            "files": files,
+            "overrides": "overrides"
+        })
+        .to_string()
+    }
+
+    /// Answers each bulk POST with a file for every id it was sent — or a 503
+    /// when the batch holds `fail_on`.
+    struct EchoFiles {
+        fail_on: Option<u64>,
+    }
+    impl wiremock::Respond for EchoFiles {
+        fn respond(&self, req: &wiremock::Request) -> ResponseTemplate {
+            let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            let ids: Vec<u64> = body["fileIds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect();
+            if self.fail_on.is_some_and(|f| ids.contains(&f)) {
+                return ResponseTemplate::new(503);
+            }
+            let data: Vec<serde_json::Value> = ids
+                .iter()
+                .map(|id| {
+                    serde_json::json!({
+                        "id": id, "modId": id - 900_000, "fileName": format!("m{id}.jar"),
+                        "displayName": format!("M{id}"), "fileLength": 1,
+                        "downloadUrl": format!("https://edge.forgecdn.net/files/{id}.jar"),
+                        "hashes": [{ "value": "ab", "algo": 1 }]
+                    })
+                })
+                .collect();
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": data }))
+        }
+    }
+
+    // Lucerna's own CurseForge export of an instance whose mods all come from
+    // Modrinth or from disk bundles every jar in overrides/ and lists no files.
+    // Asking CurseForge about an empty list got HTTP 400 and failed the import
+    // (v0.28 regression pass, F5); there is nothing to ask, and no key needed.
+    #[tokio::test]
+    async fn a_pack_with_no_file_entries_asks_curseforge_nothing() {
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        clear_test_key();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400))
+            .expect(0)
+            .mount(&s)
+            .await;
+        let zip = make_cf_zip(&manifest_with_files(0));
+        let r = parse(&zip, &s.uri()).await.unwrap();
+        assert!(r.files.is_empty());
+        assert!(r.unresolvable.is_empty());
+        assert_eq!(r.loader, LoaderKind::Fabric);
+    }
+
+    // Round trip through the export's own pieces: an instance whose mods came
+    // from Modrinth, exported as a CurseForge zip in lightweight mode, lists
+    // no files and bundles the jars; importing that archive must preview and
+    // pass the selection rule. Shipped broken in v0.27.0 and earlier.
+    #[tokio::test]
+    async fn lucernas_own_curseforge_export_imports() {
+        use crate::mods::modpack::export::assembly::{write_archive, ZipEntry, ZipSource};
+        use crate::mods::modpack::export::classify::classify;
+        use crate::mods::modpack::export::manifest::build_cf_manifest;
+        use crate::mods::modpack::export::types::{ExportMetadata, ExportMode};
+        use crate::mods::platform::{InstalledMod, ModSource};
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        clear_test_key();
+        let mods = vec![InstalledMod {
+            filename: "sodium.jar".into(),
+            sha1: "aa".into(),
+            source: Some(ModSource::Modrinth),
+            project_id: Some("AANobbMI".into()),
+            version_id: Some("OihdIimA".into()),
+            name: "Sodium".into(),
+            version_number: None,
+            installed_at: "2026-10-18T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: Vec::new(),
+        }];
+        let (referenced, bundled) =
+            classify(ModpackFormat::Curseforge, ExportMode::Lightweight, &mods);
+        assert!(referenced.is_empty());
+        assert_eq!(bundled.len(), 1);
+        let meta = ExportMetadata {
+            name: "smoke".into(),
+            version: "1.0.0".into(),
+            author: String::new(),
+            summary: String::new(),
+        };
+        let manifest =
+            build_cf_manifest(&meta, "1.20.1", LoaderKind::Fabric, Some("0.19.3"), &[]).unwrap();
+        let td = tempfile::tempdir().unwrap();
+        let dest = td.path().join("smoke-cf.zip");
+        write_archive(
+            &dest,
+            &[
+                ZipEntry {
+                    archive_path: "manifest.json".into(),
+                    source: ZipSource::Bytes(manifest.into_bytes()),
+                },
+                ZipEntry {
+                    archive_path: "overrides/mods/sodium.jar".into(),
+                    source: ZipSource::Bytes(b"jar".to_vec()),
+                },
+            ],
+        )
+        .unwrap();
+
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400))
+            .expect(0)
+            .mount(&s)
+            .await;
+        let summary = parse(&std::fs::read(&dest).unwrap(), &s.uri())
+            .await
+            .unwrap();
+        assert!(summary.files.is_empty());
+        assert!(summary.has_overrides);
+        assert!(
+            crate::mods::modpack::import::selection_refusal(&summary, 0).is_none(),
+            "a pack with nothing to pick must not be refused for an empty pick"
+        );
+    }
+
+    // The sibling clients (cf_api, mods/curseforge) batch the bulk POST by
+    // CF_MAX_BULK_FILE_IDS; this one now does too.
+    #[tokio::test]
+    async fn more_than_a_batch_of_entries_is_resolved_in_batches() {
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        install_test_key();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(EchoFiles { fail_on: None })
+            .mount(&s)
+            .await;
+        let zip = make_cf_zip(&manifest_with_files(150));
+        let r = parse(&zip, &s.uri()).await.unwrap();
+        clear_test_key();
+        let posts: Vec<usize> = s
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|q| q.url.path() == "/v1/mods/files")
+            .map(|q| {
+                let b: serde_json::Value = serde_json::from_slice(&q.body).unwrap();
+                b["fileIds"].as_array().unwrap().len()
+            })
+            .collect();
+        assert_eq!(posts, vec![100, 50]);
+        assert_eq!(r.files.len(), 150);
+        assert!(r.unresolvable.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failed_batch_fails_the_parse() {
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        install_test_key();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(EchoFiles {
+                fail_on: Some(1_000_120),
+            })
+            .mount(&s)
+            .await;
+        let zip = make_cf_zip(&manifest_with_files(150));
+        let err = parse(&zip, &s.uri()).await.unwrap_err();
+        clear_test_key();
+        match err {
+            Error::ModsNetwork { failure, .. } => {
+                assert_eq!(
+                    failure,
+                    crate::error::NetworkFailure::HttpStatus { status: 503 }
+                );
+            }
+            other => panic!("expected the 503, got {other:?}"),
+        }
+        // The first batch went through; the second one is the failure.
+        let posts = s
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|q| q.url.path() == "/v1/mods/files")
+            .count();
+        assert_eq!(posts, 2);
     }
 }
