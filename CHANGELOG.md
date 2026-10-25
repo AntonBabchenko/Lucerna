@@ -21,6 +21,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Security
+
+- Bumped `tokio` 1.52.3 → 1.53.3 for RUSTSEC-2026-0386.
+- Bumped `rustls-webpki` 0.103.15 → 0.103.16 for RUSTSEC-2026-0382 and
+  `webpki-root-certs` 1.0.7 → 1.0.11 for RUSTSEC-2026-0383.
+- Bumped `crypto-bigint` 0.7.5 → 0.7.9 and `ctutils` 0.4.2 → 0.4.5 for
+  RUSTSEC-2026-0387 and RUSTSEC-2026-0385.
+- Bumped `clipboard-win` off a yanked release (5.4.1 to 5.4.3).
+
 ## [0.28.0] — 2026-10-18
 
 ### Added
