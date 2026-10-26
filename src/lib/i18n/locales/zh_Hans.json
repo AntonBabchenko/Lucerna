@@ -241,7 +241,7 @@
     "plugins": "插件文件夹",
     "stop": "停止",
     "play": "开始游戏",
-    "playWorlds": "",
+    "playWorlds": "启动一个世界",
     "pickVersionTitle": "先选择一个Minecraft版本",
     "working": "正在工作中…",
     "install": "安装",
@@ -270,9 +270,9 @@
     "importLauncher": "从启动器导入",
     "offlineNameUnsupported": "Minecraft 不支持此昵称——你将无法进入游戏世界。请添加一个使用英文字母作为昵称的账户。",
     "contextHide": "我不需要",
-    "contextMenuAria": "按扭操作",
+    "contextMenuAria": "按钮操作",
     "hideConfirm": {
-      "title": "隐藏按扭？",
+      "title": "隐藏按钮？",
       "body": "{label} 将从侧边栏中移除。您可以在“设置”的“外观”选项下将其恢复。",
       "confirm": "隐藏"
     },
