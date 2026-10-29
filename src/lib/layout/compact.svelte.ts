@@ -13,10 +13,13 @@
 //    its content instead of growing a scrollbar);
 //  - expanded: the content height is the min-size floor. The first application
 //    arms it (on Windows/wry a programmatic min-size is only enforced after a
-//    `set_size`, so the startup application resizes the window to the content
-//    height); later content changes (a live locale switch changing button-label
-//    sizes, accounts/instances appearing) re-apply it and grow the window if the
-//    bottom buttons would otherwise clip.
+//    `set_size`); later content changes (a live locale switch changing
+//    button-label sizes, accounts/instances appearing) re-apply it and grow the
+//    window if the bottom buttons would otherwise clip. Whether the arming
+//    application may also SHRINK the window to the content height is the
+//    backend's call: only a window nothing has sized yet (a first start with no
+//    saved window state) is hugged; a restored, reloaded or toggled window
+//    keeps its size (window/mod.rs `FloorMode`).
 
 import { get as storeGet } from 'svelte/store';
 import { t } from '$lib/i18n';
@@ -31,9 +34,10 @@ export const compactState = $state<{ value: boolean }>({ value: false });
  *  observer as a fresh change. */
 let lastObservedHeight: number | null = null;
 
-/** True for the one-shot startup application of the expanded floor, which must
- *  `set_size` the window to the content height to ARM the min-size (wry only
- *  enforces a programmatic min after a set_size). Cleared after the first apply. */
+/** True for the arming application of the expanded floor (startup, reload, after
+ *  expand), which must `set_size` the window to ARM the min-size (wry only
+ *  enforces a programmatic min after a set_size). The backend decides whether
+ *  that set_size may shrink the window. Cleared after the first apply. */
 let needsExpandedHug = false;
 
 /**
@@ -85,8 +89,8 @@ function measureCompactContentHeight(): number | null {
 
 /**
  * Apply (and, on the first call, arm) the expanded window's min-height floor.
- * `hug` is true exactly once (startup): the backend resizes the window to the
- * content height, which both hugs the bottom buttons and arms the min-size.
+ * `hug` marks the arming application: the backend issues the arming set_size,
+ * hugging the content height only for a window nothing has sized yet.
  */
 function applyExpandedFloor(height: number): void {
   lastObservedHeight = height;

@@ -15,9 +15,10 @@ pub async fn window_set_compact(
 }
 
 /// Apply (and arm) the expanded window's min-height floor — the measured
-/// sidebar content height. `hug` is true only for the one-shot startup
-/// application (resize to the content height); later content-change
-/// applications pass false (grow only when buttons would clip).
+/// sidebar content height. `hug` marks an arming application (startup,
+/// reload, after expand); the backend shrinks to the content height only a
+/// window nothing has sized yet. Later content-change applications pass false
+/// (grow only when buttons would clip).
 #[tauri::command]
 #[specta::specta]
 pub async fn window_set_expanded_floor(

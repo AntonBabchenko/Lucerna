@@ -21,6 +21,18 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **Lucerna opens where you left it.** The window comes back at the position
+  and size it had when it closed, maximized if it was maximized, and the
+  compact strip at its own spot. A window last seen on a screen that is gone
+  opens where a first start would put it.
+
+### Fixed
+
+- **An enlarged window no longer shrinks on its own.** After F5, or after going
+  to mini mode and back, the window's height could snap down to the sidebar's.
+
 ### Security
 
 - Bumped `tokio` 1.52.3 → 1.53.3 for RUSTSEC-2026-0386.
