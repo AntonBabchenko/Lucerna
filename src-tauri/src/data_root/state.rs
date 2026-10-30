@@ -89,7 +89,8 @@ impl RelocationState {
         }
     }
 
-    /// Poison-tolerant: the lock is only held for one assignment or clone.
+    /// Poison-tolerant: the lock is only held for one assignment or clone —
+    /// or for `while_idle`'s one small file write.
     fn lock(&self) -> MutexGuard<'_, RelocationStatus> {
         self.status.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -146,6 +147,16 @@ impl RelocationState {
                 restart_required: true,
             }),
         }
+    }
+
+    /// Run `f` only while no move is running or parked, holding the status
+    /// lock for its duration: a move cannot begin mid-`f`, and `f` cannot run
+    /// mid-move or after the switch, when this process's root is being emptied.
+    /// For a small write into the data root that a move's copy must not see
+    /// change (`window::persist`). `f` must not touch this state.
+    pub fn while_idle<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
+        let status = self.lock();
+        (*status == RelocationStatus::Idle).then(f)
     }
 
     /// Replace the leftovers of a `RestartRequired` state (after a retry) and
@@ -320,6 +331,24 @@ mod tests {
         state.begin().unwrap().park_running();
         assert!(matches!(state.status(), RelocationStatus::Running { .. }));
         assert!(state.begin().is_none());
+    }
+
+    #[test]
+    fn a_write_runs_only_while_idle() {
+        let state = RelocationState::new();
+        assert_eq!(state.while_idle(|| 7), Some(7));
+
+        let session = state.begin().unwrap();
+        let mut ran = false;
+        assert_eq!(state.while_idle(|| ran = true), None);
+        assert!(!ran, "nothing may be written while a move runs");
+
+        session.park_restart_required(moved("a", "b", false), vec![], false);
+        assert_eq!(state.while_idle(|| ran = true), None);
+        assert!(
+            !ran,
+            "nothing may be written into the old root after the switch"
+        );
     }
 
     #[test]

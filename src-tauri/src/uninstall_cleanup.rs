@@ -435,8 +435,9 @@ fn dir_has_data_shape(dir: &Path) -> bool {
 
 /// Top-level names a Lucerna data root can legitimately contain. Used to
 /// decide whether an exe-adjacent `LucernaData` dir is OURS to delete.
-const LUCERNA_ROOT_ENTRIES: [&str; 18] = [
+const LUCERNA_ROOT_ENTRIES: [&str; 19] = [
     "app.json",
+    "window-state.json",
     "account.json",
     "data-location.json",
     ".lucerna-migrated",

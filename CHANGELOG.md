@@ -23,10 +23,19 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Lucerna opens where you left it.** The window comes back at the position
+  and size it had when it closed, maximized if it was maximized, and the
+  compact strip at its own spot. A window last seen on a screen that is gone
+  opens where a first start would put it.
 - **Simplified Chinese, partly.** Translation has started on Weblate, and about
   a tenth of the interface is done so far. System doesn't switch to it yet:
   choose 简体中文 in Settings → Appearance → Language, and anything not
   translated yet stays in English.
+
+### Fixed
+
+- **An enlarged window no longer shrinks on its own.** After F5, or after going
+  to mini mode and back, the window's height could snap down to the sidebar's.
 
 ### Security
 

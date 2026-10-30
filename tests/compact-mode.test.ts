@@ -46,9 +46,11 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({
 }));
 
 import {
+  __resetCompactForTest,
   compactState,
   initCompact,
   observeCompactContent,
+  releaseExpandedFloor,
   setCompact,
   toggleCompact,
 } from '$lib/layout/compact.svelte';
@@ -95,6 +97,7 @@ function mountCompactDom({
 
 describe('compact mode rune module', () => {
   beforeEach(() => {
+    __resetCompactForTest();
     compactState.value = false;
     document.body.innerHTML = '';
     windowSetCompact.mockClear();
@@ -199,6 +202,7 @@ describe('compact auto-resize observer', () => {
   let observed: Element[];
 
   beforeEach(() => {
+    __resetCompactForTest();
     compactState.value = false;
     document.body.innerHTML = '';
     windowSetCompact.mockClear();
@@ -251,6 +255,7 @@ describe('compact auto-resize observer', () => {
     mountCompactDom({ sidebarBottom: 300, phaseHeight: null });
     const child = document.querySelector('[data-sidebar]')!.firstElementChild as HTMLElement;
     compactState.value = false;
+    void releaseExpandedFloor(); // the sidebar has settled (settings + accounts in)
     const dispose = observeCompactContent();
     expect(observed.length).toBeGreaterThan(0);
 
@@ -281,6 +286,7 @@ describe('compact auto-resize observer', () => {
     void initCompact(false); // arm hug deterministically; measure is null (no DOM yet)
     const { phaseRow } = mountCompactDom({ sidebarBottom: 400, phaseHeight: 0 });
     compactState.value = false;
+    void releaseExpandedFloor(); // the sidebar has settled (settings + accounts in)
     const dispose = observeCompactContent();
 
     // First fire establishes the floor at the sidebar height ALONE (400, not 428).
@@ -296,5 +302,41 @@ describe('compact auto-resize observer', () => {
     expect(windowSetExpandedFloor).not.toHaveBeenCalled();
 
     dispose();
+  });
+
+  it('holds the expanded floor until the sidebar has settled', async () => {
+    // Startup: the persisted hidden sidebar buttons are not applied yet, so the
+    // sidebar is TALLER than it settles at. A floor from that height grew a
+    // window the user had sized — which then reopened that much taller.
+    await initCompact(false);
+    mountCompactDom({ sidebarBottom: 723, phaseHeight: null });
+    const child = document.querySelector('[data-sidebar]')!.firstElementChild as HTMLElement;
+    const dispose = observeCompactContent();
+    resizeCallback?.([], {} as ResizeObserver);
+    expect(windowSetExpandedFloor).not.toHaveBeenCalled();
+
+    // Settings applied (the hidden buttons gone) and accounts loaded.
+    child.getBoundingClientRect = () => ({ bottom: 624 }) as DOMRect;
+    await releaseExpandedFloor();
+    expect(windowSetExpandedFloor).toHaveBeenCalledTimes(1);
+    expect(windowSetExpandedFloor).toHaveBeenLastCalledWith(624, true);
+
+    dispose();
+  });
+
+  it('measures the startup floor after the pending render, not before it', async () => {
+    // applyStartupSettings applies the hidden sidebar buttons right after
+    // initCompact, and Svelte re-renders on the next microtask: a synchronous
+    // measurement still saw every button.
+    mountCompactDom({ sidebarBottom: 723, phaseHeight: null });
+    const child = document.querySelector('[data-sidebar]')!.firstElementChild as HTMLElement;
+    await releaseExpandedFloor(); // e.g. the settings-retry path: already settled
+    windowSetExpandedFloor.mockClear();
+
+    const pending = initCompact(false);
+    child.getBoundingClientRect = () => ({ bottom: 624 }) as DOMRect; // the render
+    await pending;
+    expect(windowSetExpandedFloor).toHaveBeenCalledTimes(1);
+    expect(windowSetExpandedFloor).toHaveBeenLastCalledWith(624, true);
   });
 });

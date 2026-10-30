@@ -730,9 +730,10 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	windowSetCompact: (compact: boolean, contentHeight: number | null) => typedError<null, Error>(__TAURI_INVOKE("window_set_compact", { compact, contentHeight })),
 	/**
 	 *  Apply (and arm) the expanded window's min-height floor — the measured
-	 *  sidebar content height. `hug` is true only for the one-shot startup
-	 *  application (resize to the content height); later content-change
-	 *  applications pass false (grow only when buttons would clip).
+	 *  sidebar content height. `hug` marks an arming application (startup,
+	 *  reload, after expand); the backend shrinks to the content height only a
+	 *  window nothing has sized yet. Later content-change applications pass false
+	 *  (grow only when buttons would clip).
 	 */
 	windowSetExpandedFloor: (height: number | null, hug: boolean) => typedError<null, Error>(__TAURI_INVOKE("window_set_expanded_floor", { height, hug })),
 	/**

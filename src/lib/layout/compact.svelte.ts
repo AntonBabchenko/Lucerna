@@ -13,11 +13,17 @@
 //    its content instead of growing a scrollbar);
 //  - expanded: the content height is the min-size floor. The first application
 //    arms it (on Windows/wry a programmatic min-size is only enforced after a
-//    `set_size`, so the startup application resizes the window to the content
-//    height); later content changes (a live locale switch changing button-label
-//    sizes, accounts/instances appearing) re-apply it and grow the window if the
-//    bottom buttons would otherwise clip.
+//    `set_size`); later content changes (a live locale switch changing
+//    button-label sizes, accounts/instances appearing) re-apply it and grow the
+//    window if the bottom buttons would otherwise clip. Whether the arming
+//    application may also SHRINK the window to the content height is the
+//    backend's call: only a window nothing has sized yet (a first start with no
+//    saved window state) is hugged; a restored, reloaded or toggled window
+//    keeps its size (window/mod.rs `FloorMode`). No expanded floor is applied
+//    before the sidebar has settled (`releaseExpandedFloor`): a startup height
+//    is often taller than the settled one, and a floor from it grows the window.
 
+import { tick } from 'svelte';
 import { get as storeGet } from 'svelte/store';
 import { t } from '$lib/i18n';
 import { commands } from '$lib/ipc/bindings';
@@ -31,10 +37,18 @@ export const compactState = $state<{ value: boolean }>({ value: false });
  *  observer as a fresh change. */
 let lastObservedHeight: number | null = null;
 
-/** True for the one-shot startup application of the expanded floor, which must
- *  `set_size` the window to the content height to ARM the min-size (wry only
- *  enforces a programmatic min after a set_size). Cleared after the first apply. */
+/** True for the arming application of the expanded floor (startup, reload, after
+ *  expand), which must `set_size` the window to ARM the min-size (wry only
+ *  enforces a programmatic min after a set_size). The backend decides whether
+ *  that set_size may shrink the window. Cleared after the first apply. */
 let needsExpandedHug = false;
+
+/** Expanded floors wait until the sidebar shows its settled content
+ *  (`releaseExpandedFloor`). Before that its height is a transient one, often
+ *  TALLER than where it settles — every persisted-hidden button still shown, the
+ *  account actions shown while the accounts load — and a floor applied from it
+ *  grows a window the user sized, which then reopens that much taller. */
+let expandedFloorReleased = false;
 
 /**
  * Measure the natural height (logical px) of the sidebar content so the window
@@ -85,8 +99,8 @@ function measureCompactContentHeight(): number | null {
 
 /**
  * Apply (and, on the first call, arm) the expanded window's min-height floor.
- * `hug` is true exactly once (startup): the backend resizes the window to the
- * content height, which both hugs the bottom buttons and arms the min-size.
+ * `hug` marks the arming application: the backend issues the arming set_size,
+ * hugging the content height only for a window nothing has sized yet.
  */
 function applyExpandedFloor(height: number): void {
   lastObservedHeight = height;
@@ -128,6 +142,39 @@ export async function setCompact(next: boolean): Promise<void> {
   pushWarning(storeGet(t)('sidebar.compactPersistFailed'), r.error ? [r.error] : []);
 }
 
+/**
+ * Arm the expanded floor from the sidebar as it renders once the state changes
+ * made just before are flushed: `applyStartupSettings` hides the persisted
+ * hidden sidebar buttons right after `initCompact`, and Svelte re-renders on
+ * the next microtask, so a synchronous measurement still saw every button.
+ */
+async function armExpandedFloorAfterRender(): Promise<void> {
+  await tick();
+  if (compactState.value || !expandedFloorReleased) return;
+  const height = measureCompactContentHeight();
+  if (height !== null && (needsExpandedHug || height !== lastObservedHeight)) {
+    applyExpandedFloor(height);
+  }
+}
+
+/**
+ * The sidebar shows its settled content — the persisted settings (hidden
+ * sidebar buttons) are applied and the accounts are loaded: expanded floors may
+ * now be applied, starting with the pending arming one. Called once per page
+ * load by `+page.svelte`.
+ */
+export function releaseExpandedFloor(): Promise<void> {
+  expandedFloorReleased = true;
+  return armExpandedFloorAfterRender();
+}
+
+export function __resetCompactForTest(): void {
+  compactState.value = false;
+  lastObservedHeight = null;
+  needsExpandedHug = false;
+  expandedFloorReleased = false;
+}
+
 /** Toggle between compact and expanded. */
 export function toggleCompact(): Promise<void> {
   return setCompact(!compactState.value);
@@ -136,10 +183,10 @@ export function toggleCompact(): Promise<void> {
 /**
  * Startup: apply the persisted mode to window + rune without re-persisting.
  * Compact uses the existing `set_size`-based path (which arms its own min).
- * Expanded defers the floor to a post-layout measurement and arms it once: the
- * measurement at mount-time can be null (the sidebar isn't laid out yet), in
- * which case `observeCompactContent`'s first fire performs the (still pending)
- * hug.
+ * Expanded arms the floor once, from the content as rendered after this
+ * settings apply — and only once the sidebar has settled
+ * (`releaseExpandedFloor`); until then the arming stays pending, and the
+ * release (or the observer's first fire after it) performs it.
  */
 export async function initCompact(persisted: boolean): Promise<void> {
   compactState.value = persisted;
@@ -150,8 +197,7 @@ export async function initCompact(persisted: boolean): Promise<void> {
     return;
   }
   needsExpandedHug = true;
-  const height = measureCompactContentHeight();
-  if (height !== null) applyExpandedFloor(height);
+  await armExpandedFloorAfterRender();
 }
 
 /**
@@ -184,9 +230,10 @@ export function observeCompactContent(): () => void {
       // window is already strip-width, so the backend skips re-capturing the
       // expanded size and just adjusts the height).
       void commands.windowSetCompact(true, height);
-    } else if (needsExpandedHug || height !== lastObservedHeight) {
-      // Expanded: arm on the first fire, then re-apply the floor whenever the
-      // content height changes (locale switch / accounts / instances).
+    } else if (expandedFloorReleased && (needsExpandedHug || height !== lastObservedHeight)) {
+      // Expanded, once the sidebar has settled: arm on the first fire, then
+      // re-apply the floor whenever the content height changes (locale switch /
+      // accounts / instances).
       applyExpandedFloor(height);
     }
   });
