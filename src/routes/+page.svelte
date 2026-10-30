@@ -46,6 +46,7 @@
     compactState,
     initCompact,
     observeCompactContent,
+    releaseExpandedFloor,
     setCompact,
     toggleCompact,
   } from '$lib/layout/compact.svelte';
@@ -1229,6 +1230,12 @@
     await loadStartupSettings();
 
     await accountsReady;
+
+    // The sidebar now shows its settled content: the hidden buttons from the
+    // settings are applied and the accounts are in. Until here its height was a
+    // transient, often taller one, and a window floor taken from it grew a
+    // window the user had sized (`compact.svelte.ts`).
+    void releaseExpandedFloor();
 
     void initOnboarding();
 
