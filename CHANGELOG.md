@@ -23,9 +23,9 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
-- **Simplified Chinese, partly.** The community is translating it on Weblate,
-  and about a tenth of the interface is done so far. System doesn't switch to
-  it yet: choose it in Settings → Appearance → Language, and anything not
+- **Simplified Chinese, partly.** Translation has started on Weblate, and about
+  a tenth of the interface is done so far. System doesn't switch to it yet:
+  choose 简体中文 in Settings → Appearance → Language, and anything not
   translated yet stays in English.
 
 ### Security
