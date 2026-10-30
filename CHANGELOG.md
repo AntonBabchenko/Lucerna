@@ -21,6 +21,13 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Added
+
+- **Simplified Chinese, partly.** The community is translating it on Weblate,
+  and about a tenth of the interface is done so far. System doesn't switch to
+  it yet: choose it in Settings → Appearance → Language, and anything not
+  translated yet stays in English.
+
 ### Security
 
 - Bumped `tokio` 1.52.3 → 1.53.3 for RUSTSEC-2026-0386.
