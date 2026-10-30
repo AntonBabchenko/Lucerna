@@ -34,7 +34,7 @@ No "small fix" exception. A bugfix is still a feature in this sense — it still
 
 - **Branches:** short-lived feature branches off `main` (e.g., `feat/auth-microsoft`, `fix/manifest-parser`).
 - **Commits:** Conventional Commits prefixes — `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`, `build:`, `ci:`.
-- **Merges:** squash merge into `main`.
+- **Merges:** squash merge into `main` — except Weblate PRs (author `weblate`), which merge with **Rebase and merge**. Weblate rebases its own commits onto `main` and must find them there; a squash makes that rebase conflict and locks the translation component until it is reset (Weblate → UI → Operations → Repository maintenance → Discard local changes). Their commits already carry the translator's authorship, so no `Co-authored-by:` trailer is needed.
 - **Tags:** `vMAJOR.MINOR.PATCH` for releases (semver).
 - **Changelog:** a user-visible change gets an entry under `[Unreleased]` in `CHANGELOG.md` **and** its Russian twin at the same position in `src/lib/changelog/locales/ru.md` — `tests/changelog-parity.test.ts` fails on any drift (versions, dates, links, section and bullet counts, untranslated bullets, dropped code spans).
 
