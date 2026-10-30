@@ -99,6 +99,12 @@ pub fn app_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("app.json"))
 }
 
+/// The main window's saved position and size (`window::persist`). In the data
+/// root, so a portable install keeps it in its folder and a move carries it.
+pub fn window_state_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("window-state.json"))
+}
+
 /// Global, cross-instance cache of mod project summaries (name / slug / icon),
 /// used to de-duplicate the installed-list and dependency-graph metadata
 /// fetches. Cosmetic cache — safe to delete; repopulated on demand.

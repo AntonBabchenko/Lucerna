@@ -628,14 +628,22 @@ pub fn run() {
             }
             slot
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|window, event| match event {
             // Closing the last window ends the process, and the exit hook below
             // force-kills every tracked game and server. So the close passes a
             // gate: a data move copying → no; one waiting for restart → yes;
-            // otherwise ask what closing would lose (`close`).
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            // otherwise ask what closing would lose (`close`). The window's
+            // place is saved first: a close the user then cancels only costs
+            // one extra save.
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                crate::window::persist::flush(tauri::Manager::app_handle(window));
                 crate::close::on_close_requested(window, api);
             }
+            // Remembered for the next start (#532).
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                crate::window::persist::on_geometry_event(window);
+            }
+            _ => {}
         })
         .setup(move |app| {
             // Resolve the effective data root before anything else touches app_dir.
@@ -741,23 +749,36 @@ pub fn run() {
             // root — keeping browser cache out of %LOCALAPPDATA% and inside
             // the install/data folder. Dev builds keep the default profile
             // location (a dev webview must not mix with a real install's).
+            //
+            // It opens where and how it was closed (#532): built hidden at the
+            // saved size, then placed and shown by `window::persist` — tauri's
+            // builder takes only a logical position, which is ambiguous across
+            // monitors with different scales.
             {
+                use tauri::Manager;
+                let startup = crate::window::persist::startup_placement(app.handle());
+                let placement = startup.placement;
+                app.state::<crate::window::WindowSizeState>()
+                    .set_restored(placement.restored);
+                crate::window::persist::init(app.handle(), &startup);
+                let min = placement.builder_min_size();
                 #[allow(unused_mut)]
                 let mut main_window =
                     tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
                         .title("Lucerna")
-                        .inner_size(820.0, 520.0)
-                        .min_inner_size(820.0, 520.0);
+                        .inner_size(placement.size.width, placement.size.height)
+                        .min_inner_size(min.width, min.height)
+                        .visible(false);
                 #[cfg(all(windows, not(debug_assertions)))]
                 {
-                    use tauri::Manager;
                     main_window = main_window.data_directory(
                         app.state::<crate::data_root::DataRoot>()
                             .launcher_dir
                             .join("webview"),
                     );
                 }
-                main_window.build()?;
+                let window = main_window.build()?;
+                crate::window::persist::place_and_show(&window, &placement)?;
             }
 
             // Windows: the taskbar / title-bar icon is a single HICON that the
@@ -1021,6 +1042,9 @@ pub fn run() {
             // disk but not in this session's map) is killed too, not left to
             // hold its world lock.
             if let tauri::RunEvent::ExitRequested { .. } = event {
+                // The window's place, while the window still exists (`app.exit`
+                // after a confirmed close, quit from the tray, an update restart).
+                crate::window::persist::flush(app_handle);
                 crate::servers_runtime::runtime::kill_all_running();
                 // Same for client Minecraft processes: never orphan a running
                 // game when the launcher exits.
