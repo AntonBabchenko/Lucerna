@@ -559,7 +559,7 @@
     },
     "integrity": {
       "loaderUpdated": "Minecraft {mc} 的 {loader} 已更新至 {version}",
-      "loaderResetToVanilla": "没有适用于 Minecraft (mc) 的 {loader} 构建——loader 已重置为原版",
+      "loaderResetToVanilla": "没有适用于 Minecraft {mc} 的 {loader} 构建——加载器已重置为原版",
       "compatWarning": "已安装的 {total} 个模组中，有 {incompatible} 个模组没有适用于此配置的版本。请在“模组”选项卡中查看。",
       "vanillaModsWarning": "未选择模组加载器——已安装的{count}个模组将无法加载。请在实例的“设置”选项卡中选择一个加载器。",
       "heading": "完整性",
@@ -596,7 +596,7 @@
       "toastVerifyNoDamage": "{name}：未发现损坏",
       "toastVerifyForgeUnchecked": "{name}：未发现损坏，但未检查 Forge 自带的文件",
       "toastRepaired": "{name}：已修复",
-      "toastRepairPartial": "{name}：{count, plural, one {# 个文件无法修复} 其他 {# 个文件无法修复}}",
+      "toastRepairPartial": "{name}：{count, plural, one {# 个文件无法修复} other {# 个文件无法修复}}",
       "toastError": "{name}: {error}",
       "statusQueued": "已排队等待检查……",
       "ownJava": "Java：每次启动时都会检查您使用的版本"
