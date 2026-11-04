@@ -31,6 +31,24 @@ fn assert_refused(target: SocketAddr) {
     }
 }
 
+/// Like [`assert_refused`], for `[::1]`, which a host can lack even when it can
+/// create IPv6 sockets. "No IPv6 loopback" says nothing about the probe, so that
+/// leg is skipped; an accepted connection still fails the test.
+fn assert_refused_unless_no_ipv6_loopback(target: SocketAddr) {
+    use std::io::ErrorKind::{AddrNotAvailable, ConnectionRefused, NetworkUnreachable};
+    match TcpStream::connect_timeout(&target, CONNECT_TIMEOUT) {
+        Ok(_) => panic!("{target} accepted a connection: the probe is listening"),
+        Err(e) if matches!(e.kind(), AddrNotAvailable | NetworkUnreachable) => {
+            eprintln!("skipping {target}: this host has no IPv6 loopback ({e})");
+        }
+        Err(e) => assert_eq!(
+            e.kind(),
+            ConnectionRefused,
+            "{target}: expected a refused connect, got {e}"
+        ),
+    }
+}
+
 #[test]
 fn the_probe_socket_accepts_no_connection() {
     let socket = port_probe::bind_like_the_server(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
@@ -47,6 +65,6 @@ fn the_all_interfaces_probe_accepts_no_connection() {
     let port = bound_port(&socket);
     assert_refused(SocketAddr::from((Ipv4Addr::LOCALHOST, port)));
     if socket.local_addr().expect("local addr").is_ipv6() {
-        assert_refused(SocketAddr::from((Ipv6Addr::LOCALHOST, port)));
+        assert_refused_unless_no_ipv6_loopback(SocketAddr::from((Ipv6Addr::LOCALHOST, port)));
     }
 }
