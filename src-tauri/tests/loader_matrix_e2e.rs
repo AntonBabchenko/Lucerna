@@ -1036,8 +1036,14 @@ async fn launch_and_watch(
     };
     // Prepend `-Xmx2048m` so MC has enough heap. UI's `launch::spawn` does
     // this from `instance.max_heap_mb`; we hardcode the default for the matrix.
-    let mut argv: Vec<String> = vec!["-Xmx2048m".to_string()];
-    argv.extend(manifest_argv);
+    // The profile's JVM args stay inline: the matrix runs under a short scratch
+    // root, and what it tests is the loaders, not the argument-file route.
+    let argv = lucerna_lib::launch::argfile::command_line(
+        vec!["-Xmx2048m".to_string()],
+        lucerna_lib::launch::argfile::ProfileJvm::Inline(manifest_argv.jvm),
+        manifest_argv.main_class,
+        manifest_argv.game,
+    );
 
     // Redirect child stdout+stderr to a file so we can read it on failure.
     // The pipes would otherwise back-pressure and block the child once full.

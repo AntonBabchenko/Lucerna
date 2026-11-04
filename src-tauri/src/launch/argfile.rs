@@ -61,10 +61,12 @@ pub const DISABLE_ARGFILES: &str = "--disable-@files";
 
 /// Whether this launch turns argument files off: the instance's own JVM
 /// arguments (which come before `@<file>`), or `JDK_JAVA_OPTIONS` inherited
-/// from the environment, which the launcher reads before its command line.
+/// from the environment, which the launcher reads before its command line
+/// (and where it takes quotes off a token, so a quoted one counts too).
 pub fn expansion_disabled(user_jvm: &[String], jdk_java_options: Option<&str>) -> bool {
+    let unquoted = |token: &str| token.trim_matches(|c| c == '"' || c == '\'') == DISABLE_ARGFILES;
     user_jvm.iter().any(|a| a == DISABLE_ARGFILES)
-        || jdk_java_options.is_some_and(|v| v.split_whitespace().any(|a| a == DISABLE_ARGFILES))
+        || jdk_java_options.is_some_and(|v| v.split_whitespace().any(unquoted))
 }
 
 /// Why an argument cannot travel in an argument file with its meaning intact.
@@ -164,9 +166,24 @@ pub fn encode(args: &[String]) -> std::result::Result<String, ArgfileRefusal> {
 
 /// Write `args` to `path` as an argument file in the bytes the launcher reads
 /// (`platform::encoding::jvm_launcher_bytes`), replacing any earlier one.
-/// Returns the number of bytes written. Nothing is written when an argument
-/// cannot be carried: the refusal names it, and the launch stops there.
+/// Returns the number of bytes written. When an argument cannot be carried
+/// (the refusal names it) or the write fails, the launch stops there, and no
+/// file is left behind — neither an earlier launch's nor a partial one.
 pub fn write(path: &Path, args: &[String]) -> Result<u64> {
+    let written = file_bytes(args).and_then(|bytes| {
+        std::fs::write(path, &bytes)
+            .map(|()| bytes.len() as u64)
+            .map_err(|e| Error::io(path.display().to_string(), e))
+    });
+    if written.is_err() {
+        remove(path);
+    }
+    written
+}
+
+/// The argument file's bytes, or the refusal naming the argument that cannot
+/// be carried.
+fn file_bytes(args: &[String]) -> Result<Vec<u8>> {
     let refused = |details: String| Error::JavaSpawn {
         details: format!("cannot write the JVM argument file: {details}"),
     };
@@ -182,13 +199,12 @@ pub fn write(path: &Path, args: &[String]) -> Result<u64> {
         })?;
         bytes.extend_from_slice(&encoded);
     }
-    std::fs::write(path, &bytes).map_err(|e| Error::io(path.display().to_string(), e))?;
-    Ok(bytes.len() as u64)
+    Ok(bytes)
 }
 
 /// Remove the argument file, so that one is there only when the instance's
-/// last launch read it: after a launch on the command line, or a spawn that
-/// failed. Not after the game exits — a mod that restarts the game re-runs its
+/// last launch read it: after a launch on the command line, a write that
+/// failed, or a spawn that failed. Not after the game exits — a mod that restarts the game re-runs its
 /// command line, `@<file>` included. Already gone is fine; any other failure is
 /// logged: the file holds paths and flags, and the next launch replaces it.
 pub fn remove(path: &Path) {
@@ -469,6 +485,10 @@ mod tests {
         let plain = strings(&["-Xmx2048m", "-XX:+UseG1GC"]);
         assert!(!expansion_disabled(&plain, None));
         assert!(expansion_disabled(&plain, Some("-Dx=1  --disable-@files")));
+        assert!(expansion_disabled(
+            &plain,
+            Some("\"--disable-@files\" -Dx=1")
+        ));
         assert!(!expansion_disabled(
             &plain,
             Some("-Dfoo=--disable-@files-not")
@@ -681,12 +701,16 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_argument_writes_nothing() {
+    fn a_refused_argument_leaves_no_file_not_even_an_earlier_one() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("jvm-args.txt");
+        write(&path, &strings(&["-cp", "earlier.jar"])).unwrap();
         let r = write(&path, &strings(&["-cp", "@x"]));
         assert!(matches!(r, Err(Error::JavaSpawn { .. })), "{r:?}");
-        assert!(!path.exists());
+        assert!(
+            !path.exists(),
+            "an earlier launch's file must not pass for this one's"
+        );
     }
 
     #[test]

@@ -607,7 +607,9 @@ pub async fn start(
     let java_words = java
         .major
         .map_or_else(|| "unknown".to_string(), |m| m.to_string());
-    let jdk_java_options = std::env::var("JDK_JAVA_OPTIONS").ok();
+    // Lossy, not `env::var`: a value that is not Unicode is still read.
+    let jdk_java_options =
+        std::env::var_os("JDK_JAVA_OPTIONS").map(|v| v.to_string_lossy().into_owned());
     let disabled = argfile::expansion_disabled(&user_jvm, jdk_java_options.as_deref());
     let profile_jvm = match argfile::route_for(os, java.major, disabled) {
         JvmArgsRoute::CommandLine => {
