@@ -124,13 +124,10 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
 /// Silent renewal using the stored refresh_token. Replaces both keychain
 /// entries and updates the account's `expires_at` in account.json.
 pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account> {
-    // A keyring that answers "no such entry" is a sign-in to redo; a keyring that
-    // cannot be read at all is its own error (`?`), not a reason to ask for one.
-    let refresh_token =
-        keychain::retrieve(&keychain::refresh_token_key(account_id))?.ok_or_else(|| {
-            crate::diag!("microsoft refresh: no refresh token stored for account {account_id}");
-            Error::MicrosoftSignInExpired
-        })?;
+    // A keyring that cannot be read at all is its own error (`?`), not a reason
+    // to ask for a sign-in; only "no such entry" is.
+    let stored = keychain::retrieve(&keychain::refresh_token_key(account_id))?;
+    let refresh_token = stored_refresh_token(stored, account_id)?;
     let token_url = crate::test_seam::resolve("LUCERNA_MS_TOKEN_URL_OVERRIDE")
         .unwrap_or_else(|| oauth::MS_TOKEN_URL.to_string());
     let ms_token = exchange_refresh_token(&refresh_token, &token_url).await?;
@@ -232,6 +229,16 @@ async fn exchange_refresh_token(
         })
 }
 
+/// The refresh token the keyring answered with. "No such entry" (`None`) is a
+/// sign-in to redo — the account's saved sign-in is gone — so it is
+/// `MicrosoftSignInExpired`, the case that offers «Sign in again».
+fn stored_refresh_token(stored: Option<String>, account_id: &str) -> Result<String> {
+    stored.ok_or_else(|| {
+        crate::diag!("microsoft refresh: no refresh token stored for account {account_id}");
+        Error::MicrosoftSignInExpired
+    })
+}
+
 /// The error for a non-2xx answer from the token endpoint to a refresh.
 /// `invalid_grant` / `interaction_required` on a 400 or 401 (RFC 6749 §5.2, as
 /// the Microsoft identity platform uses them) mean the saved refresh token is no
@@ -310,6 +317,29 @@ mod tests {
         // invalid_client / unauthorized_client are Lucerna's registration, not the user's sign-in.
         let e = token_endpoint_failure(StatusCode::BAD_REQUEST, &oauth_error("invalid_client"));
         assert!(matches!(e, Error::AuthFailed { .. }), "{e:?}");
+    }
+
+    #[test]
+    fn an_invalid_grant_on_403_stays_a_failed_renewal() {
+        // Only 400/401 carry the OAuth error contract; a 403 is a refusal of another kind.
+        let e = token_endpoint_failure(StatusCode::FORBIDDEN, &oauth_error("invalid_grant"));
+        assert!(matches!(e, Error::AuthFailed { .. }), "{e:?}");
+    }
+
+    #[test]
+    fn no_stored_refresh_token_asks_to_sign_in_again() {
+        assert_eq!(
+            stored_refresh_token(None, "ms-1"),
+            Err(Error::MicrosoftSignInExpired)
+        );
+    }
+
+    #[test]
+    fn a_stored_refresh_token_is_used() {
+        assert_eq!(
+            stored_refresh_token(Some("rt-1".into()), "ms-1"),
+            Ok("rt-1".to_string())
+        );
     }
 
     #[test]
