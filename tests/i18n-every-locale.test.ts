@@ -13,9 +13,11 @@ import {
 // tests/i18n-parity.test.ts still holds ru to FULL parity with en; this file
 // holds every dictionary, en and ru included, to what keeps a message working.
 //
-// The rules read the message as `$t` parses it, not a regex over its text. A
-// regex took `'{modName}'` for an argument where ICU reads quoted text, and the
-// English UI showed «{modName} was bundled inside the .mrpack…» for that reason.
+// The rules read the message as `$t` parses it, not a regex over its text. The
+// argument regex in tests/i18n-parity.test.ts took `'{modName}'` for an
+// argument where ICU reads quoted text: en `errors.modpackBundledNoUrl` would
+// have rendered «{modName} was bundled inside the .mrpack…» (its only path, a
+// Restore button the pack drawer disables for such files, kept it unseen).
 
 const dictionaries = uiDictionaries();
 const en = dictionaries.find((d) => d.code === 'en') as UiDictionary;
