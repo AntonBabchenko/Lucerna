@@ -447,6 +447,19 @@ pub struct GpuPrefApplied {
     pub gpu_name: Option<String>,
 }
 
+/// Emitted once a game has started on a Microsoft account whose sign-in was
+/// due for renewal and could not be renewed: the game runs on the saved token,
+/// so single-player works while online servers may refuse it. The launch is
+/// never blocked for this — the event only lets the UI say so.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct SignInNotRenewed {
+    pub instance_id: String,
+    /// The account's player name, as the account menu shows it.
+    pub account_name: String,
+    /// Why: `MicrosoftSignInExpired` (sign in again) or what else stopped it.
+    pub error: crate::error::Error,
+}
+
 /// Per-instance root, e.g. `<app_data>/instances/<id>/`. The mod install
 /// pipeline writes under `{root}/.minecraft/mods/` and tracks state in
 /// `{root}/lucerna/installed-mods.json`.

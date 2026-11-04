@@ -124,12 +124,12 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
 /// Silent renewal using the stored refresh_token. Replaces both keychain
 /// entries and updates the account's `expires_at` in account.json.
 pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account> {
+    // A keyring that answers "no such entry" is a sign-in to redo; a keyring that
+    // cannot be read at all is its own error (`?`), not a reason to ask for one.
     let refresh_token =
         keychain::retrieve(&keychain::refresh_token_key(account_id))?.ok_or_else(|| {
-            Error::AuthFailed {
-                stage: "refresh".into(),
-                details: format!("no refresh token found for account {account_id}"),
-            }
+            crate::diag!("microsoft refresh: no refresh token stored for account {account_id}");
+            Error::MicrosoftSignInExpired
         })?;
     let token_url = crate::test_seam::resolve("LUCERNA_MS_TOKEN_URL_OVERRIDE")
         .unwrap_or_else(|| oauth::MS_TOKEN_URL.to_string());
@@ -222,10 +222,7 @@ async fn exchange_refresh_token(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(Error::AuthFailed {
-            stage: "refresh".into(),
-            details: format!("HTTP {status}: {text}"),
-        });
+        return Err(token_endpoint_failure(status, &text));
     }
     resp.json::<oauth::MsTokenResponse>()
         .await
@@ -233,4 +230,95 @@ async fn exchange_refresh_token(
             stage: "refresh".into(),
             details: format!("parse: {e}"),
         })
+}
+
+/// The error for a non-2xx answer from the token endpoint to a refresh.
+/// `invalid_grant` / `interaction_required` on a 400 or 401 (RFC 6749 §5.2, as
+/// the Microsoft identity platform uses them) mean the saved refresh token is no
+/// longer accepted: only signing in again helps. Anything else — another OAuth
+/// code (Lucerna's own registration), a 5xx, a body that is not the OAuth error
+/// shape — is a renewal that failed for a reason signing in would not fix, and
+/// keeps the raw answer for the log.
+fn token_endpoint_failure(status: reqwest::StatusCode, body: &str) -> Error {
+    #[derive(serde::Deserialize)]
+    struct OAuthError {
+        error: String,
+    }
+    let refused = matches!(status.as_u16(), 400 | 401)
+        && serde_json::from_str::<OAuthError>(body)
+            .is_ok_and(|e| matches!(e.error.as_str(), "invalid_grant" | "interaction_required"));
+    if refused {
+        crate::diag!(
+            "microsoft refresh: the token endpoint refused the saved sign-in ({status}): {body}"
+        );
+        return Error::MicrosoftSignInExpired;
+    }
+    Error::AuthFailed {
+        stage: "refresh".into(),
+        details: format!("HTTP {status}: {body}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+
+    fn oauth_error(code: &str) -> String {
+        format!(
+            r#"{{"error":"{code}","error_description":"AADSTS70000: …","error_codes":[70000]}}"#
+        )
+    }
+
+    #[test]
+    fn an_invalid_grant_asks_to_sign_in_again() {
+        let e = token_endpoint_failure(StatusCode::BAD_REQUEST, &oauth_error("invalid_grant"));
+        assert_eq!(e, Error::MicrosoftSignInExpired);
+    }
+
+    #[test]
+    fn interaction_required_asks_to_sign_in_again() {
+        let e = token_endpoint_failure(
+            StatusCode::BAD_REQUEST,
+            &oauth_error("interaction_required"),
+        );
+        assert_eq!(e, Error::MicrosoftSignInExpired);
+    }
+
+    #[test]
+    fn an_invalid_grant_on_401_asks_to_sign_in_again() {
+        let e = token_endpoint_failure(StatusCode::UNAUTHORIZED, &oauth_error("invalid_grant"));
+        assert_eq!(e, Error::MicrosoftSignInExpired);
+    }
+
+    #[test]
+    fn microsoft_being_down_is_not_a_sign_in_question() {
+        // A 5xx is Microsoft's trouble, even when its body happens to carry the word.
+        let e = token_endpoint_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            &oauth_error("invalid_grant"),
+        );
+        assert!(
+            matches!(&e, Error::AuthFailed { stage, details }
+                if stage == "refresh" && details.starts_with("HTTP 503 Service Unavailable: ")),
+            "{e:?}"
+        );
+    }
+
+    #[test]
+    fn another_oauth_error_stays_a_failed_renewal() {
+        // invalid_client / unauthorized_client are Lucerna's registration, not the user's sign-in.
+        let e = token_endpoint_failure(StatusCode::BAD_REQUEST, &oauth_error("invalid_client"));
+        assert!(matches!(e, Error::AuthFailed { .. }), "{e:?}");
+    }
+
+    #[test]
+    fn an_unreadable_body_stays_a_failed_renewal() {
+        let e = token_endpoint_failure(StatusCode::BAD_REQUEST, "<html>gateway</html>");
+        assert!(
+            matches!(&e, Error::AuthFailed { details, .. }
+                if details == "HTTP 400 Bad Request: <html>gateway</html>"),
+            "{e:?}"
+        );
+    }
 }

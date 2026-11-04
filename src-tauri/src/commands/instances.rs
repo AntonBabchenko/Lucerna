@@ -94,12 +94,13 @@ pub async fn launch_instance(
     // If the active Microsoft account's MC token is at/near expiry, renew it
     // now so the JVM launches with a live token instead of one that expires
     // mid-session. Never blocks launch: if the refresh fails (offline, MS
-    // down), we fall back to the stored token/account.
-    let account = refresh_microsoft_if_expiring(&app, account).await;
+    // down, the sign-in refused), we fall back to the stored token/account and
+    // say so once the game has started.
+    let (account, not_renewed) = refresh_microsoft_if_expiring(&app, account).await;
     // Gate accounts Minecraft can't actually play with (e.g. an offline name it
     // rejects, like Cyrillic) — see ensure_account_launchable for the rationale.
     crate::accounts::ops::ensure_account_launchable(&account)?;
-    crate::launch::start(
+    let pid = crate::launch::start(
         &instance,
         &effective_id,
         &account,
@@ -107,7 +108,20 @@ pub async fn launch_instance(
         quick_play.as_ref(),
         &options.unwrap_or_default(),
     )
-    .await
+    .await?;
+    // After the start, not before: a launch that then fails reports its own
+    // error, and the user reads one message at a time.
+    if let Some(error) = not_renewed {
+        let event = SignInNotRenewed {
+            instance_id: instance_id.clone(),
+            account_name: account.name.clone(),
+            error,
+        };
+        if let Err(e) = event.emit(&app) {
+            crate::diag!("launch: could not tell the UI the sign-in was not renewed: {e}");
+        }
+    }
+    Ok(pid)
 }
 
 /// Seconds of headroom before token expiry at which we proactively refresh a
@@ -118,32 +132,33 @@ const MS_TOKEN_REFRESH_BUFFER_SECS: f64 = 120.0;
 
 /// If `account` is a Microsoft account whose token is at/near expiry, refresh
 /// it and return the refreshed account. On any refresh failure (offline, MS
-/// unreachable, account since removed) this degrades to the passed-in account
-/// so launch is never blocked — a possibly-stale token is better than refusing
-/// to launch. Non-Microsoft accounts (offline) are returned unchanged.
+/// unreachable, the sign-in refused, account since removed) this degrades to
+/// the passed-in account so launch is never blocked — a possibly-stale token is
+/// better than refusing to launch — and hands the failure back so the caller
+/// can say so. Non-Microsoft accounts (offline) are returned unchanged.
 async fn refresh_microsoft_if_expiring(
     app: &tauri::AppHandle,
     account: crate::accounts::Account,
-) -> crate::accounts::Account {
+) -> (crate::accounts::Account, Option<crate::error::Error>) {
     if account.kind != crate::accounts::AccountKind::Microsoft {
-        return account;
+        return (account, None);
     }
     // `expires_at == None` on a Microsoft account is unexpected (sign-in always
     // sets it); treat it as "not expiring" and leave the account untouched.
     let Some(expires_at) = account.expires_at else {
-        return account;
+        return (account, None);
     };
     if expires_at > crate::accounts::now_secs() + MS_TOKEN_REFRESH_BUFFER_SECS {
-        return account;
+        return (account, None);
     }
     match crate::accounts::microsoft::refresh(app, &account.id).await {
-        Ok(refreshed) => refreshed,
+        Ok(refreshed) => (refreshed, None),
         Err(e) => {
             crate::diag!(
                 "launch: MS token refresh failed for {}, launching with stored token: {e}",
                 account.id
             );
-            account
+            (account, Some(e))
         }
     }
 }

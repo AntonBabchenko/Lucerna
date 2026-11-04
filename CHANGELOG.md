@@ -35,6 +35,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 - **An enlarged window no longer shrinks on its own.** After F5, or after going
   to mini mode and back, the window's height could snap down to the sidebar's.
+- **A launch that couldn't renew your Microsoft sign-in says so.** The game
+  still starts on the saved sign-in; a notice now says single-player works and
+  online servers may not let you in, with "Sign in again" when Microsoft asks
+  for it.
 
 ### Security
 
