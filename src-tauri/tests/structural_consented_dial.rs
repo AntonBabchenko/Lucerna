@@ -7,8 +7,13 @@
 //! here exactly one file is exempt.
 //!
 //! `TcpListener` is a different string and deliberately unaffected — the OAuth
-//! loopback (`accounts/microsoft/oauth.rs`) and the own-server port probe
-//! (`servers_runtime/preflight.rs`) BIND locally, they do not dial out.
+//! loopback (`accounts/microsoft/oauth.rs`) BINDS a loopback listener, it does
+//! not dial out.
+//!
+//! `socket2::Socket` dials too, by a third spelling. The own-server port probe
+//! (`servers_runtime/port_probe.rs`) needs it to bind with the JVM's socket
+//! options and never listen, so socket2 is confined to that one file, and that
+//! file must not dial (second test below).
 //!
 //! Like the sibling guards, this is a guardrail against accidental network
 //! code, not a sandbox.
@@ -128,6 +133,61 @@ fn consent_module_still_gates_on_the_setting() {
     );
 }
 
+fn port_probe_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("servers_runtime")
+        .join("port_probe.rs")
+}
+
+/// A line that uses socket2, whose `Socket` can dial.
+fn names_socket2(line: &str) -> bool {
+    line.contains("socket2")
+}
+
+/// A line that dials: socket2's `connect` / `connect_timeout`, or any other
+/// `connect` call. Matched as a bare substring, so a code line in the probe
+/// that merely names it (an identifier, a trailing comment) fails too — reword
+/// it; the probe has no business near the word.
+fn names_a_dial_call(line: &str) -> bool {
+    line.contains("connect")
+}
+
+#[test]
+fn socket2_confined_to_the_bind_only_port_probe() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let probe = port_probe_path();
+    assert!(
+        probe.is_file(),
+        "the exempt file moved; update port_probe_path() rather than drop the rule"
+    );
+    let mut files = Vec::new();
+    rust_files(&src, &mut files);
+
+    let mut violations = Vec::new();
+    for file in files {
+        let is_probe = file == probe;
+        let content = fs::read_to_string(&file).expect("read rust file");
+        for (i, line) in content.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue; // both words appear in doc comments
+            }
+            if !is_probe && names_socket2(line) {
+                violations.push(format!("{}:{} socket2", file.display(), i + 1));
+            }
+            if is_probe && names_a_dial_call(line) {
+                violations.push(format!("{}:{} connect", file.display(), i + 1));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "socket2 must stay in servers_runtime/port_probe.rs, which must never dial\n{}",
+        violations.join("\n"),
+    );
+}
+
 /// The matcher, pinned directly. The tree contains no `TcpSocket` today, so
 /// the scan alone cannot prove the needle works — same rationale as the
 /// `matchers` module in `structural_no_blind_err_swallow.rs`.
@@ -155,12 +215,25 @@ mod matchers {
 
     #[test]
     fn a_listener_bind_is_not_a_dial() {
-        // The OAuth loopback and the own-server port probe BIND locally
-        // (module doc lines 9-11); they must stay unmatched.
+        // The OAuth loopback BINDS locally (module doc); it must stay
+        // unmatched.
         assert_eq!(
             dial_type_on(r#"    let listener = TcpListener::bind("127.0.0.1:0")"#),
             None,
         );
         assert_eq!(dial_type_on("use tokio::net::TcpListener;"), None);
+    }
+
+    #[test]
+    fn socket2_and_its_dial_are_matched_and_a_bind_is_not() {
+        assert!(names_socket2(
+            "use socket2::{Domain, Protocol, Socket, Type};"
+        ));
+        assert!(names_socket2("    let s = socket2::Socket::new(d, t, p)?;"));
+        assert!(names_a_dial_call("    socket.connect(&addr.into())?;"));
+        assert!(names_a_dial_call(
+            "    socket.connect_timeout(&addr.into(), t)?;"
+        ));
+        assert!(!names_a_dial_call("    socket.bind(&addr.into())?;"));
     }
 }

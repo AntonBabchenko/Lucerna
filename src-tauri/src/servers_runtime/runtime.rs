@@ -795,6 +795,23 @@ pub fn read_port(runtime: &Path) -> Option<u16> {
         .and_then(|v| v.parse().ok())
 }
 
+/// Where the server binds, from `server-ip` in `runtime/server.properties`
+/// (read as [`preflight::bind_addr_from`] does). No file yet means the server
+/// has not generated it; it will write an empty `server-ip`, which binds every
+/// interface. A file that exists but cannot be read leaves the address unknown.
+///
+/// [`preflight::bind_addr_from`]: crate::servers_runtime::preflight::bind_addr_from
+pub fn read_bind_addr(runtime: &Path) -> crate::servers_runtime::preflight::BindAddr {
+    use crate::servers_runtime::preflight::{bind_addr_from, BindAddr};
+    match std::fs::read_to_string(runtime.join("server.properties")) {
+        Ok(raw) => bind_addr_from(
+            crate::servers_runtime::properties::ServerProperties::parse(&raw).get("server-ip"),
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BindAddr::AllInterfaces,
+        Err(_unreadable) => BindAddr::Unknown,
+    }
+}
+
 /// Restart = graceful stop (if running) then start.
 pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
     if is_running(server_id) {
@@ -1189,5 +1206,26 @@ mod tests {
         assert_eq!(read_port(dir.path()), Some(25570));
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(read_port(empty.path()), None);
+    }
+
+    #[test]
+    fn read_bind_addr_reads_server_ip() {
+        use crate::servers_runtime::preflight::BindAddr;
+        let dir = tempfile::tempdir().unwrap();
+        let props = dir.path().join("server.properties");
+        std::fs::write(&props, "server-ip=\nserver-port=25565\n").unwrap();
+        assert_eq!(read_bind_addr(dir.path()), BindAddr::AllInterfaces);
+        std::fs::write(&props, "server-ip=127.0.0.1\n").unwrap();
+        assert_eq!(
+            read_bind_addr(dir.path()),
+            BindAddr::Ip(std::net::Ipv4Addr::LOCALHOST.into())
+        );
+        // Not generated yet: the server will write an empty server-ip.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(read_bind_addr(empty.path()), BindAddr::AllInterfaces);
+        // Exists but unreadable as text (a directory here): unknown, not "all".
+        let unreadable = tempfile::tempdir().unwrap();
+        std::fs::create_dir(unreadable.path().join("server.properties")).unwrap();
+        assert_eq!(read_bind_addr(unreadable.path()), BindAddr::Unknown);
     }
 }
