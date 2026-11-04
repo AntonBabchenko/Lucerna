@@ -9,6 +9,7 @@
 
 pub mod flavor;
 pub mod installer;
+pub(crate) mod installer_cache;
 pub mod meta;
 pub mod patcher;
 pub mod profile;

@@ -230,8 +230,10 @@ describe('IntegritySection', () => {
         status: { ...builtDifferentlyStatus, forge_installer: 'unreadable' },
       },
     });
+    // Repair downloads a damaged installer again (spec 2026-11-04); the promise is conditional
+    // because a read that fails for a lock, or a profile Lucerna cannot use, is not damage.
     expect(getByTestId('integrity-forge-installer').textContent).toMatch(
-      /Forge's saved installer can't be read/,
+      /Forge's saved installer can't be read, so the files it builds weren't checked. If it's damaged, Repair downloads it again and rebuilds any of its files that differ./,
     );
   });
 });
