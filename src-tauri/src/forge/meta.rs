@@ -1645,11 +1645,16 @@ mod tests {
         let s = MockServer::start().await;
         serve(&s, &installer, 1, sidecar_of(&installer), 1).await;
         let td = TempDir::new().unwrap();
-        // What an interrupted write left: the first half of the verified bytes.
+        // What an interrupted write left: the first half of the verified bytes. Its record is
+        // the right digest, spelled the way maven's sidecar may spell it, so only a record written
+        // by this download reads back as exactly `<sha1>\n`.
         let jar = cache(
             &td,
             &installer[..installer.len() / 2],
-            Some(&sha(&installer)),
+            Some(&format!(
+                "{}  installer.jar",
+                sha(&installer).to_uppercase()
+            )),
         );
         let bytes = fetch(&td, &s)
             .await
@@ -1657,9 +1662,21 @@ mod tests {
         assert_eq!(bytes, installer);
         assert_eq!(std::fs::read(&jar).unwrap(), installer);
         assert_eq!(
-            std::fs::read_to_string(digest_path(&jar)).unwrap().trim(),
-            sha(&installer)
+            std::fs::read_to_string(digest_path(&jar)).unwrap(),
+            format!("{}\n", sha(&installer))
         );
+    }
+
+    #[tokio::test]
+    async fn a_verified_download_is_not_downloaded_again_even_if_it_does_not_read() {
+        // Bytes maven publishes that no caller can read: the next call uses them rather than
+        // downloading the same bytes again (spec §3.3), and the caller's error names the installer.
+        let published = b"published, verified, and not a zip";
+        let s = MockServer::start().await;
+        serve(&s, published, 1, sidecar_of(published), 1).await;
+        let td = TempDir::new().unwrap();
+        assert_eq!(fetch(&td, &s).await.unwrap(), published);
+        assert_eq!(fetch(&td, &s).await.unwrap(), published);
     }
 
     #[tokio::test]

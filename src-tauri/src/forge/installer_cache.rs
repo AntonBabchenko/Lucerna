@@ -106,12 +106,13 @@ pub(crate) async fn keep(jar: &Path, bytes: &[u8], sha1: &str) -> Result<()> {
 }
 
 /// Record `sha1` as the SHA-1 of the jar at `jar`. A failure is logged, not returned: the jar is in
-/// place, and without a record the next read checks it again (spec §3.4).
+/// place. With no record the next read walks it again (spec §3.4); a record left from before that
+/// no longer matches makes the next read download it again — restrictive, and one download.
 async fn record_digest(jar: &Path, sha1: &str) {
     let record = digest_path(jar);
     if let Err(e) = write_replacing(&record, format!("{sha1}\n").as_bytes()).await {
         crate::diag!(
-            "forge: the installer {} is kept, but its SHA-1 could not be recorded ({e}); it will be checked again when next read",
+            "forge: the installer {} is kept, but its SHA-1 could not be recorded ({e}); the next read checks it again, and downloads it again if an older record no longer matches",
             jar.display()
         );
     }
