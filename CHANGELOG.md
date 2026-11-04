@@ -44,6 +44,7 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - Bumped `crypto-bigint` 0.7.5 → 0.7.9 and `ctutils` 0.4.2 → 0.4.5 for
   RUSTSEC-2026-0387 and RUSTSEC-2026-0385.
 - Bumped `clipboard-win` off a yanked release (5.4.1 to 5.4.3).
+- Bumped `async-executor` off a yanked release (1.14.0 to 1.14.1).
 
 ## [0.28.0] — 2026-10-18
 
