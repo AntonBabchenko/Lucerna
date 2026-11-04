@@ -4,7 +4,8 @@
 //! Listening is what makes Windows Defender Firewall ask whether to let the
 //! program accept connections; unanswered, it leaves «Query User» inbound Block
 //! rules for the exe. Lucerna accepts no connections, so it must not listen. A
-//! bound socket that never listens accepts nothing (a connect is refused), and
+//! bound socket that never listens accepts nothing (a connect is refused, or on
+//! macOS left unanswered), and
 //! the OS decides a port conflict at `bind()` — `listen()` adds nothing to that
 //! check on Windows or macOS. On Linux it adds one case no real program creates:
 //! a holder bound with `SO_REUSEADDR` but not listening does not block this
