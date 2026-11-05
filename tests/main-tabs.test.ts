@@ -159,6 +159,7 @@ describe('MainTabs active-tab mirror', () => {
       modalOnTop: false,
       modpacksOpen: false,
       serverImportOpen: false,
+      manualDownloadsOpen: false,
       dataRootFellBack: false,
       mode: 'client',
       clientTab: clientActiveTab.value,

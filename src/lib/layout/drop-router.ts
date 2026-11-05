@@ -21,6 +21,9 @@ export type DropContext = {
   // stays mounted, hidden, in client mode, so there it owns nothing.
   modpacksOpen: boolean;
   serverImportOpen: boolean;
+  // The Finish-install dialog takes the pack's downloaded files while it is up — over the Modpacks
+  // modal too, which it can be opened from.
+  manualDownloadsOpen: boolean;
   // The configured data folder is unavailable and the launcher runs on a
   // temporary one: a world or a modpack import would write into the wrong
   // place, so their boxes take nothing (data-root-gating.ts).
@@ -46,6 +49,7 @@ type AssetKind = Exclude<InstanceContentKind, 'mod'>;
 export type DropHost =
   | { target: 'modpack' }
   | { target: 'server-import' }
+  | { target: 'manual-downloads' }
   | { target: 'client-world' }
   | { target: 'client-mods' }
   | { target: 'client-assets'; kind: AssetKind }
@@ -59,6 +63,7 @@ export type DropRoute =
   | { target: 'server-import'; path: string }
   | { target: 'client-world'; paths: string[] }
   | { target: 'client-mods'; paths: string[] }
+  | { target: 'manual-downloads'; paths: string[] }
   | { target: 'client-assets'; kind: ContentKind; paths: string[] }
   | { target: 'server-content'; kind: ServerAddonsKind; paths: string[] }
   | null;
@@ -82,6 +87,7 @@ export type DropSkip =
   | 'only_shaders'
   | 'only_datapacks'
   | 'only_modpacks'
+  | 'only_jars_and_zips'
   // The box takes one source per drop.
   | 'one_modpack'
   | 'one_server';
@@ -101,6 +107,7 @@ export type DropPlan = {
  *  that owns drops comes next; under it, the mode's active tab (and kind) decides. */
 export function dropHost(ctx: DropContext): DropHost | null {
   if (ctx.modalOnTop) return null;
+  if (ctx.manualDownloadsOpen) return { target: 'manual-downloads' };
   if (ctx.modpacksOpen) return { target: 'modpack' };
   if (ctx.mode === 'servers') {
     if (ctx.serverImportOpen) return { target: 'server-import' };
@@ -121,6 +128,7 @@ function blockOf(host: DropHost, ctx: DropContext): DropSkip | null {
     case 'modpack':
       return ctx.dataRootFellBack ? 'data_root' : null;
     case 'server-import':
+    case 'manual-downloads':
       return null;
     case 'server-content':
       return ctx.serverCanMutate ? null : 'server_running';
@@ -153,6 +161,8 @@ function acceptOf(host: DropHost): { takes: (path: string) => boolean; other: Dr
     case 'server-import':
     case 'client-world':
       return null;
+    case 'manual-downloads':
+      return { takes: (p) => isJar(p) || isZip(p), other: 'only_jars_and_zips' };
     case 'client-mods':
       return { takes: isJar, other: 'only_mods' };
     case 'client-assets':
@@ -193,6 +203,7 @@ export function planDrop(paths: string[], ctx: DropContext): DropPlan {
     }
     case 'client-world':
     case 'client-mods':
+    case 'manual-downloads':
       return { host, route: { target: host.target, paths: taken }, skipped };
     case 'client-assets':
     case 'server-content':

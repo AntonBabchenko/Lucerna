@@ -152,6 +152,7 @@
   import WhatsNewModal from '$lib/changelog/WhatsNewModal.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { importTitle } from '$lib/modpacks/import-request';
+  import { manualDownloads } from '$lib/modpacks/manual/manual-downloads.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootPlayDisabledKey } from '$lib/settings/data-root-gating';
   import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
@@ -991,6 +992,7 @@
         modalOnTop: modalBlocksFileDrops(),
         modpacksOpen: modpacksActive.value,
         serverImportOpen: serverImportActive.value,
+        manualDownloadsOpen: manualDownloads.instanceId !== null,
         dataRootFellBack: dataLocation.fellBack,
         mode: serversUi.mode,
         clientTab: clientActiveTab.value,

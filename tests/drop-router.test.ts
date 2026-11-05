@@ -5,6 +5,7 @@ const base: DropContext = {
   modalOnTop: false,
   modpacksOpen: false,
   serverImportOpen: false,
+  manualDownloadsOpen: false,
   dataRootFellBack: false,
   mode: 'client',
   clientTab: 'mod_browser',
@@ -159,5 +160,28 @@ describe('routeDrop', () => {
         serverCanMutate: false,
       }),
     ).toBeNull();
+  });
+});
+
+describe('the Finish-install dialog', () => {
+  it('takes jars and zips over the Modpacks modal', () => {
+    const plan = planDrop(['C:/dl/a.jar', 'C:/dl/b.zip', 'C:/dl/c.png'], {
+      ...base,
+      modpacksOpen: true,
+      manualDownloadsOpen: true,
+    });
+    expect(plan.route).toEqual({
+      target: 'manual-downloads',
+      paths: ['C:/dl/a.jar', 'C:/dl/b.zip'],
+    });
+    expect(plan.skipped).toEqual([{ path: 'C:/dl/c.png', why: 'only_jars_and_zips' }]);
+  });
+  it('takes nothing while a dialog that takes no files is on top of it', () => {
+    const plan = planDrop(['C:/dl/a.jar'], {
+      ...base,
+      manualDownloadsOpen: true,
+      modalOnTop: true,
+    });
+    expect(plan.route).toBeNull();
   });
 });

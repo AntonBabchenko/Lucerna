@@ -22,6 +22,7 @@ const SKIP_KEY: Record<DropSkip, TranslationKey> = {
   only_shaders: 'common.dropSkip.onlyShaders',
   only_datapacks: 'common.dropSkip.onlyDatapacks',
   only_modpacks: 'common.dropSkip.onlyModpacks',
+  only_jars_and_zips: 'common.dropSkip.onlyJarsAndZips',
   one_modpack: 'common.dropSkip.oneModpack',
   one_server: 'common.dropSkip.oneServer',
 };
