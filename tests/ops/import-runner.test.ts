@@ -56,6 +56,7 @@ describe('runImport', () => {
       skipped_overrides: [{ path: 'overrides/big.zip', size: 1024 }],
       inert_loader_jars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
       details: [row],
+      manual_downloads: 2,
     });
 
     const out = await runImport(req, () => {});
@@ -67,6 +68,7 @@ describe('runImport', () => {
       skipped: [{ path: 'overrides/big.zip', size: 1024 }],
       inertLoaderJars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
       details: [row],
+      manualDownloads: 2,
     });
   });
 

@@ -1284,6 +1284,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: vec![],
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }

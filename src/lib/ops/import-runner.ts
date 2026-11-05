@@ -33,6 +33,8 @@ export type ImportOutcome =
       skipped: SkippedOverride[];
       inertLoaderJars: InertLoaderJar[];
       details: TaskDetail[];
+      /** Required pack files left to download by hand (spec 2026-11-05). */
+      manualDownloads: number;
     }
   | { status: 'partial'; failed: string[] }
   | { status: 'error'; message: string };
@@ -75,6 +77,7 @@ export async function runImport(
       skipped: r.data.skipped_overrides,
       inertLoaderJars: r.data.inert_loader_jars,
       details: r.data.details,
+      manualDownloads: r.data.manual_downloads ?? 0,
     };
   }
   if (r.error.kind === 'modpack_partial_failure') {

@@ -32,7 +32,8 @@
       "onlyDatapacks": "Only datapack .zip files can be added here",
       "onlyModpacks": "Only modpacks (.mrpack or .zip) can be imported here",
       "oneModpack": "Modpacks are imported one at a time",
-      "oneServer": "Servers are imported one at a time"
+      "oneServer": "Servers are imported one at a time",
+      "onlyJarsAndZips": "Only the pack's .jar and .zip files can be added here"
     },
     "fileFilter": {
       "modrinthModpack": "Modrinth modpack",
@@ -1592,7 +1593,6 @@
         "optionalSection": "Optional ({count})",
         "installModAriaLabel": "Install {name}",
         "cannotAutoInstall": "Cannot auto-install ({count})",
-        "openLink": "Open",
         "groupMods": "Mods",
         "groupResourcepacks": "Resource packs",
         "groupShaderpacks": "Shader packs",
@@ -1672,7 +1672,7 @@
         "reimporting": "Re-importing…",
         "reimportBtn": "Re-import pack files",
         "missingHeading": "Pack mods needing attention ({count})",
-        "missingBody": "The pack author disabled automatic downloads for these. Download each from its source and drop the jar onto the Mods tab.",
+        "missingBody": "Lucerna couldn't download these files itself. Add them with Finish install.",
         "skippedHeading": "Bundled files skipped ({count})",
         "skippedBody": "The pack bundled these files inside it, but they exceed the size limit and aren't loadable mods (Minecraft only loads .jar files). They were left out; the pack's mods installed normally.",
         "skippedSyncedBody": "Kept as they were: this instance shares these files with your other instances (Shared game settings), and the pack's copies would have replaced them in every one of them.",
@@ -1686,9 +1686,6 @@
         "differentVersion": "— different version than the pack — may be incompatible",
         "findAlternative": "Find in other sources",
         "substituted": "(replaced with alternative)",
-        "distributionDisabled": "Distribution disabled",
-        "hostNotAllowed": "Host not allowed",
-        "openLink": "Open",
         "deleteBtn": "Delete pack",
         "openInstanceBtn": "Open instance",
         "deleteConfirmAriaLabel": "Delete pack confirmation",
@@ -1815,6 +1812,103 @@
       "riskCustomizationsUser": "{count} mod(s) you added yourself will be kept. They were chosen for the current version and may not work with this one.",
       "riskCustomizationsManual": "{count} manually-placed jar(s) will be kept and are not checked for compatibility.",
       "riskBundledOverrides": "The pack's bundled config files are not re-applied by a version change — your current configs stay as they are. Use \"Re-import pack files\" afterwards if the new version needs its own configs."
+    },
+    "manual": {
+      "title": "Finish installing {pack}",
+      "lead": "Lucerna couldn't download these files itself. Download each one in your browser; Lucerna checks every file and puts it in place.",
+      "openAll": "Open all ({count})",
+      "copyLinks": "Copy links",
+      "copied": "{count, plural, one {# link copied} other {# links copied}}",
+      "copyFailed": "Couldn't copy the links",
+      "lookInFolder": "Look in the folder",
+      "folderLine": "Folder: {path}",
+      "folderUnknown": "Lucerna couldn't find your downloads folder. Choose one with Change folder.",
+      "changeFolder": "Change folder…",
+      "watch": "Watch this folder while this window is open",
+      "watching": "Watching the folder",
+      "watchStopped": "Stopped watching the folder",
+      "dropLabel": "Drop the downloaded files here, or click to choose them",
+      "dropDrag": "Drop to check and add",
+      "fileFilter": "Mod or pack file",
+      "done": "Done",
+      "allDone": "Every file is in place. The pack is ready to play.",
+      "finishInstall": "Finish install…",
+      "pickerAfter": "After the import you can add them in Finish install.",
+      "diffLine": "{count, plural, one {# file of this version must be downloaded by hand after the update.} other {# files of this version must be downloaded by hand after the update.}}",
+      "kind": {
+        "resourcePack": "resource pack",
+        "shader": "shader",
+        "optional": "optional"
+      },
+      "reason": {
+        "author": "Its author doesn't let other launchers download it",
+        "host": "Lucerna doesn't download from this site",
+        "unsafe": "The pack names an unsafe place for it",
+        "noChecksum": "No checksum was published to check it",
+        "source": "CurseForge couldn't be reached when the pack was installed",
+        "step": "A manual step Lucerna can't do"
+      },
+      "state": {
+        "needs": "Needs a download",
+        "added": "Added",
+        "other": "Another version is installed",
+        "found": "Found. Replace {file}?",
+        "chosen": "Chosen by you, not verified",
+        "unchecked": "Can't be checked automatically",
+        "step": "Do this step by hand"
+      },
+      "action": {
+        "download": "Download",
+        "modPage": "Mod page",
+        "openLink": "Open link",
+        "useFile": "Use a file…",
+        "replace": "Replace"
+      },
+      "openAllAsk": {
+        "title": "{count, plural, one {Open # tab?} other {Open # tabs?}}",
+        "body": "Each opens a file's download page in your browser.",
+        "action": "{count, plural, one {Open # tab} other {Open # tabs}}"
+      },
+      "unverifiedAsk": {
+        "title": "Use this file without a check?",
+        "body": "Lucerna can't check this file against its source. Use it for {mod} anyway?",
+        "action": "Use it"
+      },
+      "replaceAsk": {
+        "title": "Replace {existing}?",
+        "body": "{existing} is removed (you can undo that for a few seconds) and the version {mod} needs takes its place."
+      },
+      "replace": {
+        "recycled": "{count, plural, one {# file moved to the Recycle Bin} other {# files moved to the Recycle Bin}}"
+      },
+      "result": {
+        "added": "{count, plural, one {Added # file} other {Added # files}}",
+        "needsReplace": "{count, plural, one {# file waits for Replace} other {# files wait for Replace}}",
+        "noneAdded": "Nothing was added",
+        "notRecorded": "Added, but Lucerna couldn't note it down; it may show as missing until you add it again",
+        "otherVersion": "This is {found}; the pack needs {wanted}",
+        "notInPack": "Not one of the files this pack needs",
+        "notInPackFound": "This is {found}, which this pack doesn't need",
+        "notAsked": "Not one of the files this pack needs (CurseForge couldn't be asked what it is)",
+        "cantPlace": "Lucerna can't tell where this file goes",
+        "conflict": "The pack names another of its files {existing}",
+        "unreadable": "Couldn't read it: {reason}",
+        "wrongType": "Not a .jar or .zip file",
+        "changed": "It changed while it was being copied; try again"
+      },
+      "scan": {
+        "none": "No files for this pack in this folder",
+        "busy": "{count, plural, one {# file is still being written; it'll be tried again} other {# files are still being written; they'll be tried again}}"
+      },
+      "toast": {
+        "imported": "{name} imported. {count, plural, one {# file needs} other {# files need}} a manual download.",
+        "updated": "{name} updated. {count, plural, one {# file needs} other {# files need}} a manual download.",
+        "finish": "Finish install"
+      },
+      "gate": {
+        "heading": "{count, plural, one {# pack file still needs a manual download} other {# pack files still need a manual download}}",
+        "maybeManual": "May be one of the files still to download"
+      }
     }
   },
   "screenshots": {
@@ -3197,7 +3291,9 @@
       "gameDamaged": "Replacing this instance's file with the shared copy puts the damaged one in the Recycle Bin.",
       "gameDamagedOptions": "Replacing it puts the damaged file in the Recycle Bin; the shared options then apply after the next launch, once the game has written a new options.txt.",
       "recordsDamaged": "Starting this instance's records afresh joins it again, as when turning it on; its file is kept."
-    }
+    },
+    "manualDownloadsFolderUnreadable": "Couldn't read the folder {path}",
+    "manualDownloadsFolderUnknown": "Couldn't find your downloads folder"
   },
   "settings": {
     "title": "Settings",

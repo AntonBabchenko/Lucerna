@@ -43,6 +43,7 @@ const mods: DropContext = {
   modalOnTop: false,
   modpacksOpen: false,
   serverImportOpen: false,
+  manualDownloadsOpen: false,
   dataRootFellBack: false,
   mode: 'client',
   clientTab: 'mod_browser',

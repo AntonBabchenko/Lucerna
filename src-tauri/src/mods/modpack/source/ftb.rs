@@ -281,9 +281,10 @@ const CF_BASE: &str = "https://api.curseforge.com";
 ///   each file's url. Files whose `downloadUrl` is `null` (distribution
 ///   disabled) are moved to `summary.unresolvable`.
 /// - If no CF API key is available: all CF-ref placeholder files are moved to
-///   `summary.unresolvable` with `reason: HostNotAllowed` (closest existing
-///   reason for "couldn't fetch") and a manual CurseForge project URL so the
-///   import picker can show them with an "Open on CurseForge" link.
+///   `summary.unresolvable` with `reason: SourceUnavailable` (Lucerna could not
+///   ask, which is not the same as the author blocking the file) and a manual
+///   CurseForge project URL so the import picker can show them with an "Open on
+///   CurseForge" link.
 ///
 /// FTB cf-ref files need a CurseForge API key to resolve; without one they
 /// degrade to manual.
@@ -318,8 +319,9 @@ pub(crate) async fn resolve_cf_refs(
         // Process in reverse index order so removals don't shift earlier indices.
         for &idx in cf_indices.iter().rev() {
             let f = summary.files.remove(idx);
+            let meta = cf_ref_meta(&f);
             summary.unresolvable.push(ModpackUnresolvable {
-                reason: UnresolvableReason::HostNotAllowed,
+                reason: UnresolvableReason::SourceUnavailable,
                 mod_name: f.name,
                 manual_action_url: format!("https://www.curseforge.com/projects/{}", f.project_id),
                 filename: f.filename,
@@ -330,6 +332,7 @@ pub(crate) async fn resolve_cf_refs(
                     Some(f.sha1)
                 },
                 project_id: Some(f.project_id),
+                meta,
             });
         }
         return;
@@ -342,8 +345,9 @@ pub(crate) async fn resolve_cf_refs(
             // Network/decode failure — degrade all CF-ref files to unresolvable.
             for &idx in cf_indices.iter().rev() {
                 let f = summary.files.remove(idx);
+                let meta = cf_ref_meta(&f);
                 summary.unresolvable.push(ModpackUnresolvable {
-                    reason: UnresolvableReason::HostNotAllowed,
+                    reason: UnresolvableReason::SourceUnavailable,
                     mod_name: f.name,
                     manual_action_url: format!(
                         "https://www.curseforge.com/projects/{}",
@@ -357,6 +361,7 @@ pub(crate) async fn resolve_cf_refs(
                         Some(f.sha1)
                     },
                     project_id: Some(f.project_id),
+                    meta,
                 });
             }
             return;
@@ -430,10 +435,11 @@ pub(crate) async fn resolve_cf_refs(
             (UnresolvableReason::DistributionDisabled, sha1)
         };
         let sha1 = if !f.sha1.is_empty() {
-            Some(f.sha1)
+            Some(f.sha1.clone())
         } else {
             cf_sha1
         };
+        let meta = cf_ref_meta(&f);
         summary.unresolvable.push(ModpackUnresolvable {
             reason,
             mod_name: f.name,
@@ -442,7 +448,20 @@ pub(crate) async fn resolve_cf_refs(
             size: f.size,
             sha1,
             project_id: Some(f.project_id),
+            meta,
         });
+    }
+}
+
+/// What an FTB CurseForge reference publishes: its CurseForge file id and
+/// where the pack puts it.
+fn cf_ref_meta(
+    f: &crate::mods::modpack::schema::ModpackFile,
+) -> crate::mods::modpack::schema::ManualFileMeta {
+    crate::mods::modpack::schema::ManualFileMeta {
+        file_id: Some(f.version_id.clone()),
+        install_path: Some(f.install_path.clone()),
+        ..Default::default()
     }
 }
 
@@ -694,6 +713,12 @@ mod tests {
         assert_eq!(u.project_id.as_deref(), Some("238222"));
         // sha1 backfilled from CF response
         assert_eq!(u.sha1.as_deref(), Some("deadbeef"));
+        assert_eq!(u.meta.file_id.as_deref(), Some("4499899"));
+        assert!(u
+            .meta
+            .install_path
+            .as_deref()
+            .is_some_and(|p| p.ends_with(".jar")));
     }
 
     /// resolve_cf_refs moves a file to unresolvable when CF returns a downloadUrl
@@ -736,7 +761,7 @@ mod tests {
     }
 
     /// resolve_cf_refs with no CF key moves all CF-ref files to unresolvable
-    /// with HostNotAllowed reason.
+    /// with SourceUnavailable reason.
     #[tokio::test]
     async fn resolve_cf_refs_no_key_degrades_to_unresolvable() {
         let mut summary = summary_with_cf_placeholder("238222", "4499899", "abc");
@@ -747,7 +772,8 @@ mod tests {
         );
         assert_eq!(summary.unresolvable.len(), 1);
         let u = &summary.unresolvable[0];
-        assert!(matches!(u.reason, UnresolvableReason::HostNotAllowed));
+        assert!(matches!(u.reason, UnresolvableReason::SourceUnavailable));
+        assert_eq!(u.meta.file_id.as_deref(), Some("4499899"));
         assert!(u.manual_action_url.contains("238222"));
         assert_eq!(u.sha1.as_deref(), Some("abc"));
         assert_eq!(u.project_id.as_deref(), Some("238222"));

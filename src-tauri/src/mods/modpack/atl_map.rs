@@ -6,7 +6,8 @@
 use crate::mods::modpack::atl_api::{AtlConfigs, AtlMod};
 use crate::mods::modpack::path_safety::is_safe_relative_path;
 use crate::mods::modpack::schema::{
-    EnvSupport, ModpackFile, ModpackFormat, ModpackSummary, ModpackUnresolvable, UnresolvableReason,
+    EnvSupport, ManualFileMeta, ModpackFile, ModpackFormat, ModpackSummary, ModpackUnresolvable,
+    UnresolvableReason,
 };
 use crate::mods::platform::{LoaderKind, ModSource};
 use crate::network::allowlist::is_host_allowed;
@@ -101,6 +102,12 @@ fn install_path_for(m: &AtlMod) -> String {
     format!("mods/{}", m.file)
 }
 
+/// The manifest's md5, lowercased; `None` when it is blank.
+fn atl_md5(m: &AtlMod) -> Option<String> {
+    let md5 = m.md5.trim();
+    (!md5.is_empty()).then(|| md5.to_ascii_lowercase())
+}
+
 fn unres(
     reason: UnresolvableReason,
     mod_name: impl Into<String>,
@@ -108,6 +115,7 @@ fn unres(
     filename: impl Into<String>,
     size: f64,
     sha1: Option<String>,
+    meta: crate::mods::modpack::schema::ManualFileMeta,
 ) -> ModpackUnresolvable {
     ModpackUnresolvable {
         reason,
@@ -117,6 +125,7 @@ fn unres(
         size,
         sha1,
         project_id: None,
+        meta,
     }
 }
 
@@ -154,12 +163,16 @@ pub fn map_configs(
         if m.mod_type != "mods" {
             let resolved_url = resolve_url(cdn_base, &m.url);
             unresolvable.push(unres(
-                UnresolvableReason::DistributionDisabled,
+                UnresolvableReason::UnsupportedType,
                 &m.name,
                 resolved_url,
                 &m.file,
                 m.filesize,
                 None,
+                ManualFileMeta {
+                    required: false,
+                    ..Default::default()
+                },
             ));
             continue;
         }
@@ -173,6 +186,7 @@ pub fn map_configs(
                 &m.file,
                 m.filesize,
                 None,
+                ManualFileMeta::default(),
             ));
             continue;
         }
@@ -203,6 +217,11 @@ pub fn map_configs(
                 &m.file,
                 m.filesize,
                 None,
+                ManualFileMeta {
+                    md5: atl_md5(m),
+                    install_path: Some(install_path_for(m)),
+                    ..Default::default()
+                },
             ));
             continue;
         }
@@ -243,6 +262,10 @@ pub fn map_configs(
                 &m.file,
                 m.filesize,
                 None,
+                ManualFileMeta {
+                    install_path: Some(install_path_for(m)),
+                    ..Default::default()
+                },
             ));
             continue;
         }
@@ -258,6 +281,11 @@ pub fn map_configs(
                 &m.file,
                 m.filesize,
                 None,
+                ManualFileMeta {
+                    md5: atl_md5(m),
+                    install_path: Some(install_path_for(m)),
+                    ..Default::default()
+                },
             ));
             continue;
         }
@@ -413,6 +441,15 @@ mod tests {
             s.unresolvable[0].reason,
             UnresolvableReason::DistributionDisabled
         ));
+        assert_eq!(
+            s.unresolvable[0].meta.install_path.as_deref(),
+            Some("mods/x.jar")
+        );
+        assert_eq!(
+            s.unresolvable[0].meta.md5.as_deref(),
+            Some("abc123"),
+            "the manifest's md5 is kept"
+        );
     }
 
     #[test]
@@ -616,8 +653,9 @@ mod tests {
         );
         assert!(matches!(
             s.unresolvable[0].reason,
-            UnresolvableReason::DistributionDisabled
+            UnresolvableReason::UnsupportedType
         ));
+        assert!(!s.unresolvable[0].meta.required);
     }
 
     // ---- forgecdn file-id parser + forgecdn-direct branch tests ---------------

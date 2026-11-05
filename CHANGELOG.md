@@ -23,6 +23,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Added
 
+- **Finish a pack whose files Lucerna can't download.** When a mod's author
+  forbids other launchers from downloading it, the pack now offers Finish
+  install: open the files' download pages, then drop them in, pick them, or let
+  Lucerna find them in your Downloads folder. Each file is checked against the
+  pack before it's added, and a pack update keeps it in step.
 - **Lucerna opens where you left it.** The window comes back at the position
   and size it had when it closed, maximized if it was maximized, and the
   compact strip at its own spot. A window last seen on a screen that is gone
@@ -33,6 +38,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ### Fixed
 
+- **A pack mod is counted as installed only when its bytes are.** A different
+  file with the same name no longer passes for it.
 - **An enlarged window no longer shrinks on its own.** After F5, or after going
   to mini mode and back, the window's height could snap down to the sidebar's.
 - **A long data folder path no longer makes the launch command too long.**

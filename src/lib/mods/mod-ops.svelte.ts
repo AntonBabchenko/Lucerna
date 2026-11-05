@@ -629,6 +629,15 @@ async function removeNow(
   return 'applied';
 }
 
+/** The timed Undo toast for a removal another flow made (Finish install's Replace). */
+export function announceRemoval(
+  scope: ModOpScope,
+  receipt: UninstallReceipt,
+  removing: readonly ModOpTarget[],
+): void {
+  pushUndo(scope, receipt, removing, { done: [], failed: [] });
+}
+
 function pushUndo(
   scope: ModOpScope,
   receipt: UninstallReceipt,

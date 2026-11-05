@@ -24,6 +24,8 @@ export type UpdateOutcome =
       /** Per-file rows for the removals + installs this update performed —
        *  what the task registry hands to the install-report modal. */
       details: TaskDetail[];
+      /** Required pack files left to download by hand (spec 2026-11-05). */
+      manualDownloads: number;
     }
   | { status: 'error'; message: string };
 
@@ -64,6 +66,7 @@ export async function runUpdate(
       inst: r.data.instance,
       inertLoaderJars: r.data.inert_loader_jars,
       details: r.data.details,
+      manualDownloads: r.data.manual_downloads ?? 0,
     };
   }
   return { status: 'error', message: formatError(r.error) };

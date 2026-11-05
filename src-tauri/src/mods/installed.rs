@@ -115,7 +115,7 @@ pub(crate) fn seed_hash_cache(path: &Path, sha1: &str) {
 /// `(mtime, size)` are unchanged since it was last hashed. `read_and_hash`
 /// is only awaited on a genuine miss, and only by ONE caller at a time per path.
 /// The std lock is never held across an await.
-async fn cached_sha1<F, Fut>(
+pub(crate) async fn cached_sha1<F, Fut>(
     path: &Path,
     mtime: SystemTime,
     size: u64,
@@ -209,6 +209,35 @@ pub(crate) async fn on_disk_sha1(mods_dir: &Path, filename: &str) -> Option<Stri
     None
 }
 
+/// SHA-1 of any file's bytes right now, through the same `(mtime, size)` memo,
+/// read in 64 KiB chunks. `None` is "could not tell" (absent, not a file,
+/// unreadable) — never "no file": a caller treats it as not satisfied.
+pub(crate) async fn path_sha1(path: &Path) -> Option<String> {
+    let meta = fs::metadata(path).await.ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let mtime = meta.modified().ok()?;
+    let read = cached_sha1(path, mtime, meta.len(), || async {
+        match crate::mods::txn::file_sha1(path).await {
+            Ok(Some(sha)) => Ok(sha),
+            Ok(None) => Err(io_err(
+                path,
+                std::io::Error::from(std::io::ErrorKind::NotFound),
+            )),
+            Err(e) => Err(io_err(path, e)),
+        }
+    })
+    .await;
+    match read {
+        Ok(sha) => Some(sha),
+        Err(e) => {
+            crate::diag!("[mods] sha1 of {} failed: {e}", path.display());
+            None
+        }
+    }
+}
+
 /// Snapshot of the mods the user selected at modpack-import time, kept
 /// in `installed-mods.json` alongside the live entries so the launcher
 /// can later diff "what's still here" vs "what was added/removed" without
@@ -238,6 +267,10 @@ pub struct PackOrigin {
     /// feature load with an empty list.
     #[serde(default)]
     pub resolved_missing: Vec<ResolvedMissing>,
+    /// Facts about supplied files the bytes can't tell (spec §3.2).
+    /// `#[serde(default)]` so registry files written before it load empty.
+    #[serde(default)]
+    pub manual_supplied: Vec<ManualSupplied>,
     /// Installed jars built for a loader family this instance cannot load
     /// (inert — e.g. a Fabric jar on a Forge instance). `#[serde(default)]`
     /// so pre-feature registry files load with an empty list.
@@ -260,6 +293,30 @@ pub struct ResolvedMissing {
     /// SHA-1 (lowercased) of the installed substitute jar. The entry reverts
     /// to unresolved if this sha1 leaves the registry (self-healing).
     pub sha1: String,
+}
+
+/// How a `missing_mods` entry was closed when its bytes alone can't say so
+/// (spec 2026-11-05 §3.2).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SupplyVerified {
+    /// The file matched the entry's published md5; its sha1 is recorded so
+    /// everything downstream keys on sha1.
+    Md5,
+    /// The entry published no hash; the user chose this file (spec D8).
+    User,
+}
+
+/// A file supplied for a `missing_mods` entry, recorded only when the bytes
+/// can't tell (an md5 match, or the user's unverified choice). Carried across
+/// pack updates while its entry is still there.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+pub struct ManualSupplied {
+    /// `manual_downloads::state::entry_key` of the entry this closes.
+    pub key: String,
+    /// SHA-1 (lowercased) of the file placed for it.
+    pub sha1: String,
+    pub verified: SupplyVerified,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
@@ -1670,6 +1727,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }
@@ -1774,6 +1832,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                manual_supplied: vec![],
                 inert_loader_jars: vec![],
             }),
         };
@@ -1909,6 +1968,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                manual_supplied: vec![],
                 inert_loader_jars: vec![],
             }),
         };
@@ -1933,6 +1993,7 @@ mod tests {
             size: 4096.0,
             sha1: Some("abc".into()),
             project_id: None,
+            meta: Default::default(),
         }];
         set_pack_origin(td.path(), origin.clone()).await.unwrap();
         let got = get_pack_origin(td.path()).await.unwrap();

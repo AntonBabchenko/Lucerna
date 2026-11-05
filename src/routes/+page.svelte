@@ -152,6 +152,10 @@
   import WhatsNewModal from '$lib/changelog/WhatsNewModal.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { importTitle } from '$lib/modpacks/import-request';
+  import {
+    manualDownloads,
+    openManualDownloads,
+  } from '$lib/modpacks/manual/manual-downloads.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootPlayDisabledKey } from '$lib/settings/data-root-gating';
   import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
@@ -159,6 +163,7 @@
   import { startupDialAllowed } from '$lib/settings/startup-network';
   import DataMoveHost from '$lib/settings/DataMoveHost.svelte';
   import ModOpsHost from '$lib/mods/ops/ModOpsHost.svelte';
+  import ManualDownloadsHost from '$lib/modpacks/manual/ManualDownloadsHost.svelte';
   import CloseConfirmHost from '$lib/close/CloseConfirmHost.svelte';
   import { nativeCloseLabels } from '$lib/close/close-copy';
   import { trayLabels, trayRefusalKey } from '$lib/tray/tray-copy';
@@ -991,6 +996,7 @@
         modalOnTop: modalBlocksFileDrops(),
         modpacksOpen: modpacksActive.value,
         serverImportOpen: serverImportActive.value,
+        manualDownloadsOpen: manualDownloads.instanceId !== null,
         dataRootFellBack: dataLocation.fellBack,
         mode: serversUi.mode,
         clientTab: clientActiveTab.value,
@@ -1045,6 +1051,15 @@
     pagePreflight.invalidate();
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
   }, 150);
+  // Finish install adding or undoing a file moves the missing-file count and the pre-flight: refresh
+  // like a mod install does. The first run is the mount, so the counter it starts from is skipped.
+  let seenManualChanged = manualDownloads.changed;
+  $effect(() => {
+    const changed = manualDownloads.changed;
+    if (changed === seenManualChanged) return;
+    seenManualChanged = changed;
+    debouncedModSetStats.call();
+  });
   onDestroy(() => {
     debouncedModSetStats.cancel();
     debouncedModToggleStats.cancel();
@@ -1710,6 +1725,13 @@
     pending?.onAbort?.();
   }
 
+  // «Finish install…» (spec D10): no launch; the gate closes like Cancel, the dialog opens.
+  function onGateFinishInstall() {
+    const id = activeInstance?.id ?? null;
+    onGateCancel();
+    if (id) openManualDownloads(id);
+  }
+
   // Shared soft-gate for every launch path. Runs preLaunchCheck; when it surfaces
   // warnings (RAM over-commit / same-account), defers `proceed` behind the confirm
   // dialog (with an optional `onAbort` cleanup run only if the user cancels) and
@@ -2318,6 +2340,7 @@
       onFixAndLaunch={onGateFixAndLaunch}
       onLaunchAnyway={onGateLaunchAnyway}
       onCancel={onGateCancel}
+      onFinishInstall={onGateFinishInstall}
     />
   {/if}
   {#if syncFailedAsk}
@@ -2467,6 +2490,9 @@
      </main> so it paints above the imported-pack drawer that can ask (modals stack by DOM order);
      before the data-move and close hosts, which must stay on top of everything. -->
 <ModOpsHost activeInstanceId={activeInstance?.id ?? null} />
+<!-- Finish install: after ModOpsHost, above the Modpacks modal and the drawer it can be opened from;
+     before the data-move and close hosts. -->
+<ManualDownloadsHost />
 <!-- Near the end on purpose. Modals share one z-index and stack by DOM order (Modal.svelte), and
      the data-folder move is started from SettingsModal: its blocking dialog has to paint above
      everything already open. Self-gating like WhatsNewModal — it renders nothing until a move

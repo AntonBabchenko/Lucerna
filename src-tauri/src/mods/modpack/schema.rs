@@ -50,6 +50,15 @@ pub enum UnresolvableReason {
     /// returned an absent or empty hash). Installing such a file would be TOFU
     /// (trust-on-first-use); it is surfaced as manually unresolvable instead.
     MissingChecksum,
+    /// A CurseForge reference an FTB pack could not resolve because there was
+    /// no CurseForge key or the request failed: not author-blocked — Lucerna
+    /// could not ask (spec 2026-11-05 F10). Rows recorded before this variant
+    /// existed say `HostNotAllowed`.
+    SourceUnavailable,
+    /// An ATLauncher entry of a type other than `mods` (`extract`, …): a manual
+    /// step Lucerna cannot perform. Listed with its link, never placeable,
+    /// never pending.
+    UnsupportedType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -114,6 +123,47 @@ pub struct InertLoaderJar {
     pub detected_loader: String,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+/// What a pack's source published about a file Lucerna could not fetch —
+/// what the Finish-install dialog needs to link to it, check it and place it
+/// (spec 2026-11-05 §3.1). One field on `ModpackUnresolvable`, so every parser
+/// builds it once and an entry saved before it reads as "nothing known,
+/// required".
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct ManualFileMeta {
+    /// CurseForge file id (FTB: its CurseForge file id).
+    #[serde(default)]
+    pub file_id: Option<String>,
+    /// Lowercased md5, when the source published one.
+    #[serde(default)]
+    pub md5: Option<String>,
+    /// Where the file goes, relative to `.minecraft`, file name included —
+    /// only when the source said so. `None` = decided from the file's bytes.
+    #[serde(default)]
+    pub install_path: Option<String>,
+    /// The manifest's `required`. An entry saved before this reads as required.
+    #[serde(default = "default_true")]
+    pub required: bool,
+    /// The file's own download page (`{websiteUrl}/download/{fileId}`).
+    #[serde(default)]
+    pub download_url: Option<String>,
+}
+
+impl Default for ManualFileMeta {
+    fn default() -> Self {
+        Self {
+            file_id: None,
+            md5: None,
+            install_path: None,
+            required: true,
+            download_url: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModpackUnresolvable {
     pub reason: UnresolvableReason,
@@ -142,6 +192,10 @@ pub struct ModpackUnresolvable {
     /// URL — `None`. `#[serde(default)]` so pre-C registry files load.
     #[serde(default)]
     pub project_id: Option<String>,
+    /// What the source published beyond the fields above. `#[serde(default)]`:
+    /// entries saved before it read as `ManualFileMeta::default()`.
+    #[serde(default)]
+    pub meta: ManualFileMeta,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -277,6 +331,10 @@ pub struct ModpackImportOutcome {
     /// how big, and what happened to it. The UI hands these to the task
     /// registry; the backend separately persists them as an install report.
     pub details: Vec<crate::tasks::TaskDetail>,
+    /// Files of this pack that must be downloaded by hand (spec §5.4 item 1):
+    /// every actionable one, optional files included, like the Overview row.
+    #[serde(default)]
+    pub manual_downloads: u32,
 }
 
 /// What `modpack_apply_update` returns. Same reasoning as
@@ -291,6 +349,10 @@ pub struct ModpackUpdateOutcome {
     /// Per-file rows for the files the update placed. A committed update only:
     /// one that fails is undone and returns an error instead.
     pub details: Vec<crate::tasks::TaskDetail>,
+    /// Files of this pack that must be downloaded by hand (spec §5.4 item 1):
+    /// every actionable one, optional files included, like the Overview row.
+    #[serde(default)]
+    pub manual_downloads: u32,
 }
 
 /// Reconciled state of a `PackOrigin.missing_mods` entry against the
@@ -309,6 +371,9 @@ pub enum MissingModState {
     /// link in `PackOrigin.resolved_missing`. Treated as resolved, but
     /// surfaced distinctly so the UI does not claim the pinned file is present.
     Substituted,
+    /// An entry with no published hash that the user closed with a file of
+    /// their choice (spec D8). Resolved, but never claimed to be the pinned file.
+    ChosenUnverified,
 }
 
 /// One `PackOrigin.missing_mods` entry paired with its live
@@ -358,6 +423,12 @@ pub struct ModpackStatus {
     /// existing `ModpackStatus` literal in the frontend stops type-checking.
     #[serde(default)]
     pub pack_completion: Option<crate::mods::pack_completion::PackCompletion>,
+    /// SHA-1s of files the user supplied for `missing_mods` entries (by hash or
+    /// by their own choice) that are not `origin.files`: pack files for every
+    /// provenance badge (spec §3.4). `#[serde(default)]` so specta emits it
+    /// optional and existing frontend literals keep type-checking.
+    #[serde(default)]
+    pub supplied_shas: Vec<String>,
 }
 
 /// A mod/asset present in both the installed pack and the new version
@@ -390,6 +461,11 @@ pub struct ModpackUpdateDiff {
     pub updated: Vec<ModpackUpdateEntry>,
     pub version_bump: Option<ModpackVersionBump>,
     pub new_version_number: String,
+    /// The new version's files the instance will still have to get by hand
+    /// (spec §4.5), shown on the confirm step: every actionable one, optional
+    /// files included, like the Overview row.
+    #[serde(default)]
+    pub manual_downloads: u32,
 }
 
 /// One entry in a modpack project's version list, as shown in the
@@ -409,6 +485,42 @@ pub struct ModpackVersionEntry {
 mod tests {
     use super::*;
     use crate::mods::platform::LoaderKind;
+
+    #[test]
+    fn an_unresolvable_saved_before_manual_meta_reads_as_required_with_nothing_known() {
+        let legacy = serde_json::json!({
+            "reason": "distribution_disabled", "mod_name": "SRP",
+            "manual_action_url": "https://www.curseforge.com/projects/1",
+            "filename": "srp.jar", "size": 1.0, "sha1": "aa"
+        });
+        let u: ModpackUnresolvable = serde_json::from_value(legacy).unwrap();
+        assert_eq!(u.meta, ManualFileMeta::default());
+        assert!(u.meta.required, "a legacy entry is required, not optional");
+    }
+
+    #[test]
+    fn a_meta_missing_its_required_flag_reads_as_required() {
+        let m: ManualFileMeta =
+            serde_json::from_value(serde_json::json!({ "file_id": "5" })).unwrap();
+        assert!(m.required);
+        assert_eq!(m.file_id.as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn the_two_new_reasons_and_the_new_state_have_snake_case_names() {
+        assert_eq!(
+            serde_json::to_value(UnresolvableReason::SourceUnavailable).unwrap(),
+            serde_json::json!("source_unavailable")
+        );
+        assert_eq!(
+            serde_json::to_value(UnresolvableReason::UnsupportedType).unwrap(),
+            serde_json::json!("unsupported_type")
+        );
+        assert_eq!(
+            serde_json::to_value(MissingModState::ChosenUnverified).unwrap(),
+            serde_json::json!("chosen_unverified")
+        );
+    }
 
     #[test]
     fn modpack_file_md5_defaults_to_none_for_legacy_json() {

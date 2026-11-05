@@ -119,6 +119,9 @@ export const modpacksNav = $state<{ value: ModpacksNav | null }>({ value: null }
 // window-level drag-drop listener (`listenForFileDrops`). Absolute `.jar`
 // paths. AddonsTab consumes this and resets it to null. Mirrors `modBrowserNav`.
 export const droppedMods = $state<{ value: string[] | null }>({ value: null });
+// Files dropped while the Finish-install dialog is up, routed here by the window drop router. The
+// dialog consumes this and resets it. Mirrors `droppedMods`.
+export const droppedManualDownloads = $state<{ value: string[] | null }>({ value: null });
 // A modpack file (`.mrpack`/`.zip`) dropped while the Modpacks modal is open,
 // routed here by the window drop router. ModpacksTab consumes this and resets it.
 export const droppedModpack = $state<{ value: string | null }>({ value: null });

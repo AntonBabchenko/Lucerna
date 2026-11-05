@@ -90,6 +90,7 @@ async fn resolve_forgecdn_sha1(
             size: f.size,
             sha1: None,
             project_id: None,
+            meta: Default::default(),
         });
     }
 }

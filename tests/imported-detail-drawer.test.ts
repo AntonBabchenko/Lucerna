@@ -573,6 +573,13 @@ describe('ImportedDetailDrawer', () => {
               size: 1,
               sha1: 'aa',
               project_id: '1',
+              meta: {
+                file_id: null,
+                md5: null,
+                install_path: null,
+                required: true,
+                download_url: null,
+              },
             },
             state: 'missing',
           },
@@ -585,6 +592,13 @@ describe('ImportedDetailDrawer', () => {
               size: 2,
               sha1: 'bb',
               project_id: '2',
+              meta: {
+                file_id: null,
+                md5: null,
+                install_path: null,
+                required: true,
+                download_url: null,
+              },
             },
             state: 'different_version',
           },
@@ -597,6 +611,13 @@ describe('ImportedDetailDrawer', () => {
               size: 3,
               sha1: 'cc',
               project_id: null,
+              meta: {
+                file_id: null,
+                md5: null,
+                install_path: null,
+                required: true,
+                download_url: null,
+              },
             },
             state: 'installed',
           },
@@ -614,7 +635,7 @@ describe('ImportedDetailDrawer', () => {
     expect(section.textContent).toContain('Lib');
 
     // The missing entry shows the reason chip.
-    expect(section.textContent).toContain('Distribution disabled');
+    expect(section.textContent).toContain("Its author doesn't let other launchers download it");
 
     // The different_version entry shows the version note.
     expect(section.textContent).toMatch(/different version/i);
@@ -624,7 +645,7 @@ describe('ImportedDetailDrawer', () => {
 
     // The "Open ↗" controls are now <button>s routing through the Tauri opener
     // plugin — not <a href> — to prevent javascript: injection.
-    const links = within(section).getAllByText('Open') as HTMLButtonElement[];
+    const links = within(section).getAllByText('Mod page') as HTMLButtonElement[];
     expect(links[0].tagName).toBe('BUTTON');
     expect(links[0].getAttribute('href')).toBeNull();
     // Clicking each button must invoke openUrl with the correct manual_action_url.
@@ -667,6 +688,13 @@ describe('ImportedDetailDrawer', () => {
               size: 1,
               sha1: 'ee',
               project_id: null,
+              meta: {
+                file_id: null,
+                md5: null,
+                install_path: null,
+                required: true,
+                download_url: null,
+              },
             },
             state: 'missing',
           },
@@ -678,9 +706,56 @@ describe('ImportedDetailDrawer', () => {
     });
     const section = await findByTestId('imported-detail-missing-section');
     openUrlMock.mockClear();
-    await fireEvent.click(within(section).getByText('Open'));
+    await fireEvent.click(within(section).getByText('Open link'));
     await new Promise((r) => setTimeout(r, 20));
     expect(openUrlMock).not.toHaveBeenCalled();
+  });
+
+  it('opens Finish install from the missing-files section', async () => {
+    const { manualDownloads } = await import('$lib/modpacks/manual/manual-downloads.svelte');
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'curseforge',
+          project_name: 'Cool Pack',
+          version: '1.0',
+          files: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [
+          {
+            entry: {
+              reason: 'distribution_disabled',
+              mod_name: 'SRP',
+              manual_action_url: 'https://www.curseforge.com/projects/1',
+              filename: 'srp.jar',
+              size: 1,
+              sha1: 'aa',
+              project_id: '1',
+              meta: {
+                file_id: '5',
+                md5: null,
+                install_path: null,
+                required: true,
+                download_url: null,
+              },
+            },
+            state: 'missing',
+          },
+        ],
+      },
+    } as never);
+    const inst = instance();
+    const { findByRole } = render(ImportedDetailDrawer, {
+      props: { inst, onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    await fireEvent.click(await findByRole('button', { name: /finish install/i }));
+    expect(manualDownloads.instanceId).toBe(inst.id);
   });
 
   it('lists skipped oversized overrides as an informational section', async () => {

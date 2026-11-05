@@ -114,6 +114,8 @@ pub fn build_pack_origin(
                     UnresolvableReason::DistributionDisabled
                         | UnresolvableReason::HostNotAllowed
                         | UnresolvableReason::MissingChecksum
+                        | UnresolvableReason::SourceUnavailable
+                        | UnresolvableReason::UnsupportedType
                 )
             })
             .cloned()
@@ -123,6 +125,7 @@ pub fn build_pack_origin(
         // pure (no archive access), so it always starts empty here.
         skipped_overrides: vec![],
         resolved_missing: Vec::new(),
+        manual_supplied: vec![],
         // Populated by the orchestrator after it scans the installed mods for
         // jars built for a loader family this instance cannot load.
         // build_pack_origin is pure (no disk access), so it starts empty.
@@ -143,6 +146,7 @@ pub fn build_pack_origin(
 /// - `skipped_overrides` — an apply deliberately never re-extracts the archive's
 ///   `overrides/`, so the oversized bundled files it skipped at import time are
 ///   still exactly where they were. The note stays true by construction.
+/// - `manual_supplied` — kept for entries the new version still lists.
 /// - `resolved_missing` — the user's "I installed a substitute for this blocked
 ///   mod" acknowledgments. `missing_mod_state` already self-heals these against
 ///   the live registry, so an entry that no longer applies is inert, not wrong.
@@ -159,6 +163,35 @@ pub(crate) fn with_carried_notes(
 ) -> PackOrigin {
     new_origin.skipped_overrides = old.skipped_overrides;
     new_origin.resolved_missing = old.resolved_missing;
+    // A supply note outlives an update by the same rule the diff keeps the file
+    // by (spec §4.5): the new pack lists the same key, the same sha1, or the same
+    // md5 the note's key names. The note is re-keyed to that new entry.
+    new_origin.manual_supplied = old
+        .manual_supplied
+        .into_iter()
+        .filter_map(|mut s| {
+            let md5 = s.key.strip_prefix("md5:").map(str::to_string);
+            let entry = new_origin
+                .missing_mods
+                .iter()
+                .find(|e| crate::mods::manual_downloads::state::entry_key(e) == s.key)
+                .or_else(|| {
+                    new_origin.missing_mods.iter().find(|e| {
+                        e.sha1
+                            .as_deref()
+                            .is_some_and(|x| x.eq_ignore_ascii_case(&s.sha1))
+                            || md5.as_deref().is_some_and(|m| {
+                                e.meta
+                                    .md5
+                                    .as_deref()
+                                    .is_some_and(|x| x.eq_ignore_ascii_case(m))
+                            })
+                    })
+                })?;
+            s.key = crate::mods::manual_downloads::state::entry_key(entry);
+            Some(s)
+        })
+        .collect();
     new_origin.inert_loader_jars = fresh_inert_loader_jars;
     new_origin
 }
@@ -266,99 +299,18 @@ pub(crate) fn is_tracked_mod(install_path: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && !rest.contains('/') && rest.ends_with(".jar"))
 }
 
-/// The leading, non-version part of a jar filename — a fuzzy,
-/// version-independent mod identity. CurseForge filenames are
-/// `{modid-ish}-{mc}-{modver}.jar`, so the part before the first
-/// version-looking segment identifies the mod across versions.
-/// `srparasites-1.12.2-2.7.1.jar` → `srparasites`. Splits on `-` and
-/// `_`, keeps leading segments up to the first one starting with an
-/// ASCII digit, lowercased. `None` when nothing remains (a filename
-/// that starts with a digit) — a `None` stem never matches.
-fn filename_stem(filename: &str) -> Option<String> {
-    let base = filename.strip_suffix(".disabled").unwrap_or(filename);
-    let base = base.strip_suffix(".jar").unwrap_or(base);
-    let mut kept: Vec<&str> = Vec::new();
-    for seg in base.split(['-', '_']) {
-        if seg.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-            break;
-        }
-        if !seg.is_empty() {
-            kept.push(seg);
-        }
-    }
-    if kept.is_empty() {
-        None
-    } else {
-        Some(kept.join("-").to_ascii_lowercase())
-    }
-}
-
-/// Classify a `missing_mods` entry against the installed jars.
-/// `Substituted` = a user-chosen substitute is installed (recorded in `resolved`); it takes priority over all other signals.
-/// `Installed` = the exact pinned file (sha1 or filename match).
-/// `DifferentVersion` = the mod is present but not the pinned file —
-/// matched by any of three signals: platform project id (reliable, but
-/// recorded only for mods installed via the launcher's mod browser),
-/// descriptor name (case-insensitive), or version-independent filename
-/// stem (fuzzy; catches a hand-dropped different version, which carries
-/// no project id). `Missing` otherwise.
-fn missing_mod_state(
-    m: &ModpackUnresolvable,
-    installed: &[crate::mods::platform::InstalledMod],
-    resolved: &[crate::mods::installed::ResolvedMissing],
-) -> MissingModState {
-    // A user-chosen substitute closes the entry as long as its jar is still
-    // installed. Self-healing: if the sha1 left the registry, fall through to
-    // the normal pinned/different/missing classification below.
-    let substituted = resolved.iter().any(|r| {
-        r.filename.eq_ignore_ascii_case(&m.filename)
-            // Exact (not case-insensitive) by design: the overlay records the
-            // identical `mod_name` string at resolution time, so they match
-            // byte-for-byte. Do not widen this to eq_ignore_ascii_case.
-            && r.mod_name == m.mod_name
-            && installed
-                .iter()
-                .any(|i| i.sha1.eq_ignore_ascii_case(&r.sha1))
-    });
-    if substituted {
-        return MissingModState::Substituted;
-    }
-
-    let pinned = installed.iter().any(|i| {
-        m.sha1
-            .as_deref()
-            .is_some_and(|s| i.sha1.eq_ignore_ascii_case(s))
-            || i.filename.eq_ignore_ascii_case(&m.filename)
-    });
-    if pinned {
-        return MissingModState::Installed;
-    }
-    let m_stem = filename_stem(&m.filename);
-    let different = installed.iter().any(|i| {
-        // `is_some()` guard: without it, two project-id-less mods would
-        // match on `None == None`.
-        (m.project_id.is_some() && i.project_id.as_deref() == m.project_id.as_deref())
-            || i.name.eq_ignore_ascii_case(&m.mod_name)
-            // Filename stem — fuzzy but version-independent; catches a
-            // hand-dropped different version (project_id is absent then).
-            || (m_stem.is_some() && m_stem == filename_stem(&i.filename))
-    });
-    if different {
-        MissingModState::DifferentVersion
-    } else {
-        MissingModState::Missing
-    }
-}
-
 /// Diff the immutable pack-origin snapshot against live instance state.
 /// A `mods/*` origin file is "present" iff its SHA-1 is in the installed
 /// mod registry; a non-`mods/` (asset) origin file is "present" iff its
 /// `install_path` is in `asset_present` (computed by the caller via a
-/// filesystem stat). Pure — unit-tested independently.
+/// filesystem stat). A `missing_mods` entry is judged from `on_disk` — the
+/// sha1 of the bytes on disk now (`manual_downloads::evidence`), never from a
+/// file name or the registry's recorded digest. Pure — unit-tested independently.
 pub fn compute_status(
     origin: PackOrigin,
     installed: &[crate::mods::platform::InstalledMod],
     asset_present: &std::collections::HashSet<String>,
+    on_disk: &std::collections::HashSet<String>,
 ) -> crate::mods::modpack::schema::ModpackStatus {
     let installed_shas: Vec<String> = installed
         .iter()
@@ -366,12 +318,18 @@ pub fn compute_status(
         .collect();
     let installed_set: std::collections::HashSet<&String> = installed_shas.iter().collect();
 
-    // Mod SHAs the pack declared — used for the user-additions count.
+    let missing_mods = crate::mods::manual_downloads::state::statuses(&origin, installed, on_disk);
+    let supplied_shas =
+        crate::mods::manual_downloads::state::supplied_shas(&origin, &missing_mods, on_disk);
+
+    // Mod SHAs the pack declared (and files supplied for it) — used for the
+    // user-additions count.
     let origin_mod_shas: std::collections::HashSet<String> = origin
         .files
         .iter()
         .filter(|f| is_tracked_mod(&f.install_path))
         .map(|f| f.sha1.to_ascii_lowercase())
+        .chain(supplied_shas.iter().cloned())
         .collect();
 
     let removed_files: Vec<PackOriginFile> = origin
@@ -394,17 +352,6 @@ pub fn compute_status(
 
     let is_modified = !removed_files.is_empty() || added_count > 0;
 
-    // Reconcile missing mods against what the user has since installed.
-    // Read origin.missing_mods before the struct literal moves `origin`.
-    let missing_mods: Vec<MissingModStatus> = origin
-        .missing_mods
-        .iter()
-        .map(|m| MissingModStatus {
-            entry: m.clone(),
-            state: missing_mod_state(m, installed, &origin.resolved_missing),
-        })
-        .collect();
-
     crate::mods::modpack::schema::ModpackStatus {
         origin,
         installed_shas,
@@ -415,6 +362,7 @@ pub fn compute_status(
         // Reading the completer's manifest needs the instance directory; this
         // function is pure, so the command fills it in afterwards.
         pack_completion: None,
+        supplied_shas,
     }
 }
 
@@ -427,6 +375,7 @@ pub fn compute_status(
 pub fn compute_update_diff(
     new_summary: &crate::mods::modpack::schema::ModpackSummary,
     current_origin: &PackOrigin,
+    supplied: &[crate::mods::manual_downloads::state::SuppliedOld],
     instance_mc_version: &str,
     instance_loader: crate::mods::platform::LoaderKind,
     instance_loader_version: &Option<String>,
@@ -468,6 +417,62 @@ pub fn compute_update_diff(
         .map(|(_, of)| (*of).clone())
         .collect();
 
+    use crate::mods::manual_downloads::state::{entry_key, is_actionable};
+    // Supplied files (spec §4.5): kept when the new version still lists the
+    // same file — same key, sha1 or md5 — removed otherwise.
+    let new_keys: std::collections::HashSet<String> =
+        new_summary.unresolvable.iter().map(entry_key).collect();
+    let new_shas: std::collections::HashSet<String> = new_summary
+        .files
+        .iter()
+        .map(|f| f.sha1.to_ascii_lowercase())
+        .chain(
+            new_summary
+                .unresolvable
+                .iter()
+                .filter_map(|u| u.sha1.as_deref().map(str::to_ascii_lowercase)),
+        )
+        .collect();
+    let new_md5s: std::collections::HashSet<String> = new_summary
+        .unresolvable
+        .iter()
+        .filter_map(|u| u.meta.md5.as_deref().map(str::to_ascii_lowercase))
+        .collect();
+    let kept: std::collections::HashSet<String> = supplied
+        .iter()
+        .filter(|s| {
+            new_keys.contains(&s.key)
+                || new_shas.contains(&s.file.sha1.to_ascii_lowercase())
+                || s.md5.as_ref().is_some_and(|m| new_md5s.contains(m))
+        })
+        .map(|s| s.file.sha1.to_ascii_lowercase())
+        .collect();
+    let mut removed = removed;
+    removed.extend(
+        supplied
+            .iter()
+            .filter(|s| !kept.contains(&s.file.sha1.to_ascii_lowercase()))
+            .map(|s| s.file.clone()),
+    );
+    // A supplied file the new version can now download is already in place.
+    added.retain(|f| !kept.contains(&f.sha1.to_ascii_lowercase()));
+    let manual_downloads = new_summary
+        .unresolvable
+        .iter()
+        .filter(|u| is_actionable(u))
+        .filter(|u| {
+            let key = entry_key(u);
+            !supplied.iter().any(|s| {
+                s.key == key
+                    || u.sha1
+                        .as_deref()
+                        .is_some_and(|x| x.eq_ignore_ascii_case(&s.file.sha1))
+                    || (u.meta.md5.is_some()
+                        && u.meta.md5.as_deref().map(str::to_ascii_lowercase) == s.md5)
+            })
+        })
+        .count() as u32;
+
     let version_bump = if new_summary.game_version != instance_mc_version
         || new_summary.loader != instance_loader
         || &new_summary.loader_version != instance_loader_version
@@ -488,6 +493,7 @@ pub fn compute_update_diff(
         updated,
         version_bump,
         new_version_number: new_summary.version.clone(),
+        manual_downloads,
     }
 }
 
@@ -1209,6 +1215,19 @@ pub async fn install_resolved_pack(
     // so ATLauncher md5 files are recorded with their real sha1, not the
     // transient md5-as-selection-token.
     let resolved_refs: Vec<&ModpackFile> = resolved_for_origin.iter().collect();
+    let manual_downloads = summary
+        .unresolvable
+        .iter()
+        .filter(|u| {
+            matches!(
+                u.reason,
+                UnresolvableReason::DistributionDisabled
+                    | UnresolvableReason::HostNotAllowed
+                    | UnresolvableReason::MissingChecksum
+                    | UnresolvableReason::SourceUnavailable
+            )
+        })
+        .count() as u32;
     let mut origin = build_pack_origin(
         &summary,
         &resolved_refs,
@@ -1310,6 +1329,7 @@ pub async fn install_resolved_pack(
             skipped_overrides,
             inert_loader_jars,
             details,
+            manual_downloads,
         })
     } else {
         Err(Error::ModpackPartialFailure {
@@ -1475,6 +1495,7 @@ mod tests {
             size: 1.0,
             sha1: None,
             project_id: Some("1".into()),
+            meta: Default::default(),
         }];
         assert!(selection_refusal(&summary, 0).is_none());
     }
@@ -1761,6 +1782,7 @@ mod tests {
             ],
             version_bump: None,
             new_version_number: "2.0".into(),
+            manual_downloads: 0,
         };
         let carry = carry_disabled_shas(&[off, on], &diff);
         // Only the disabled old carries; matching is case-insensitive and the
@@ -1781,6 +1803,7 @@ mod tests {
             }],
             version_bump: None,
             new_version_number: "2.0".into(),
+            manual_downloads: 0,
         };
         assert!(carry_disabled_shas(&[], &diff).is_empty());
     }
@@ -1824,10 +1847,16 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true), installed("b", true)];
-        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
+        let s = compute_status(
+            origin,
+            &installed,
+            &std::collections::HashSet::new(),
+            &disk(&installed),
+        );
         assert!(!s.is_modified);
         assert_eq!(s.added_count, 0);
         assert!(s.removed_files.is_empty());
@@ -1845,11 +1874,17 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         // "b" no longer installed.
         let installed = vec![installed("a", true)];
-        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
+        let s = compute_status(
+            origin,
+            &installed,
+            &std::collections::HashSet::new(),
+            &disk(&installed),
+        );
         assert!(s.is_modified);
         assert_eq!(s.removed_files.len(), 1);
         assert_eq!(s.removed_files[0].sha1, "b");
@@ -1867,11 +1902,17 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         // User added "z" manually.
         let installed = vec![installed("a", true), installed("z", false)];
-        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
+        let s = compute_status(
+            origin,
+            &installed,
+            &std::collections::HashSet::new(),
+            &disk(&installed),
+        );
         assert!(s.is_modified);
         assert!(s.removed_files.is_empty());
         assert_eq!(s.added_count, 1);
@@ -1890,12 +1931,13 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
             ["resourcepacks/RP.zip".to_string()].into_iter().collect();
-        let s = compute_status(origin, &installed, &present);
+        let s = compute_status(origin, &installed, &present, &disk(&installed));
         assert!(!s.is_modified);
         assert!(s.removed_files.is_empty());
     }
@@ -1913,10 +1955,16 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
-        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
+        let s = compute_status(
+            origin,
+            &installed,
+            &std::collections::HashSet::new(),
+            &disk(&installed),
+        );
         assert!(s.is_modified);
         assert_eq!(s.removed_files.len(), 1);
         assert_eq!(s.removed_files[0].install_path, "resourcepacks/RP.zip");
@@ -1935,11 +1983,18 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let mut m = installed("ABC", true);
         m.sha1 = "abc".into();
-        let s = compute_status(origin, &[m], &std::collections::HashSet::new());
+        let rows = [m];
+        let s = compute_status(
+            origin,
+            &rows,
+            &std::collections::HashSet::new(),
+            &disk(&rows),
+        );
         assert!(!s.is_modified);
     }
 
@@ -2030,6 +2085,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }
@@ -2055,6 +2111,7 @@ mod tests {
         let diff = compute_update_diff(
             &summary,
             &origin,
+            &[],
             "1.20.1",
             crate::mods::platform::LoaderKind::Fabric,
             &Some("0.15.7".into()),
@@ -2081,6 +2138,7 @@ mod tests {
         let diff = compute_update_diff(
             &summary,
             &origin,
+            &[],
             "1.20.1",
             crate::mods::platform::LoaderKind::Fabric,
             &Some("0.15.7".into()),
@@ -2102,6 +2160,7 @@ mod tests {
         let diff = compute_update_diff(
             &summary,
             &origin,
+            &[],
             "1.20.1",
             crate::mods::platform::LoaderKind::Fabric,
             &Some("0.15.7".into()),
@@ -2109,6 +2168,87 @@ mod tests {
         let bump = diff.version_bump.expect("expected a version bump");
         assert_eq!(bump.old_game_version, "1.20.1");
         assert_eq!(bump.new_game_version, "1.20.4");
+    }
+
+    fn supplied(
+        key: &str,
+        sha: &str,
+        md5: Option<&str>,
+    ) -> crate::mods::manual_downloads::state::SuppliedOld {
+        crate::mods::manual_downloads::state::SuppliedOld {
+            key: key.into(),
+            md5: md5.map(str::to_string),
+            file: PackOriginFile {
+                sha1: sha.into(),
+                name: "S".into(),
+                filename: "s.jar".into(),
+                install_path: "mods/s.jar".into(),
+                url: String::new(),
+                size: 1.0,
+                project_id: "1".into(),
+                version_id: String::new(),
+                env_client: crate::mods::modpack::schema::EnvSupport::Required,
+                source: ModSource::Curseforge,
+            },
+        }
+    }
+
+    #[test]
+    fn a_supplied_file_stays_while_the_new_version_keeps_it_and_leaves_otherwise() {
+        use crate::mods::modpack::schema::ManualFileMeta;
+        let origin = origin_with(vec![]);
+        let mut same = missing_entry(Some("s1"), "s.jar", "S", Some("1"));
+        same.meta = ManualFileMeta {
+            file_id: Some("5".into()),
+            ..ManualFileMeta::default()
+        };
+        let mut summary = sample_summary(ModpackFormat::Curseforge);
+        summary.files = vec![];
+        summary.unresolvable = vec![same];
+        let kept = supplied("file:5", "s1", None);
+        let gone = supplied("file:6", "s2", None);
+        let by_md5 = supplied("md5:m", "s3", Some("m"));
+        let mut md5_entry = missing_entry(None, "m.jar", "M", Some("2"));
+        md5_entry.meta = ManualFileMeta {
+            md5: Some("m".into()),
+            ..ManualFileMeta::default()
+        };
+        summary.unresolvable.push(md5_entry);
+        let new_blocked = missing_entry(Some("n1"), "n.jar", "N", Some("3"));
+        summary.unresolvable.push(new_blocked);
+        let diff = compute_update_diff(
+            &summary,
+            &origin,
+            &[kept, gone, by_md5],
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Forge,
+            &None,
+        );
+        let removed: Vec<&str> = diff.removed.iter().map(|f| f.sha1.as_str()).collect();
+        assert_eq!(removed, vec!["s2"]);
+        assert_eq!(
+            diff.manual_downloads, 1,
+            "only the new blocked file still needs a download"
+        );
+    }
+
+    #[test]
+    fn a_supplied_file_the_new_version_can_download_is_not_added_twice() {
+        let origin = origin_with(vec![]);
+        let summary = ModpackSummary {
+            files: vec![mp_file("1", "s1")],
+            ..sample_summary(ModpackFormat::Curseforge)
+        };
+        let diff = compute_update_diff(
+            &summary,
+            &origin,
+            &[supplied("file:5", "s1", None)],
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Forge,
+            &None,
+        );
+        assert!(diff.added.is_empty());
+        assert!(diff.removed.is_empty());
     }
 
     #[test]
@@ -2122,6 +2262,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let mut wanted = origin.files[0].clone();
@@ -2162,12 +2303,13 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
             ["mods/Emis_Rlcraft.zip".to_string()].into_iter().collect();
-        let s = compute_status(origin, &installed, &present);
+        let s = compute_status(origin, &installed, &present, &disk(&installed));
         assert!(
             !s.is_modified,
             "a .zip present on disk must not be 'removed'"
@@ -2187,6 +2329,7 @@ mod tests {
                 size: 1.0,
                 sha1: None,
                 project_id: None,
+                meta: Default::default(),
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::HostNotAllowed,
@@ -2196,6 +2339,7 @@ mod tests {
                 size: 2.0,
                 sha1: Some("ab".into()),
                 project_id: None,
+                meta: Default::default(),
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::UnsafePath,
@@ -2205,6 +2349,7 @@ mod tests {
                 size: 3.0,
                 sha1: None,
                 project_id: None,
+                meta: Default::default(),
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::MissingChecksum,
@@ -2214,6 +2359,7 @@ mod tests {
                 size: 4.0,
                 sha1: None,
                 project_id: None,
+                meta: Default::default(),
             },
         ];
         let origin = build_pack_origin(&summary, &[], None, "Test Pack");
@@ -2243,6 +2389,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
@@ -2250,7 +2397,7 @@ mod tests {
             ["mods/memory_repo/com/x/llibrary.jar".to_string()]
                 .into_iter()
                 .collect();
-        let s = compute_status(origin, &installed, &present);
+        let s = compute_status(origin, &installed, &present, &disk(&installed));
         assert!(
             !s.is_modified,
             "a nested mods/ jar present on disk must not be 'removed'"
@@ -2271,6 +2418,7 @@ mod tests {
             size: 1.0,
             sha1: sha1.map(|s| s.to_string()),
             project_id: project_id.map(|s| s.to_string()),
+            meta: Default::default(),
         }
     }
 
@@ -2296,6 +2444,11 @@ mod tests {
         }
     }
 
+    /// In these tests the registry rows ARE the bytes on disk.
+    fn disk(rows: &[crate::mods::platform::InstalledMod]) -> std::collections::HashSet<String> {
+        rows.iter().map(|m| m.sha1.to_ascii_lowercase()).collect()
+    }
+
     fn origin_with_missing(missing: Vec<ModpackUnresolvable>) -> PackOrigin {
         let mut o = origin_with(vec![]);
         o.missing_mods = missing;
@@ -2303,19 +2456,118 @@ mod tests {
     }
 
     #[test]
+    fn carried_notes_keep_only_the_supply_rows_whose_entry_is_still_there() {
+        use crate::mods::installed::{ManualSupplied, SupplyVerified};
+        use crate::mods::modpack::schema::ManualFileMeta;
+        let mut old = origin_with_missing(vec![]);
+        old.manual_supplied = vec![
+            ManualSupplied {
+                key: "file:5".into(),
+                sha1: "aa".into(),
+                verified: SupplyVerified::Md5,
+            },
+            ManualSupplied {
+                key: "file:9".into(),
+                sha1: "bb".into(),
+                verified: SupplyVerified::User,
+            },
+        ];
+        let mut kept = missing_entry(None, "x.jar", "X", Some("1"));
+        kept.meta = ManualFileMeta {
+            file_id: Some("5".into()),
+            ..ManualFileMeta::default()
+        };
+        let new_origin = origin_with_missing(vec![kept]);
+        let carried = with_carried_notes(new_origin, old, vec![]);
+        assert_eq!(carried.manual_supplied.len(), 1);
+        assert_eq!(carried.manual_supplied[0].key, "file:5");
+    }
+
+    #[test]
+    fn a_note_follows_its_file_to_the_entry_the_new_pack_keys_differently() {
+        use crate::mods::installed::{ManualSupplied, SupplyVerified};
+        use crate::mods::modpack::schema::ManualFileMeta;
+        let mut old = origin_with_missing(vec![]);
+        old.manual_supplied = vec![ManualSupplied {
+            key: "md5:m".into(),
+            sha1: "aa".into(),
+            verified: SupplyVerified::Md5,
+        }];
+        let mut e = missing_entry(None, "x.jar", "X", Some("1"));
+        e.meta = ManualFileMeta {
+            file_id: Some("7".into()),
+            md5: Some("m".into()),
+            ..ManualFileMeta::default()
+        };
+        let carried = with_carried_notes(origin_with_missing(vec![e]), old, vec![]);
+        assert_eq!(carried.manual_supplied.len(), 1);
+        assert_eq!(carried.manual_supplied[0].key, "file:7");
+    }
+
+    #[test]
     fn missing_state_installed_by_sha1() {
         let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", None)]);
         let installed = vec![installed_mod("AA", "whatever.jar", "Whatever", true, None)];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::Installed);
     }
 
     #[test]
-    fn missing_state_installed_by_filename() {
+    fn same_name_other_bytes_is_not_installed() {
         let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", None)]);
-        let installed = vec![installed_mod("zz", "SRP.JAR", "Whatever", true, None)];
-        let st = compute_status(origin, &installed, &Default::default());
+        let installed = vec![installed_mod("zz", "srp.jar", "Whatever", true, None)];
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
+        assert_ne!(st.missing_mods[0].state, MissingModState::Installed);
+        assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
+    }
+
+    #[test]
+    fn a_registry_row_whose_bytes_changed_is_not_installed() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", None)]);
+        let installed = vec![installed_mod("aa", "srp.jar", "SRP", true, None)];
+        let on_disk: std::collections::HashSet<String> = ["zz".to_string()].into();
+        let st = compute_status(origin, &installed, &Default::default(), &on_disk);
+        assert_ne!(st.missing_mods[0].state, MissingModState::Installed);
+    }
+
+    #[test]
+    fn an_md5_note_and_a_user_note_close_entries() {
+        use crate::mods::installed::{ManualSupplied, SupplyVerified};
+        use crate::mods::modpack::schema::ManualFileMeta;
+        let mut by_md5 = missing_entry(None, "a.jar", "A", None);
+        by_md5.meta = ManualFileMeta {
+            md5: Some("m1".into()),
+            ..ManualFileMeta::default()
+        };
+        let no_hash = missing_entry(None, "b.jar", "B", None);
+        let mut origin = origin_with_missing(vec![by_md5, no_hash]);
+        origin.manual_supplied = vec![
+            ManualSupplied {
+                key: "md5:m1".into(),
+                sha1: "s1".into(),
+                verified: SupplyVerified::Md5,
+            },
+            ManualSupplied {
+                key: "name:B|b.jar".into(),
+                sha1: "s2".into(),
+                verified: SupplyVerified::User,
+            },
+        ];
+        let on_disk: std::collections::HashSet<String> =
+            ["s1".to_string(), "s2".to_string()].into();
+        let st = compute_status(origin, &[], &Default::default(), &on_disk);
         assert_eq!(st.missing_mods[0].state, MissingModState::Installed);
+        assert_eq!(st.missing_mods[1].state, MissingModState::ChosenUnverified);
+        assert_eq!(st.supplied_shas, vec!["s1".to_string(), "s2".to_string()]);
+    }
+
+    #[test]
+    fn a_supplied_jar_is_not_a_user_addition() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", None)]);
+        let installed = vec![installed_mod("aa", "srp.jar", "SRP", true, None)];
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
+        assert_eq!(st.added_count, 0);
+        assert!(!st.is_modified);
     }
 
     #[test]
@@ -2333,7 +2585,7 @@ mod tests {
             true,
             Some("p1"),
         )];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
@@ -2348,7 +2600,7 @@ mod tests {
             true,
             None,
         )];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
@@ -2361,7 +2613,7 @@ mod tests {
             Some("p1"),
         )]);
         let installed = vec![installed_mod("zz", "other.jar", "Other", true, Some("p2"))];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::Missing);
     }
 
@@ -2374,7 +2626,7 @@ mod tests {
             Some("p1"),
         )]);
         let installed = vec![installed_mod("aa", "srp.jar", "SRP", true, Some("p1"))];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::Installed);
     }
 
@@ -2397,36 +2649,8 @@ mod tests {
             false,
             Some("p1"),
         )];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
-    }
-
-    #[test]
-    fn filename_stem_strips_the_version_tail() {
-        assert_eq!(
-            filename_stem("srparasites-1.12.2-2.7.1.jar").as_deref(),
-            Some("srparasites")
-        );
-        assert_eq!(
-            filename_stem("jei_1.12.2-4.16.1.302.jar").as_deref(),
-            Some("jei")
-        );
-        assert_eq!(
-            filename_stem("RTG-1.12.2-6.1.0.0-snapshot.1.jar").as_deref(),
-            Some("rtg")
-        );
-        // Multi-word leading name is kept whole.
-        assert_eq!(
-            filename_stem("sodium-extra-0.5.4.jar").as_deref(),
-            Some("sodium-extra")
-        );
-        // A filename starting with a digit yields no stem.
-        assert_eq!(filename_stem("2019-mod-1.0.jar"), None);
-        // Disabled jars: the .disabled suffix is stripped too.
-        assert_eq!(
-            filename_stem("srparasites-1.12.2-2.7.1.jar.disabled").as_deref(),
-            Some("srparasites")
-        );
     }
 
     #[test]
@@ -2448,7 +2672,7 @@ mod tests {
             true,
             None,
         )];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
@@ -2474,7 +2698,7 @@ mod tests {
             true,
             Some("modrinth-abc"),
         )];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::Substituted);
     }
 
@@ -2493,7 +2717,7 @@ mod tests {
         }];
         // Substitute jar no longer present -> overlay must not falsely close it.
         let installed: Vec<crate::mods::platform::InstalledMod> = vec![];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::Missing);
     }
 
@@ -2519,7 +2743,7 @@ mod tests {
             true,
             Some("123"),
         )];
-        let st = compute_status(origin, &installed, &Default::default());
+        let st = compute_status(origin, &installed, &Default::default(), &disk(&installed));
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
@@ -2659,6 +2883,7 @@ mod tests {
             origin,
             &installed_on_disk,
             &std::collections::HashSet::new(),
+            &disk(&installed_on_disk),
         );
 
         assert!(
@@ -3070,6 +3295,7 @@ mod tests {
                 mod_name: "Blocked Mod".into(),
                 sha1: "aabb".into(),
             }],
+            manual_supplied: vec![],
             inert_loader_jars: vec![InertLoaderJar {
                 filename: "fabric-only.jar".into(),
                 detected_loader: "Fabric".into(),
@@ -3090,6 +3316,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: vec![],
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }

@@ -596,6 +596,12 @@ pub struct PreflightReport {
     /// problem". `#[serde(default)]` for the same reason as `pack_completion`.
     #[serde(default)]
     pub unjudged: Vec<String>,
+    /// Required pack files that must be downloaded by hand and are not there
+    /// (spec 2026-11-05 D10). While non-empty, the gate offers "Finish install"
+    /// and missing dependencies get no automatic fix. `#[serde(default)]` so
+    /// specta emits it optional.
+    #[serde(default)]
+    pub manual_pending: Vec<crate::mods::manual_downloads::types::ManualPending>,
 }
 
 /// A mod that loses something it needs when others leave the enabled set.
@@ -1832,6 +1838,7 @@ pub async fn dependency_preflight_for_root(
         violations: parsed.report(&parsed.registry_enabled()),
         pack_completion: crate::mods::pack_completion::read(root),
         unjudged: parsed.unjudged(),
+        manual_pending: crate::mods::manual_downloads::pending_required(root).await,
     })
 }
 
@@ -2552,6 +2559,7 @@ mod tests {
             }],
             pack_completion: None,
             unjudged: vec![],
+            manual_pending: vec![],
         };
         let json = serde_json::to_string(&report).unwrap();
         let back: PreflightReport = serde_json::from_str(&json).unwrap();
@@ -3287,6 +3295,36 @@ mod tests {
             Some("sha-fabricapi")
         );
         assert!(report.unjudged.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_report_lists_required_pack_files_still_missing() {
+        use crate::mods::manual_downloads::state::tests::entry;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        let mut optional = entry(Some("2"), None, Some("bb"));
+        optional.meta.required = false;
+        let origin = crate::mods::installed::PackOrigin {
+            project_id: None,
+            source: crate::mods::platform::ModSource::Curseforge,
+            project_name: "P".into(),
+            version: "1".into(),
+            files: vec![],
+            missing_mods: vec![entry(Some("1"), None, Some("aa")), optional],
+            skipped_overrides: vec![],
+            resolved_missing: vec![],
+            manual_supplied: vec![],
+            inert_loader_jars: vec![],
+        };
+        crate::mods::installed::set_pack_origin(root, origin)
+            .await
+            .unwrap();
+        let report = dependency_preflight_for_root(root, None, LoaderKind::Forge, "1.20.1", None)
+            .await
+            .unwrap();
+        assert_eq!(report.manual_pending.len(), 1);
+        assert_eq!(report.manual_pending[0].key, "file:1");
     }
 
     /// §9: an unreadable disabled jar is "could not tell", never "it is there,

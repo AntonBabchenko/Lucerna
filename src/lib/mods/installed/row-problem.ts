@@ -33,6 +33,8 @@ export type RowProblemInput = {
   mc: string | null;
   /** The mod has a platform identity, so «Choose version» can open its own version list. */
   canChooseVersion: boolean;
+  /** Pack files wait for a manual download: a missing dependency may be one of them (D10). */
+  manualPending?: boolean;
 };
 
 type CompatWarning = Extract<StatusReason, { source: 'compat' }>['hint'];
@@ -75,11 +77,13 @@ function rowFix(fix: StatusFix | null, i: RowProblemInput): RowFix | null {
         ? { kind: 'enable', label: i.t('mods.preflight.enable'), violation: fix.violation }
         : null;
     case 'install-dependency':
-      return {
-        kind: 'install',
-        label: i.t('mods.preflight.install', { dep: i.depName(fix.violation) }),
-        violation: fix.violation,
-      };
+      return i.manualPending
+        ? null
+        : {
+            kind: 'install',
+            label: i.t('mods.preflight.install', { dep: i.depName(fix.violation) }),
+            violation: fix.violation,
+          };
     case 'fix-version':
       return { kind: 'plan', label: i.t('mods.preflight.fixPlan'), violation: fix.violation };
     case 'choose-version':

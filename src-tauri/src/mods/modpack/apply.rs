@@ -455,6 +455,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: vec![],
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }
@@ -486,6 +487,7 @@ mod tests {
             updated,
             version_bump: None,
             new_version_number: "2.0".into(),
+            manual_downloads: 0,
         }
     }
 

@@ -6,6 +6,7 @@ import { type DropContext, type DropRoute, planDrop } from '$lib/layout/drop-rou
 import {
   dropPreview,
   droppedAssets,
+  droppedManualDownloads,
   droppedModpack,
   droppedMods,
   droppedServer,
@@ -76,6 +77,9 @@ function deliver(route: NonNullable<DropRoute>): void {
       return;
     case 'server-import':
       droppedServer.value = [route.path];
+      return;
+    case 'manual-downloads':
+      droppedManualDownloads.value = route.paths;
       return;
     case 'client-world':
       droppedWorld.value = route.paths;

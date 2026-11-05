@@ -586,6 +586,9 @@ pub enum Error {
     #[error("Modpack export failed: {details}")]
     ModpackExportFailed { details: String },
 
+    #[error("Couldn't read the folder {path}: {details}")]
+    ManualDownloadsFolderUnreadable { path: String, details: String },
+
     #[error("World '{folder_name}' not found in instance {instance_id}")]
     WorldNotFound {
         instance_id: String,

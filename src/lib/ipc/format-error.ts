@@ -206,6 +206,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   modpack_partial_failure: 'clean',
   modpack_bundled_no_url: 'clean',
   modpack_cf_distribution_disabled: 'clean',
+  manual_downloads_folder_unreadable: 'opaque',
   world_not_found: 'clean',
   world_in_use: 'clean',
   world_level_dat_missing: 'clean',
@@ -889,6 +890,13 @@ export function formatError(e: IpcError): string {
       return translate('errors.modpackBundledNoUrl', { modName: e.mod_name });
     case 'modpack_cf_distribution_disabled':
       return translate('errors.modpackCfDistributionDisabled', { packName: e.pack_name });
+    case 'manual_downloads_folder_unreadable':
+      return e.path === ''
+        ? withDetailTail(translate('errors.manualDownloadsFolderUnknown'), e.details)
+        : withDetailTail(
+            translate('errors.manualDownloadsFolderUnreadable', { path: e.path }),
+            e.details,
+          );
     case 'modpack_export_failed':
       return withDetailTail(translate('errors.modpackExportFailed'), e.details);
     case 'world_not_found':

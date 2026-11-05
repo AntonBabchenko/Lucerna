@@ -284,7 +284,11 @@ pub async fn modpack_status(
             asset_present.insert(f.install_path.clone());
         }
     }
-    let mut st = crate::mods::modpack::import::compute_status(origin, &installed, &asset_present);
+    let on_disk =
+        crate::mods::manual_downloads::evidence::on_disk_shas(&inst_root, &origin, &installed)
+            .await;
+    let mut st =
+        crate::mods::modpack::import::compute_status(origin, &installed, &asset_present, &on_disk);
     // `compute_status` is pure; reading the completer's manifest needs the
     // instance directory, so it happens here.
     st.pack_completion = crate::mods::pack_completion::read(&inst_root);
@@ -620,9 +624,11 @@ pub async fn modpack_compute_update(
         })?;
     let summary =
         crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+    let supplied = crate::mods::manual_downloads::supplied_old_for(&inst_root).await;
     Ok(crate::mods::modpack::import::compute_update_diff(
         &summary,
         &origin,
+        &supplied,
         &inst.mc_version,
         inst.loader,
         &inst.loader_version,
@@ -693,9 +699,11 @@ pub async fn modpack_apply_update(
         })?;
     let summary =
         crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+    let supplied = crate::mods::manual_downloads::supplied_old_for(&inst_root).await;
     let diff = crate::mods::modpack::import::compute_update_diff(
         &summary,
         &origin,
+        &supplied,
         &inst.mc_version,
         inst.loader,
         &inst.loader_version,
@@ -822,6 +830,7 @@ pub async fn modpack_apply_update(
         instance: updated_inst,
         inert_loader_jars,
         details,
+        manual_downloads: diff.manual_downloads,
     })
 }
 

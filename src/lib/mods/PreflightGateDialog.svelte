@@ -22,6 +22,7 @@
     onFixAndLaunch,
     onLaunchAnyway,
     onCancel,
+    onFinishInstall,
   }: {
     report: PreflightReport;
     // Whose name store names the dependencies. A provider is named by the report itself; a
@@ -34,6 +35,8 @@
     onFixAndLaunch: () => void;
     onLaunchAnyway: () => void;
     onCancel: () => void;
+    // «Finish install…»: closes the gate without launching and opens the dialog.
+    onFinishInstall: () => void;
   } = $props();
 
   // Missing dependencies are named through their dependent's platform metadata (spec §5.3) — the
@@ -48,7 +51,11 @@
 
   // Only when the repair has something to act on: a platform mismatch has no
   // automatic fix (spec §6.4), so a gate listing only those offers none.
-  const canFix = $derived(hasBlocking(report) && report.violations.some(isFixable));
+  // Pack files still to download by hand: the gate names them and offers Finish install.
+  const pendingFiles = $derived(report.manual_pending ?? []);
+  const canFix = $derived(
+    hasBlocking(report) && report.violations.some((v) => isFixable(v, pendingFiles.length > 0)),
+  );
 
   // DESIGN.md §8: the pressed «Fix and launch» turns disabled while the repair
   // runs, which drops its focus to <body>: the user's place in the dialog is
@@ -103,7 +110,17 @@
       dataTestid="preflight-gate-fixed"
     />
     <!-- The gate only shows what is wrong; it repairs through its primary button. -->
-    <PreflightPanel {report} {instanceId} showHeader={false} showRowActions={false} />
+    {#if pendingFiles.length > 0}
+      <section class="flex flex-col gap-1" data-testid="preflight-gate-manual">
+        <h3 class="text-sm font-medium text-primary">
+          {$t('modpacks.manual.gate.heading', { count: pendingFiles.length })}
+        </h3>
+        <p class="text-xs text-secondary">{pendingFiles.map((p) => p.mod_name).join(', ')}</p>
+      </section>
+    {/if}
+    {#if report.violations.length > 0}
+      <PreflightPanel {report} {instanceId} showHeader={false} showRowActions={false} />
+    {/if}
   </div>
 
   <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -123,6 +140,16 @@
     >
       {$t('mods.preflight.gateLaunchAnyway')}
     </button>
+    {#if pendingFiles.length > 0}
+      <button
+        type="button"
+        class="{canFix ? 'btn-secondary' : 'btn-primary'} btn-sm w-full sm:w-auto"
+        disabled={busy}
+        onclick={onFinishInstall}
+      >
+        {$t('modpacks.manual.finishInstall')}
+      </button>
+    {/if}
     {#if canFix}
       <BusyButton class="btn-primary btn-sm w-full sm:w-auto" {busy} onclick={onFixAndLaunch}>
         {$t('mods.preflight.gateFixLaunch')}

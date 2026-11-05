@@ -6,6 +6,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import SelectAllCheckbox from '$lib/ui/SelectAllCheckbox.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { entryLink, LINK_LABEL } from '$lib/modpacks/manual/entry-view';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
 
@@ -285,22 +286,23 @@
         </summary>
         <ul class="space-y-1 mt-1 mb-2 pl-4">
           {#each unresolvable as u, i (i)}
+            <!-- The same link Finish install offers: the file's own download page when the
+                 source published one, so the user can already fetch the exact file. -->
+            {@const link = entryLink(u)}
             <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
               <span class="flex-1">{u.mod_name}</span>
-              {#if u.manual_action_url}
+              {#if link}
                 <button
                   type="button"
-                  onclick={() => void openExternalHttps(u.manual_action_url)}
+                  onclick={() => void openExternalHttps(link.url)}
                   class="btn-link text-xs inline-flex items-center gap-1"
-                  >{$t('modpacks.import.picker.openLink')}<Icon
-                    name="externalLink"
-                    size={12}
-                  /></button
+                  >{$t(LINK_LABEL[link.kind])}<Icon name="externalLink" size={12} /></button
                 >
               {/if}
             </li>
           {/each}
         </ul>
+        <p class="text-xs text-muted pl-4 mb-2">{$t('modpacks.manual.pickerAfter')}</p>
       </details>
     {/if}
   </div>
