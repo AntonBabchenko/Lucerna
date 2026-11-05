@@ -232,12 +232,15 @@ fn preflight_diagnosis(
     }
     let recorded = crate::servers_runtime::pid::read_pid(&p.pid);
     let port = crate::servers_runtime::runtime::read_port(&p.runtime).unwrap_or(0);
+    let bind = crate::servers_runtime::runtime::read_bind_addr(&p.runtime);
     let eula_ok = crate::servers_runtime::store::read_server_json(&p.json)
         .map(|f| f.eula_accepted)
         .unwrap_or(true);
     let finding = preflight::orphan_finding(recorded)
         .or_else(|| {
-            preflight::port_in_use(port).then_some(preflight::PreflightFinding::PortInUse(port))
+            // Only a confirmed conflict is a finding; an unchecked port is not.
+            (preflight::check_port(bind, port) == preflight::PortCheck::InUse)
+                .then_some(preflight::PreflightFinding::PortInUse(port))
         })
         .or_else(|| preflight::eula_finding(eula_ok))
         .or_else(|| {
@@ -253,7 +256,7 @@ fn preflight_diagnosis(
     };
     let mut diag = crate::logs::diagnose::server::diagnosis_from_preflight(finding);
     if let Some(busy) = busy_port {
-        diag.suggested_port = preflight::next_free_port(busy.saturating_add(1), busy);
+        diag.suggested_port = preflight::next_free_port(bind, busy.saturating_add(1), busy);
     }
     Some(diag)
 }
@@ -1155,9 +1158,13 @@ pub async fn server_diagnose(
                 // genuinely-free one so "Use port N" can't suggest the current (a
                 // no-op) or another busy port.
                 let cur = crate::servers_runtime::runtime::read_port(&p.runtime).unwrap_or(25565);
+                let bind = crate::servers_runtime::runtime::read_bind_addr(&p.runtime);
                 port_in_use = Some(cur);
-                suggested_port =
-                    crate::servers_runtime::preflight::next_free_port(cur.saturating_add(1), cur);
+                suggested_port = crate::servers_runtime::preflight::next_free_port(
+                    bind,
+                    cur.saturating_add(1),
+                    cur,
+                );
             }
             _ => {}
         }

@@ -35,6 +35,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 - **An enlarged window no longer shrinks on its own.** After F5, or after going
   to mini mode and back, the window's height could snap down to the sidebar's.
+- **Checking a server's port no longer makes Windows Firewall ask about
+  Lucerna.** The check listened on the port, so Windows asked whether to let
+  Lucerna accept connections, and an unanswered prompt left block rules behind.
+  On Windows it also now catches a port another program holds on one address,
+  such as 127.0.0.1.
 - **A damaged Forge installer no longer breaks Install and Repair.** If Lucerna
   was interrupted while saving a Forge or NeoForge installer, every Install and
   Repair of that version failed until the file was deleted by hand. Now the

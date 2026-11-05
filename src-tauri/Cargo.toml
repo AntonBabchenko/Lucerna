@@ -60,6 +60,14 @@ futures-util = { version = "0.3.32", default-features = false, features = ["std"
 # explicitly keeps a dependency change from silently breaking the build. Same
 # crate, no new transitive tree.
 tokio = { version = "1.52.3", features = ["fs", "io-util", "net", "process", "rt", "rt-multi-thread", "macros", "sync", "time"] }
+# The own-server port probe (`servers_runtime::port_probe`) BINDS a socket with
+# the JVM's options and never listens — std's `TcpListener::bind` always
+# listens, which makes Windows Firewall ask to let Lucerna accept connections.
+# cargo-deny justification: socket2 0.6.3 is already in the lock through tokio,
+# hyper-util and quinn (MIT OR Apache-2.0, rust-lang owned); declaring it adds no
+# package and no license class. Confined to that one file by
+# `tests/structural_consented_dial.rs`, since a `Socket` can also dial.
+socket2 = "0.6"
 # url 2.5: RFC 3986 URL parsing for the host-allowlist check on mrpack downloads[]
 url = "2.5"
 uuid = { version = "1.23.1", features = ["v4"] }
@@ -152,7 +160,9 @@ trash = "5"
 [target.'cfg(windows)'.dependencies]
 # The Windows Credential Manager — unchanged behaviour, now declared per target.
 keyring = { version = "3.6.2", features = ["windows-native"] }
-windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Storage_FileSystem", "Win32_Globalization"] }
+# `Win32_Networking_WinSock`: `setsockopt(SO_EXCLUSIVEADDRUSE)` for the port
+# probe, which socket2 does not expose. A feature on a crate already declared.
+windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_Networking_WinSock"] }
 # Windows `.lnk` writing for desktop launch shortcuts (`shortcuts::create`).
 # Pure Rust, in-process. The alternatives were hand-written IShellLink COM
 # vtable calls through windows-sys (raw bindings make COM painful, and the
