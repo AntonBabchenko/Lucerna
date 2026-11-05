@@ -296,7 +296,9 @@
       }
       await refresh();
       assetsChanged.value++;
-      pushSuccess(get(t)('addons.installed.installedToast', { name: v.name }));
+      // The name the row was recorded under — the pack's, as the list shows it —
+      // never `v.name`, the platform's title for the VERSION («26.2»).
+      pushSuccess(get(t)('addons.installed.installedToast', { name: res.data.name }));
     } finally {
       busy = false;
     }
@@ -819,6 +821,7 @@
       projectId={detail.projectId}
       {mcVersion}
       {loader}
+      {kind}
       installedVersionId={detail.versionId}
       onClose={() => (detail = null)}
       onInstall={installDetailVersion}

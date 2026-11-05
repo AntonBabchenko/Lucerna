@@ -16,6 +16,8 @@ const {
   assetInstall,
   assetUpdateOne,
   modsProjects,
+  modsProject,
+  modsVersions,
   pushWarning,
   pushSuccess,
 } = vi.hoisted(() => ({
@@ -25,6 +27,8 @@ const {
   assetInstall: vi.fn(),
   assetUpdateOne: vi.fn(),
   modsProjects: vi.fn(),
+  modsProject: vi.fn(),
+  modsVersions: vi.fn(),
   pushWarning: vi.fn(),
   pushSuccess: vi.fn(),
 }));
@@ -36,6 +40,8 @@ const spies = {
   assetInstall,
   assetUpdateOne,
   modsProjects,
+  modsProject,
+  modsVersions,
 };
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -46,6 +52,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     assetInstall,
     assetUpdateOne,
     modsProjects,
+    modsProject,
+    modsVersions,
   },
 }));
 
@@ -598,5 +606,68 @@ describe('InstalledAssetsView', () => {
       ),
     );
     expect(pushSuccess).not.toHaveBeenCalledWith('Updated Complementary Shaders');
+  });
+
+  // ── installing from the pack's own window ─────────────────────────────────
+  //
+  // A project that numbers its versions: its version title is «26.2», which the
+  // list, the journal and this toast printed as the pack's name.
+
+  const fbgAsset = () =>
+    makeAsset({
+      kind: 'resource_pack',
+      filename: 'FastBetterGrass-26.1.zip',
+      project_id: 'fbg',
+      version_id: 'fbg-261',
+      name: 'Fast Better Grass',
+      version_number: '26.1',
+    });
+
+  function openFbgWindow(loader: 'fabric' | 'vanilla' = 'fabric') {
+    const version = makeVersion({
+      project_id: 'fbg',
+      version_id: 'fbg-262',
+      name: '26.2',
+      version_number: '26.2',
+    });
+    spies.assetsList.mockResolvedValue(listing([fbgAsset()]));
+    spies.modsProject.mockResolvedValue(
+      ok({
+        summary: { ...makeSummary(), project_id: 'fbg', name: 'Fast Better Grass' },
+        body_html: null,
+        gallery: [],
+        website_url: null,
+      }),
+    );
+    spies.modsVersions.mockResolvedValue(ok([version]));
+    render(InstalledAssetsView, {
+      instanceId: 'inst-1',
+      kind: 'resource_pack',
+      mcVersion: '26.1',
+      loader,
+    });
+    return version;
+  }
+
+  it('toasts the installed pack under the name it was recorded with, not its version title', async () => {
+    openFbgWindow();
+    spies.assetInstall.mockResolvedValue(
+      ok({ ...fbgAsset(), filename: 'FastBetterGrass-26.2.zip', version_number: '26.2' }),
+    );
+    await fireEvent.click(await screen.findByRole('button', { name: /Fast Better Grass/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /^Install/ }));
+
+    await waitFor(() => expect(pushSuccess).toHaveBeenCalledWith('Installed Fast Better Grass'));
+    expect(pushSuccess).not.toHaveBeenCalledWith('Installed 26.2');
+  });
+
+  it('opens the pack’s window as a pack: its versions are not filtered by the loader', async () => {
+    openFbgWindow('vanilla');
+    await fireEvent.click(await screen.findByRole('button', { name: /Fast Better Grass/ }));
+
+    await waitFor(() => expect(spies.modsVersions).toHaveBeenCalled());
+    expect(spies.modsVersions).toHaveBeenCalledWith('modrinth', 'fbg', '26.1', null);
+    const install = (await screen.findByRole('button', { name: /^Install/ })) as HTMLButtonElement;
+    expect(install.disabled).toBe(false);
   });
 });

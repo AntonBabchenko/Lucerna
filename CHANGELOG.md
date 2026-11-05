@@ -61,6 +61,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the Minecraft version field was empty and the loader version field was gone.
   An instance on a snapshot had an empty version field online too, while "Show
   snapshots" was off.
+- **Resource packs and shaders are listed under their own name.** A pack whose
+  author numbers its versions, such as Fast Better Grass, showed as "26.2" in
+  the Installed list and in its messages; packs installed earlier are renamed
+  when the list next opens. Opened from that list, a pack's window now offers
+  its versions instead of asking for a mod loader or showing none.
 
 ### Security
 

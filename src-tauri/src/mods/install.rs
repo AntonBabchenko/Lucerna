@@ -620,54 +620,51 @@ pub fn safe_asset_remove_path(
     Ok(dest)
 }
 
-/// Download + install a resource pack or shader, then record it in the
-/// per-instance assets registry. Routes by `kind`; never touches installed-mods.json.
-#[allow(clippy::too_many_arguments)]
+/// Download + install a resource pack or shader `version`, then record it in
+/// the per-instance assets registry under `name`. Routes by `kind`; never
+/// touches installed-mods.json. Returns the row as recorded.
+///
+/// `name` is the pack's display name: its project title, which the caller
+/// resolves (`commands::project_titles_for`, as mod installs do). It is never
+/// taken from `version` — `ModVersion.name` is the platform's VERSION title
+/// (Modrinth's «26.2», CurseForge's file display name), not the pack's name.
 pub async fn install_asset_tracked(
     data_dir: &Path,
     instance_root: &Path,
     kind: crate::mods::platform::ContentKind,
-    source: Option<ModSource>,
-    project_id: Option<String>,
-    version_id: Option<String>,
+    version: &ModVersion,
     name: &str,
-    version_number: Option<String>,
-    filename: &str,
-    url: &str,
-    sha: Option<&str>,
-    size: f64,
     progress: &ProgressFn,
-) -> Result<(), Error> {
+) -> Result<crate::mods::platform::InstalledAsset, Error> {
+    let file = &version.primary_file;
     // No-TOFU: refuse before any download/IO when the platform omits a SHA-1.
     // Mirrors `install_one`'s `ok_or(Error::ModsSha1Unavailable)?` so an asset
     // is never written without an integrity check (CurseForge can omit SHA-1).
-    let sha = sha.ok_or(Error::ModsSha1Unavailable)?;
-    let install_path = asset_subpath(kind, filename);
+    let sha = file.sha1.as_deref().ok_or(Error::ModsSha1Unavailable)?;
+    let install_path = asset_subpath(kind, &file.filename);
     install_asset(
         data_dir,
         instance_root,
-        url,
+        &file.url,
         sha,
-        size,
+        file.size,
         &install_path,
         progress,
     )
     .await?;
-    crate::mods::assets::add(
-        instance_root,
-        crate::mods::platform::InstalledAsset {
-            kind,
-            filename: filename.to_string(),
-            sha1: sha.to_ascii_lowercase(),
-            source,
-            project_id,
-            version_id,
-            name: name.to_string(),
-            version_number,
-            installed_at: Utc::now().to_rfc3339(),
-        },
-    )
-    .await
+    let row = crate::mods::platform::InstalledAsset {
+        kind,
+        filename: file.filename.clone(),
+        sha1: sha.to_ascii_lowercase(),
+        source: Some(version.source),
+        project_id: Some(version.project_id.clone()),
+        version_id: Some(version.version_id.clone()),
+        name: name.to_string(),
+        version_number: Some(version.version_number.clone()),
+        installed_at: Utc::now().to_rfc3339(),
+    };
+    crate::mods::assets::add(instance_root, row.clone()).await?;
+    Ok(row)
 }
 
 /// Disable: rename `.jar` → `.jar.disabled` and flip JSON flag.
@@ -904,12 +901,16 @@ pub async fn update_one(
 /// verify → copy → registry add) before the superseded file/row is removed,
 /// and a same-filename update skips removal entirely (the copy overwrote the
 /// file and `assets::add` replaced the row).
+///
+/// `name` is the row's display name — the pack's project title, as for
+/// [`install_asset_tracked`]; never `target.name`, the version's title.
 pub async fn update_asset(
     data_dir: &Path,
     instance_root: &Path,
     kind: crate::mods::platform::ContentKind,
     old_filename: &str,
     target: ModVersion,
+    name: &str,
     progress: &ProgressFn,
 ) -> Result<crate::mods::platform::AssetUpdateOutcome, Error> {
     if !crate::mods::modpack::path_safety::is_safe_filename(&target.primary_file.filename) {
@@ -935,22 +936,7 @@ pub async fn update_asset(
     }
 
     let new_filename = target.primary_file.filename.clone();
-    install_asset_tracked(
-        data_dir,
-        instance_root,
-        kind,
-        Some(target.source),
-        Some(target.project_id.clone()),
-        Some(target.version_id.clone()),
-        &target.name,
-        Some(target.version_number.clone()),
-        &new_filename,
-        &target.primary_file.url,
-        target.primary_file.sha1.as_deref(),
-        target.primary_file.size,
-        progress,
-    )
-    .await?;
+    install_asset_tracked(data_dir, instance_root, kind, &target, name, progress).await?;
 
     if old_filename != new_filename {
         let old_path = safe_asset_remove_path(instance_root, kind, old_filename)?;
@@ -2055,34 +2041,71 @@ mod tests {
         assert!(!installed::mods_dir(td_inst.path()).exists());
     }
 
-    #[tokio::test]
-    async fn install_asset_tracked_routes_shader_and_records() {
-        use crate::mods::platform::{ContentKind, ModSource};
-        let body = b"shader-bytes";
-        let sha = hex::encode(Sha1::digest(body));
-        let s = MockServer::start().await;
+    /// A pack version served from `s` at `/{filename}`.
+    async fn served_asset(s: &MockServer, filename: &str, body: &[u8]) -> ModVersion {
         Mock::given(method("GET"))
-            .and(path("/Complementary-r5.3.zip"))
+            .and(path(format!("/{filename}")))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
-            .mount(&s)
+            .mount(s)
             .await;
+        fake_version(
+            format!("{}/{filename}", s.uri()),
+            hex::encode(Sha1::digest(body)),
+            body.len() as u64,
+            filename,
+        )
+    }
+
+    /// The row is named after the project, never after the version: Modrinth's
+    /// «Fast Better Grass» names its versions by number, so its version title
+    /// is «26.2» — the name the Installed list and the removal toast printed.
+    #[tokio::test]
+    async fn install_asset_tracked_records_the_name_it_is_given_not_the_version_title() {
+        use crate::mods::platform::ContentKind;
+        let s = MockServer::start().await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let mut v = served_asset(&s, "FastBetterGrass-26.2.zip", b"fbg-bytes").await;
+        v.name = "26.2".into();
+
+        let row = install_asset_tracked(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::ResourcePack,
+            &v,
+            "Fast Better Grass",
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::ResourcePack)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "Fast Better Grass");
+        assert_eq!(row, listed[0], "the returned row is the recorded one");
+    }
+
+    #[tokio::test]
+    async fn install_asset_tracked_routes_shader_and_records() {
+        use crate::mods::platform::ContentKind;
+        let body = b"shader-bytes";
+        let sha = hex::encode(Sha1::digest(body));
+        let s = MockServer::start().await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v = served_asset(&s, "Complementary-r5.3.zip", body).await;
         install_asset_tracked(
             td_data.path(),
             td_inst.path(),
             ContentKind::Shader,
-            Some(ModSource::Modrinth),
-            Some("proj".into()),
-            Some("ver".into()),
+            &v,
             "Complementary",
-            Some("r5.3".into()),
-            "Complementary-r5.3.zip",
-            &format!("{}/Complementary-r5.3.zip", s.uri()),
-            Some(&sha),
-            body.len() as f64,
             &nop_progress(),
         )
         .await
@@ -2101,32 +2124,20 @@ mod tests {
 
     #[tokio::test]
     async fn install_asset_tracked_routes_resourcepack() {
-        use crate::mods::platform::{ContentKind, ModSource};
+        use crate::mods::platform::ContentKind;
         let body = b"resourcepack-tracked-bytes";
-        let sha = hex::encode(Sha1::digest(body));
         let s = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/Faithful.zip"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
-            .mount(&s)
-            .await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let _seam =
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let v = served_asset(&s, "Faithful.zip", body).await;
         install_asset_tracked(
             td_data.path(),
             td_inst.path(),
             ContentKind::ResourcePack,
-            Some(ModSource::Modrinth),
-            Some("fp".into()),
-            Some("fv".into()),
+            &v,
             "Faithful",
-            Some("1.20".into()),
-            "Faithful.zip",
-            &format!("{}/Faithful.zip", s.uri()),
-            Some(&sha),
-            body.len() as f64,
             &nop_progress(),
         )
         .await
@@ -2149,19 +2160,19 @@ mod tests {
         use crate::mods::platform::ContentKind;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
+        let mut v = fake_version(
+            "http://127.0.0.1:1/unreachable.zip".into(),
+            String::new(),
+            100,
+            "NoSha.zip",
+        );
+        v.primary_file.sha1 = None;
         let r = install_asset_tracked(
             td_data.path(),
             td_inst.path(),
             ContentKind::Shader,
-            None,
-            None,
-            None,
+            &v,
             "NoSha",
-            None,
-            "NoSha.zip",
-            "http://127.0.0.1:1/unreachable.zip",
-            None,
-            100.0,
             &nop_progress(),
         )
         .await;
@@ -2193,26 +2204,15 @@ mod tests {
         filename: &str,
         body: &[u8],
     ) {
-        use crate::mods::platform::{ContentKind, ModSource};
-        let sha = hex::encode(Sha1::digest(body));
-        Mock::given(method("GET"))
-            .and(path(format!("/{filename}")))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
-            .mount(s)
-            .await;
+        use crate::mods::platform::ContentKind;
+        let mut v = served_asset(s, filename, body).await;
+        v.version_id = "v1".into();
         install_asset_tracked(
             td_data.path(),
             td_inst.path(),
             ContentKind::Shader,
-            Some(ModSource::Modrinth),
-            Some("proj".into()),
-            Some("v1".into()),
+            &v,
             "Pack",
-            Some("1.0".into()),
-            filename,
-            &format!("{}/{filename}", s.uri()),
-            Some(&sha),
-            body.len() as f64,
             &nop_progress(),
         )
         .await
@@ -2256,6 +2256,7 @@ mod tests {
             ContentKind::Shader,
             "BSL_v8.2.zip",
             asset_target(&s, "BSL_v8.3.zip", new_body),
+            "Pack",
             &nop_progress(),
         )
         .await
@@ -2274,6 +2275,46 @@ mod tests {
         assert_eq!(listed.len(), 1, "exactly one registry row after update");
         assert_eq!(listed[0].filename, "BSL_v8.3.zip");
         assert_eq!(listed[0].version_id.as_deref(), Some("v2"));
+    }
+
+    /// An update renames nothing: the new row carries the project title it is
+    /// given, not the target version's title.
+    #[tokio::test]
+    async fn update_asset_records_the_name_it_is_given_not_the_target_title() {
+        use crate::mods::platform::ContentKind;
+        let s = MockServer::start().await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        seed_installed_asset(&s, &td_data, &td_inst, "FBG-26.1.zip", b"old-bytes").await;
+        let new_body = b"new-bytes";
+        Mock::given(method("GET"))
+            .and(path("/FBG-26.2.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(new_body.to_vec()))
+            .mount(&s)
+            .await;
+        let mut target = asset_target(&s, "FBG-26.2.zip", new_body);
+        target.name = "26.2".into();
+
+        update_asset(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            "FBG-26.1.zip",
+            target,
+            "Fast Better Grass",
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::Shader)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].filename, "FBG-26.2.zip");
+        assert_eq!(listed[0].name, "Fast Better Grass");
     }
 
     /// The pack list reads the folder: an old file that cannot be removed keeps
@@ -2305,6 +2346,7 @@ mod tests {
             ContentKind::Shader,
             "BSL_v8.2.zip",
             asset_target(&s, "BSL_v8.3.zip", new_body),
+            "Pack",
             &nop_progress(),
         )
         .await
@@ -2354,6 +2396,7 @@ mod tests {
             ContentKind::Shader,
             "BSL.zip",
             target,
+            "Pack",
             &nop_progress(),
         )
         .await
@@ -2391,6 +2434,7 @@ mod tests {
             ContentKind::Shader,
             "BSL_v8.2.zip",
             asset_target(&s, "BSL_v8.3.zip", b"never-served"),
+            "Pack",
             &nop_progress(),
         )
         .await;
@@ -2422,6 +2466,7 @@ mod tests {
             ContentKind::Shader,
             "old.zip",
             target,
+            "Pack",
             &nop_progress(),
         )
         .await;
@@ -2449,6 +2494,7 @@ mod tests {
             ContentKind::Shader,
             "old.zip",
             target,
+            "Pack",
             &nop_progress(),
         )
         .await;

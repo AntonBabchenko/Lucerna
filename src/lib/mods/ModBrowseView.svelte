@@ -1101,7 +1101,9 @@
         });
         return;
       }
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+      // The name the row was recorded under: a card the detail window built for
+      // its install carries the version's title («26.2»), not the pack's.
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: installed.data.name }), []);
       // Mods refresh their installed-state via Tauri events; assets have no such
       // events, so refresh the asset list explicitly to flip the card to the
       // "Installed · vX" + Uninstall state immediately.
