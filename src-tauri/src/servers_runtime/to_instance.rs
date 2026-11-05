@@ -171,9 +171,7 @@ pub(crate) fn copy_server_config_dirs(
 ) -> Result<()> {
     for name in CONFIG_DIRS {
         let src = runtime.join(name);
-        if crate::content_root::has_content(&src, crate::content_root::Expect::Dir)
-            .map_err(|e| Error::io(src.display().to_string(), e))?
-        {
+        if crate::content_root::has_content(&src, crate::content_root::Expect::Dir)? {
             copy_dir_recursive(&src, &mc_dir.join(name))?;
         }
     }
@@ -748,9 +746,10 @@ mod tests {
         crate::content_root::test_links::link_dir(&pool, &runtime.join("config"));
         std::fs::remove_dir(&pool).unwrap();
 
+        let res = copy_server_config_dirs(&runtime, &d.path().join("minecraft"));
         assert!(
-            copy_server_config_dirs(&runtime, &d.path().join("minecraft")).is_err(),
-            "the caller logs it; it must not be a silent skip"
+            matches!(res, Err(Error::LinkTargetMissing { .. })),
+            "the caller logs it; it must not be a silent skip: {res:?}"
         );
     }
 

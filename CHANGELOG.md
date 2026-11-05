@@ -52,6 +52,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
   was interrupted while saving a Forge or NeoForge installer, every Install and
   Repair of that version failed until the file was deleted by hand. Now the
   damaged file is downloaded again.
+- **A folder linked to a missing place gets a clear message.** When an
+  instance's mods folder, or another folder Lucerna copies, is a link to a
+  drive or folder that is gone, the mods list, export, clone and import
+  reported a failed write or an I/O error. The message now names the link and
+  where it points, and says how to fix it.
+- **The Settings tab shows an instance's versions without internet.** Offline,
+  the Minecraft version field was empty and the loader version field was gone.
+  An instance on a snapshot had an empty version field online too, while "Show
+  snapshots" was off.
 - **Resource packs and shaders are listed under their own name.** A pack whose
   author numbers its versions, such as Fast Better Grass, showed as "26.2" in
   the Installed list and in its messages; packs installed earlier are renamed

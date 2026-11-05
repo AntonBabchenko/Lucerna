@@ -40,7 +40,7 @@ pub fn copy_category(
     } else {
         Expect::Dir
     };
-    if !has_content(&src, want).map_err(|e| io(&src, e))? {
+    if !has_content(&src, want)? {
         return Ok(0);
     }
 
@@ -597,7 +597,7 @@ mod tests {
             &mut |_, _| {},
         );
         assert!(
-            res.is_err(),
+            matches!(res, Err(Error::LinkTargetMissing { .. })),
             "a broken link is could-not-tell, not nothing-to-copy: {res:?}"
         );
     }

@@ -13,6 +13,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::error::{Error, Result};
+
 /// What is at a path, the path itself not followed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RootKind {
@@ -27,6 +29,15 @@ pub enum RootKind {
     },
     /// A fifo, socket or device.
     Other,
+}
+
+/// What the link at `link` names, as a path: `named` is what `read_link`
+/// returned, and a relative answer is relative to the link's parent.
+pub fn link_target(link: &Path, named: PathBuf) -> PathBuf {
+    match link.parent() {
+        Some(parent) if named.is_relative() => parent.join(named),
+        _ => named,
+    }
 }
 
 /// What a link resolves to.
@@ -52,11 +63,7 @@ pub fn inspect(path: &Path) -> io::Result<RootKind> {
     // surrogate, which std reports as a symlink (data_root/migrate.rs relies
     // on the same fact).
     if ft.is_symlink() {
-        let named = std::fs::read_link(path)?;
-        let target = match path.parent() {
-            Some(parent) if named.is_relative() => parent.join(named),
-            _ => named,
-        };
+        let target = link_target(path, std::fs::read_link(path)?);
         let resolves_to = match std::fs::metadata(path) {
             Ok(m) if m.is_dir() => Resolved::Dir,
             Ok(m) if m.is_file() => Resolved::File,
@@ -128,21 +135,28 @@ pub fn content_at(path: &Path, want: Expect) -> io::Result<Content> {
 }
 
 /// For a copy: `Ok(true)` — content to copy, real or through a link;
-/// `Ok(false)` — nothing of this kind is there; `Err` — could not tell,
-/// including a link whose target is missing.
-pub fn has_content(path: &Path, want: Expect) -> io::Result<bool> {
-    match content_at(path, want)? {
+/// `Ok(false)` — nothing of this kind is there; `Err` — could not tell:
+/// [`Error::LinkTargetMissing`] for a link whose target is missing, or
+/// [`Error::Io`] naming `path` when it cannot be stated. The error is built
+/// here, where the path and the kind are known, so a caller only needs `?`.
+pub fn has_content(path: &Path, want: Expect) -> Result<bool> {
+    match content_at(path, want).map_err(|e| Error::io(path.display().to_string(), e))? {
         Content::Nothing => Ok(false),
         Content::Local | Content::Linked { .. } => Ok(true),
-        Content::BrokenLink { target } => Err(broken_link_error(&target)),
+        Content::BrokenLink { target } => Err(link_target_missing(path, &target, want)),
     }
 }
 
-/// The error for a link whose target is missing. Deliberately NOT `NotFound`:
-/// a caller that discriminates `NotFound` as "absent" must not read a broken
-/// link that way.
-pub fn broken_link_error(target: &Path) -> io::Error {
-    io::Error::other(format!("links to a missing target: {}", display(target)))
+/// The refusal for the link at `link` whose `target` is missing. Its own
+/// variant, never an I/O error or `NotFound`: a caller that reads `NotFound`
+/// as "absent" must not read a broken link that way, and the user is told
+/// what the link is and where it points, not that something failed.
+pub fn link_target_missing(link: &Path, target: &Path, want: Expect) -> Error {
+    Error::LinkTargetMissing {
+        path: display(link),
+        target: display(target),
+        is_file: want == Expect::File,
+    }
 }
 
 /// A target path as the user should read it: `\\?\C:\x` → `C:\x`,
@@ -291,10 +305,47 @@ mod tests {
         assert!(has_content(&link, Expect::Dir).unwrap());
         std::fs::remove_dir(&pool).unwrap();
         let err = has_content(&link, Expect::Dir).expect_err("a broken link is refused");
-        assert_ne!(
-            err.kind(),
-            io::ErrorKind::NotFound,
-            "must not read as absent"
+        let Error::LinkTargetMissing {
+            path,
+            target,
+            is_file,
+        } = err
+        else {
+            panic!("a broken link is its own refusal, not an I/O error: {err:?}");
+        };
+        assert_eq!(path, display(&link), "names the link");
+        // Not compared whole: a junction may store the temp dir's long form
+        // where the test holds the 8.3 one, and the pool is gone, so it cannot
+        // be canonicalized either.
+        assert!(
+            Path::new(&target).ends_with("pool") && !target.starts_with(r"\\?\"),
+            "names where it points, as the user reads it: {target}"
+        );
+        assert!(!is_file, "a folder root");
+    }
+
+    #[test]
+    fn content_root_has_content_unstattable_is_io_naming_the_path() {
+        let td = tempfile::tempdir().unwrap();
+        let bad = unstattable(td.path());
+        let err = has_content(&bad, Expect::Dir).expect_err("could not tell");
+        assert!(
+            matches!(&err, Error::Io { path, .. } if *path == bad.display().to_string()),
+            "an unstattable root stays an I/O error on its path: {err:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_root_broken_link_file_root_is_a_file() {
+        let td = tempfile::tempdir().unwrap();
+        let real = td.path().join("shared-options.txt");
+        let link = td.path().join("options.txt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let err = has_content(&link, Expect::File).expect_err("a broken link is refused");
+        assert!(
+            matches!(err, Error::LinkTargetMissing { is_file: true, .. }),
+            "options.txt is worded as a file: {err:?}"
         );
     }
 
