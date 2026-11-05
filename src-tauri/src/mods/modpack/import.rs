@@ -163,17 +163,34 @@ pub(crate) fn with_carried_notes(
 ) -> PackOrigin {
     new_origin.skipped_overrides = old.skipped_overrides;
     new_origin.resolved_missing = old.resolved_missing;
-    // A supply note outlives an update only while its entry is still in the
-    // pack: the update set its file aside otherwise (spec §4.5).
-    let keys: std::collections::HashSet<String> = new_origin
-        .missing_mods
-        .iter()
-        .map(crate::mods::manual_downloads::state::entry_key)
-        .collect();
+    // A supply note outlives an update by the same rule the diff keeps the file
+    // by (spec §4.5): the new pack lists the same key, the same sha1, or the same
+    // md5 the note's key names. The note is re-keyed to that new entry.
     new_origin.manual_supplied = old
         .manual_supplied
         .into_iter()
-        .filter(|s| keys.contains(&s.key))
+        .filter_map(|mut s| {
+            let md5 = s.key.strip_prefix("md5:").map(str::to_string);
+            let entry = new_origin
+                .missing_mods
+                .iter()
+                .find(|e| crate::mods::manual_downloads::state::entry_key(e) == s.key)
+                .or_else(|| {
+                    new_origin.missing_mods.iter().find(|e| {
+                        e.sha1
+                            .as_deref()
+                            .is_some_and(|x| x.eq_ignore_ascii_case(&s.sha1))
+                            || md5.as_deref().is_some_and(|m| {
+                                e.meta
+                                    .md5
+                                    .as_deref()
+                                    .is_some_and(|x| x.eq_ignore_ascii_case(m))
+                            })
+                    })
+                })?;
+            s.key = crate::mods::manual_downloads::state::entry_key(entry);
+            Some(s)
+        })
         .collect();
     new_origin.inert_loader_jars = fresh_inert_loader_jars;
     new_origin
@@ -2464,6 +2481,27 @@ mod tests {
         let carried = with_carried_notes(new_origin, old, vec![]);
         assert_eq!(carried.manual_supplied.len(), 1);
         assert_eq!(carried.manual_supplied[0].key, "file:5");
+    }
+
+    #[test]
+    fn a_note_follows_its_file_to_the_entry_the_new_pack_keys_differently() {
+        use crate::mods::installed::{ManualSupplied, SupplyVerified};
+        use crate::mods::modpack::schema::ManualFileMeta;
+        let mut old = origin_with_missing(vec![]);
+        old.manual_supplied = vec![ManualSupplied {
+            key: "md5:m".into(),
+            sha1: "aa".into(),
+            verified: SupplyVerified::Md5,
+        }];
+        let mut e = missing_entry(None, "x.jar", "X", Some("1"));
+        e.meta = ManualFileMeta {
+            file_id: Some("7".into()),
+            md5: Some("m".into()),
+            ..ManualFileMeta::default()
+        };
+        let carried = with_carried_notes(origin_with_missing(vec![e]), old, vec![]);
+        assert_eq!(carried.manual_supplied.len(), 1);
+        assert_eq!(carried.manual_supplied[0].key, "file:7");
     }
 
     #[test]
