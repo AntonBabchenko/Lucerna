@@ -9,4 +9,5 @@ pub mod evidence;
 pub mod naming;
 pub mod place;
 pub mod state;
+pub mod supply;
 pub mod types;
