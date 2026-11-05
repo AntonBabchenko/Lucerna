@@ -2197,7 +2197,7 @@ pub async fn mods_uninstall_many(
 }
 
 /// One `ModRemoved` journal row and one `mod-uninstalled` per removed mod.
-fn announce_trashed(
+pub(crate) fn announce_trashed(
     app: &tauri::AppHandle,
     instance_id: &str,
     inst_root: &std::path::Path,

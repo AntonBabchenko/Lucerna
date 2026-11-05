@@ -556,6 +556,8 @@ pub struct GeneralSettingsPatch {
     pub manual_downloads_watch: Option<bool>,
     /// `Some(None)` (an explicit `null`) resets to the OS downloads folder.
     #[serde(default, deserialize_with = "present_or_null")]
+    // On the wire it is a string, `null` or absent.
+    #[specta(type = Option<String>)]
     pub manual_downloads_folder: Option<Option<String>>,
 }
 

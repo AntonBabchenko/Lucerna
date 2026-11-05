@@ -46,6 +46,8 @@ mod curseforge_key;
 pub use curseforge_key::*;
 mod modpack_cmds;
 pub use modpack_cmds::*;
+mod manual_downloads;
+pub use manual_downloads::*;
 mod instance_import_cmds;
 pub use instance_import_cmds::*;
 mod settings;

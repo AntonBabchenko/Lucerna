@@ -1411,6 +1411,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  existing `ModpackStatus` literal in the frontend stops type-checking.
 	 */
 	pack_completion?: PackCompletion | null,
+	/**
+	 *  SHA-1s of files the user supplied for `missing_mods` entries (by hash or
+	 *  by their own choice) that are not `origin.files`: pack files for every
+	 *  provenance badge (spec §3.4). `#[serde(default)]` so specta emits it
+	 *  optional and existing frontend literals keep type-checking.
+	 */
+	supplied_shas?: string[],
 } | null, Error>(__TAURI_INVOKE("modpack_status", { instanceId })),
 	/**
 	 *  Record that the user installed a substitute (from `substitute_source` /
@@ -1426,6 +1433,19 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  origin over the one the update just wrote.
 	 */
 	modpackResolveMissingWith: (instanceId: string, entryFilename: string, entryModName: string, substituteSource: ModSource, substituteProjectId: string) => typedError<null, Error>(__TAURI_INVOKE("modpack_resolve_missing_with", { instanceId, entryFilename, entryModName, substituteSource, substituteProjectId })),
+	/**  Check the dropped / picked files and place the pack's own. */
+	manualDownloadsSupply: (instanceId: string, paths: string[]) => typedError<SupplyReport, Error>(__TAURI_INVOKE("manual_downloads_supply", { instanceId, paths })),
+	/**  Look in a folder (default: the OS downloads folder) for the pack's files. */
+	manualDownloadsScan: (instanceId: string, folder: string | null) => typedError<ScanReport, Error>(__TAURI_INVOKE("manual_downloads_scan", { instanceId, folder })),
+	/**  Use the user's own file for an entry with nothing to check against (D8). */
+	manualDownloadsSupplyUnverified: (instanceId: string, key: string, path: string) => typedError<SupplyRow, Error>(__TAURI_INVOKE("manual_downloads_supply_unverified", { instanceId, key, path })),
+	/**  The confirmed Replace (D9). */
+	manualDownloadsReplace: (instanceId: string, key: string, path: string) => typedError<ReplaceOutcome, Error>(__TAURI_INVOKE("manual_downloads_replace", { instanceId, key, path })),
+	/**
+	 *  The OS downloads folder, for the dialog's folder line and the picker; `None`
+	 *  when the OS does not name one.
+	 */
+	manualDownloadsDefaultFolder: () => typedError<string | null, Error>(__TAURI_INVOKE("manual_downloads_default_folder")),
 	/**
 	 *  Re-install a single file that was part of the original pack but is
 	 *  no longer in the instance (= it shows up in `ModpackStatus.removed_files`).
@@ -1653,7 +1673,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  follows the setting ("Automatic" touches nothing; a change applies or
 	 *  retires — `gpu_pref`), after the lock has dropped.
 	 */
-	appSettingsPatchGeneral: (patch: GeneralSettingsPatch) => typedError<GeneralSettings_Serialize, Error>(__TAURI_INVOKE("app_settings_patch_general", { patch })),
+	appSettingsPatchGeneral: (patch: GeneralSettingsPatch_Deserialize) => typedError<GeneralSettings_Serialize, Error>(__TAURI_INVOKE("app_settings_patch_general", { patch })),
 	/**
 	 *  Probe GPU-selection capability for the Settings UI, with the mechanism
 	 *  this OS uses so the page can describe it truthfully. Read-only.
@@ -4152,7 +4172,7 @@ export type Error =
  *  undoing it: acting on top of it could let that stale record later remove
  *  files a newer update placed.
  */
-{ kind: "content_update_unfinished"; folder: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
+{ kind: "content_update_unfinished"; folder: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "import_url_invalid"; reason: string } | { kind: "import_url_unsupported_source"; platform: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "manual_downloads_folder_unreadable"; path: string; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | 
 /**
  *  A client data-pack change (add, remove or switch, from a world's tab)
  *  was asked for in a `saves/` folder that has neither `level.dat` nor
@@ -4836,7 +4856,15 @@ export type GeneralSettings = GeneralSettings_Serialize | GeneralSettings_Deseri
  *  rejected — with `every_general_field_has_a_patch_counterpart` that makes a
  *  `GeneralSettings` field without a counterpart here a red test.
  */
-export type GeneralSettingsPatch = {
+export type GeneralSettingsPatch = GeneralSettingsPatch_Serialize | GeneralSettingsPatch_Deserialize;
+
+/**
+ *  A field-level change to `GeneralSettings`: every field optional (specta
+ *  emits `field?: T | null` from the field-level `default`), unknown fields
+ *  rejected — with `every_general_field_has_a_patch_counterpart` that makes a
+ *  `GeneralSettings` field without a counterpart here a red test.
+ */
+export type GeneralSettingsPatch_Deserialize = {
 	hide_to_tray_during_game?: boolean | null,
 	game_start_window?: GameStartWindow | null,
 	theme?: ThemePreference | null,
@@ -4857,6 +4885,41 @@ export type GeneralSettingsPatch = {
 	ai_provider?: AiProvider | null,
 	ai_model?: string | null,
 	ai_local_port?: number | null,
+	manual_downloads_watch?: boolean | null,
+	/**  `Some(None)` (an explicit `null`) resets to the OS downloads folder. */
+	manual_downloads_folder?: string | null,
+};
+
+/**
+ *  A field-level change to `GeneralSettings`: every field optional (specta
+ *  emits `field?: T | null` from the field-level `default`), unknown fields
+ *  rejected — with `every_general_field_has_a_patch_counterpart` that makes a
+ *  `GeneralSettings` field without a counterpart here a red test.
+ */
+export type GeneralSettingsPatch_Serialize = {
+	hide_to_tray_during_game: boolean | null,
+	game_start_window: GameStartWindow | null,
+	theme: ThemePreference | null,
+	check_updates_on_startup: boolean | null,
+	language: string | null,
+	explanation_level: ExplanationLevel | null,
+	compact_mode: boolean | null,
+	gpu_preference: GpuPreference | null,
+	log_retention: LogRetentionPolicy | null,
+	mod_metadata_ttl_days: number | null,
+	sftp_upload_concurrency: number | null,
+	hidden_sidebar_buttons: string[] | null,
+	java_defaults: JavaDefault[] | null,
+	allow_server_ping: boolean | null,
+	settings_sync_new_instances: boolean | null,
+	register_url_scheme: boolean | null,
+	allow_ai_translation: boolean | null,
+	ai_provider: AiProvider | null,
+	ai_model: string | null,
+	ai_local_port: number | null,
+	manual_downloads_watch: boolean | null,
+	/**  `Some(None)` (an explicit `null`) resets to the OS downloads folder. */
+	manual_downloads_folder: string | null,
 };
 
 export type GeneralSettings_Deserialize = {
@@ -4993,6 +5056,14 @@ export type GeneralSettings_Deserialize = {
 	 *  see `network::loopback`, which takes the port and nothing else.
 	 */
 	ai_local_port?: number,
+	/**
+	 *  Watch the downloads folder while the Finish-install dialog is open
+	 *  (spec 2026-11-05 D4). Off until the user turns it on (no pre-checked
+	 *  consent, PRINCIPLES hard rule 5).
+	 */
+	manual_downloads_watch?: boolean,
+	/**  The folder Finish install looks in; `None` = the OS downloads folder. */
+	manual_downloads_folder?: string | null,
 };
 
 export type GeneralSettings_Serialize = {
@@ -5129,6 +5200,14 @@ export type GeneralSettings_Serialize = {
 	 *  see `network::loopback`, which takes the port and nothing else.
 	 */
 	ai_local_port: number,
+	/**
+	 *  Watch the downloads folder while the Finish-install dialog is open
+	 *  (spec 2026-11-05 D4). Off until the user turns it on (no pre-checked
+	 *  consent, PRINCIPLES hard rule 5).
+	 */
+	manual_downloads_watch: boolean,
+	/**  The folder Finish install looks in; `None` = the OS downloads folder. */
+	manual_downloads_folder: string | null,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */
@@ -6120,6 +6199,48 @@ export type LogSource = "game" | "crash" |
 "launcher";
 
 /**
+ *  What a pack's source published about a file Lucerna could not fetch —
+ *  what the Finish-install dialog needs to link to it, check it and place it
+ *  (spec 2026-11-05 §3.1). One field on `ModpackUnresolvable`, so every parser
+ *  builds it once and an entry saved before it reads as "nothing known,
+ *  required".
+ */
+export type ManualFileMeta = {
+	/**  CurseForge file id (FTB: its CurseForge file id). */
+	file_id?: string | null,
+	/**  Lowercased md5, when the source published one. */
+	md5?: string | null,
+	/**
+	 *  Where the file goes, relative to `.minecraft`, file name included —
+	 *  only when the source said so. `None` = decided from the file's bytes.
+	 */
+	install_path?: string | null,
+	/**  The manifest's `required`. An entry saved before this reads as required. */
+	required?: boolean,
+	/**  The file's own download page (`{websiteUrl}/download/{fileId}`). */
+	download_url?: string | null,
+};
+
+/**  A required pack file still missing, for the Play gate (spec §4.6). */
+export type ManualPending = {
+	key: string,
+	mod_name: string,
+};
+
+/**
+ *  A file supplied for a `missing_mods` entry, recorded only when the bytes
+ *  can't tell (an md5 match, or the user's unverified choice). Carried across
+ *  pack updates while its entry is still there.
+ */
+export type ManualSupplied = {
+	/**  `manual_downloads::state::entry_key` of the entry this closes. */
+	key: string,
+	/**  SHA-1 (lowercased) of the file placed for it. */
+	sha1: string,
+	verified: SupplyVerified,
+};
+
+/**
  *  Return value of `change_instance_mc`: the updated instance plus a
  *  description of what happened to the loader version.
  */
@@ -6444,7 +6565,12 @@ export type MissingModState =
  *  link in `PackOrigin.resolved_missing`. Treated as resolved, but
  *  surfaced distinctly so the UI does not claim the pinned file is present.
  */
-"substituted";
+"substituted" | 
+/**
+ *  An entry with no published hash that the user closed with a file of
+ *  their choice (spec D8). Resolved, but never claimed to be the pinned file.
+ */
+"chosen_unverified";
 
 /**
  *  One `PackOrigin.missing_mods` entry paired with its live
@@ -6977,6 +7103,8 @@ export type ModpackImportOutcome = {
 	 *  registry; the backend separately persists them as an install report.
 	 */
 	details: TaskDetail[],
+	/**  Files of this pack that must be downloaded by hand (spec §5.4 item 1). */
+	manual_downloads?: number,
 };
 
 /**  One batch entry: an instance id paired with its resolved status. */
@@ -7096,6 +7224,13 @@ export type ModpackStatus = {
 	 *  existing `ModpackStatus` literal in the frontend stops type-checking.
 	 */
 	pack_completion?: PackCompletion | null,
+	/**
+	 *  SHA-1s of files the user supplied for `missing_mods` entries (by hash or
+	 *  by their own choice) that are not `origin.files`: pack files for every
+	 *  provenance badge (spec §3.4). `#[serde(default)]` so specta emits it
+	 *  optional and existing frontend literals keep type-checking.
+	 */
+	supplied_shas?: string[],
 };
 
 export type ModpackSummary = {
@@ -7150,6 +7285,11 @@ export type ModpackUnresolvable = {
 	 *  URL — `None`. `#[serde(default)]` so pre-C registry files load.
 	 */
 	project_id?: string | null,
+	/**
+	 *  What the source published beyond the fields above. `#[serde(default)]`:
+	 *  entries saved before it read as `ManualFileMeta::default()`.
+	 */
+	meta?: ManualFileMeta,
 };
 
 /**
@@ -7165,6 +7305,11 @@ export type ModpackUpdateDiff = {
 	updated: ModpackUpdateEntry[],
 	version_bump: ModpackVersionBump | null,
 	new_version_number: string,
+	/**
+	 *  The new version's files the instance will still have to get by hand
+	 *  (spec §4.5), shown on the confirm step.
+	 */
+	manual_downloads?: number,
 };
 
 /**
@@ -7193,6 +7338,8 @@ export type ModpackUpdateOutcome = {
 	 *  one that fails is undone and returns an error instead.
 	 */
 	details: TaskDetail[],
+	/**  Files of this pack that must be downloaded by hand (spec §5.4 item 1). */
+	manual_downloads?: number,
 };
 
 /**  The resolved update state for one pack instance. */
@@ -7565,6 +7712,11 @@ export type PackOrigin = {
 	 */
 	resolved_missing?: ResolvedMissing[],
 	/**
+	 *  Facts about supplied files the bytes can't tell (spec §3.2).
+	 *  `#[serde(default)]` so registry files written before it load empty.
+	 */
+	manual_supplied?: ManualSupplied[],
+	/**
 	 *  Installed jars built for a loader family this instance cannot load
 	 *  (inert — e.g. a Fabric jar on a Forge instance). `#[serde(default)]`
 	 *  so pre-feature registry files load with an empty list.
@@ -7804,6 +7956,13 @@ export type PreflightReport = {
 	 *  problem". `#[serde(default)]` for the same reason as `pack_completion`.
 	 */
 	unjudged?: string[],
+	/**
+	 *  Required pack files that must be downloaded by hand and are not there
+	 *  (spec 2026-11-05 D10). While non-empty, the gate offers "Finish install"
+	 *  and missing dependencies get no automatic fix. `#[serde(default)]` so
+	 *  specta emits it optional.
+	 */
+	manual_pending?: ManualPending[],
 };
 
 export type ProblemArtifact = {
@@ -8114,6 +8273,14 @@ version_label: string | null;
  */
 install: VersionRef | null };
 
+export type ReplaceOutcome = {
+	row: SupplyRow,
+	/**  The removed mod's undo receipt, for the timed Undo toast. */
+	receipt: UninstallReceipt | null,
+	/**  Files moved to the recycle bin instead (non-mod occupants). */
+	recycled: string[],
+};
+
 /**
  *  One `replaceable` row the user approved for replacement. Carries the
  *  EXACT `target` [`McMigrationPlan::replaceable`] showed — see
@@ -8374,6 +8541,15 @@ export type RunningInstanceInfo = {
 export type SavedServer = {
 	name: string,
 	address: string,
+};
+
+export type ScanReport = {
+	/**  The folder that was read. */
+	folder: string,
+	/**  Only what concerns the pack: added, already there, needs replace, changed. */
+	rows: SupplyRow[],
+	/**  Files that could not be read right now (still being written) — tried again next time. */
+	skipped_unreadable: number,
 };
 
 /**
@@ -9144,6 +9320,47 @@ export type StrandedWorld = {
 	kind: StrandedKind,
 };
 
+export type SupplyReport = {
+	rows: SupplyRow[],
+};
+
+/**  What happened to one file the user handed over. */
+export type SupplyRow = 
+/**
+ *  Placed. `recorded: false` when its bookkeeping could not be written —
+ *  the file is there, but may read as missing until it is added again.
+ */
+{ kind: "added"; path: string; key: string; mod_name: string; recorded: boolean } | 
+/**  The same bytes were already in place (bookkeeping redone). */
+{ kind: "already_there"; path: string; key: string; mod_name: string } | 
+/**  The pack's exact file, but another file holds its place (spec D9). */
+{ kind: "needs_replace"; path: string; key: string; mod_name: string; existing: string } | 
+/**  Another version of a mod this pack waits for. */
+{ kind: "other_version"; path: string; found: string; wanted: string } | 
+/**  Not a file this pack needs. `asked: false` = CurseForge could not be asked. */
+{ kind: "not_in_pack"; path: string; found: string | null; asked: boolean } | 
+/**  Lucerna can't tell where it goes. */
+{ kind: "cant_place"; path: string } | 
+/**  The pack names another of its own files the same way. */
+{ kind: "conflict"; path: string; existing: string } | { kind: "unreadable"; path: string; reason: string } | 
+/**  Not a regular `.jar` / `.zip` file. */
+{ kind: "wrong_type"; path: string } | 
+/**  Its bytes changed while being copied; nothing landed. */
+{ kind: "changed"; path: string };
+
+/**
+ *  How a `missing_mods` entry was closed when its bytes alone can't say so
+ *  (spec 2026-11-05 §3.2).
+ */
+export type SupplyVerified = 
+/**
+ *  The file matched the entry's published md5; its sha1 is recorded so
+ *  everything downstream keys on sha1.
+ */
+"md5" | 
+/**  The entry published no hash; the user chose this file (spec D8). */
+"user";
+
 /**
  *  Why a sync did not happen, as the UI says it: the kind that was syncing
  *  (`None`: the sync settings themselves), the file (`None`: not a file
@@ -9351,7 +9568,20 @@ export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | 
  *  returned an absent or empty hash). Installing such a file would be TOFU
  *  (trust-on-first-use); it is surfaced as manually unresolvable instead.
  */
-"missing_checksum";
+"missing_checksum" | 
+/**
+ *  A CurseForge reference an FTB pack could not resolve because there was
+ *  no CurseForge key or the request failed: not author-blocked — Lucerna
+ *  could not ask (spec 2026-11-05 F10). Rows recorded before this variant
+ *  existed say `HostNotAllowed`.
+ */
+"source_unavailable" | 
+/**
+ *  An ATLauncher entry of a type other than `mods` (`extract`, …): a manual
+ *  step Lucerna cannot perform. Listed with its link, never placeable,
+ *  never pending.
+ */
+"unsupported_type";
 
 export type Unsupported = 
 /**  command_history.txt exists from 1.20.2. */
