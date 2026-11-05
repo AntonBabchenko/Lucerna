@@ -171,7 +171,10 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
                 size: f.file_size as f64,
                 sha1: Some(f.hashes.sha1.to_ascii_lowercase()),
                 project_id: None,
-                meta: Default::default(),
+                meta: crate::mods::modpack::schema::ManualFileMeta {
+                    install_path: Some(f.path.clone()),
+                    ..Default::default()
+                },
             });
             continue;
         }
@@ -370,6 +373,7 @@ mod tests {
         assert_eq!(u.size, 1234567.0);
         assert_eq!(u.sha1.as_deref(), Some("abc123"));
         assert_eq!(u.project_id, None);
+        assert_eq!(u.meta.install_path.as_deref(), Some("mods/sodium.jar"));
     }
 
     #[test]
