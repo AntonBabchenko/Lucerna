@@ -24,8 +24,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use sha1::Digest as _;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Test-seam key: when set to `1`, hardlinking reports failure, so the copy
 /// fallback can be exercised without a second volume or a non-NTFS filesystem —
@@ -136,6 +137,90 @@ pub async fn place_bytes(dest: &Path, bytes: &[u8]) -> Result<(), StoreIoError> 
         return Err(StoreIoError::at(dest, e));
     }
     commit(&tmp, dest).await
+}
+
+/// Why a verified copy did not land.
+#[derive(Debug)]
+pub enum StageError {
+    Io(StoreIoError),
+    /// The source's bytes are not the ones that were checked — it changed
+    /// between the check and the copy. Nothing landed.
+    Changed,
+}
+
+/// A copy sitting in its temp sibling, verified, not yet in place: `commit`
+/// renames it in, `discard` removes it.
+#[derive(Debug)]
+pub struct StagedCopy {
+    tmp: PathBuf,
+    dest: PathBuf,
+}
+
+impl StagedCopy {
+    pub async fn commit(self) -> Result<(), StoreIoError> {
+        commit(&self.tmp, &self.dest).await
+    }
+
+    pub async fn discard(self) {
+        cleanup(&self.tmp).await;
+    }
+}
+
+/// Copy `src` into a temp sibling of `dest`, hashing the bytes as they are
+/// copied, and keep it only if they hash to `expected_sha1`: what lands is what
+/// was checked, with no window between the check and the copy, in constant
+/// memory. Never linked: a hand-supplied file exists nowhere else.
+pub async fn stage_copy_verified(
+    src: &Path,
+    dest: &Path,
+    expected_sha1: &str,
+) -> Result<StagedCopy, StageError> {
+    let tmp = temp_sibling(dest).map_err(StageError::Io)?;
+    match copy_hashing(src, &tmp).await {
+        Ok(sha) if sha.eq_ignore_ascii_case(expected_sha1) => Ok(StagedCopy {
+            tmp,
+            dest: dest.to_path_buf(),
+        }),
+        Ok(_) => {
+            cleanup(&tmp).await;
+            Err(StageError::Changed)
+        }
+        Err(e) => {
+            cleanup(&tmp).await;
+            Err(StageError::Io(StoreIoError::at(dest, e)))
+        }
+    }
+}
+
+/// `stage_copy_verified` then `commit`.
+pub async fn place_copy_verified(
+    src: &Path,
+    dest: &Path,
+    expected_sha1: &str,
+) -> Result<(), StageError> {
+    stage_copy_verified(src, dest, expected_sha1)
+        .await?
+        .commit()
+        .await
+        .map_err(StageError::Io)
+}
+
+async fn copy_hashing(src: &Path, tmp: &Path) -> Result<String, std::io::Error> {
+    let mut input = fs::File::open(src).await?;
+    let mut out = fs::File::create(tmp).await?;
+    let mut hasher = sha1::Sha1::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = input.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        out.write_all(&buf[..n]).await?;
+    }
+    // A tokio `File` does not flush on drop (see `write_temp`).
+    out.flush().await?;
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// A temp name in the SAME directory as `dest`, so the commit rename is a cheap
@@ -379,5 +464,30 @@ mod tests {
         place_bytes(&dest, &payload).await.unwrap();
 
         assert_eq!(std::fs::read(&dest).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn a_verified_copy_lands_and_a_changed_source_lands_nothing() {
+        let _lock = seam_absent();
+        let dir = TempDir::new().unwrap();
+        let src = seeded(dir.path(), "src.jar", b"pack bytes");
+        let dest = dir.path().join("mods/x.jar");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        let good = hex::encode(<sha1::Sha1 as sha1::Digest>::digest(b"pack bytes"));
+        place_copy_verified(&src, &dest, &good)
+            .await
+            .expect("matching bytes land");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"pack bytes");
+
+        let dest2 = dir.path().join("mods/y.jar");
+        let err = place_copy_verified(&src, &dest2, "0000").await.unwrap_err();
+        assert!(matches!(err, StageError::Changed));
+        assert!(!dest2.exists());
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path().join("mods"))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains(".lucerna-tmp."))
+            .collect();
+        assert!(leftovers.is_empty(), "the temp is removed");
     }
 }
