@@ -75,6 +75,29 @@ struct CfHash {
     algo: u32, // 1=SHA-1, 2=MD5 per CF docs
 }
 
+/// What a blocked or checksum-less CurseForge file's source published.
+fn blocked_meta(
+    detail: &CfFile,
+    required: bool,
+    info: Option<&ModInfo>,
+) -> crate::mods::modpack::schema::ManualFileMeta {
+    crate::mods::modpack::schema::ManualFileMeta {
+        file_id: Some(detail.id.to_string()),
+        md5: detail
+            .hashes
+            .iter()
+            .find(|h| h.algo == 2)
+            .map(|h| h.value.to_ascii_lowercase()),
+        install_path: info
+            .and_then(|i| i.class_id)
+            .map(|c| format!("{}/{}", install_dir(Some(c)), detail.file_name)),
+        required,
+        download_url: info
+            .and_then(|i| i.website_url.as_deref())
+            .map(|w| format!("{}/download/{}", w.trim_end_matches('/'), detail.id)),
+    }
+}
+
 pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error> {
     let mut zip =
         zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
@@ -135,7 +158,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
     // overrides/ — Lucerna's own CurseForge export of an instance with mods
     // from Modrinth or from disk — lists none: there is nothing to ask and no
     // key is needed (CurseForge answers 400 to an empty list).
-    let (resolved, class_ids) = if m.files.is_empty() {
+    let (resolved, infos) = if m.files.is_empty() {
         (Vec::new(), Default::default())
     } else {
         let key = keyring::resolve().ok_or(Error::ModsPlatformAuth {
@@ -144,10 +167,10 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
         let ids: Vec<u64> = m.files.iter().map(|f| f.file_id).collect();
         let resolved = fetch_files(base_url, &key, &ids).await?;
         let mod_ids: Vec<u64> = resolved.iter().map(|f| f.mod_id).collect();
-        let class_ids = fetch_class_ids(base_url, &key, &mod_ids)
+        let infos = fetch_mod_infos(base_url, &key, &mod_ids)
             .await
             .unwrap_or_default();
-        (resolved, class_ids)
+        (resolved, infos)
     };
 
     let mut files = vec![];
@@ -169,7 +192,10 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                 size: 0.0,
                 sha1: None,
                 project_id: None,
-                meta: Default::default(),
+                meta: crate::mods::modpack::schema::ManualFileMeta {
+                    required: entry.required,
+                    ..Default::default()
+                },
             });
             continue;
         };
@@ -196,7 +222,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                         .find(|h| h.algo == 1)
                         .map(|h| h.value.to_ascii_lowercase()),
                     project_id: Some(detail.mod_id.to_string()),
-                    meta: Default::default(),
+                    meta: blocked_meta(detail, entry.required, infos.get(&detail.mod_id)),
                 });
                 continue;
             }
@@ -218,7 +244,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                 size: detail.file_length as f64,
                 sha1: None,
                 project_id: Some(detail.mod_id.to_string()),
-                meta: Default::default(),
+                meta: blocked_meta(detail, entry.required, infos.get(&detail.mod_id)),
             });
             continue;
         };
@@ -229,7 +255,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
             filename: detail.file_name.clone(),
             install_path: format!(
                 "{}/{}",
-                install_dir(class_ids.get(&detail.mod_id).copied()),
+                install_dir(infos.get(&detail.mod_id).and_then(|i| i.class_id)),
                 detail.file_name
             ),
             sha1,
@@ -313,27 +339,41 @@ async fn fetch_files(base_url: &str, key: &str, ids: &[u64]) -> Result<Vec<CfFil
     Ok(out)
 }
 
-/// Best-effort bulk lookup of project `classId`s via `POST /v1/mods`.
-/// A failure resolves to an empty map at the call site — every file
-/// then defaults to `mods/` (the pre-fix behaviour), so a class-lookup
-/// hiccup never aborts an import.
-async fn fetch_class_ids(
+/// What `POST /v1/mods` says about a project that the parser uses.
+#[derive(Debug, Clone, Default)]
+struct ModInfo {
+    class_id: Option<u32>,
+    website_url: Option<String>,
+}
+
+/// Best-effort bulk lookup of project class ids and web pages via `POST /v1/mods`.
+/// A failure resolves to an empty map at the call site: every downloadable file
+/// then defaults to `mods/` (the pre-fix behaviour) and every blocked file
+/// records no place and no download page — never a guess (spec §3.1).
+async fn fetch_mod_infos(
     base_url: &str,
     key: &str,
     mod_ids: &[u64],
-) -> Result<std::collections::HashMap<u64, u32>, Error> {
+) -> Result<std::collections::HashMap<u64, ModInfo>, Error> {
     if mod_ids.is_empty() {
         return Ok(Default::default());
     }
     #[derive(Deserialize)]
     struct ModsResp {
-        data: Vec<ModInfo>,
+        data: Vec<ModRow>,
     }
     #[derive(Deserialize)]
-    struct ModInfo {
+    struct ModRow {
         id: u64,
         #[serde(rename = "classId")]
         class_id: Option<u32>,
+        #[serde(default)]
+        links: Option<Links>,
+    }
+    #[derive(Deserialize)]
+    struct Links {
+        #[serde(rename = "websiteUrl")]
+        website_url: Option<String>,
     }
     let url = format!("{}/v1/mods", base_url);
     let body = serde_json::json!({ "modIds": mod_ids });
@@ -357,7 +397,19 @@ async fn fetch_class_ids(
     Ok(parsed
         .data
         .into_iter()
-        .filter_map(|m| m.class_id.map(|c| (m.id, c)))
+        .map(|m| {
+            let website_url = m
+                .links
+                .and_then(|l| l.website_url)
+                .filter(|u| u.starts_with("https://"));
+            (
+                m.id,
+                ModInfo {
+                    class_id: m.class_id,
+                    website_url,
+                },
+            )
+        })
         .collect())
 }
 
@@ -517,6 +569,69 @@ mod tests {
         assert_eq!(u.size, 999.0);
         assert_eq!(u.sha1.as_deref(), Some("abc"));
         assert_eq!(u.project_id.as_deref(), Some("238222"));
+        assert_eq!(
+            u.meta.install_path, None,
+            "the class lookup failed: place unknown"
+        );
+        assert_eq!(u.meta.download_url, None);
+        assert_eq!(u.meta.file_id.as_deref(), Some("4499899"));
+    }
+
+    #[tokio::test]
+    async fn a_blocked_file_records_its_id_md5_place_and_download_page() {
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        install_test_key();
+        let s = MockServer::start().await;
+        let files = serde_json::json!({ "data": [
+            { "id": 4499899, "modId": 238222, "fileName": "complementary.zip",
+              "displayName": "Complementary", "fileLength": 999, "downloadUrl": null,
+              "hashes": [{ "value": "ABC", "algo": 1 }, { "value": "MD5A", "algo": 2 }] },
+            { "id": 4567890, "modId": 222880, "fileName": "mod-b.jar",
+              "displayName": "Mod B", "fileLength": 500, "downloadUrl": null,
+              "hashes": [{ "value": "MD5B", "algo": 2 }] }
+        ]});
+        let mods = serde_json::json!({ "data": [
+            { "id": 238222, "classId": 6552,
+              "links": { "websiteUrl": "https://www.curseforge.com/minecraft/shaders/complementary" } }
+        ]});
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(files))
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/mods"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(mods))
+            .mount(&s)
+            .await;
+
+        let r = parse(&make_cf_zip(&sample_manifest()), &s.uri())
+            .await
+            .unwrap();
+        clear_test_key();
+        assert_eq!(r.unresolvable.len(), 2);
+        let shader = &r.unresolvable[0];
+        assert_eq!(shader.meta.file_id.as_deref(), Some("4499899"));
+        assert_eq!(shader.meta.md5.as_deref(), Some("md5a"));
+        assert_eq!(
+            shader.meta.install_path.as_deref(),
+            Some("shaderpacks/complementary.zip")
+        );
+        assert!(shader.meta.required);
+        assert_eq!(
+            shader.meta.download_url.as_deref(),
+            Some("https://www.curseforge.com/minecraft/shaders/complementary/download/4499899")
+        );
+        let b = &r.unresolvable[1];
+        assert_eq!(b.sha1, None);
+        assert_eq!(b.meta.md5.as_deref(), Some("md5b"));
+        assert!(!b.meta.required, "the manifest lists it required: false");
+        assert_eq!(
+            b.meta.install_path, None,
+            "no class answer — never a guessed mods/"
+        );
+        assert_eq!(b.meta.download_url, None);
     }
 
     #[tokio::test]
