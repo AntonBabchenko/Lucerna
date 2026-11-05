@@ -207,6 +207,78 @@ pub fn supplied_shas(
     out
 }
 
+/// A supplied file as the update diff sees it (spec §4.5).
+#[derive(Debug, Clone)]
+pub struct SuppliedOld {
+    pub key: String,
+    pub md5: Option<String>,
+    pub file: crate::mods::installed::PackOriginFile,
+}
+
+/// The supplied files of an origin, each described where it actually is: a
+/// mods row with its sha1 → `mods/<its name>`; an assets row → its folder;
+/// else the entry's own path.
+pub fn supplied_old(
+    origin: &PackOrigin,
+    statuses: &[MissingModStatus],
+    on_disk: &HashSet<String>,
+    installed: &[InstalledMod],
+    assets: &[crate::mods::platform::InstalledAsset],
+) -> Vec<SuppliedOld> {
+    let files: HashSet<String> = origin
+        .files
+        .iter()
+        .map(|f| f.sha1.to_ascii_lowercase())
+        .collect();
+    let mut out = Vec::new();
+    for st in statuses {
+        let sha = match st.state {
+            MissingModState::Installed => closing_sha1(&st.entry, &origin.manual_supplied, on_disk),
+            MissingModState::ChosenUnverified => {
+                chosen_sha1(&st.entry, &origin.manual_supplied, on_disk)
+            }
+            _ => None,
+        };
+        let Some(sha) = sha else { continue };
+        if files.contains(&sha) {
+            continue;
+        }
+        let install_path = installed
+            .iter()
+            .find(|r| r.sha1.eq_ignore_ascii_case(&sha))
+            .map(|r| format!("mods/{}", r.filename))
+            .or_else(|| {
+                assets
+                    .iter()
+                    .find(|a| a.sha1.eq_ignore_ascii_case(&sha))
+                    .map(|a| crate::mods::install::asset_subpath(a.kind, &a.filename))
+            })
+            .or_else(|| st.entry.meta.install_path.clone())
+            .unwrap_or_else(|| format!("mods/{}", st.entry.filename));
+        out.push(SuppliedOld {
+            key: entry_key(&st.entry),
+            md5: present(&st.entry.meta.md5).map(str::to_ascii_lowercase),
+            file: crate::mods::installed::PackOriginFile {
+                sha1: sha,
+                name: st.entry.mod_name.clone(),
+                filename: install_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&install_path)
+                    .to_string(),
+                install_path,
+                url: String::new(),
+                size: st.entry.size,
+                project_id: st.entry.project_id.clone().unwrap_or_default(),
+                version_id: st.entry.meta.file_id.clone().unwrap_or_default(),
+                env_client: crate::mods::modpack::schema::EnvSupport::Required,
+                source: origin.source,
+            },
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -275,5 +347,46 @@ pub(crate) mod tests {
             filename_stem("srparasites-1.12.2-2.7.1.jar.disabled").as_deref(),
             Some("srparasites")
         );
+    }
+
+    #[test]
+    fn a_supplied_file_is_described_where_it_actually_is() {
+        use crate::mods::installed::PackOrigin;
+        use crate::mods::modpack::schema::MissingModStatus;
+        use crate::mods::platform::{ContentKind, ModSource};
+        let mut e = entry(Some("5"), None, Some("aa"));
+        e.filename = "shader.zip".into();
+        let origin = PackOrigin {
+            project_id: None,
+            source: ModSource::Curseforge,
+            project_name: "P".into(),
+            version: "1".into(),
+            files: vec![],
+            missing_mods: vec![e.clone()],
+            skipped_overrides: vec![],
+            resolved_missing: vec![],
+            manual_supplied: vec![],
+            inert_loader_jars: vec![],
+        };
+        let statuses = vec![MissingModStatus {
+            entry: e,
+            state: MissingModState::Installed,
+        }];
+        let assets = vec![crate::mods::assets::make_asset(
+            ContentKind::Shader,
+            "shader.zip",
+            "AA",
+            None,
+            None,
+            None,
+            "S",
+            String::new(),
+        )];
+        let on_disk: HashSet<String> = ["aa".to_string()].into();
+        let old = supplied_old(&origin, &statuses, &on_disk, &[], &assets);
+        assert_eq!(old.len(), 1);
+        assert_eq!(old[0].key, "file:5");
+        assert_eq!(old[0].file.install_path, "shaderpacks/shader.zip");
+        assert_eq!(old[0].file.version_id, "5");
     }
 }
