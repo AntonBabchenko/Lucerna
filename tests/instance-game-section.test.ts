@@ -262,6 +262,36 @@ describe('a modpack instance changes only on the user say-so', () => {
     expect(screen.getByLabelText(/loader version/i).textContent).not.toContain('0.20.0');
   });
 
+  it('a pinned build the loader no longer offers stays shown, last and only once', async () => {
+    const stalePack = makeInstance({
+      id: 'inst-stale-pack',
+      name: 'Stale Pack',
+      loader: 'fabric',
+      loader_version: '0.1.0-gone',
+      mrpack_name: 'Stale Pack',
+    });
+    render(InstanceGameSection, { props: props({ instance: stalePack }) });
+    const field = await screen.findByLabelText(/loader version/i);
+    await waitFor(() => expect(field.textContent).toContain('0.1.0-gone'));
+    await fireEvent.click(field);
+    expect(screen.getAllByRole('option').map((o) => o.textContent?.trim())).toEqual([
+      '0.20.0 (recommended)',
+      '0.16.0',
+      '0.1.0-gone',
+    ]);
+  });
+
+  it('a saved build the list has is listed once, in its place', async () => {
+    render(InstanceGameSection, { props: props({ instance: packInstance }) });
+    const field = await screen.findByLabelText(/loader version/i);
+    await waitFor(() => expect(field.textContent).toContain('0.16.0'));
+    await fireEvent.click(field);
+    expect(screen.getAllByRole('option').map((o) => o.textContent?.trim())).toEqual([
+      '0.20.0 (recommended)',
+      '0.16.0',
+    ]);
+  });
+
   it('picking another version of the same loader asks about the VERSION, not the loader', async () => {
     render(InstanceGameSection, { props: props({ instance: packInstance }) });
     const trigger = await screen.findByLabelText(/loader version/i);
@@ -520,6 +550,46 @@ describe('the Game section', () => {
     };
     render(InstanceGameSection, { props: props({ versions: [snapshot] }) });
     expect(screen.getByText(/no release versions available/i)).toBeTruthy();
+  });
+
+  // The field edits a saved value: it shows it whether or not the list has it.
+  const offline = {
+    versions: [],
+    versionList: {
+      loading: false,
+      failure: "Couldn't load the Minecraft version list. Offline.",
+      reload: () => {},
+    },
+  };
+  const mcField = () => screen.getByRole('combobox', { name: 'Minecraft version' });
+  const optionNames = () => screen.getAllByRole('option').map((o) => o.textContent?.trim());
+
+  it('offline, the Minecraft version field still shows the instance version', () => {
+    render(InstanceGameSection, { props: props(offline) });
+    expect(mcField().textContent).toContain('1.20.1');
+    expect(screen.getByText(/Couldn't load the Minecraft version list/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+  });
+
+  it('offline, the list offers the instance version, and picking it writes nothing', async () => {
+    render(InstanceGameSection, { props: props(offline) });
+    await pickMc('1.20.1');
+    await flush();
+    expect(m.changeInstanceMc).not.toHaveBeenCalled();
+  });
+
+  it('an instance on a snapshot shows it with snapshots hidden, where the list has it', async () => {
+    const snapshot: VersionEntry = { ...makeVersion('24w01a'), version_type: 'snapshot' };
+    render(InstanceGameSection, {
+      props: props({
+        instance: makeInstance({ mc_version: '24w01a' }),
+        versions: [makeVersion('1.21'), snapshot, makeVersion('1.20.1')],
+      }),
+    });
+    expect(mcField().textContent).toContain('24w01a');
+    expect(screen.queryByText(/no release versions available/i)).toBeNull();
+    await fireEvent.click(mcField());
+    expect(optionNames()).toEqual(['-- Choose Minecraft version --', '1.21', '24w01a', '1.20.1']);
   });
 
   it("clears a refused change's message once the next change works", async () => {

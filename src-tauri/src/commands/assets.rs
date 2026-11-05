@@ -29,9 +29,41 @@ pub async fn assets_list(
     if let Err(e) = crate::mods::assets::backfill_from_pack_origin_if_missing(&inst_root).await {
         crate::diag!("[assets_list] backfill failed (non-fatal): {e}");
     }
+    // The name repair writes the registry too: under the claim only, like the
+    // reconcile. Refused, the next read repairs. Never fails the list.
+    if claim.is_some() {
+        if let Err(e) = backfill_asset_names(&app, &inst_root).await {
+            crate::diag!("[assets_list] display-name backfill failed (non-fatal): {e}");
+        }
+    }
     let listing = crate::mods::assets::listing(&inst_root, kind, claim.is_some()).await?;
     drop(claim);
     Ok(listing)
+}
+
+/// Offline name repair of the instance's pack rows
+/// (`assets::backfill_display_names`) from the summary cache. The Installed
+/// view's own icon lookup (`mods_projects`) fills that cache, so a row it did
+/// not know yet is repaired by the next read.
+async fn backfill_asset_names(
+    app: &tauri::AppHandle,
+    inst_root: &std::path::Path,
+) -> crate::error::Result<()> {
+    let path = crate::paths::mods_cache_file(app)
+        .map_err(|e| crate::error::Error::io("<mods_cache_file>", e))?;
+    crate::mods::assets::backfill_display_names(inst_root, |wanted| async move {
+        super::mods::cached_project_titles(&path, wanted)
+    })
+    .await
+}
+
+/// The name a pack installed from `version` is recorded under: its project
+/// title where the summary cache knows it or can fetch it — as mod installs
+/// name theirs (`project_titles_for`, never fails) — else the version's own
+/// title as the last resort, which `backfill_asset_names` repairs later.
+async fn pack_title(app: &tauri::AppHandle, version: &crate::mods::platform::ModVersion) -> String {
+    let titles = super::mods::project_titles_for(app, std::slice::from_ref(version)).await;
+    super::mods::summary_name(version, &titles)
 }
 
 /// Remove a pack — a file Lucerna can download again is deleted, one it cannot
@@ -105,8 +137,10 @@ async fn asset_row(
 }
 
 /// Download + install a resource pack or shader version into an instance,
-/// recording it in the assets registry. No progress events yet (no UI
-/// callers), so a no-op progress sink is supplied.
+/// recording it in the assets registry under the pack's project title
+/// (`pack_title`) — the name the Installed list, the journal and the toasts
+/// show — and return the recorded row. No progress events yet, so a no-op
+/// progress sink is supplied.
 #[tauri::command]
 #[specta::specta]
 pub async fn asset_install(
@@ -114,41 +148,29 @@ pub async fn asset_install(
     instance_id: String,
     version: crate::mods::platform::ModVersion,
     kind: crate::mods::platform::ContentKind,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<crate::mods::platform::InstalledAsset> {
     // Shared maintenance claim, see `asset_uninstall`.
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
     crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
-    let f = &version.primary_file;
+    let name = pack_title(&app, &version).await;
     let progress: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
-    crate::mods::install::install_asset_tracked(
-        &dd,
-        &inst_root,
-        kind,
-        Some(version.source),
-        Some(version.project_id.clone()),
-        Some(version.version_id.clone()),
-        &version.name,
-        Some(version.version_number.clone()),
-        &f.filename,
-        &f.url,
-        f.sha1.as_deref(),
-        f.size,
-        &progress,
+    let row = crate::mods::install::install_asset_tracked(
+        &dd, &inst_root, kind, &version, &name, &progress,
     )
     .await?;
     crate::journal::record(
         &inst_root,
         crate::journal::content_versioned(
             crate::journal::ContentAction::AssetInstalled,
-            version.name.clone(),
+            name,
             None,
             Some(version.version_number.clone()),
         ),
     );
     drop(write);
-    Ok(())
+    Ok(row)
 }
 
 /// Install a local resource-pack / shader `.zip` from disk into the instance as
@@ -274,7 +296,7 @@ pub async fn asset_update_one(
                         .find(|a| a.filename.eq_ignore_ascii_case(&old_filename))
                         .and_then(|a| a.version_number)
                 });
-            let name = target.name.clone();
+            let name = pack_title(&app, &target).await;
             let to_version = target.version_number.clone();
             let outcome = crate::mods::install::update_asset(
                 &dd,
@@ -282,6 +304,7 @@ pub async fn asset_update_one(
                 kind,
                 &old_filename,
                 target,
+                &name,
                 &progress,
             )
             .await?;

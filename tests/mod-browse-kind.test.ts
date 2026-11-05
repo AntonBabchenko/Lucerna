@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // Mock the IPC layer the same way mod-browse-view.test.ts does: every
@@ -55,7 +55,21 @@ vi.mock('$lib/ipc/bindings', () => ({
         },
       ],
     }),
-    assetInstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // The row it recorded (the pack is named after its project, not its version).
+    assetInstall: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        kind: 'resource_pack',
+        filename: 'pack.zip',
+        sha1: 'abc',
+        source: 'modrinth',
+        project_id: 'pack1',
+        version_id: 'v1',
+        name: 'Pretty Pack',
+        version_number: '1.0',
+        installed_at: '2026-01-01T00:00:00Z',
+      },
+    }),
     // Installed-asset registry for resource packs / shaders. Default: empty so
     // existing tests see the "Install" button; the installed-state tests below
     // override this with a matching InstalledAsset.
@@ -74,6 +88,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import ModDetailModal from '$lib/mods/ModDetailModal.svelte';
+import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -563,5 +578,42 @@ describe('ModBrowseView — content kind', () => {
     const detailCall = versionsCalls.find((c) => c[1] === 'shader1');
     expect(detailCall).toBeDefined();
     expect(detailCall![3]).toBeNull();
+  });
+
+  it('a pack installed from its window is toasted under the name it was recorded with', async () => {
+    // The window hands back only the version, and its install runs on a card
+    // built from it — named after the VERSION («Pretty Pack 1.0»). The toast
+    // names the row `assetInstall` recorded instead: the pack's name.
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    const assetInstall = mod.commands.assetInstall as unknown as ReturnType<typeof vi.fn>;
+    // The toast store is module-global: an earlier install's toast must not answer for this one.
+    for (const toast of toastList()) dismiss(toast.id);
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
+    });
+    assetInstall.mockResolvedValueOnce({
+      status: 'ok',
+      data: { ...installedShader, filename: 'pack.zip', name: 'Pretty Shader' },
+    });
+    render(ModBrowseView, {
+      props: {
+        source: 'modrinth',
+        instanceId: 'i',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        kind: 'shader',
+      },
+    });
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Pretty Shader/i }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(await within(dialog).findByRole('button', { name: /^install/i }));
+
+    await waitFor(() =>
+      expect(toastList().map((toast) => toast.title)).toContain('Installed Pretty Shader'),
+    );
+    expect(toastList().map((toast) => toast.title)).not.toContain('Installed Pretty Pack 1.0');
   });
 });

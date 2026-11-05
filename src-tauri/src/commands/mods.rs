@@ -94,31 +94,43 @@ async fn backfill_display_names(
     let path = crate::paths::mods_cache_file(app)
         .map_err(|e| crate::error::Error::io("<mods_cache_file>", e))?;
     crate::mods::installed::backfill_display_names(inst_root, |wanted| async move {
-        let mut by_source: std::collections::HashMap<ModSource, Vec<String>> =
-            std::collections::HashMap::new();
-        for (source, pid) in wanted {
-            by_source.entry(source).or_default().push(pid);
-        }
-        let mut out = std::collections::HashMap::new();
-        for (source, ids) in by_source {
-            for s in crate::mods::summary_cache::get_many_cached(&path, source, &ids) {
-                out.insert((source, s.project_id.clone()), s.name);
-            }
-        }
-        out
+        cached_project_titles(&path, wanted)
     })
     .await
 }
 
+/// The project titles the summary cache at `path` already holds for `wanted`,
+/// keyed by `(source, project_id)`; an id it does not hold is absent. The
+/// resolver of both display-name backfills — mods' and packs' — and offline by
+/// construction: `get_many_cached` takes no fetcher.
+pub(super) fn cached_project_titles(
+    path: &std::path::Path,
+    wanted: Vec<(ModSource, String)>,
+) -> std::collections::HashMap<(ModSource, String), String> {
+    let mut by_source: std::collections::HashMap<ModSource, Vec<String>> =
+        std::collections::HashMap::new();
+    for (source, pid) in wanted {
+        by_source.entry(source).or_default().push(pid);
+    }
+    let mut out = std::collections::HashMap::new();
+    for (source, ids) in by_source {
+        for s in crate::mods::summary_cache::get_many_cached(path, source, &ids) {
+            out.insert((source, s.project_id.clone()), s.name);
+        }
+    }
+    out
+}
+
 /// Project titles for a set of versions, keyed by `(source, project_id)`.
 ///
-/// Used at install time so the registry records the mod name rather than
-/// `ModVersion.name` (the platform VERSION title). Goes through the shared
-/// summary cache, so a warm cache costs nothing and a cold one costs the same
-/// batched request the Installed list would make moments later. Never fails:
-/// an unresolved id is absent from the map and its row falls back to today's
-/// behaviour until `installed::backfill_display_names` repairs it.
-async fn project_titles_for(
+/// Used at install time so the registry records the mod's — or the pack's —
+/// name rather than `ModVersion.name` (the platform VERSION title). Goes
+/// through the shared summary cache, so a warm cache costs nothing and a cold
+/// one costs the same batched request the Installed list would make moments
+/// later. Never fails: an unresolved id is absent from the map and its row
+/// falls back to today's behaviour until a display-name backfill
+/// (`installed::` or `assets::backfill_display_names`) repairs it.
+pub(super) async fn project_titles_for(
     app: &tauri::AppHandle,
     versions: &[crate::mods::platform::ModVersion],
 ) -> std::collections::HashMap<(ModSource, String), String> {
@@ -162,7 +174,7 @@ async fn project_titles_for(
 /// The name an install summary gives `v`: its project title where `titles`
 /// ([`project_titles_for`], plus any title the caller already resolved) knows
 /// it, else the platform's VERSION title as the last resort.
-fn summary_name(
+pub(super) fn summary_name(
     v: &ModVersion,
     titles: &std::collections::HashMap<(ModSource, String), String>,
 ) -> String {

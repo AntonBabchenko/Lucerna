@@ -924,10 +924,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 } | null, Error>(__TAURI_INVOKE("mods_last_update_check", { instanceId })),
 	/**
 	 *  Download + install a resource pack or shader version into an instance,
-	 *  recording it in the assets registry. No progress events yet (no UI
-	 *  callers), so a no-op progress sink is supplied.
+	 *  recording it in the assets registry under the pack's project title
+	 *  (`pack_title`) — the name the Installed list, the journal and the toasts
+	 *  show — and return the recorded row. No progress events yet, so a no-op
+	 *  progress sink is supplied.
 	 */
-	assetInstall: (instanceId: string, version: ModVersion_Deserialize, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("asset_install", { instanceId, version, kind })),
+	assetInstall: (instanceId: string, version: ModVersion_Deserialize, kind: ContentKind) => typedError<InstalledAsset, Error>(__TAURI_INVOKE("asset_install", { instanceId, version, kind })),
 	/**
 	 *  The Installed list of resource packs or shaders: the per-instance assets
 	 *  registry reconciled with the pack folder (a hand-placed zip adopted, a row

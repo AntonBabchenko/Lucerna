@@ -1,8 +1,9 @@
 <script lang="ts">
-  // Under a Minecraft version picker that shows no version: why, said as what it is. The list is
-  // the page's (`createMcVersions`): loading on first run, failed (the Overview's sentence, with
-  // Reload, since reopening the dialog or the tab loads nothing), loaded but empty, or holding
-  // only snapshots. The host renders this only while its picker shows no version.
+  // Under a Minecraft version picker whose list offers no version: why, said as what it is. The
+  // list is the page's (`createMcVersions`): loading on first run, failed (the Overview's sentence,
+  // with Reload, since reopening the dialog or the tab loads nothing), loaded but empty, or holding
+  // only snapshots. The host renders this only while the list offers no version to pick — a picker
+  // that edits a saved version (the Settings tab) still shows that one meanwhile.
   //
   // The keyboard user keeps a place: while a reload runs, the failure and its Reload stay (the
   // button says it is busy instead of leaving), and when a reload succeeds and this goes away,
