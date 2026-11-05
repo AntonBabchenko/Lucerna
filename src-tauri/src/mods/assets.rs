@@ -106,6 +106,72 @@ pub async fn remove(instance_root: &Path, kind: ContentKind, filename: &str) -> 
     write_all(instance_root, &items).await
 }
 
+/// Repair rows whose `name` is a platform VERSION title instead of the pack's
+/// project title. Every platform install before 2026-11 recorded
+/// `ModVersion.name` — Modrinth's version title («26.2» for a project that
+/// numbers its versions) or CurseForge's file display name.
+///
+/// The twin of [`crate::mods::installed::backfill_display_names`] over this
+/// registry, with its contract: `resolve` maps `(source, project_id)` to a
+/// project title from what the caller can read OFFLINE (the command layer
+/// passes a cache-only resolver); only platform rows are offered — a manual
+/// pack's file-derived name is all that is known about it; a resolved row is
+/// overwritten unconditionally, the project summary being the authority on its
+/// name; nothing is written when nothing changed.
+///
+/// The registry lock is not held across `resolve`, the caller's future: the
+/// rows are re-read under it afterwards, so a row added meanwhile survives.
+pub async fn backfill_display_names<F, Fut>(instance_root: &Path, resolve: F) -> Result<(), Error>
+where
+    F: FnOnce(Vec<(ModSource, String)>) -> Fut,
+    Fut: std::future::Future<Output = std::collections::HashMap<(ModSource, String), String>>,
+{
+    let guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let items = list_all(instance_root).await?;
+    drop(guard);
+    // Deduplicated: a pack's resource and shader rows, or two files of one
+    // project, are asked for once. Sorted for a deterministic resolver input.
+    let mut wanted: Vec<(ModSource, String)> = items
+        .into_iter()
+        .filter_map(|a| Some((a.source?, a.project_id?)))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    wanted.sort_by(|a, b| a.1.cmp(&b.1));
+    let names = resolve(wanted).await;
+    let _guard = registry_lock::lock(&registry_path(instance_root)).await;
+    let mut items = list_all(instance_root).await?;
+    if apply_display_names(&mut items, &names) {
+        write_all(instance_root, &items).await?;
+    }
+    Ok(())
+}
+
+/// Pure half of [`backfill_display_names`]: names every platform row the
+/// resolver answered for, and says whether any changed — the caller writes
+/// only then, so a steady registry costs no write.
+pub(crate) fn apply_display_names(
+    items: &mut [InstalledAsset],
+    names: &std::collections::HashMap<(ModSource, String), String>,
+) -> bool {
+    let mut changed = false;
+    for a in items.iter_mut() {
+        let (Some(source), Some(pid)) = (a.source, a.project_id.clone()) else {
+            continue;
+        };
+        if let Some(name) = names.get(&(source, pid)) {
+            if a.name != *name {
+                a.name = name.clone();
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// The Installed list of one kind: the registry reconciled with the pack
 /// folder, and the unpacked pack folders in it (`mods::asset_folder`).
 ///
@@ -356,6 +422,178 @@ mod tests {
             version_number: Some("1.0".into()),
             installed_at: "2026-06-04T00:00:00+00:00".into(),
         }
+    }
+
+    // ── display-name backfill ────────────────────────────────────────────
+
+    type Names = std::collections::HashMap<(ModSource, String), String>;
+
+    /// A platform row named after its version, as every install before the fix.
+    fn versioned(filename: &str, project_id: &str, version_title: &str) -> InstalledAsset {
+        InstalledAsset {
+            project_id: Some(project_id.into()),
+            name: version_title.into(),
+            ..sample(ContentKind::ResourcePack, filename)
+        }
+    }
+
+    fn manual(filename: &str) -> InstalledAsset {
+        InstalledAsset {
+            source: None,
+            project_id: None,
+            version_id: None,
+            version_number: None,
+            name: crate::mods::asset_folder::zip_stem(filename).to_string(),
+            ..sample(ContentKind::ResourcePack, filename)
+        }
+    }
+
+    async fn seed(root: &Path, rows: Vec<InstalledAsset>) {
+        let _guard = registry_lock::lock(&registry_path(root)).await;
+        write_all(root, &rows).await.unwrap();
+    }
+
+    fn name_of(rows: &[InstalledAsset], filename: &str) -> Option<String> {
+        rows.iter()
+            .find(|a| a.filename == filename)
+            .map(|a| a.name.clone())
+    }
+
+    #[tokio::test]
+    async fn backfill_names_a_platform_row_after_its_project() {
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), vec![versioned("FBG.zip", "fbg", "26.2")]).await;
+
+        backfill_display_names(td.path(), |wanted| async move {
+            wanted
+                .into_iter()
+                .map(|k| (k, "Fast Better Grass".to_string()))
+                .collect()
+        })
+        .await
+        .unwrap();
+
+        let after = list_all(td.path()).await.unwrap();
+        assert_eq!(
+            name_of(&after, "FBG.zip").as_deref(),
+            Some("Fast Better Grass")
+        );
+    }
+
+    /// A cold cache degrades to a no-op: never a worse name.
+    #[tokio::test]
+    async fn backfill_leaves_a_row_the_resolver_does_not_know() {
+        let td = tempfile::tempdir().unwrap();
+        seed(td.path(), vec![versioned("FBG.zip", "fbg", "26.2")]).await;
+
+        backfill_display_names(td.path(), |_| async { Names::new() })
+            .await
+            .unwrap();
+
+        let after = list_all(td.path()).await.unwrap();
+        assert_eq!(name_of(&after, "FBG.zip").as_deref(), Some("26.2"));
+    }
+
+    /// A manual pack is never offered to the resolver — its file-derived name
+    /// is all that is known — and the platform row beside it is, once.
+    #[tokio::test]
+    async fn backfill_asks_for_platform_rows_only_and_each_project_once() {
+        let td = tempfile::tempdir().unwrap();
+        let mut shader = versioned("FBG-shader.zip", "fbg", "26.2");
+        shader.kind = ContentKind::Shader;
+        seed(
+            td.path(),
+            vec![
+                versioned("FBG.zip", "fbg", "26.2"),
+                shader,
+                manual("Mine.zip"),
+            ],
+        )
+        .await;
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let rec = asked.clone();
+
+        backfill_display_names(td.path(), |wanted| {
+            rec.lock().unwrap().push(wanted.clone());
+            async move {
+                wanted
+                    .into_iter()
+                    .map(|k| (k, "Fast Better Grass".to_string()))
+                    .collect()
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            asked.lock().unwrap().as_slice(),
+            [vec![(ModSource::Modrinth, "fbg".to_string())]]
+        );
+        let after = list_all(td.path()).await.unwrap();
+        assert_eq!(name_of(&after, "Mine.zip").as_deref(), Some("Mine"));
+        assert_eq!(
+            name_of(&after, "FBG-shader.zip").as_deref(),
+            Some("Fast Better Grass"),
+            "both kinds are repaired"
+        );
+    }
+
+    /// Every Installed-list read runs this: a steady registry is not rewritten.
+    #[tokio::test]
+    async fn backfill_does_not_rewrite_an_unchanged_registry() {
+        let td = tempfile::tempdir().unwrap();
+        seed(
+            td.path(),
+            vec![versioned("FBG.zip", "fbg", "Fast Better Grass")],
+        )
+        .await;
+        let path = registry_path(td.path());
+        let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+
+        backfill_display_names(td.path(), |wanted| async move {
+            wanted
+                .into_iter()
+                .map(|k| (k, "Fast Better Grass".to_string()))
+                .collect()
+        })
+        .await
+        .unwrap();
+
+        let after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(before, after, "an unchanged registry must not be rewritten");
+    }
+
+    /// The resolver is the caller's future: the registry is not held across
+    /// it, and a pack installed while it ran keeps its row.
+    #[tokio::test]
+    async fn backfill_keeps_a_row_added_while_the_resolver_ran() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        seed(root, vec![versioned("FBG.zip", "fbg", "26.2")]).await;
+
+        let backfill = backfill_display_names(root, |wanted| async move {
+            add(root, sample(ContentKind::Shader, "Late.zip"))
+                .await
+                .unwrap();
+            wanted
+                .into_iter()
+                .map(|k| (k, "Fast Better Grass".to_string()))
+                .collect::<Names>()
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), backfill)
+            .await
+            .expect("backfill must not hold the registry across the resolver")
+            .unwrap();
+
+        let after = list_all(root).await.unwrap();
+        assert_eq!(
+            name_of(&after, "FBG.zip").as_deref(),
+            Some("Fast Better Grass")
+        );
+        assert!(
+            name_of(&after, "Late.zip").is_some(),
+            "the row added while the resolver ran was erased"
+        );
     }
 
     #[tokio::test]
