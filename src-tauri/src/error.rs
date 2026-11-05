@@ -471,6 +471,19 @@ pub enum Error {
     #[error("Instance directory I/O error at {path}: {details}")]
     ModsInstancePath { path: String, details: String },
 
+    /// A content root (`mods/`, `saves/`, `options.txt`, a registry file, …)
+    /// is a link — a symlink, or a junction on Windows — whose target is
+    /// missing: an unplugged drive, a deleted or moved folder. Refused rather
+    /// than read as empty, which would drop the instance's content. Both paths
+    /// are shown as the user reads them (`content_root::display`); `is_file`
+    /// when the root is a file (`options.txt`, a registry), not a folder.
+    #[error("{path} links to {target}, which is missing")]
+    LinkTargetMissing {
+        path: String,
+        target: String,
+        is_file: bool,
+    },
+
     /// An entry of a resource-pack or shader folder is a link (a symlink, or a
     /// junction on Windows): the launcher neither deletes nor recycles through
     /// one — the user removes it in the file manager.
