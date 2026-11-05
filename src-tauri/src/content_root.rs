@@ -210,7 +210,8 @@ pub(crate) mod test_links {
     /// Both sides canonicalized: temp paths differ by 8.3 short names on
     /// Windows and by `/private` on macOS.
     pub fn same_dir(a: &Path, b: &Path) -> bool {
-        dunce::canonicalize(a).unwrap() == dunce::canonicalize(b).unwrap()
+        crate::pathsafe::ResolvedPath::resolve(a).unwrap()
+            == crate::pathsafe::ResolvedPath::resolve(b).unwrap()
     }
 }
 

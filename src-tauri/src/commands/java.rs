@@ -38,10 +38,18 @@ pub async fn java_detect(app: tauri::AppHandle, refresh: bool) -> Result<Vec<Det
     }
     let jres = crate::paths::jres_dir(&app).map_err(|e| Error::io("<jres_dir>", e))?;
     let found = tokio::task::spawn_blocking(move || {
-        // `jres/` may not exist yet (nothing installed). Then exclude the raw
-        // path: nothing can be found under a directory that is not there.
-        let exclude = dunce::canonicalize(&jres).unwrap_or(jres);
-        crate::java::detect::collect(&crate::java::detect::default_roots(), &exclude)
+        // `jres/` may not exist yet (nothing installed): then nothing can be
+        // found under it and there is nothing to exclude.
+        let exclude = match crate::pathsafe::ResolvedPath::resolve(&jres) {
+            Ok(resolved) => Some(resolved),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                // Lucerna's own runtimes may then be listed as found Java too.
+                crate::diag!("[java] cannot resolve {}: {e}", jres.display());
+                None
+            }
+        };
+        crate::java::detect::collect(&crate::java::detect::default_roots(), exclude.as_ref())
     })
     .await
     .map_err(|e| Error::io("<java_detect>", e))?;

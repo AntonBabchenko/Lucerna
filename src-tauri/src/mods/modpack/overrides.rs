@@ -260,7 +260,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
         path: mc_dir.display().to_string(),
         details: e.to_string(),
     })?;
-    let mc_dir_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::Io {
+    let mc_dir_canon = crate::pathsafe::ResolvedPath::resolve(&mc_dir).map_err(|e| Error::Io {
         path: mc_dir.display().to_string(),
         details: e.to_string(),
     })?;
@@ -387,11 +387,12 @@ pub async fn extract<F: FnMut(u32, u32)>(
                         path: parent.display().to_string(),
                         details: e.to_string(),
                     })?;
-                    let parent_canon = dunce::canonicalize(parent).map_err(|e| Error::Io {
-                        path: parent.display().to_string(),
-                        details: e.to_string(),
-                    })?;
-                    if !parent_canon.starts_with(&mc_dir_canon) {
+                    let parent_canon =
+                        crate::pathsafe::ResolvedPath::resolve(parent).map_err(|e| Error::Io {
+                            path: parent.display().to_string(),
+                            details: e.to_string(),
+                        })?;
+                    if !parent_canon.is_within(&mc_dir_canon) {
                         return Err(Error::ModpackOverridesPathEscape { entry: rel });
                     }
                 }
@@ -462,6 +463,39 @@ mod tests {
         .unwrap();
         let target = inst.path().join(".minecraft/config/foo.toml");
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"k=v");
+    }
+
+    /// A data root long enough that `.minecraft` stays under Windows' MAX_PATH
+    /// (260) while a pack's deep `config/` file passes it. Both paths must be
+    /// resolved the same way for the inside-the-instance check: `dunce` keeps
+    /// `\\?\` on the long one only, which once refused RLCraft on a 161-character
+    /// root as an "escape".
+    #[tokio::test]
+    async fn extracts_a_file_whose_parent_passes_max_path() {
+        let deep = format!(
+            "overrides/config/{}/{}/layout.json",
+            "b".repeat(40),
+            "c".repeat(40)
+        );
+        let zip = make_zip(&[(deep.as_str(), b"{}")]);
+        let tmp = TempDir::new().unwrap();
+        let inst = tmp.path().join("a".repeat(150));
+        assert!(
+            inst.join(".minecraft").as_os_str().len() < 260,
+            "the root stays short"
+        );
+        extract(
+            &zip,
+            &inst,
+            &ProtectedWorlds::default(),
+            &SyncedFiles::default(),
+            |_, _| {},
+        )
+        .await
+        .expect("a long path inside the instance is not an escape");
+        let target = inst.join(".minecraft").join(&deep["overrides/".len()..]);
+        assert!(target.as_os_str().len() > 260, "the file's path is long");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"{}");
     }
 
     #[tokio::test]

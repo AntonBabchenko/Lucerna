@@ -145,15 +145,24 @@ fn describe(home: &Path, source: DetectSource) -> Option<DetectedJava> {
 }
 
 /// Every Java under `roots`, each home once, none under `exclude` (Lucerna's
-/// own `jres/`, which the UI offers as "Lucerna's Java").
-pub fn collect(roots: &Roots, exclude: &Path) -> Vec<DetectedJava> {
+/// own `jres/`, which the UI offers as "Lucerna's Java"; `None` when it does not
+/// exist).
+pub fn collect(
+    roots: &Roots,
+    exclude: Option<&crate::pathsafe::ResolvedPath>,
+) -> Vec<DetectedJava> {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut out = Vec::new();
     let mut consider = |home: &Path, source: DetectSource| {
         let Ok(home) = dunce::canonicalize(home) else {
             return;
         };
-        if home.starts_with(exclude) || !seen.insert(home.clone()) {
+        // `home` is dunce-resolved because the UI shows it; compare a
+        // `ResolvedPath` of it against `exclude`, resolved the same way.
+        let ours = exclude.is_some_and(|ours| {
+            crate::pathsafe::ResolvedPath::resolve(&home).is_ok_and(|h| h.is_within(ours))
+        });
+        if ours || !seen.insert(home.clone()) {
             return;
         }
         if let Some(found) = describe(&home, source) {
@@ -315,7 +324,7 @@ mod tests {
             bin_dirs: vec![],
             parents: vec![(jvm.clone(), DetectSource::KnownDir)],
         };
-        let found = collect(&roots, &t.path().join("jres"));
+        let found = collect(&roots, None);
         assert_eq!(found.len(), 2, "{found:?}");
         let jdk21 = found.iter().find(|j| j.major == Some(21)).unwrap();
         assert_eq!(
@@ -342,7 +351,7 @@ mod tests {
             bin_dirs: vec![stub.join("bin")],
             parents: vec![(t.path().to_path_buf(), DetectSource::KnownDir)],
         };
-        assert!(collect(&roots, &t.path().join("jres")).is_empty());
+        assert!(collect(&roots, None).is_empty());
     }
 
     #[test]
@@ -358,8 +367,8 @@ mod tests {
             parents: vec![(jres.clone(), DetectSource::KnownDir)],
             ..Roots::default()
         };
-        let exclude = dunce::canonicalize(&jres).unwrap();
-        assert!(collect(&roots, &exclude).is_empty());
+        let exclude = crate::pathsafe::ResolvedPath::resolve(&jres).unwrap();
+        assert!(collect(&roots, Some(&exclude)).is_empty());
     }
 
     #[test]
@@ -370,7 +379,7 @@ mod tests {
             bin_dirs: vec![home.join("bin"), t.path().join("nothing-here")],
             ..Roots::default()
         };
-        let found = collect(&roots, &t.path().join("jres"));
+        let found = collect(&roots, None);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].source, DetectSource::Path);
         assert_eq!(found[0].major, Some(17));
@@ -389,6 +398,6 @@ mod tests {
             bin_dirs: vec![bin],
             parents: vec![],
         };
-        assert_eq!(collect(&roots, &t.path().join("jres")).len(), 1);
+        assert_eq!(collect(&roots, None).len(), 1);
     }
 }

@@ -102,15 +102,17 @@ pub async fn install_asset_local(
             path: parent.display().to_string(),
             details: e.to_string(),
         })?;
-    let mc_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::ModsInstancePath {
-        path: mc_dir.display().to_string(),
-        details: e.to_string(),
-    })?;
-    let parent_canon = dunce::canonicalize(parent).map_err(|e| Error::ModsInstancePath {
-        path: parent.display().to_string(),
-        details: e.to_string(),
-    })?;
-    if !parent_canon.starts_with(&mc_canon) {
+    let mc_canon =
+        crate::pathsafe::ResolvedPath::resolve(&mc_dir).map_err(|e| Error::ModsInstancePath {
+            path: mc_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    let parent_canon =
+        crate::pathsafe::ResolvedPath::resolve(parent).map_err(|e| Error::ModsInstancePath {
+            path: parent.display().to_string(),
+            details: e.to_string(),
+        })?;
+    if !parent_canon.is_within(&mc_canon) {
         return Err(Error::ModpackOverridesPathEscape { entry: rel });
     }
     // A hand-installed pack exists nowhere else, so it is never linked — but it

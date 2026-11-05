@@ -383,8 +383,8 @@ fn overlap(source_path: &Path, target_mc: &Path, rel: &str) -> Result<(), Refusa
         rel: rel.into(),
         reason: format!("{}: {why}", path.display()),
     };
-    let source =
-        dunce::canonicalize(source_path).map_err(|e| unreadable(source_path, e.to_string()))?;
+    let source = crate::pathsafe::ResolvedPath::resolve(source_path)
+        .map_err(|e| unreadable(source_path, e.to_string()))?;
     let mut existing = join_rel(target_mc, rel);
     let mut missing: Vec<std::ffi::OsString> = Vec::new();
     loop {
@@ -399,12 +399,12 @@ fn overlap(source_path: &Path, target_mc: &Path, rel: &str) -> Result<(), Refusa
         missing.push(name.to_os_string());
         existing = parent.to_path_buf();
     }
-    let mut target =
-        dunce::canonicalize(&existing).map_err(|e| unreadable(&existing, e.to_string()))?;
+    let mut target = crate::pathsafe::ResolvedPath::resolve(&existing)
+        .map_err(|e| unreadable(&existing, e.to_string()))?;
     for seg in missing.iter().rev() {
-        target.push(seg);
+        target = target.join_unresolved(seg);
     }
-    if target.starts_with(&source) || source.starts_with(&target) {
+    if target.is_within(&source) || source.is_within(&target) {
         return Err(Refusal::Overlap { rel: rel.into() });
     }
     Ok(())

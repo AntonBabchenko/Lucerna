@@ -9,8 +9,51 @@
 //! OS save dialog — but the dialog lives in the frontend, so what the command
 //! actually receives is a string from the webview, and the guard is written
 //! for the case where that string was not the user's choice at all.
+//!
+//! [`ResolvedPath`] is a path resolved on disk for comparing with another one —
+//! inside, overlapping, equal.
 
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+
+/// A path resolved on disk, comparable only with another `ResolvedPath`: is
+/// one inside the other, do they overlap, are they the same.
+///
+/// Both sides of a comparison MUST be resolved the same way, so the type has
+/// no way to compare with a plain `Path`. It resolves with
+/// `std::fs::canonicalize`, never `dunce`: on Windows std answers in one
+/// verbatim form (`\\?\C:\…`), while dunce strips that prefix only when it can
+/// (a path under MAX_PATH, a local drive, no reserved name or trailing dot). A
+/// short root and a long child resolved through dunce never share a prefix, so
+/// `starts_with` said "outside" and a pack import on a long data root was
+/// refused as a path escape (v0.29 regression pass, F1;
+/// `tests/structural_no_dunce_compare.rs`).
+///
+/// It is for comparing, never for showing: the verbatim form is not what a
+/// user expects to read, so it offers no way out as a path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedPath(PathBuf);
+
+impl ResolvedPath {
+    /// `std::fs::canonicalize`: every error is the caller's to discriminate
+    /// (`NotFound` is the usual "nothing there").
+    pub fn resolve(path: &Path) -> std::io::Result<Self> {
+        std::fs::canonicalize(path).map(Self)
+    }
+
+    /// `self` is `root` or inside it, component by component (`C:\Data` holds
+    /// `C:\Data\Sub` but not `C:\DataOther`).
+    pub fn is_within(&self, root: &ResolvedPath) -> bool {
+        self.0.starts_with(&root.0)
+    }
+
+    /// `self` extended by a name that does not exist yet. A plain file name
+    /// is already in resolved form; a separator or `..` inside it is refused
+    /// by every caller's own segment checks before it gets here.
+    pub fn join_unresolved(&self, segment: &OsStr) -> Self {
+        Self(self.0.join(segment))
+    }
+}
 
 /// True iff `name` is a Windows reserved device name (case-insensitive):
 /// `CON`/`PRN`/`AUX`/`NUL` and `COM1`..`COM9` / `LPT1`..`LPT9` (`COM0`/`LPT0`

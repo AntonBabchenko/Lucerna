@@ -475,15 +475,17 @@ pub async fn install_asset(
         })?;
     // Defense in depth: the canonical parent must stay inside `.minecraft/`
     // (catches symlink-based escapes the string check cannot see).
-    let mc_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::ModsInstancePath {
-        path: mc_dir.display().to_string(),
-        details: e.to_string(),
-    })?;
-    let parent_canon = dunce::canonicalize(parent).map_err(|e| Error::ModsInstancePath {
-        path: parent.display().to_string(),
-        details: e.to_string(),
-    })?;
-    if !parent_canon.starts_with(&mc_canon) {
+    let mc_canon =
+        crate::pathsafe::ResolvedPath::resolve(&mc_dir).map_err(|e| Error::ModsInstancePath {
+            path: mc_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    let parent_canon =
+        crate::pathsafe::ResolvedPath::resolve(parent).map_err(|e| Error::ModsInstancePath {
+            path: parent.display().to_string(),
+            details: e.to_string(),
+        })?;
+    if !parent_canon.is_within(&mc_canon) {
         return Err(Error::ModpackOverridesPathEscape {
             entry: install_path.to_string(),
         });
@@ -596,21 +598,29 @@ pub fn safe_asset_remove_path(
     // Defense in depth (mirrors install_asset): the canonical parent must stay
     // inside `.minecraft/`, catching symlink-based escapes the string checks
     // cannot see (e.g. a symlink under shaderpacks/ redirecting the delete out
-    // of the instance). Only canonicalize when the parent actually exists — if
-    // the asset dir is absent there is nothing to remove and remove_file will
-    // no-op, so an absent dir must not be treated as an escape.
+    // of the instance). An absent asset dir is the one case that skips the
+    // check: there is nothing to remove, and remove_file will no-op. Resolving
+    // it tells "absent" (NotFound) apart from "could not read", which refuses —
+    // `exists()` would have answered false for both.
     if let Some(parent) = dest.parent() {
-        if parent.exists() {
-            let mc_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::ModsInstancePath {
-                path: mc_dir.display().to_string(),
-                details: e.to_string(),
-            })?;
-            let parent_canon =
-                dunce::canonicalize(parent).map_err(|e| Error::ModsInstancePath {
+        let parent_canon = match crate::pathsafe::ResolvedPath::resolve(parent) {
+            Ok(resolved) => Some(resolved),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(Error::ModsInstancePath {
                     path: parent.display().to_string(),
                     details: e.to_string(),
-                })?;
-            if !parent_canon.starts_with(&mc_canon) {
+                })
+            }
+        };
+        if let Some(parent_canon) = parent_canon {
+            let mc_canon = crate::pathsafe::ResolvedPath::resolve(&mc_dir).map_err(|e| {
+                Error::ModsInstancePath {
+                    path: mc_dir.display().to_string(),
+                    details: e.to_string(),
+                }
+            })?;
+            if !parent_canon.is_within(&mc_canon) {
                 return Err(Error::ModpackOverridesPathEscape {
                     entry: filename.to_string(),
                 });
