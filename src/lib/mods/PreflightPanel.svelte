@@ -6,7 +6,7 @@
   import { tooltip } from '$lib/ui/tooltip';
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
   import { depNameOf } from '$lib/mods/dep-names.svelte';
-  import { hasBlocking, violationKey } from './preflight.svelte';
+  import { hasBlocking, manualPendingCount, violationKey } from './preflight.svelte';
   import {
     depDisplayName,
     isFixable,
@@ -103,7 +103,9 @@
   // titled «What stops the game» must not list them.
   const violations = $derived(report && hasBlocking(report) ? report.violations : []);
   const blocking = $derived(violations.length > 0);
-  const fixableCount = $derived(violations.filter(isFixable).length);
+  // Pack files still to download by hand: a missing dependency may be one of them (spec D10).
+  const manualPending = $derived(report ? manualPendingCount(report) > 0 : false);
+  const fixableCount = $derived(violations.filter((v) => isFixable(v, manualPending)).length);
   const showFixAll = $derived(!!onFixAll && fixableCount > 0);
   const showMigrate = $derived(!!onMigrate && migrateCount > 0);
 </script>
@@ -173,7 +175,7 @@
       >
         {#each violations as v, i (violationKey(v))}
           {@const key = violationKey(v)}
-          {@const action = violationAction(v)}
+          {@const action = violationAction(v, manualPending)}
           <!-- A platform mismatch has no automatic fix (spec §6.4): another build of THIS mod,
                as its row offers. -->
           {@const openOwn =
@@ -200,6 +202,11 @@
                 class="min-w-0 grow basis-72 text-sm text-primary"
                 data-testid="preflight-row-text">{violationMessage($t, v, nameOf(v))}</span
               >
+              {#if manualPending && v.kind === 'missing_required'}
+                <span class="basis-full text-xs text-muted" data-testid="preflight-row-maybe-manual"
+                  >{$t('modpacks.manual.gate.maybeManual')}</span
+                >
+              {/if}
               {#if hasActions}
                 <div
                   class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"

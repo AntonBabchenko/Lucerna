@@ -30,6 +30,11 @@ export function hasBlocking(report: PreflightReport): boolean {
   return report.violations.length > 0 && (report.pack_completion?.outstanding.length ?? 0) === 0;
 }
 
+/** Required pack files that still wait for a manual download (spec 2026-11-05 D10). */
+export function manualPendingCount(report: PreflightReport): number {
+  return report.manual_pending?.length ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Remediation helpers
 // ---------------------------------------------------------------------------
@@ -151,7 +156,8 @@ export type LaunchDecision =
 
 /**
  * Decide what the launch flow should do:
- * - `gate`    — blocking violations found; show the gate dialog.
+ * - `gate`    — blocking violations found, or pack files still to download by hand;
+ *               show the gate dialog.
  * - `launch`  — checked, nothing blocking.
  * - `unknown` — the check itself failed. Proceed, but say so.
  */
@@ -161,7 +167,7 @@ export function decideLaunch(
   if (preflightResult.status !== 'ok') {
     return { kind: 'unknown', error: preflightResult.error };
   }
-  return hasBlocking(preflightResult.data)
+  return hasBlocking(preflightResult.data) || manualPendingCount(preflightResult.data) > 0
     ? { kind: 'gate', report: preflightResult.data }
     : { kind: 'launch' };
 }

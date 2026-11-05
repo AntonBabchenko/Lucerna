@@ -1725,6 +1725,13 @@
     pending?.onAbort?.();
   }
 
+  // «Finish install…» (spec D10): no launch; the gate closes like Cancel, the dialog opens.
+  function onGateFinishInstall() {
+    const id = activeInstance?.id ?? null;
+    onGateCancel();
+    if (id) openManualDownloads(id);
+  }
+
   // Shared soft-gate for every launch path. Runs preLaunchCheck; when it surfaces
   // warnings (RAM over-commit / same-account), defers `proceed` behind the confirm
   // dialog (with an optional `onAbort` cleanup run only if the user cancels) and
@@ -2333,6 +2340,7 @@
       onFixAndLaunch={onGateFixAndLaunch}
       onLaunchAnyway={onGateLaunchAnyway}
       onCancel={onGateCancel}
+      onFinishInstall={onGateFinishInstall}
     />
   {/if}
   {#if syncFailedAsk}

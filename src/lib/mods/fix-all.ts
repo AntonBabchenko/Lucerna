@@ -11,7 +11,7 @@ import {
 import { updateMod } from '$lib/tasks/adapters/mod-install';
 import { depNameOf, depProjectOf } from './dep-names.svelte';
 import { enableModsUnguarded, modWriteReason } from './mod-ops.svelte';
-import { decideLaunch, hasBlocking, violationKey } from './preflight.svelte';
+import { decideLaunch, hasBlocking, manualPendingCount, violationKey } from './preflight.svelte';
 import { depDisplayName, type ViolationAction, violationAction } from './violation-view';
 
 // «Fix all» on the «What stops the game» panel and «Fix and launch» at the Play
@@ -64,8 +64,9 @@ export async function fixAll(instanceId: string, report: PreflightReport): Promi
   // (plan A17) and the pack brings those files itself — installing them here
   // would put a second jar beside the one it fetches.
   if (!hasBlocking(report)) return { attempted: [], applied: [], reasons: [] };
+  const pending = manualPendingCount(report) > 0;
   const rows = (action: ViolationAction) =>
-    report.violations.filter((v) => violationAction(v) === action);
+    report.violations.filter((v) => violationAction(v, pending) === action);
   await enableDisabled(instanceId, rows('enable'), run);
   await installMissing(instanceId, rows('install'), run);
   await applyPlans(instanceId, rows('plan'), run);

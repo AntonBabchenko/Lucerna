@@ -96,14 +96,15 @@ export function violationMessage(t: Translate, v: DepViolation, dep: string): st
  * The automatic repair a violation has. `platform_mismatch` has none: it needs
  * another build of the mod itself or the migration plan, never an automatic fix
  * (spec §6.4). A disabled requirement whose jar the report does not name has
- * nothing to switch on.
+ * nothing to switch on. While pack files wait for a manual download, a missing dependency may be
+ * one of them: no automatic install, which could fetch another platform's copy (spec D10).
  */
-export function violationAction(v: DepViolation): ViolationAction {
+export function violationAction(v: DepViolation, manualPending = false): ViolationAction {
   switch (v.kind) {
     case 'required_disabled':
       return v.provider_sha1 ? 'enable' : 'none';
     case 'missing_required':
-      return 'install';
+      return manualPending ? 'none' : 'install';
     case 'version_out_of_range':
     case 'optional_out_of_range':
     case 'incompatible_installed':
@@ -114,8 +115,8 @@ export function violationAction(v: DepViolation): ViolationAction {
 }
 
 /** Counted by «Fix all»: a violation with an automatic repair. */
-export function isFixable(v: DepViolation): boolean {
-  return violationAction(v) !== 'none';
+export function isFixable(v: DepViolation, manualPending = false): boolean {
+  return violationAction(v, manualPending) !== 'none';
 }
 
 /**

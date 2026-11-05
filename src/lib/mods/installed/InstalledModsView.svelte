@@ -39,6 +39,7 @@
     createPreflight,
     hasBlocking,
     installMissing,
+    manualPendingCount,
     planVersionFix,
     remediatePickedVersion,
     violationKey,
@@ -800,6 +801,7 @@
       loader,
       mc: mcVersion,
       canChooseVersion: ownVersionOpener(row.installed) !== null,
+      manualPending: preflight.report ? manualPendingCount(preflight.report) > 0 : false,
     });
   }
 
