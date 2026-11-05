@@ -469,7 +469,8 @@ mod tests {
     /// (260) while a pack's deep `config/` file passes it. Both paths must be
     /// resolved the same way for the inside-the-instance check: `dunce` keeps
     /// `\\?\` on the long one only, which once refused RLCraft on a 161-character
-    /// root as an "escape".
+    /// root as an "escape". Red only on Windows, where the verbatim prefix
+    /// exists; elsewhere it pins that the long path still extracts.
     #[tokio::test]
     async fn extracts_a_file_whose_parent_passes_max_path() {
         let deep = format!(

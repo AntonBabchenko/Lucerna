@@ -224,6 +224,8 @@ fn declarations(zip: &mut Zip<'_>, found: Vec<ModAnnotation>) -> Result<LegacyAn
 
 /// Largest `META-INF/MANIFEST.MF` read. Real ones are a few KiB of digests.
 const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+/// Longest method code a class file may hold (JVMS §4.7.3: `code_length` < 65536).
+const MAX_CODE_BYTES: usize = 65_535;
 
 /// The `ModMetadata` classes a container assigns, 1.8–1.12.2 then ≤ 1.7.10.
 const MOD_METADATA_CLASSES: [&[u8]; 2] = [
@@ -387,6 +389,11 @@ fn code_attribute(body: &[u8]) -> Option<Code<'_>> {
     let mut c = Reader::new(body);
     c.skip(4)?;
     let len = usize::try_from(c.u4()?).ok()?;
+    // JVMS §4.7.3: 1..=65535 bytes. Anything else is no class a JVM loads, and
+    // a crafted multi-megabyte method would cost an allocation per instruction.
+    if len == 0 || len > MAX_CODE_BYTES {
+        return None;
+    }
     let bytes = c.take(len)?;
     let mut handlers = Vec::new();
     for _ in 0..c.u2()? {
@@ -443,7 +450,8 @@ impl<'a> ClassMethods<'a> {
     }
 
     /// Every String an `ldc`/`ldc_w` loads and the very next instruction stores
-    /// into `ModMetadata.modId` or `.version` — javac's `md.modId = "x"`. A pair
+    /// into `ModMetadata.modId` or `.version`, in the class's constructors —
+    /// javac's `md.modId = "x"`. A pair
     /// either of whose instructions is a jump target is skipped: its value
     /// depends on a branch (`md.modId = c ? "a" : "b"` ends in a jump onto the
     /// store). `None`: some method's code does not decode.
@@ -452,9 +460,13 @@ impl<'a> ClassMethods<'a> {
             mod_ids: Vec::new(),
             versions: Vec::new(),
         };
-        for code in self.methods.iter().filter_map(|m| m.code.as_ref()) {
+        // The constructor: where a container assigns the metadata FML reads
+        // (`super(new ModMetadata()); md.modId = …`). A store in another method
+        // may never run, or fill a second `ModMetadata`.
+        let constructors = self.methods.iter().filter(|m| m.name == b"<init>");
+        for code in constructors.filter_map(|m| m.code.as_ref()) {
             let insns = decode(code.bytes)?;
-            let mut targets = code.handlers.clone();
+            let mut targets: HashSet<usize> = code.handlers.iter().copied().collect();
             for insn in &insns {
                 targets.extend(branch_targets(code.bytes, insn)?);
             }

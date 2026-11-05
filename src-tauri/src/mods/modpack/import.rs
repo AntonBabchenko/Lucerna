@@ -1392,6 +1392,9 @@ fn failed_import_error(
                  {} could not be removed: {e}",
                 instance_root.display()
             );
+            // The cause rides as its English Display text, like
+            // `ModpackInstanceCreationFailed`'s details: the toast leads with the
+            // localized leftover sentence and shows this as the detail tail.
             Error::ModpackImportLeftover {
                 name: name.to_string(),
                 path: instance_root.display().to_string(),
