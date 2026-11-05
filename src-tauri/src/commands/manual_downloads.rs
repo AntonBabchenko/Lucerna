@@ -155,16 +155,12 @@ pub async fn manual_downloads_scan(
     } else {
         supply::apply(&ctx, kept).await.rows
     };
-    let mut out = Vec::new();
-    for r in rows {
-        match r {
-            SupplyRow::Unreadable { .. } => skipped += 1,
-            other => out.push(other),
-        }
-    }
+    // Only plan-stage unreadable files (still being written) are counted as
+    // skipped above; an Unreadable row here is a verified file that failed to
+    // land, and is returned with its reason.
     Ok(ScanReport {
         folder: shown,
-        rows: out,
+        rows,
         skipped_unreadable: skipped,
     })
 }
