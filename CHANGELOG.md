@@ -78,10 +78,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   with deep config folders such as RLCraft was refused as if a file tried to
   escape the profile. When an import fails now, its unfinished profile is
   removed instead of staying in the list.
-- **A mod that its own jar's coremod provides no longer counts as missing.**
-  On 1.12.2 and older, TNTUtils in RLCraft needs `tnt_utilities_core`, which
-  its jar registers itself; the profile read as unable to start, and the
-  pre-launch check listed the mod as missing.
+- **A requirement met by a coremod in the same jar no longer counts as
+  missing.** On 1.12.2 and older, TNTUtils in RLCraft needs
+  `tnt_utilities_core`, which its own jar registers; the profile read as unable
+  to start, and the pre-launch check listed the mod as missing.
 
 ### Security
 
