@@ -123,6 +123,7 @@ pub fn build_pack_origin(
         // pure (no archive access), so it always starts empty here.
         skipped_overrides: vec![],
         resolved_missing: Vec::new(),
+        manual_supplied: vec![],
         // Populated by the orchestrator after it scans the installed mods for
         // jars built for a loader family this instance cannot load.
         // build_pack_origin is pure (no disk access), so it starts empty.
@@ -143,6 +144,7 @@ pub fn build_pack_origin(
 /// - `skipped_overrides` — an apply deliberately never re-extracts the archive's
 ///   `overrides/`, so the oversized bundled files it skipped at import time are
 ///   still exactly where they were. The note stays true by construction.
+/// - `manual_supplied` — kept for entries the new version still lists.
 /// - `resolved_missing` — the user's "I installed a substitute for this blocked
 ///   mod" acknowledgments. `missing_mod_state` already self-heals these against
 ///   the live registry, so an entry that no longer applies is inert, not wrong.
@@ -159,6 +161,18 @@ pub(crate) fn with_carried_notes(
 ) -> PackOrigin {
     new_origin.skipped_overrides = old.skipped_overrides;
     new_origin.resolved_missing = old.resolved_missing;
+    // A supply note outlives an update only while its entry is still in the
+    // pack: the update set its file aside otherwise (spec §4.5).
+    let keys: std::collections::HashSet<String> = new_origin
+        .missing_mods
+        .iter()
+        .map(crate::mods::manual_downloads::state::entry_key)
+        .collect();
+    new_origin.manual_supplied = old
+        .manual_supplied
+        .into_iter()
+        .filter(|s| keys.contains(&s.key))
+        .collect();
     new_origin.inert_loader_jars = fresh_inert_loader_jars;
     new_origin
 }
@@ -1830,6 +1844,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true), installed("b", true)];
@@ -1851,6 +1866,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         // "b" no longer installed.
@@ -1873,6 +1889,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         // User added "z" manually.
@@ -1896,6 +1913,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
@@ -1919,6 +1937,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
@@ -1941,6 +1960,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let mut m = installed("ABC", true);
@@ -2036,6 +2056,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }
@@ -2128,6 +2149,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let mut wanted = origin.files[0].clone();
@@ -2168,6 +2190,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
@@ -2253,6 +2276,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
@@ -2311,6 +2335,34 @@ mod tests {
         let mut o = origin_with(vec![]);
         o.missing_mods = missing;
         o
+    }
+
+    #[test]
+    fn carried_notes_keep_only_the_supply_rows_whose_entry_is_still_there() {
+        use crate::mods::installed::{ManualSupplied, SupplyVerified};
+        use crate::mods::modpack::schema::ManualFileMeta;
+        let mut old = origin_with_missing(vec![]);
+        old.manual_supplied = vec![
+            ManualSupplied {
+                key: "file:5".into(),
+                sha1: "aa".into(),
+                verified: SupplyVerified::Md5,
+            },
+            ManualSupplied {
+                key: "file:9".into(),
+                sha1: "bb".into(),
+                verified: SupplyVerified::User,
+            },
+        ];
+        let mut kept = missing_entry(None, "x.jar", "X", Some("1"));
+        kept.meta = ManualFileMeta {
+            file_id: Some("5".into()),
+            ..ManualFileMeta::default()
+        };
+        let new_origin = origin_with_missing(vec![kept]);
+        let carried = with_carried_notes(new_origin, old, vec![]);
+        assert_eq!(carried.manual_supplied.len(), 1);
+        assert_eq!(carried.manual_supplied[0].key, "file:5");
     }
 
     #[test]
@@ -3081,6 +3133,7 @@ mod tests {
                 mod_name: "Blocked Mod".into(),
                 sha1: "aabb".into(),
             }],
+            manual_supplied: vec![],
             inert_loader_jars: vec![InertLoaderJar {
                 filename: "fabric-only.jar".into(),
                 detected_loader: "Fabric".into(),
@@ -3101,6 +3154,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: vec![],
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }

@@ -238,6 +238,10 @@ pub struct PackOrigin {
     /// feature load with an empty list.
     #[serde(default)]
     pub resolved_missing: Vec<ResolvedMissing>,
+    /// Facts about supplied files the bytes can't tell (spec §3.2).
+    /// `#[serde(default)]` so registry files written before it load empty.
+    #[serde(default)]
+    pub manual_supplied: Vec<ManualSupplied>,
     /// Installed jars built for a loader family this instance cannot load
     /// (inert — e.g. a Fabric jar on a Forge instance). `#[serde(default)]`
     /// so pre-feature registry files load with an empty list.
@@ -260,6 +264,30 @@ pub struct ResolvedMissing {
     /// SHA-1 (lowercased) of the installed substitute jar. The entry reverts
     /// to unresolved if this sha1 leaves the registry (self-healing).
     pub sha1: String,
+}
+
+/// How a `missing_mods` entry was closed when its bytes alone can't say so
+/// (spec 2026-11-05 §3.2).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SupplyVerified {
+    /// The file matched the entry's published md5; its sha1 is recorded so
+    /// everything downstream keys on sha1.
+    Md5,
+    /// The entry published no hash; the user chose this file (spec D8).
+    User,
+}
+
+/// A file supplied for a `missing_mods` entry, recorded only when the bytes
+/// can't tell (an md5 match, or the user's unverified choice). Carried across
+/// pack updates while its entry is still there.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+pub struct ManualSupplied {
+    /// `manual_downloads::state::entry_key` of the entry this closes.
+    pub key: String,
+    /// SHA-1 (lowercased) of the file placed for it.
+    pub sha1: String,
+    pub verified: SupplyVerified,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
@@ -1655,6 +1683,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            manual_supplied: vec![],
             inert_loader_jars: vec![],
         }
     }
@@ -1759,6 +1788,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                manual_supplied: vec![],
                 inert_loader_jars: vec![],
             }),
         };
@@ -1894,6 +1924,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                manual_supplied: vec![],
                 inert_loader_jars: vec![],
             }),
         };

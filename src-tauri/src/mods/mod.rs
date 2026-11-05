@@ -31,6 +31,7 @@ pub mod install_batch;
 pub mod installed;
 pub mod jar_scan_cache;
 pub mod local;
+pub mod manual_downloads;
 pub mod mc_compat;
 pub mod migration;
 pub mod mod_annotation;
