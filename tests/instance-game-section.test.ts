@@ -522,6 +522,46 @@ describe('the Game section', () => {
     expect(screen.getByText(/no release versions available/i)).toBeTruthy();
   });
 
+  // The field edits a saved value: it shows it whether or not the list has it.
+  const offline = {
+    versions: [],
+    versionList: {
+      loading: false,
+      failure: "Couldn't load the Minecraft version list. Offline.",
+      reload: () => {},
+    },
+  };
+  const mcField = () => screen.getByRole('combobox', { name: 'Minecraft version' });
+  const optionNames = () => screen.getAllByRole('option').map((o) => o.textContent?.trim());
+
+  it('offline, the Minecraft version field still shows the instance version', () => {
+    render(InstanceGameSection, { props: props(offline) });
+    expect(mcField().textContent).toContain('1.20.1');
+    expect(screen.getByText(/Couldn't load the Minecraft version list/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+  });
+
+  it('offline, the list offers the instance version, and picking it writes nothing', async () => {
+    render(InstanceGameSection, { props: props(offline) });
+    await pickMc('1.20.1');
+    await flush();
+    expect(m.changeInstanceMc).not.toHaveBeenCalled();
+  });
+
+  it('an instance on a snapshot shows it with snapshots hidden, where the list has it', async () => {
+    const snapshot: VersionEntry = { ...makeVersion('24w01a'), version_type: 'snapshot' };
+    render(InstanceGameSection, {
+      props: props({
+        instance: makeInstance({ mc_version: '24w01a' }),
+        versions: [makeVersion('1.21'), snapshot, makeVersion('1.20.1')],
+      }),
+    });
+    expect(mcField().textContent).toContain('24w01a');
+    expect(screen.queryByText(/no release versions available/i)).toBeNull();
+    await fireEvent.click(mcField());
+    expect(optionNames()).toEqual(['-- Choose Minecraft version --', '1.21', '24w01a', '1.20.1']);
+  });
+
   it("clears a refused change's message once the next change works", async () => {
     m.changeInstanceMc
       .mockResolvedValueOnce({ status: 'error', error: { kind: 'instance_busy' } })

@@ -253,7 +253,9 @@
     if (!reloadFocused) return;
     reloadFocused = false;
     await tick();
-    (document.getElementById(versionSelectId) ?? reloadBtn)?.focus();
+    // The field stays after a failure when it holds a version, so its presence
+    // does not say the reload worked: only a filled list does.
+    (versions.length > 0 ? document.getElementById(versionSelectId) : reloadBtn)?.focus();
   }
 
   function pickLoader(k: LoaderKind) {
@@ -298,12 +300,19 @@
   // Mirror the previous <option> markup: stable entries carry the
   // "(recommended)" suffix, non-stable show the bare version. Recomputed
   // whenever the fetched `versions` list changes.
-  const versionOptions = $derived(
-    versions.map((lv) => ({
+  //
+  // The field shows the version the picker holds even when the list does not
+  // have it (offline, or a pinned build the loader no longer offers): an entry
+  // of its own, last, bare — whether it is stable is not known.
+  const versionOptions = $derived.by(() => {
+    const options = versions.map((lv) => ({
       value: lv.version,
       label: lv.stable ? $t('instance.loader.recommended', { version: lv.version }) : lv.version,
-    })),
-  );
+    }));
+    if (shownVersion !== null && !options.some((o) => o.value === shownVersion))
+      options.push({ value: shownVersion, label: shownVersion });
+    return options;
+  });
 </script>
 
 <p id={groupLabelId} class="block text-xs uppercase text-secondary mb-1">
@@ -325,7 +334,7 @@
   {/each}
 </div>
 
-{#if shownLoader !== 'vanilla' && (versions.length > 0 || isLoadingVersions)}
+{#if shownLoader !== 'vanilla' && (versions.length > 0 || isLoadingVersions || shownVersion !== null)}
   <label class="block text-xs uppercase text-secondary mb-1" for={versionSelectId}>
     {$t('instance.loader.versionLabel')}
   </label>

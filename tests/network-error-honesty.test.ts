@@ -101,6 +101,38 @@ describe('the loader picker’s failed list', () => {
     await waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('combobox'));
   });
 
+  // The Settings tab edits a saved build (commit mode): it stays on screen while the list is out of reach.
+  const saved = { mc: '1.20.1', loader: 'fabric' as const, loaderVersion: '0.16.10' };
+
+  it('the Settings tab keeps the saved build on screen while the list cannot be loaded', async () => {
+    vi.mocked(commands.listFabricLoaders).mockReset().mockResolvedValueOnce({
+      status: 'error',
+      error: netFailure,
+    });
+    const onchange = vi.fn().mockResolvedValue(true);
+    render(LoaderPicker, { ...saved, onchange });
+    expect(await screen.findByRole('button', { name: 'Reload' })).toBeTruthy();
+    expect(screen.getByLabelText('Loader version').textContent).toContain('0.16.10');
+    await fireEvent.click(screen.getByLabelText('Loader version'));
+    expect(screen.getAllByRole('option').map((o) => o.textContent?.trim())).toEqual(['0.16.10']);
+    expect(onchange).not.toHaveBeenCalled();
+  });
+
+  it('a Reload that fails again keeps the focus on Reload, not on the saved build', async () => {
+    vi.mocked(commands.listFabricLoaders)
+      .mockReset()
+      .mockResolvedValueOnce({ status: 'error', error: netFailure })
+      .mockResolvedValueOnce({ status: 'error', error: netFailure });
+    render(LoaderPicker, { ...saved, onchange: vi.fn().mockResolvedValue(true) });
+    const reload = await screen.findByRole('button', { name: 'Reload' });
+    reload.focus();
+    await fireEvent.click(reload);
+    await waitFor(() => expect(commands.listFabricLoaders).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reload' })),
+    );
+  });
+
   it('a definitive answer offers no Reload', async () => {
     vi.mocked(commands.listQuiltLoaders).mockResolvedValue({
       status: 'error',
