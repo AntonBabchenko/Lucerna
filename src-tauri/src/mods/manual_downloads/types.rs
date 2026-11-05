@@ -16,10 +16,12 @@ pub enum SupplyRow {
         recorded: bool,
     },
     /// The same bytes were already in place (bookkeeping redone).
+    /// `recorded: false` when that bookkeeping could not be written.
     AlreadyThere {
         path: String,
         key: String,
         mod_name: String,
+        recorded: bool,
     },
     /// The pack's exact file, but another file holds its place (spec D9).
     NeedsReplace {

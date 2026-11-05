@@ -278,11 +278,12 @@ pub(crate) async fn place_one(
             existing,
         },
         Ok(Occupancy::Same) => {
-            bookkeeping(ctx, &pl).await;
+            let recorded = bookkeeping(ctx, &pl).await;
             SupplyRow::AlreadyThere {
                 path,
                 key,
                 mod_name,
+                recorded,
             }
         }
         Ok(Occupancy::Free) => {
@@ -794,6 +795,40 @@ mod tests {
             "a9993e364706816aba3e25717850c26c9cd0d89d"
         );
     }
+    #[tokio::test]
+    async fn an_already_placed_md5_file_that_cannot_be_noted_is_not_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        std::fs::write(root.join(".minecraft/mods/a.jar"), b"abc").unwrap();
+        let src = dir.path().join("dl.jar");
+        std::fs::write(&src, b"abc").unwrap();
+        let mut e = entry(None, Some("900150983cd24fb0d6963f7d28e17f72"), None);
+        e.size = 3.0;
+        e.filename = "a.jar".into();
+        // No pack record is written, so the note has nowhere to go.
+        let o = origin(vec![e]);
+        let st = state::statuses(&o, &[], &Default::default());
+        let ctx = Ctx {
+            instance_root: &root,
+            origin: &o,
+            installed: &[],
+            statuses: &st,
+        };
+        let applied = apply(&ctx, plan(&ctx, &[src.display().to_string()], None).await).await;
+        assert!(
+            matches!(
+                applied.rows[0],
+                SupplyRow::AlreadyThere {
+                    recorded: false,
+                    ..
+                }
+            ),
+            "{:?}",
+            applied.rows[0]
+        );
+    }
+
     #[tokio::test]
     async fn a_hashless_entry_takes_the_users_file_under_its_own_name() {
         let dir = tempfile::tempdir().unwrap();

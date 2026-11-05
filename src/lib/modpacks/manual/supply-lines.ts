@@ -23,8 +23,8 @@ function fileName(path: string): string {
 export function refusal(t: Translate, r: SupplyRow): string | null {
   switch (r.kind) {
     case 'added':
-      return r.recorded ? null : t('modpacks.manual.result.notRecorded');
     case 'already_there':
+      return r.recorded ? null : t('modpacks.manual.result.notRecorded');
     case 'needs_replace':
       return null;
     case 'other_version':
