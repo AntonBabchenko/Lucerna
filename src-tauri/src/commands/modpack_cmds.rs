@@ -284,7 +284,11 @@ pub async fn modpack_status(
             asset_present.insert(f.install_path.clone());
         }
     }
-    let mut st = crate::mods::modpack::import::compute_status(origin, &installed, &asset_present);
+    let on_disk =
+        crate::mods::manual_downloads::evidence::on_disk_shas(&inst_root, &origin, &installed)
+            .await;
+    let mut st =
+        crate::mods::modpack::import::compute_status(origin, &installed, &asset_present, &on_disk);
     // `compute_status` is pure; reading the completer's manifest needs the
     // instance directory, so it happens here.
     st.pack_completion = crate::mods::pack_completion::read(&inst_root);
