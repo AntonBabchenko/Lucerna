@@ -49,3 +49,23 @@ export function canCheck(e: ModpackUnresolvable): boolean {
 export function needsAttention(m: MissingModStatus): boolean {
   return m.entry.reason !== 'unsupported_type' && isUnresolvedMissingState(m.state);
 }
+
+/** A blank (or whitespace-only) published value is absent, exactly as Rust's `present` reads it. */
+function present(v: string | null | undefined): string | null {
+  const trimmed = v?.trim() ?? '';
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * The key the backend files this entry under (`manual_downloads::state::entry_key`): file id, then
+ * md5, then sha1, then name and file name. Must stay in step with it, `''` counting as absent.
+ */
+export function entryKey(e: ModpackUnresolvable): string {
+  const id = present(e.meta.file_id);
+  if (id !== null) return `file:${id}`;
+  const md5 = present(e.meta.md5);
+  if (md5 !== null) return `md5:${md5.toLowerCase()}`;
+  const sha1 = present(e.sha1);
+  if (sha1 !== null) return `sha1:${sha1.toLowerCase()}`;
+  return `name:${e.mod_name}|${e.filename.toLowerCase()}`;
+}

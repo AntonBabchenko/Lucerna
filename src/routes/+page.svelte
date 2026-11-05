@@ -160,6 +160,7 @@
   import { startupDialAllowed } from '$lib/settings/startup-network';
   import DataMoveHost from '$lib/settings/DataMoveHost.svelte';
   import ModOpsHost from '$lib/mods/ops/ModOpsHost.svelte';
+  import ManualDownloadsHost from '$lib/modpacks/manual/ManualDownloadsHost.svelte';
   import CloseConfirmHost from '$lib/close/CloseConfirmHost.svelte';
   import { nativeCloseLabels } from '$lib/close/close-copy';
   import { trayLabels, trayRefusalKey } from '$lib/tray/tray-copy';
@@ -2469,6 +2470,9 @@
      </main> so it paints above the imported-pack drawer that can ask (modals stack by DOM order);
      before the data-move and close hosts, which must stay on top of everything. -->
 <ModOpsHost activeInstanceId={activeInstance?.id ?? null} />
+<!-- Finish install: after ModOpsHost, above the Modpacks modal and the drawer it can be opened from;
+     before the data-move and close hosts. -->
+<ManualDownloadsHost />
 <!-- Near the end on purpose. Modals share one z-index and stack by DOM order (Modal.svelte), and
      the data-folder move is started from SettingsModal: its blocking dialog has to paint above
      everything already open. Self-gating like WhatsNewModal — it renders nothing until a move

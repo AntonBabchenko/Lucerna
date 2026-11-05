@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MissingModStatus, ModpackUnresolvable } from '$lib/ipc/bindings';
-import { entryLink, needsAttention } from '$lib/modpacks/manual/entry-view';
+import { entryKey, entryLink, needsAttention } from '$lib/modpacks/manual/entry-view';
 import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
 
 const base: ModpackUnresolvable = {
@@ -52,5 +52,16 @@ describe('needsAttention', () => {
   it('treats a user-chosen file as resolved', () => {
     expect(isUnresolvedMissingState('chosen_unverified')).toBe(false);
     expect(needsAttention({ entry: base, state: 'missing' })).toBe(true);
+  });
+});
+
+describe('entryKey', () => {
+  it('follows the backend order and reads a blank value as absent', () => {
+    expect(entryKey(base)).toBe('file:5');
+    const noId = { ...base, meta: { ...base.meta, file_id: '', md5: 'AB' } };
+    expect(entryKey(noId)).toBe('md5:ab');
+    const noMd5 = { ...noId, meta: { ...noId.meta, md5: '' }, sha1: 'CD' };
+    expect(entryKey(noMd5)).toBe('sha1:cd');
+    expect(entryKey({ ...noMd5, sha1: '', filename: 'SRP.jar' })).toBe('name:SRP|srp.jar');
   });
 });
