@@ -52,6 +52,7 @@ const defaultProps = {
   onFixAndLaunch: vi.fn(),
   onLaunchAnyway: vi.fn(),
   onCancel: vi.fn(),
+  onFinishInstall: vi.fn(),
 };
 
 afterEach(() => __resetDepNamesForTests());

@@ -557,6 +557,11 @@ describe('formatError', () => {
         pack_name: 'ATM9',
       },
       modpack_export_failed: { kind: 'modpack_export_failed', details: 'd' },
+      manual_downloads_folder_unreadable: {
+        kind: 'manual_downloads_folder_unreadable',
+        path: 'C:/Users/u/Downloads',
+        details: 'access denied',
+      },
       world_not_found: { kind: 'world_not_found', instance_id: 'i1', folder_name: 'world' },
       world_in_use: { kind: 'world_in_use', folder_name: 'world' },
       world_level_dat_missing: { kind: 'world_level_dat_missing', folder_name: 'world' },

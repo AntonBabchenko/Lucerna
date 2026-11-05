@@ -63,7 +63,8 @@
       {/if}
     </div>
     <div class="text-xs text-muted truncate">
-      {e.filename}{#if e.size > 0}&nbsp;· {formatSize($t, e.size)}{/if}
+      <!-- `size` crosses IPC as `number | null` (specta's f64); a missing or zero size is not shown. -->
+      {e.filename}{#if (e.size ?? 0) > 0}&nbsp;· {formatSize($t, e.size ?? 0)}{/if}
     </div>
     {#if !done}
       <div class="text-xs text-secondary">{reasonText($t, e)}</div>
