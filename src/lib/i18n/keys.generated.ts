@@ -366,6 +366,8 @@ export type TranslationKey =
   | 'errors.l10nTranslationInvalidReason.unsupportedSpecifier'
   | 'errors.lastInstance'
   | 'errors.levelDatParse'
+  | 'errors.linkTargetMissing'
+  | 'errors.linkTargetMissingFile'
   | 'errors.loaderBuildsNotOffered'
   | 'errors.loaderUnavailable'
   | 'errors.loaderVersionsUnreadable'

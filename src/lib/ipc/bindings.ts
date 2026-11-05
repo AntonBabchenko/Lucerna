@@ -4144,6 +4144,15 @@ export type Error =
  */
 { kind: "mods_already_installed"; name: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | 
 /**
+ *  A content root (`mods/`, `saves/`, `options.txt`, a registry file, …)
+ *  is a link — a symlink, or a junction on Windows — whose target is
+ *  missing: an unplugged drive, a deleted or moved folder. Refused rather
+ *  than read as empty, which would drop the instance's content. Both paths
+ *  are shown as the user reads them (`content_root::display`); `is_file`
+ *  when the root is a file (`options.txt`, a registry), not a folder.
+ */
+{ kind: "link_target_missing"; path: string; target: string; is_file: boolean } | 
+/**
  *  An entry of a resource-pack or shader folder is a link (a symlink, or a
  *  junction on Windows): the launcher neither deletes nor recycles through
  *  one — the user removes it in the file manager.

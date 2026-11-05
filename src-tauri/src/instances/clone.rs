@@ -221,9 +221,7 @@ pub fn copy_clone_content(
 /// cannot be read, or links to a missing file, is an error, as is a failed
 /// copy — all fatal (the caller rolls back the whole clone).
 fn copy_meta_file(src: &Path, dst: &Path) -> Result<()> {
-    if !crate::content_root::has_content(src, crate::content_root::Expect::File)
-        .map_err(|e| Error::io(src.display().to_string(), e))?
-    {
+    if !crate::content_root::has_content(src, crate::content_root::Expect::File)? {
         return Ok(());
     }
     if let Some(parent) = dst.parent() {
@@ -266,9 +264,7 @@ fn copy_meta_file(src: &Path, dst: &Path) -> Result<()> {
 /// `Placement::Copied`, which the design already treats as a fully supported
 /// outcome (see `mods::store::materialize`'s fallback).
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    if !crate::content_root::has_content(src, crate::content_root::Expect::Dir)
-        .map_err(|e| Error::io(src.display().to_string(), e))?
-    {
+    if !crate::content_root::has_content(src, crate::content_root::Expect::Dir)? {
         return Ok(());
     }
     for relpath in crate::instances::import::pipeline::collect_files(src)? {

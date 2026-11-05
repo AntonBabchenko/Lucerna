@@ -139,9 +139,7 @@ pub fn copy_for_clone(
     for id in catalog::ALL {
         for root in id.clone_roots() {
             let path = walk::join_rel(src_mc, root.rel);
-            let present = crate::content_root::has_content(&path, Expect::Dir)
-                .map_err(|e| Error::io(path.display().to_string(), e))?;
-            if present {
+            if crate::content_root::has_content(&path, Expect::Dir)? {
                 let w = walk::walk_root(src_mc, root.rel, root.scope)
                     .map_err(|e| Error::io(path.display().to_string(), e))?;
                 files.extend(w.files);

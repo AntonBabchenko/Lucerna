@@ -115,6 +115,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   mods_decode: 'opaque',
   mods_cache_io: 'opaque',
   mods_instance_path: 'opaque',
+  // Built from the link's path, its target and its kind: no raw tail.
+  link_target_missing: 'clean',
   modpack_invalid_archive: 'opaque',
   modpack_manifest_invalid: 'opaque',
   modpack_instance_creation_failed: 'opaque',
@@ -812,6 +814,11 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.modsCacheIo'), e.details);
     case 'mods_instance_path':
       return withDetailTail(translate('errors.modsInstancePath', { path: e.path }), e.details);
+    case 'link_target_missing':
+      return translate(e.is_file ? 'errors.linkTargetMissingFile' : 'errors.linkTargetMissing', {
+        path: e.path,
+        target: e.target,
+      });
     case 'addon_entry_is_link':
       return translate('errors.addonEntryIsLink', { name: e.name });
     case 'modpack_update_rolled_back':

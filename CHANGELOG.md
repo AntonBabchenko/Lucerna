@@ -59,6 +59,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   was interrupted while saving a Forge or NeoForge installer, every Install and
   Repair of that version failed until the file was deleted by hand. Now the
   damaged file is downloaded again.
+- **A folder linked to a missing place gets a clear message.** When an
+  instance's mods folder, or another folder Lucerna copies, is a link to a
+  drive or folder that is gone, the mods list, export, clone and import
+  reported a failed write or an I/O error. The message now names the link and
+  where it points, and says how to fix it.
 
 ### Security
 
