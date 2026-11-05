@@ -127,23 +127,30 @@
   }
 
   async function scan(quiet: boolean): Promise<void> {
-    if (scanning) return;
+    // A poll waits out a supply or replace in flight and an earlier poll.
+    if (scanning || (quiet && busy)) return;
     scanning = true;
     try {
       const r = await commands.manualDownloadsScan(instanceId, folder);
       if (r.status === 'ok') {
         remember(r.data.rows);
-        if (r.data.rows.length > 0) noteManualDownloadsChanged();
+        // A persistent row (needs replace, conflict, changed) shows again on every
+        // poll: a quiet poll speaks only when a file actually landed.
+        const landed = r.data.rows.some((x) => x.kind === 'added' || x.kind === 'already_there');
+        if (landed || (!quiet && r.data.rows.length > 0)) noteManualDownloadsChanged();
         await load();
-        if (!quiet || r.data.rows.length > 0 || r.data.skipped_unreadable > 0) {
-          result = scanResult(get(t), r.data, pending.length);
-        }
+        if (!quiet || landed) result = scanResult(get(t), r.data, pending.length);
       } else if (quiet) {
         // A failed poll stops the watch for this dialog and says why; the saved choice stays on.
         watchStopped = formatError(r.error);
       } else {
         result = failed(r.error);
       }
+    } catch (e) {
+      // The call itself threw (not an Error result): same two answers.
+      const text = e instanceof Error ? e.message : String(e);
+      if (quiet) watchStopped = text;
+      else result = { message: text, details: [], tone: 'danger' };
     } finally {
       scanning = false;
     }

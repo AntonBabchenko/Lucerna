@@ -95,6 +95,24 @@ describe('ManualDownloadsDialog', () => {
     expect(droppedManualDownloads.value).toBeNull();
   });
 
+  it('says so when a look in the folder throws, instead of failing silently', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.manualDownloadsScan).mockRejectedValueOnce(new Error('disk gone'));
+    render(ManualDownloadsDialog, { instanceId: 'i1', onClose: () => {} });
+    await screen.findAllByTestId('manual-row');
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole('button', { name: 'Look in the folder' }) as HTMLButtonElement
+        ).getAttribute('aria-disabled'),
+      ).not.toBe('true'),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Look in the folder' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('manual-result').textContent).toContain('disk gone'),
+    );
+  });
+
   it('keeps the folder watch off until the user turns it on', async () => {
     render(ManualDownloadsDialog, { instanceId: 'i1', onClose: () => {} });
     const box = (await screen.findByTestId('manual-watch')) as HTMLInputElement;
