@@ -7,3 +7,4 @@
 pub mod digest;
 pub mod evidence;
 pub mod state;
+pub mod types;
