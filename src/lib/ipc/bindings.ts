@@ -2731,6 +2731,7 @@ export const events = {
 	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
 	serverUploadProgress: makeEvent<ServerUploadProgress>("server-upload-progress"),
 	settingsSyncExitFailed: makeEvent<SettingsSyncExitFailed>("settings-sync-exit-failed"),
+	signInNotRenewed: makeEvent<SignInNotRenewed>("sign-in-not-renewed"),
 	trayQuitRefused: makeEvent<TrayQuitRefused>("tray-quit-refused"),
 	updateInstallPhase: makeEvent<UpdateInstallPhase>("update-install-phase"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
@@ -4058,7 +4059,14 @@ export type Error =
  *  says whether the game itself needs it (a Java on this computer can stand
  *  in) or a Forge/NeoForge install step does (it cannot).
  */
-{ kind: "jre_unavailable"; component: string; major: number; stage: JreStage; reason: JreUnavailableReason } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | 
+{ kind: "jre_unavailable"; component: string; major: number; stage: JreStage; reason: JreUnavailableReason } | { kind: "already_running"; instance_id: string } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | 
+/**
+ *  Microsoft no longer accepts the account's saved sign-in: the token
+ *  endpoint answered `invalid_grant` / `interaction_required`, or no refresh
+ *  token is stored. Only signing in again renews it — unlike `AuthFailed`,
+ *  which also covers Microsoft being down.
+ */
+{ kind: "microsoft_sign_in_expired" } | { kind: "no_minecraft_profile" } | { kind: "cosmetic_image_invalid"; details: string } | { kind: "skin_library"; details: string } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "loader_builds_not_offered"; loader: string; mc_version: string } | { kind: "loader_versions_unreadable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | 
 /**
  *  The site publishes no SHA-1 sidecar for this installer, so it cannot be
  *  verified and is refused (no trust on first use). Not
@@ -8902,6 +8910,20 @@ export type SidecarStatus = { status: "readable" } |
  *  "Stop syncing" replaces them.
  */
 { status: "unreadable"; reason: FileReason };
+
+/**
+ *  Emitted once a game has started on a Microsoft account whose sign-in was
+ *  due for renewal and could not be renewed: the game runs on the saved token,
+ *  so single-player works while online servers may refuse it. The launch is
+ *  never blocked for this — the event only lets the UI say so.
+ */
+export type SignInNotRenewed = {
+	instance_id: string,
+	/**  The account's player name, as the account menu shows it. */
+	account_name: string,
+	/**  Why: `MicrosoftSignInExpired` (sign in again) or what else stopped it. */
+	error: Error,
+};
 
 /**  One saved skin, PNG payload included so the grid renders in one round-trip. */
 export type SkinLibraryItem = {

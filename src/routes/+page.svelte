@@ -95,11 +95,12 @@
   import type { ReasonLine } from '$lib/format/reason-lines';
   import { warningLines } from '$lib/launch/pre-launch-warning';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-  import type { AppFile, PreflightReport, QuickPlay } from '$lib/ipc/bindings';
+  import type { AppFile, PreflightReport, QuickPlay, SignInNotRenewed } from '$lib/ipc/bindings';
   import { listen } from '@tauri-apps/api/event';
   import { dispatchIntent } from '$lib/launch/intent';
   import CreateShortcutDialog from '$lib/instances/CreateShortcutDialog.svelte';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
+  import { signInNotRenewedToast } from '$lib/accounts/sign-in-not-renewed';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
   import { sweepPings, type PingState } from '$lib/worlds/server-ping';
   import { createQuickWorlds } from '$lib/worlds/quick-worlds.svelte';
@@ -474,6 +475,7 @@
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
   let syncExitUnlisten: (() => void) | null = null;
+  let signInNotRenewedUnlisten: (() => void) | null = null;
   let modInstalledUnlisten: (() => void) | null = null;
   let modUninstalledUnlisten: (() => void) | null = null;
   let modToggleUnlisten: (() => void) | null = null;
@@ -910,6 +912,67 @@
     }
   }
 
+  // The outcome of a Microsoft sign-in, wherever it was started: the sidebar's
+  // button, or «Sign in again» on the sign-in-not-renewed toast.
+  async function onMicrosoftSignedIn() {
+    await refreshAccounts();
+    pushSuccess(get(t)('page.accounts.signedInMicrosoft'));
+  }
+
+  function onMicrosoftError(err: unknown) {
+    const msg = formatError(err as never);
+    const tr = get(t);
+    const toast = classifySignInError(err);
+    if (toast.buyLink) {
+      const url = toast.buyLink;
+      pushActionToast(
+        toast.kind,
+        tr(toast.titleKey),
+        {
+          label: tr('page.accounts.buyMinecraft'),
+          run: () => void openExternalHttps(url),
+        },
+        [msg],
+      );
+    } else if (toast.kind === 'info') {
+      pushInfo(tr(toast.titleKey), [msg]);
+    } else {
+      pushWarning(tr(toast.titleKey), [msg]);
+    }
+  }
+
+  // The sidebar button's flow (MicrosoftSignInButton), for the toast's action:
+  // the same command, the same signing-in modal, the same outcome toasts. A
+  // sign-in already open is not started twice.
+  async function runMicrosoftSignIn() {
+    if (msSigningIn) return;
+    msSigningIn = true;
+    const result = await commands.beginMicrosoftSignin();
+    msSigningIn = false;
+    if (result.status === 'ok') await onMicrosoftSignedIn();
+    else onMicrosoftError(result.error);
+  }
+
+  function showSignInNotRenewed(event: SignInNotRenewed) {
+    const tr = get(t);
+    const toast = signInNotRenewedToast(event);
+    const title = tr(toast.titleKey, { name: toast.name });
+    const lines = [
+      ...(toast.cause ? [formatError(toast.cause)] : []),
+      ...toast.lineKeys.map((key) => tr(key)),
+    ];
+    if (toast.signInAgain) {
+      pushActionToast(
+        'warning',
+        title,
+        { label: tr('page.accounts.signInAgain'), run: () => void runMicrosoftSignIn() },
+        lines,
+      );
+    } else {
+      pushWarning(title, lines);
+    }
+  }
+
   // Keep the compact strip's height synced to its live content (status row
   // appearing/disappearing, etc.). Separate from the async onMount below so
   // Svelte actually uses the returned disposer for cleanup.
@@ -1220,6 +1283,14 @@
         syncExitUnlisten = u;
       });
 
+    // The game started on a saved Microsoft sign-in that could not be renewed:
+    // single-player works, online servers may refuse it. Never blocks a launch.
+    events.signInNotRenewed
+      .listen(({ payload }) => showSignInNotRenewed(payload))
+      .then((u) => {
+        signInNotRenewedUnlisten = u;
+      });
+
     // Independent of settings — start these before the settings round-trip so
     // the MC version-manifest fetch and the account reads overlap it instead
     // of queueing behind it (cold start used to serialize 4 IPC hops before
@@ -1260,6 +1331,7 @@
     spawnUnlisten?.();
     exitUnlisten?.();
     syncExitUnlisten?.();
+    signInNotRenewedUnlisten?.();
     modInstalledUnlisten?.();
     modUninstalledUnlisten?.();
     modToggleUnlisten?.();
@@ -1907,31 +1979,8 @@
         ? fallbackMessage(get(t), dataLocation.fallback, dataLocation.status.configured)
         : null}
       bind:msSigningIn
-      onMicrosoftSignedIn={async () => {
-        await refreshAccounts();
-        pushSuccess(get(t)('page.accounts.signedInMicrosoft'));
-      }}
-      onMicrosoftError={(err) => {
-        const msg = formatError(err as never);
-        const tr = get(t);
-        const toast = classifySignInError(err);
-        if (toast.buyLink) {
-          const url = toast.buyLink;
-          pushActionToast(
-            toast.kind,
-            tr(toast.titleKey),
-            {
-              label: tr('page.accounts.buyMinecraft'),
-              run: () => void openExternalHttps(url),
-            },
-            [msg],
-          );
-        } else if (toast.kind === 'info') {
-          pushInfo(tr(toast.titleKey), [msg]);
-        } else {
-          pushWarning(tr(toast.titleKey), [msg]);
-        }
-      }}
+      {onMicrosoftSignedIn}
+      {onMicrosoftError}
     />
   </div>
 

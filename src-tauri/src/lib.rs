@@ -488,6 +488,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::ModsCrossIdsLearned,
             commands::ModInstallFailed,
             commands::GpuPrefApplied,
+            commands::SignInNotRenewed,
             servers_runtime::runtime::ServerLogLine,
             servers_runtime::runtime::ServerSpawned,
             servers_runtime::runtime::ServerExited,

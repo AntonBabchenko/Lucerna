@@ -151,6 +151,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   content_update_rollback_incomplete: 'clean',
   content_update_unfinished: 'clean',
   auth_cancelled: 'clean',
+  microsoft_sign_in_expired: 'clean',
   no_minecraft_profile: 'clean',
   auth_pending_approval: 'clean',
   unknown_version: 'clean',
@@ -676,6 +677,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.authCancelled');
     case 'auth_failed':
       return withDetailTail(translate('errors.authFailed', { stage: e.stage }), e.details);
+    case 'microsoft_sign_in_expired':
+      return translate('errors.microsoftSignInExpired');
     case 'no_minecraft_profile':
       return translate('errors.noMinecraftProfile');
     case 'auth_pending_approval':
