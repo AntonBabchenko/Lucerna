@@ -302,9 +302,7 @@ pub struct ServerJava {
 /// one that cannot be read, or links to a missing folder, is an error — never
 /// "0 copied".
 pub fn copy_instance_mods(src: &Path, dest: &Path) -> Result<usize> {
-    if !crate::content_root::has_content(src, crate::content_root::Expect::Dir)
-        .map_err(|e| Error::io(src.display().to_string(), e))?
-    {
+    if !crate::content_root::has_content(src, crate::content_root::Expect::Dir)? {
         return Ok(0);
     }
     let entries = std::fs::read_dir(src).map_err(|e| Error::io(src.display().to_string(), e))?;
@@ -371,7 +369,7 @@ mod tests {
 
         let res = copy_instance_mods(&src, &dir.path().join("srv/runtime/mods"));
         assert!(
-            res.is_err(),
+            matches!(res, Err(Error::LinkTargetMissing { .. })),
             "a broken mods/ link is could-not-tell, not zero mods: {res:?}"
         );
     }
