@@ -354,6 +354,48 @@ pub async fn apply(ctx: &Ctx<'_>, planned: Vec<Planned>) -> Applied {
     applied
 }
 
+/// Check plans made before the maintenance claim against what is true now
+/// (`fresh` is loaded under the claim): the entry must still exist, still be
+/// waiting, and still expect the same hash — else the placement becomes the row
+/// that says why, and nothing is written for it.
+pub fn revalidate(fresh: &Ctx<'_>, planned: Vec<Planned>) -> Vec<Planned> {
+    planned
+        .into_iter()
+        .map(|p| {
+            let Planned::Place(pl) = p else { return p };
+            let path = pl.display.clone();
+            match status_for(fresh, &pl.key) {
+                None => Planned::Row(SupplyRow::NotInPack {
+                    path,
+                    found: None,
+                    asked: false,
+                }),
+                Some(st)
+                    if !matches!(
+                        st.state,
+                        MissingModState::Missing | MissingModState::DifferentVersion
+                    ) =>
+                {
+                    Planned::Row(SupplyRow::AlreadyThere {
+                        path,
+                        key: pl.key.clone(),
+                        mod_name: st.entry.mod_name.clone(),
+                        recorded: true,
+                    })
+                }
+                Some(st) if state::expected(&st.entry) != state::expected(&pl.entry) => {
+                    Planned::Row(SupplyRow::NotInPack {
+                        path,
+                        found: None,
+                        asked: false,
+                    })
+                }
+                Some(_) => Planned::Place(pl),
+            }
+        })
+        .collect()
+}
+
 /// The entry `key` names in this context.
 pub(crate) fn status_for<'a>(ctx: &'a Ctx<'_>, key: &str) -> Option<&'a MissingModStatus> {
     ctx.statuses
@@ -921,6 +963,48 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(after.manual_supplied[0].verified, SupplyVerified::User);
+    }
+
+    #[test]
+    fn a_placement_is_dropped_when_its_entry_closed_or_left_the_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = entry(Some("9"), None, Some(&sha(b"pack bytes")));
+        let gone = entry(Some("10"), None, Some(&sha(b"other")));
+        let o = origin(vec![e.clone()]);
+        let st = vec![MissingModStatus {
+            entry: e.clone(),
+            state: MissingModState::Installed,
+        }];
+        let fresh = Ctx {
+            instance_root: dir.path(),
+            origin: &o,
+            installed: &[],
+            statuses: &st,
+        };
+        let place = |entry: &ModpackUnresolvable| {
+            Planned::Place(Placement {
+                src: PathBuf::from("a.jar"),
+                display: "a.jar".into(),
+                key: state::entry_key(entry),
+                entry: entry.clone(),
+                rel: "mods/a.jar".into(),
+                sha1: "x".into(),
+                by: By::Sha1,
+            })
+        };
+        let out = revalidate(&fresh, vec![place(&e), place(&gone)]);
+        assert!(matches!(
+            out[0],
+            Planned::Row(SupplyRow::AlreadyThere { recorded: true, .. })
+        ));
+        assert!(matches!(
+            out[1],
+            Planned::Row(SupplyRow::NotInPack {
+                found: None,
+                asked: false,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]

@@ -14,6 +14,15 @@ use crate::mods::manual_downloads::supply::{self, Ctx, PlacedFile};
 use crate::mods::manual_downloads::types::{ReplaceOutcome, ScanReport, SupplyReport, SupplyRow};
 use crate::mods::manual_downloads::{self as md, state};
 
+fn fresh_ctx<'a>(root: &'a std::path::Path, l: &'a md::Loaded) -> Ctx<'a> {
+    Ctx {
+        instance_root: root,
+        origin: &l.origin,
+        installed: &l.installed,
+        statuses: &l.statuses,
+    }
+}
+
 async fn loaded(root: &std::path::Path) -> Result<md::Loaded> {
     md::load(root).await?.ok_or(Error::ModsNotFound {
         platform: "pack_origin".into(),
@@ -68,7 +77,11 @@ pub async fn manual_downloads_supply(
     let cf = crate::mods::curseforge::CurseForgeClient::new();
     let planned = supply::plan(&ctx, &paths, Some(&cf)).await;
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
-    let applied = supply::apply(&ctx, planned).await;
+    // The plan was made without the claim: check it against what is true now.
+    let fresh = loaded(&root).await?;
+    let fresh_ctx = fresh_ctx(&root, &fresh);
+    let planned = supply::revalidate(&fresh_ctx, planned);
+    let applied = supply::apply(&fresh_ctx, planned).await;
     drop(write);
     announce(&app, &instance_id, &root, &applied.placed);
     Ok(SupplyReport { rows: applied.rows })
@@ -132,7 +145,10 @@ pub async fn manual_downloads_scan(
     }
     let rows = if kept.iter().any(|p| matches!(p, supply::Planned::Place(_))) {
         let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
-        let applied = supply::apply(&ctx, kept).await;
+        let fresh = loaded(&root).await?;
+        let fresh_ctx = fresh_ctx(&root, &fresh);
+        let kept = supply::revalidate(&fresh_ctx, kept);
+        let applied = supply::apply(&fresh_ctx, kept).await;
         drop(write);
         announce(&app, &instance_id, &root, &applied.placed);
         applied.rows
@@ -163,14 +179,9 @@ pub async fn manual_downloads_supply_unverified(
     path: String,
 ) -> Result<SupplyRow> {
     let root = instance_root(&app, &instance_id)?;
-    let l = loaded(&root).await?;
-    let ctx = Ctx {
-        instance_root: &root,
-        origin: &l.origin,
-        installed: &l.installed,
-        statuses: &l.statuses,
-    };
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
+    let l = loaded(&root).await?;
+    let ctx = fresh_ctx(&root, &l);
     let mut applied = supply::supply_unverified(&ctx, &key, &path).await;
     drop(write);
     announce(&app, &instance_id, &root, &applied.placed);
@@ -189,14 +200,9 @@ pub async fn manual_downloads_replace(
     existing: String,
 ) -> Result<ReplaceOutcome> {
     let root = instance_root(&app, &instance_id)?;
-    let l = loaded(&root).await?;
-    let ctx = Ctx {
-        instance_root: &root,
-        origin: &l.origin,
-        installed: &l.installed,
-        statuses: &l.statuses,
-    };
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
+    let l = loaded(&root).await?;
+    let ctx = fresh_ctx(&root, &l);
     let done = supply::replace(&ctx, &key, &path, &existing).await;
     drop(write);
     let receipt = done
