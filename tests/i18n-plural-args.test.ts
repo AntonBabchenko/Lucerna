@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import en from '../src/lib/i18n/locales/en.json';
 import ru from '../src/lib/i18n/locales/ru.json';
+import { uiDictionaries } from './test-utils/dictionaries';
 
 // A numeric ICU argument — `{n, plural, …}`, `{n, selectordinal, …}` or
 // `{n, number}` — must reach $t() as a NUMBER. intl-messageformat runs it
@@ -53,11 +54,16 @@ const NUMERIC_ARG = /\{\s*(\w+)\s*,\s*(?:plural|selectordinal|number)\s*[,}]/;
  */
 const NUMERIC_ARG_ALL = new RegExp(NUMERIC_ARG, 'g');
 
-/** key -> EVERY numeric ICU argument name, unioned across BOTH locales. */
+/**
+ * key -> EVERY numeric ICU argument name, unioned across EVERY dictionary: a
+ * community language may type a count `{n, number}` where en has a bare `{n}`,
+ * and its call site then has to pass a number too.
+ */
 function numericArgKeys(): Record<string, string[]> {
   const out: Record<string, Set<string>> = {};
-  for (const dict of [flatten(en as Json), flatten(ru as Json)]) {
-    for (const [key, value] of Object.entries(dict)) {
+  for (const { flat } of uiDictionaries()) {
+    for (const [key, value] of Object.entries(flat)) {
+      if (typeof value !== 'string') continue;
       for (const m of value.matchAll(NUMERIC_ARG_ALL)) {
         const args = out[key] ?? new Set<string>();
         args.add(m[1]);
@@ -188,8 +194,14 @@ describe('every named ICU style is one $t knows', () => {
     ).toEqual(['a :: {n, number, compactShort}']);
   });
 
-  it('finds no unknown style in en or ru', () => {
-    expect(unknownStyles(flatten(en as Json))).toEqual([]);
-    expect(unknownStyles(flatten(ru as Json))).toEqual([]);
+  it('finds no unknown style in any dictionary', () => {
+    const dictionaries = uiDictionaries();
+    expect(dictionaries.length).toBeGreaterThan(2);
+    for (const { file, flat } of dictionaries) {
+      const strings = Object.fromEntries(
+        Object.entries(flat).filter((e): e is [string, string] => typeof e[1] === 'string'),
+      );
+      expect(unknownStyles(strings), file).toEqual([]);
+    }
   });
 });

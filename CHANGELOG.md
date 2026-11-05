@@ -39,6 +39,11 @@ behaviour is worth knowing, it is stated as a property of the feature under
   Recent loader versions, such as Forge for Minecraft 26.2, could fail to start
   because the command ran past Windows' limit of 32 767 characters. With Java 9
   or newer, the version's JVM arguments now go in a file.
+- **Checking a server's port no longer makes Windows Firewall ask about
+  Lucerna.** The check listened on the port, so Windows asked whether to let
+  Lucerna accept connections, and an unanswered prompt left block rules behind.
+  On Windows it also now catches a port another program holds on one address,
+  such as 127.0.0.1.
 
 ### Security
 
