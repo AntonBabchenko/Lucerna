@@ -40,8 +40,10 @@ const mod = (enabled: boolean): InstalledMod => ({ enabled }) as unknown as Inst
 let compatSeq = 0;
 const compat = (loader_mismatch: boolean, live_checkable: boolean) =>
   ({ sha1: `jar-${++compatSeq}`, loader_mismatch, live_checkable }) as never;
-const missing = (state: MissingModStatus['state']): MissingModStatus =>
-  ({ state }) as unknown as MissingModStatus;
+const missing = (
+  state: MissingModStatus['state'],
+  reason: MissingModStatus['entry']['reason'] = 'distribution_disabled',
+): MissingModStatus => ({ state, entry: { reason } }) as unknown as MissingModStatus;
 const forgeInstance = (id: string): InstanceWithStatus =>
   ({ id, mc_version: '1.20.1', loader: 'forge' }) as unknown as InstanceWithStatus;
 const vanillaInstance = (id: string): InstanceWithStatus =>
@@ -260,7 +262,7 @@ describe('createInstanceStats', () => {
   });
 
   describe('refreshPackStatus / unresolvedMissing', () => {
-    it('derives the unresolved subset (missing + different_version)', async () => {
+    it('derives the unresolved subset (missing + different_version), never a manual step', async () => {
       modpackStatus.mockResolvedValue({
         status: 'ok',
         data: {
@@ -268,13 +270,16 @@ describe('createInstanceStats', () => {
             missing('missing'),
             missing('installed'),
             missing('substituted'),
+            missing('chosen_unverified'),
             missing('different_version'),
+            // A step the pack asks for that Lucerna cannot perform: listed, never pending.
+            missing('missing', 'unsupported_type'),
           ],
         },
       });
       const s = createInstanceStats();
       await s.refreshPackStatus('i1');
-      expect(s.packMissingMods).toHaveLength(4);
+      expect(s.packMissingMods).toHaveLength(6);
       expect(s.unresolvedMissing.map((m) => m.state)).toEqual(['missing', 'different_version']);
     });
 

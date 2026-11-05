@@ -40,6 +40,7 @@ describe('runUpdate', () => {
         instance: { id: 'i1', name: 'Pack' },
         inert_loader_jars: [{ filename: 'a-Fabric.jar', detected_loader: 'Fabric' }],
         details: [row],
+        manual_downloads: 2,
       },
     });
     const out = await runUpdate('i1', '/tmp/p.mrpack', 'v2', false, () => {});
@@ -48,6 +49,7 @@ describe('runUpdate', () => {
       inst: { id: 'i1', name: 'Pack' },
       inertLoaderJars: [{ filename: 'a-Fabric.jar', detected_loader: 'Fabric' }],
       details: [row],
+      manualDownloads: 2,
     });
   });
 
