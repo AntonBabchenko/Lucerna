@@ -229,6 +229,13 @@ pub enum Error {
     #[error("Microsoft auth failed at {stage}: {details}")]
     AuthFailed { stage: String, details: String },
 
+    /// Microsoft no longer accepts the account's saved sign-in: the token
+    /// endpoint answered `invalid_grant` / `interaction_required`, or no refresh
+    /// token is stored. Only signing in again renews it — unlike `AuthFailed`,
+    /// which also covers Microsoft being down.
+    #[error("Microsoft no longer accepts the saved sign-in; sign in again")]
+    MicrosoftSignInExpired,
+
     #[error("This Microsoft account does not own Minecraft")]
     NoMinecraftProfile,
 

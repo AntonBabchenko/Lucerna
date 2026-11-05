@@ -283,6 +283,12 @@ describe('formatError', () => {
     );
   });
 
+  it('formats microsoft_sign_in_expired as a sign-in to redo, with no raw tail', () => {
+    expect(formatError({ kind: 'microsoft_sign_in_expired' })).toBe(
+      "Microsoft no longer accepts this account's saved sign-in. Sign in again.",
+    );
+  });
+
   it('formats no_minecraft_profile', () => {
     expect(formatError({ kind: 'no_minecraft_profile' })).toBe(
       "You weren't signed in: this Microsoft account doesn't own Minecraft. Buy a copy and sign in again, or use an account that already owns one.",
@@ -382,6 +388,7 @@ describe('formatError', () => {
       instance_busy: { kind: 'instance_busy' },
       auth_cancelled: { kind: 'auth_cancelled' },
       auth_failed: { kind: 'auth_failed', stage: 'xsts', details: 'd' },
+      microsoft_sign_in_expired: { kind: 'microsoft_sign_in_expired' },
       no_minecraft_profile: { kind: 'no_minecraft_profile' },
       auth_pending_approval: { kind: 'auth_pending_approval' },
       cosmetic_image_invalid: { kind: 'cosmetic_image_invalid', details: 'skin must be 64x64' },
