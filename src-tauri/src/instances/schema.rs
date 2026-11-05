@@ -495,6 +495,14 @@ pub struct GeneralSettings {
     /// see `network::loopback`, which takes the port and nothing else.
     #[serde(default = "default_ai_local_port")]
     pub ai_local_port: u16,
+    /// Watch the downloads folder while the Finish-install dialog is open
+    /// (spec 2026-11-05 D4). Off until the user turns it on (no pre-checked
+    /// consent, PRINCIPLES hard rule 5).
+    #[serde(default)]
+    pub manual_downloads_watch: bool,
+    /// The folder Finish install looks in; `None` = the OS downloads folder.
+    #[serde(default)]
+    pub manual_downloads_folder: Option<String>,
 }
 
 /// A field-level change to `GeneralSettings`: every field optional (specta
@@ -544,6 +552,21 @@ pub struct GeneralSettingsPatch {
     pub ai_model: Option<String>,
     #[serde(default)]
     pub ai_local_port: Option<u16>,
+    #[serde(default)]
+    pub manual_downloads_watch: Option<bool>,
+    /// `Some(None)` (an explicit `null`) resets to the OS downloads folder.
+    #[serde(default, deserialize_with = "present_or_null")]
+    pub manual_downloads_folder: Option<Option<String>>,
+}
+
+/// Tells an absent key (`None`: leave it) from an explicit `null`
+/// (`Some(None)`: clear it), which plain `Option<Option<T>>` cannot.
+fn present_or_null<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
 }
 
 impl GeneralSettings {
@@ -620,6 +643,12 @@ impl GeneralSettings {
             ai_provider: p.ai_provider.unwrap_or(self.ai_provider),
             ai_model: p.ai_model.unwrap_or(self.ai_model),
             ai_local_port: p.ai_local_port.unwrap_or(self.ai_local_port),
+            manual_downloads_watch: p
+                .manual_downloads_watch
+                .unwrap_or(self.manual_downloads_watch),
+            manual_downloads_folder: p
+                .manual_downloads_folder
+                .unwrap_or(self.manual_downloads_folder),
         }
     }
 }
@@ -647,6 +676,8 @@ impl Default for GeneralSettings {
             ai_provider: AiProvider::default(),
             ai_model: String::new(),
             ai_local_port: default_ai_local_port(),
+            manual_downloads_watch: false,
+            manual_downloads_folder: None,
         }
     }
 }
@@ -1581,6 +1612,27 @@ mod tests {
         s.created_from_server = Some("srv-xyz".into());
         let w = InstanceWithStatus::from_file(&s, true, false);
         assert_eq!(w.created_from_server.as_deref(), Some("srv-xyz"));
+    }
+
+    #[test]
+    fn the_folder_watch_is_off_until_the_user_turns_it_on() {
+        let g = GeneralSettings::default();
+        assert!(!g.manual_downloads_watch);
+        assert_eq!(g.manual_downloads_folder, None);
+        let patched = g.patched(GeneralSettingsPatch {
+            manual_downloads_watch: Some(true),
+            manual_downloads_folder: Some(Some("D:/dl".into())),
+            ..Default::default()
+        });
+        assert!(patched.manual_downloads_watch);
+        assert_eq!(patched.manual_downloads_folder.as_deref(), Some("D:/dl"));
+        // An explicit `null` resets to the OS downloads folder; an absent key leaves it.
+        let reset: GeneralSettingsPatch =
+            serde_json::from_str(r#"{"manual_downloads_folder":null}"#).unwrap();
+        assert_eq!(reset.manual_downloads_folder, Some(None));
+        let untouched: GeneralSettingsPatch = serde_json::from_str("{}").unwrap();
+        assert_eq!(untouched.manual_downloads_folder, None);
+        assert_eq!(patched.patched(reset).manual_downloads_folder, None);
     }
 
     #[test]
