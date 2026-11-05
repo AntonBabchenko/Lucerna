@@ -322,7 +322,10 @@ pub(crate) async fn place_one(
                 }
             }
             match store::place_copy_verified(&pl.src, &dest, &pl.sha1).await {
-                Err(StageError::Changed) => SupplyRow::Changed { path },
+                Err(StageError::Changed) => {
+                    digest::forget(&pl.src);
+                    SupplyRow::Changed { path }
+                }
                 Err(StageError::Io(e)) => SupplyRow::Unreadable {
                     path,
                     reason: e.details(),
@@ -628,9 +631,10 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
     let staged = match store::stage_copy_verified(&src, &dest, &d.sha1).await {
         Ok(s) => s,
         Err(StageError::Changed) => {
+            digest::forget(&src);
             return refuse(SupplyRow::Changed {
                 path: display.to_string(),
-            })
+            });
         }
         Err(StageError::Io(e)) => {
             return refuse(SupplyRow::Unreadable {

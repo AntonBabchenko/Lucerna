@@ -40,6 +40,22 @@ pub async fn digests(path: &Path, want_md5: bool) -> std::io::Result<Digests> {
     Ok(d)
 }
 
+/// Drop the memo for `path`: its bytes were found to differ from what was
+/// hashed, so the next look must read them again.
+pub fn forget(path: &Path) {
+    if let Some(memo) = MEMO.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+        memo.remove(path);
+    }
+}
+
+#[cfg(test)]
+fn memoized(path: &Path) -> bool {
+    MEMO.lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .is_some_and(|m| m.contains_key(path))
+}
+
 async fn read_digests(path: &Path, want_md5: bool) -> std::io::Result<Digests> {
     let mut file = tokio::fs::File::open(path).await?;
     let mut sha1 = sha1::Sha1::new();
@@ -79,5 +95,16 @@ mod tests {
         std::fs::write(&p, b"abcd").unwrap();
         let again = digests(&p, false).await.unwrap();
         assert_ne!(again.sha1, d.sha1, "new bytes, new digest");
+    }
+
+    #[tokio::test]
+    async fn forget_drops_the_memo_for_a_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("y.jar");
+        std::fs::write(&p, b"abc").unwrap();
+        digests(&p, false).await.unwrap();
+        assert!(memoized(&p));
+        forget(&p);
+        assert!(!memoized(&p));
     }
 }
