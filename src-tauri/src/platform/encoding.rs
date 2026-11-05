@@ -11,6 +11,10 @@
 //! conversion and report whether it had to substitute anything. No code-page
 //! tables of our own, no guessing which scripts are "safe".
 //!
+//! The same conversion decides what a Java argument file must hold
+//! ([`jvm_launcher_bytes`], used by `launch::argfile`): the launcher reads that
+//! file's bytes as it reads its converted command line.
+//!
 //! The same code page is what a JVM writes its own console output in, so the
 //! reverse conversion lives here too: [`decode_console_line`].
 
@@ -25,7 +29,7 @@ use windows_sys::Win32::Globalization::{CP_ACP, CP_UTF8};
 #[cfg(windows)]
 pub fn path_launchable(path: &Path) -> bool {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Globalization::{GetACP, WideCharToMultiByte, WC_NO_BEST_FIT_CHARS};
+    use windows_sys::Win32::Globalization::GetACP;
 
     let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
     if wide.is_empty() {
@@ -41,7 +45,21 @@ pub fn path_launchable(path: &Path) -> bool {
     if unsafe { GetACP() } == CP_UTF8 {
         return true;
     }
+    wide_in_code_page(&wide, CP_ACP).is_some()
+}
 
+/// `wide` in code page `code_page`, or `None` when Windows had to substitute
+/// a character — no best-fit lookalikes, which would name another path — or
+/// refused the conversion. Never call it with `CP_UTF8`: that code page takes
+/// neither flag nor `lpUsedDefaultChar` (callers handle UTF-8 themselves).
+#[cfg(windows)]
+fn wide_in_code_page(wide: &[u16], code_page: u32) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Globalization::{WideCharToMultiByte, WC_NO_BEST_FIT_CHARS};
+
+    if wide.is_empty() {
+        return Some(Vec::new());
+    }
+    let len = i32::try_from(wide.len()).ok()?;
     // Size probe, then the real conversion. The probe cannot carry
     // WC_NO_BEST_FIT_CHARS together with a non-null lpUsedDefaultChar, and the
     // documentation does not promise that flag is written on a zero-length call
@@ -53,10 +71,10 @@ pub fn path_launchable(path: &Path) -> bool {
     // documented way to ask for the required buffer size.
     let needed = unsafe {
         WideCharToMultiByte(
-            CP_ACP,
+            code_page,
             0,
             wide.as_ptr(),
-            wide.len() as i32,
+            len,
             std::ptr::null_mut(),
             0,
             std::ptr::null(),
@@ -64,7 +82,7 @@ pub fn path_launchable(path: &Path) -> bool {
         )
     };
     if needed <= 0 {
-        return false;
+        return None;
     }
 
     let mut buf = vec![0u8; needed as usize];
@@ -73,17 +91,69 @@ pub fn path_launchable(path: &Path) -> bool {
     // for; `used_default` is a live local for the duration of the call.
     let written = unsafe {
         WideCharToMultiByte(
-            CP_ACP,
+            code_page,
             WC_NO_BEST_FIT_CHARS,
             wide.as_ptr(),
-            wide.len() as i32,
+            len,
             buf.as_mut_ptr(),
             needed,
             std::ptr::null(),
             &mut used_default,
         )
     };
-    written > 0 && used_default == 0
+    if written <= 0 || used_default != 0 {
+        return None;
+    }
+    buf.truncate(written as usize);
+    Some(buf)
+}
+
+/// `text` in Windows code page `code_page`, exactly, or why not: the first
+/// character the code page cannot hold. `CP_UTF8` (65001) is UTF-8 itself.
+#[cfg(windows)]
+pub(crate) fn encode_in_code_page(text: &str, code_page: u32) -> Result<Vec<u8>, String> {
+    if code_page == CP_UTF8 {
+        return Ok(text.as_bytes().to_vec());
+    }
+    let wide: Vec<u16> = text.encode_utf16().collect();
+    if let Some(bytes) = wide_in_code_page(&wide, code_page) {
+        return Ok(bytes);
+    }
+    // Only on the way out: name the character, so the error says what to fix.
+    let mut unit = [0u16; 2];
+    let culprit = text
+        .chars()
+        .find(|c| wide_in_code_page(c.encode_utf16(&mut unit), code_page).is_none());
+    Err(match culprit {
+        Some(c) => format!(
+            "{c:?} (U+{:04X}) has no place in code page {code_page}",
+            u32::from(c)
+        ),
+        None => format!("Windows could not convert it to code page {code_page}"),
+    })
+}
+
+/// `text` as the bytes a Java launcher reads it as — what an argument file must
+/// hold to mean what the same text on the command line means. On Windows the
+/// launcher turns its UTF-16 command line into the ANSI code page without
+/// best-fit (JDK 21u `launcher/main.c`) and hands those bytes, like an argument
+/// file's bytes, to the JVM, which decodes both as `sun.jnu.encoding`: so the
+/// system ANSI code page, or UTF-8 when the "Beta: Use Unicode UTF-8" option
+/// made that the ANSI code page. A character it cannot hold is refused: on the
+/// command line it would have reached Java as `?`.
+#[cfg(windows)]
+pub fn jvm_launcher_bytes(text: &str) -> Result<Vec<u8>, String> {
+    use windows_sys::Win32::Globalization::GetACP;
+    // SAFETY: GetACP takes no arguments and cannot fail.
+    let acp = unsafe { GetACP() };
+    encode_in_code_page(text, acp)
+}
+
+/// Non-Windows: an argument is its UTF-8 bytes on the command line, and the
+/// launcher reads a file's bytes the same way.
+#[cfg(not(windows))]
+pub fn jvm_launcher_bytes(text: &str) -> Result<Vec<u8>, String> {
+    Ok(text.as_bytes().to_vec())
 }
 
 /// Non-Windows: paths are UTF-8 bytes and the JVM reads `sun.jnu.encoding` from
@@ -132,7 +202,7 @@ fn decode_platform_charset(bytes: &[u8]) -> String {
 /// character; a conversion it refuses outright falls back to lossy UTF-8, so the
 /// line is never dropped.
 #[cfg(windows)]
-fn decode_with_code_page(bytes: &[u8], code_page: u32) -> String {
+pub(crate) fn decode_with_code_page(bytes: &[u8], code_page: u32) -> String {
     use windows_sys::Win32::Globalization::MultiByteToWideChar;
 
     let lossy = || String::from_utf8_lossy(bytes).into_owned();
@@ -215,5 +285,65 @@ mod tests {
     #[test]
     fn cp1251_bytes_decode_to_cyrillic() {
         assert_eq!(decode_with_code_page(CP1251_LINE, 1251), "Не удается");
+    }
+
+    #[test]
+    fn ascii_is_the_same_bytes_in_every_launcher_encoding() {
+        assert_eq!(
+            jvm_launcher_bytes(r"-cp C:\a b\x.jar;y.jar").unwrap(),
+            br"-cp C:\a b\x.jar;y.jar"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cyrillic_is_written_in_cp1251_where_that_is_the_code_page() {
+        assert_eq!(
+            encode_in_code_page("Привет", 1251).unwrap(),
+            b"\xcf\xf0\xe8\xe2\xe5\xf2"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_character_the_code_page_lacks_is_refused_and_named() {
+        let e = encode_in_code_page(r"C:\Пользователь", 1252).unwrap_err();
+        assert!(e.contains("U+041F") && e.contains("1252"), "{e}");
+        // Nor a best-fit lookalike: 1252 would best-fit Ł to L, another path.
+        let e = encode_in_code_page("Łódź", 1252).unwrap_err();
+        assert!(e.contains("U+0141"), "{e}");
+    }
+
+    // `GetACP` answers per process. Lucerna's equals java.exe's only while
+    // neither process manifest sets `activeCodePage` (java.exe's has none;
+    // tauri-build's default has none). A Lucerna manifest that set UTF-8 would
+    // write every argument file in UTF-8 for a java.exe reading CP1251.
+    #[test]
+    fn lucerna_leaves_the_ansi_code_page_to_the_system() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut read = 0;
+        for entry in std::fs::read_dir(root).expect("src-tauri") {
+            let path = entry.expect("entry").path();
+            if !path.is_file() {
+                continue;
+            }
+            let bytes = std::fs::read(&path).expect("readable");
+            read += 1;
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains("activeCodePage"),
+                "{} sets activeCodePage",
+                path.display()
+            );
+        }
+        assert!(read > 0 && root.join("build.rs").is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_utf8_code_page_is_plain_utf8() {
+        assert_eq!(
+            encode_in_code_page("Привет 中", 65001).unwrap(),
+            "Привет 中".as_bytes()
+        );
     }
 }

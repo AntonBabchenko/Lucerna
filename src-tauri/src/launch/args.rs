@@ -36,8 +36,30 @@ pub struct ArgvInput<'a> {
     pub quick_play: Option<&'a QuickPlay>,
 }
 
-/// Build the full argv. Returns `[..jvm_args, main_class, ..game_args]`.
-pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
+/// What the version profile asks the JVM to run, in its three parts. The
+/// command line is `[..jvm, main_class, ..game]` plus the user's own JVM args
+/// in front (`launch::argfile::command_line`), and `jvm` alone may travel in a
+/// Java argument file instead (spec 2026-11-04 §3.2) — which is why the parts
+/// stay apart rather than the main class being found again by its text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchArgv {
+    /// The profile's JVM arguments: natives directory, `-cp <classpath>`, the
+    /// module path, brand properties. Paths and flags only — no secret.
+    pub jvm: Vec<String>,
+    pub main_class: String,
+    /// The game arguments. Carry the access token, so they never go to disk.
+    pub game: Vec<String>,
+}
+
+/// Placeholders whose values are the session's secret. Substituted in the game
+/// arguments only: the profile's JVM arguments may be written to a Java
+/// argument file (`launch::argfile`), and no profile needs the token there. One
+/// a version JSON puts in its JVM arguments anyway stays literal.
+const GAME_ONLY_PLACEHOLDERS: &[&str] = &["auth_access_token", "auth_session"];
+
+/// Build the profile's part of the launch: its JVM args, main class and game
+/// args, every placeholder substituted (the secret ones in the game args only).
+pub fn build_argv(input: &ArgvInput) -> Result<LaunchArgv> {
     let classpath = crate::launch::classpath::build_classpath(
         &input.details.libraries,
         &input.libraries_dir,
@@ -46,23 +68,29 @@ pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
         input.arch,
     );
     let subs = substitution_map(input, &classpath)?;
+    let jvm_subs: HashMap<&'static str, String> = subs
+        .iter()
+        .filter(|(key, _)| !GAME_ONLY_PLACEHOLDERS.contains(key))
+        .map(|(key, value)| (*key, value.clone()))
+        .collect();
 
     let features = enabled_features(input.quick_play);
 
     let (jvm, game) = match (&input.details.arguments, &input.details.minecraft_arguments) {
         (Some(args), _) => {
-            let jvm = walk_arguments(&args.jvm, &subs, input.os, input.arch, features);
+            let jvm = walk_arguments(&args.jvm, &jvm_subs, input.os, input.arch, features);
             let game = walk_arguments(&args.game, &subs, input.os, input.arch, features);
             (jvm, game)
         }
-        (None, Some(mc_args)) => legacy_argv(mc_args, &subs),
-        (None, None) => (synth_jvm(&subs), vec![]),
+        (None, Some(mc_args)) => (synth_jvm(&jvm_subs), legacy_game_args(mc_args, &subs)),
+        (None, None) => (synth_jvm(&jvm_subs), vec![]),
     };
 
-    let mut out = jvm;
-    out.push(input.details.main_class.clone());
-    out.extend(game);
-    Ok(out)
+    Ok(LaunchArgv {
+        jvm,
+        main_class: input.details.main_class.clone(),
+        game,
+    })
 }
 
 fn substitution_map<'a>(
@@ -370,15 +398,13 @@ pub(crate) fn sanitize_jvm_args(raw: &str) -> Vec<String> {
     out
 }
 
-/// pre-1.13 path: synthesise the minimal JVM args + split the
-/// `minecraftArguments` string into game args.
-fn legacy_argv(mc_args: &str, subs: &HashMap<&'static str, String>) -> (Vec<String>, Vec<String>) {
-    let jvm = synth_jvm(subs);
-    let game = mc_args
+/// pre-1.13 path: split the `minecraftArguments` string into game args (the
+/// JVM args are synthesised by `synth_jvm`).
+fn legacy_game_args(mc_args: &str, subs: &HashMap<&'static str, String>) -> Vec<String> {
+    mc_args
         .split_whitespace()
         .map(|w| substitute(w, subs))
-        .collect();
-    (jvm, game)
+        .collect()
 }
 
 fn synth_jvm(subs: &HashMap<&'static str, String>) -> Vec<String> {
@@ -480,11 +506,86 @@ mod tests {
         }
     }
 
+    /// The profile's part of the command line, flat, as the JVM sees it.
+    fn flat(a: LaunchArgv) -> Vec<String> {
+        let mut v = a.jvm;
+        v.push(a.main_class);
+        v.extend(a.game);
+        v
+    }
+
+    #[test]
+    fn the_parts_split_at_the_main_class() {
+        let details = parse(FIXTURE_1_20_4).expect("parse");
+        let acct = account();
+        let a = build_argv(&input(&details, &acct)).expect("build");
+        assert_eq!(a.main_class, "net.minecraft.client.main.Main");
+        assert_eq!(
+            a.jvm.first().map(String::as_str),
+            Some("-Djava.library.path=C:/instance/natives")
+        );
+        assert!(a.jvm.iter().any(|x| x == "-cp"), "jvm: {:?}", a.jvm);
+        assert_eq!(a.game.first().map(String::as_str), Some("--username"));
+    }
+
+    // A profile that names the session token in its JVM args: the token must
+    // still never reach them, as those may be written to a file.
+    const FIXTURE_TOKEN_IN_JVM: &str = r#"{
+      "id": "token-in-jvm",
+      "mainClass": "net.minecraft.client.main.Main",
+      "assetIndex": {"id": "5", "url": "u", "sha1": "x", "size": 1},
+      "assets": "5",
+      "downloads": {"client": {"url": "u", "sha1": "y", "size": 1}},
+      "libraries": [],
+      "arguments": {
+        "jvm": ["-Dleak=${auth_access_token}", "-Dalso=${auth_session}", "-cp", "${classpath}"],
+        "game": ["--accessToken", "${auth_access_token}", "--session", "${auth_session}"]
+      }
+    }"#;
+
+    // The profile's JVM args may be written to a file (`launch::argfile`); the
+    // game args never are. So the access token must sit in `game` only.
+    #[test]
+    fn the_access_token_is_a_game_argument_never_a_jvm_one() {
+        let ms_account = Account {
+            id: "ms-argfile-token-unit-test".into(),
+            kind: AccountKind::Microsoft,
+            name: "Notch".into(),
+            uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
+            expires_at: Some(2_000_000_000.0),
+        };
+        let key = crate::accounts::keychain::mc_access_key(&ms_account.id);
+        crate::accounts::keychain::store(&key, "argfile-secret-token").unwrap();
+        let details = parse(FIXTURE_TOKEN_IN_JVM).expect("parse");
+        let a = build_argv(&input(&details, &ms_account)).expect("build");
+        crate::accounts::keychain::delete(&key).unwrap();
+
+        assert_eq!(
+            a.game,
+            [
+                "--accessToken",
+                "argfile-secret-token",
+                "--session",
+                "argfile-secret-token"
+            ]
+        );
+        assert!(
+            !a.jvm.iter().any(|x| x.contains("argfile-secret-token")),
+            "jvm: {:?}",
+            a.jvm
+        );
+        // Left as the profile wrote it, not emptied: nothing was invented.
+        assert_eq!(a.jvm[0], "-Dleak=${auth_access_token}");
+        assert_eq!(a.jvm[1], "-Dalso=${auth_session}");
+    }
+
     #[test]
     fn build_argv_modern_substitutes_player_uuid_classpath() {
         let details = parse(FIXTURE_1_20_4).expect("parse");
         let acct = account();
-        let argv = build_argv(&input(&details, &acct)).expect("build");
+        let argv = build_argv(&input(&details, &acct))
+            .map(flat)
+            .expect("build");
         let main_idx = argv
             .iter()
             .position(|a| a == "net.minecraft.client.main.Main")
@@ -518,7 +619,9 @@ mod tests {
     fn build_argv_conditional_windows_jvm_args_present() {
         let details = parse(FIXTURE_1_20_4).expect("parse");
         let acct = account();
-        let argv = build_argv(&input(&details, &acct)).expect("build");
+        let argv = build_argv(&input(&details, &acct))
+            .map(flat)
+            .expect("build");
         assert!(
             argv.iter().any(|a| a == "-Dos.name=Windows"),
             "windows conditional JVM arg present: {argv:?}"
@@ -533,7 +636,9 @@ mod tests {
     fn build_argv_osx_conditional_skipped_on_windows() {
         let details = parse(FIXTURE_1_20_4).expect("parse");
         let acct = account();
-        let argv = build_argv(&input(&details, &acct)).expect("build");
+        let argv = build_argv(&input(&details, &acct))
+            .map(flat)
+            .expect("build");
         assert!(
             !argv.iter().any(|a| a == "-XstartOnFirstThread"),
             "osx-only conditional must NOT appear on windows: {argv:?}"
@@ -544,7 +649,9 @@ mod tests {
     fn build_argv_features_rule_drops_arg() {
         let details = parse(FIXTURE_1_20_4).expect("parse");
         let acct = account();
-        let argv = build_argv(&input(&details, &acct)).expect("build");
+        let argv = build_argv(&input(&details, &acct))
+            .map(flat)
+            .expect("build");
         assert!(
             !argv.iter().any(|a| a == "--demo"),
             "demo flag must not appear: {argv:?}"
@@ -558,7 +665,9 @@ mod tests {
         let qp = QuickPlay::Singleplayer {
             world: "My World".into(),
         };
-        let argv = build_argv(&input_qp(&details, &acct, Some(&qp))).expect("build");
+        let argv = build_argv(&input_qp(&details, &acct, Some(&qp)))
+            .map(flat)
+            .expect("build");
         let idx = argv
             .iter()
             .position(|a| a == "--quickPlaySingleplayer")
@@ -575,7 +684,9 @@ mod tests {
         let qp = QuickPlay::Multiplayer {
             address: "mc.example.net:25566".into(),
         };
-        let argv = build_argv(&input_qp(&details, &acct, Some(&qp))).expect("build");
+        let argv = build_argv(&input_qp(&details, &acct, Some(&qp)))
+            .map(flat)
+            .expect("build");
         let idx = argv
             .iter()
             .position(|a| a == "--quickPlayMultiplayer")
@@ -589,7 +700,9 @@ mod tests {
     fn no_quick_play_target_emits_no_quick_play_args() {
         let details = parse(FIXTURE_1_20_4).expect("parse");
         let acct = account();
-        let argv = build_argv(&input_qp(&details, &acct, None)).expect("build");
+        let argv = build_argv(&input_qp(&details, &acct, None))
+            .map(flat)
+            .expect("build");
         assert!(!argv.iter().any(|a| a == "--quickPlaySingleplayer"));
         assert!(!argv.iter().any(|a| a == "--quickPlayMultiplayer"));
         assert!(!argv.iter().any(|a| a == "--demo"));
@@ -611,7 +724,9 @@ mod tests {
     fn build_argv_legacy_synthesises_jvm_and_splits_game_args() {
         let details = parse(FIXTURE_1_7_10).expect("parse");
         let acct = account();
-        let argv = build_argv(&input(&details, &acct)).expect("build");
+        let argv = build_argv(&input(&details, &acct))
+            .map(flat)
+            .expect("build");
         assert!(argv.iter().any(|a| a.starts_with("-Djava.library.path=")));
         assert!(argv.iter().any(|a| a == "-cp"));
         assert!(argv.iter().any(|a| a == "net.minecraft.client.main.Main"));
@@ -672,7 +787,9 @@ mod tests {
     fn client_id_and_xuid_are_empty_not_literal_placeholders() {
         let details = parse(FIXTURE_1_20_1_FULL_ARGS).expect("parse");
         let acct = account();
-        let argv = build_argv(&input(&details, &acct)).expect("build");
+        let argv = build_argv(&input(&details, &acct))
+            .map(flat)
+            .expect("build");
         let after = |flag: &str| {
             let i = argv
                 .iter()
@@ -689,7 +806,9 @@ mod tests {
         let acct = account();
         for fixture in [FIXTURE_1_20_4, FIXTURE_1_7_10, FIXTURE_1_20_1_FULL_ARGS] {
             let details = parse(fixture).expect("parse");
-            let argv = build_argv(&input(&details, &acct)).expect("build");
+            let argv = build_argv(&input(&details, &acct))
+                .map(flat)
+                .expect("build");
             let left: Vec<&String> = argv.iter().filter(|a| a.contains("${")).collect();
             assert!(left.is_empty(), "unsubstituted in {}: {left:?}", details.id);
         }
@@ -722,7 +841,9 @@ mod tests {
         .unwrap();
 
         let details = parse(FIXTURE_1_20_4).expect("parse");
-        let argv = build_argv(&input(&details, &ms_account)).expect("build");
+        let argv = build_argv(&input(&details, &ms_account))
+            .map(flat)
+            .expect("build");
 
         // Argv must contain --accessToken expected-mc-token-xyz
         let access_idx = argv

@@ -2,6 +2,7 @@
 //! process spawn + lifecycle. Multi-instance: run state is keyed by instance id
 //! in a shared `ProcessRegistry`.
 
+pub mod argfile;
 pub mod args;
 pub mod classpath;
 pub mod guardrail;

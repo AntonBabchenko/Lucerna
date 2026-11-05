@@ -35,6 +35,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 - **An enlarged window no longer shrinks on its own.** After F5, or after going
   to mini mode and back, the window's height could snap down to the sidebar's.
+- **A long data folder path no longer makes the launch command too long.**
+  Recent loader versions, such as Forge for Minecraft 26.2, could fail to start
+  because the command ran past Windows' limit of 32 767 characters. With Java 9
+  or newer, the version's JVM arguments now go in a file.
 - **Checking a server's port no longer makes Windows Firewall ask about
   Lucerna.** The check listened on the port, so Windows asked whether to let
   Lucerna accept connections, and an unanswered prompt left block rules behind.

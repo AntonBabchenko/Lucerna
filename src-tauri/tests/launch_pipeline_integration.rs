@@ -6,6 +6,7 @@
 //! crate to confirm the public surface is well-formed.
 
 use lucerna_lib::accounts::{Account, AccountKind};
+use lucerna_lib::launch::argfile::{command_line, ProfileJvm};
 use lucerna_lib::launch::args::{build_argv, ArgvInput};
 use lucerna_lib::launch::classpath::build_classpath;
 use lucerna_lib::versions::version_json::parse;
@@ -65,7 +66,14 @@ fn full_argv_for_1_20_4_has_all_required_pieces() {
         arch: "x64",
         quick_play: None,
     };
-    let argv = build_argv(&input).expect("build_argv");
+    let profile = build_argv(&input).expect("build_argv");
+    // Composed as `launch::spawn` does on the command-line route.
+    let argv = command_line(
+        Vec::new(),
+        ProfileJvm::Inline(profile.jvm),
+        profile.main_class,
+        profile.game,
+    );
 
     let main_idx = argv
         .iter()

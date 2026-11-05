@@ -188,6 +188,47 @@ fn origin_words(origin: JavaOrigin) -> String {
     }
 }
 
+/// The executable a launch spawns, and which Java major it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchJava {
+    pub exe: PathBuf,
+    /// Measured, never taken from what the version asks for. Lucerna's
+    /// runtime: its `release` file ([`release_major`]). A chosen Java: its
+    /// probe. `None` when that could not be told; a caller must then assume
+    /// the least it can (Java 8, `launch::argfile::route_for`).
+    pub major: Option<u32>,
+}
+
+/// The major of the Java whose executable is `exe` (`<home>/bin/java[w]`),
+/// from the `release` file every JDK and JRE carries at its home
+/// (`JAVA_VERSION="1.8.0_51"`, `"17.0.15"`); Mojang's runtimes do too. `None`,
+/// logged, when the file is missing, unreadable or names no version.
+pub fn release_major(exe: &Path) -> Option<u32> {
+    let home = exe.parent()?.parent()?;
+    let release = home.join("release");
+    let text = match std::fs::read_to_string(&release) {
+        Ok(text) => text,
+        Err(e) => {
+            crate::diag!(
+                "java: cannot read {} ({e}); its major is unknown",
+                release.display()
+            );
+            return None;
+        }
+    };
+    let major = parse_release_major(&text);
+    if major.is_none() {
+        crate::diag!("java: {} names no Java version", release.display());
+    }
+    major
+}
+
+fn parse_release_major(text: &str) -> Option<u32> {
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("JAVA_VERSION="))
+        .and_then(probe::parse_major)
+}
+
 /// The executable a launch spawns.
 ///
 /// `Managed` → `managed` as is. `Custom` → the stored path is normalised again
@@ -201,7 +242,7 @@ pub async fn launch_java<F, Fut>(
     managed: PathBuf,
     required: Option<u32>,
     check: F,
-) -> crate::error::Result<PathBuf>
+) -> crate::error::Result<LaunchJava>
 where
     F: FnOnce(PathBuf, Option<u32>) -> Fut,
     Fut: std::future::Future<Output = Result<JavaReport, JavaUnusableReason>>,
@@ -209,11 +250,16 @@ where
     let need = required.map_or_else(|| "unknown".to_string(), |r| format!("Java {r}"));
     let (stored, origin) = match source {
         JavaSource::Managed => {
+            let major = release_major(&managed);
             crate::diag!(
-                "java: Lucerna's runtime {} (this version needs {need})",
-                managed.display()
+                "java: Lucerna's runtime {} (Java {}; this version needs {need})",
+                managed.display(),
+                major.map_or_else(|| "unknown".to_string(), |m| m.to_string())
             );
-            return Ok(managed);
+            return Ok(LaunchJava {
+                exe: managed,
+                major,
+            });
         }
         JavaSource::Custom { path, origin } => (path, *origin),
     };
@@ -239,7 +285,10 @@ where
         report.arch,
         report.verdict
     );
-    Ok(exe)
+    Ok(LaunchJava {
+        exe,
+        major: Some(report.major),
+    })
 }
 
 #[cfg(test)]
@@ -451,9 +500,23 @@ mod tests {
         ));
     }
 
+    /// A runtime home with `bin/java` and the given `release` file.
+    fn runtime_with_release(release: Option<&str>) -> (tempfile::TempDir, PathBuf) {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("bin")).unwrap();
+        if let Some(text) = release {
+            std::fs::write(home.path().join("release"), text).unwrap();
+        }
+        let exe = home.path().join("bin").join("java");
+        (home, exe)
+    }
+
     #[tokio::test]
     async fn launch_java_runs_managed_without_probing() {
-        let managed = PathBuf::from("/lucerna/jres/x/bin/java");
+        // The version asks for 21; the runtime on disk says 17 — the runtime
+        // is what runs, so its own word is the major.
+        let (_home, managed) =
+            runtime_with_release(Some("JAVA_VERSION=\"17.0.15\"\r\nOS_NAME=\"Windows\"\r\n"));
         let r = launch_java(
             &JavaSource::Managed,
             managed.clone(),
@@ -462,7 +525,39 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(r, managed);
+        assert_eq!(
+            r,
+            LaunchJava {
+                exe: managed,
+                major: Some(17)
+            },
+            "the managed runtime is the major its release file names"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_managed_runtime_without_a_release_file_has_no_known_major() {
+        let (_home, managed) = runtime_with_release(None);
+        let r = launch_java(&JavaSource::Managed, managed, Some(21), |_, _| async {
+            panic!("the managed runtime is not probed")
+        })
+        .await
+        .unwrap();
+        assert_eq!(r.major, None, "never the major the version asked for");
+    }
+
+    #[test]
+    fn release_files_name_their_major_across_both_schemes() {
+        assert_eq!(
+            parse_release_major("JAVA_VERSION=\"1.8.0_51\"\nOS_NAME=\"Windows\""),
+            Some(8)
+        );
+        assert_eq!(
+            parse_release_major("IMPLEMENTOR=\"X\"\nJAVA_VERSION=\"25.0.1\"\n"),
+            Some(25)
+        );
+        assert_eq!(parse_release_major("OS_NAME=\"Windows\"\n"), None);
+        assert_eq!(parse_release_major("JAVA_VERSION=\"\"\n"), None);
     }
 
     #[tokio::test]
@@ -490,7 +585,14 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(r, exe);
+        assert_eq!(
+            r,
+            LaunchJava {
+                exe,
+                major: Some(21)
+            },
+            "a chosen Java is the major its probe found, not the one required"
+        );
     }
 
     #[test]

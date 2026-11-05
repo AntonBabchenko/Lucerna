@@ -162,6 +162,15 @@ pub fn instance_logs_dir(app: &tauri::AppHandle, id: &str) -> tauri::Result<Path
     Ok(instance_dir(app, id)?.join("logs"))
 }
 
+/// The Java argument file a launch of this instance passes its version
+/// profile's JVM arguments in (`launch::argfile`). Beside `natives/` and
+/// `logs/`, outside `.minecraft`: the game and its mods never see it. The name
+/// is short on purpose: java.exe opens it with a narrow `fopen`, which stops at
+/// MAX_PATH, and this path stays shorter than the `natives\lwjgl.dll` beside it.
+pub fn instance_jvm_args_file(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
+    Ok(instance_dir(app, id)?.join("jvm-args.txt"))
+}
+
 pub fn account_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("account.json"))
 }

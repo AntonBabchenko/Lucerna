@@ -12,6 +12,7 @@ use crate::accounts::Account;
 use crate::error::{Error, Result};
 use crate::instances::schema::InstanceFile;
 use crate::jre::java_executable_path;
+use crate::launch::argfile::{self, JvmArgsRoute, ProfileJvm};
 use crate::launch::args::{build_argv, ArgvInput};
 use crate::launch::natives::extract_natives;
 use crate::launch::quick_play::QuickPlay;
@@ -487,13 +488,14 @@ pub async fn start(
             }
         }
     }
-    let java_path = crate::java::launch_java(
+    let java = crate::java::launch_java(
         &java_source,
         managed_java,
         Some(required),
         |exe, required| async move { crate::java::check(&exe, required).await },
     )
     .await?;
+    let java_path = java.exe;
 
     let os = current_os();
     let arch = current_arch();
@@ -509,7 +511,7 @@ pub async fn start(
         .await
         .map_err(|e| Error::io(logs_dir.display().to_string(), e))?;
 
-    let argv_from_manifest = build_argv(&ArgvInput {
+    let profile = build_argv(&ArgvInput {
         details: &details,
         account,
         java_path: java_path.clone(),
@@ -538,11 +540,10 @@ pub async fn start(
     // the clamp (Xms never exceeds Xmx, or the JVM refuses to start) is unit
     // tested. Both go BEFORE the manifest's JVM args so a manifest flag can
     // still override.
-    let mut argv: Vec<String> = crate::launch::args::heap_args(instance.min_heap_mb, heap_mb);
-    argv.extend(crate::launch::args::sanitize_jvm_args(
+    let mut user_jvm: Vec<String> = crate::launch::args::heap_args(instance.min_heap_mb, heap_mb);
+    user_jvm.extend(crate::launch::args::sanitize_jvm_args(
         &instance.extra_jvm_args,
     ));
-    argv.extend(argv_from_manifest);
 
     // GPU preference: best-effort, never blocks launch. "Automatic" touches
     // nothing. An app.json that cannot be read applies nothing and SAYS so —
@@ -596,17 +597,69 @@ pub async fn start(
     // expected by `crate::playtime::record_session_at`.
     let inst_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
 
-    let mut child = crate::process::spawn_minecraft(
+    // The profile's JVM arguments: in an argument file on Windows with Java 9+
+    // (the classpath alone outgrows Windows' 32 767-character command line
+    // under a long data folder path), else inline. Written last before the
+    // spawn, so no earlier failure leaves one behind, and kept after the game
+    // exits: a mod that restarts the game re-runs `@<file>` (spec 2026-11-04 §3).
+    let jvm_args_file = crate::paths::instance_jvm_args_file(app, &instance.id)
+        .map_err(|e| Error::io("<instance_jvm_args_file>", e))?;
+    let java_words = java
+        .major
+        .map_or_else(|| "unknown".to_string(), |m| m.to_string());
+    // Lossy, not `env::var`: a value that is not Unicode is still read.
+    let jdk_java_options =
+        std::env::var_os("JDK_JAVA_OPTIONS").map(|v| v.to_string_lossy().into_owned());
+    let disabled = argfile::expansion_disabled(&user_jvm, jdk_java_options.as_deref());
+    let profile_jvm = match argfile::route_for(os, java.major, disabled) {
+        JvmArgsRoute::CommandLine => {
+            let why = if disabled {
+                format!(
+                    "{} is set in the JVM arguments or JDK_JAVA_OPTIONS",
+                    argfile::DISABLE_ARGFILES
+                )
+            } else {
+                format!("Java {java_words}")
+            };
+            crate::diag!("launch: profile JVM arguments on the command line ({why})");
+            // A file from an earlier launch must not pass for this one's.
+            argfile::remove(&jvm_args_file);
+            ProfileJvm::Inline(profile.jvm)
+        }
+        JvmArgsRoute::ArgFile => {
+            let bytes = argfile::write(&jvm_args_file, &profile.jvm)?;
+            crate::diag!(
+                "launch: profile JVM arguments in {} ({} arguments, {bytes} bytes, Java {java_words})",
+                jvm_args_file.display(),
+                profile.jvm.len()
+            );
+            ProfileJvm::File(jvm_args_file.clone())
+        }
+    };
+    let argv = argfile::command_line(user_jvm, profile_jvm, profile.main_class, profile.game);
+
+    let spawned = crate::process::spawn_minecraft(
         &java_path,
         &argv,
         &game_dir,
         &gpu_env,
         log_file,
         log_file_err,
-    )?;
-    let pid = child.id().ok_or_else(|| Error::JavaSpawn {
-        details: "spawned but no PID available".into(),
-    })?;
+    );
+    // A launch that did not start leaves no argument file behind.
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(e) => {
+            argfile::remove(&jvm_args_file);
+            return Err(e);
+        }
+    };
+    let Some(pid) = child.id() else {
+        argfile::remove(&jvm_args_file);
+        return Err(Error::JavaSpawn {
+            details: "spawned but no PID available".into(),
+        });
+    };
 
     let version_id_owned = effective_version_id.to_string();
     let log_path_owned = log_path.clone();
