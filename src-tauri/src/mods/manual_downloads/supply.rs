@@ -342,6 +342,309 @@ pub(crate) fn status_for<'a>(ctx: &'a Ctx<'_>, key: &str) -> Option<&'a MissingM
         .find(|s| state::entry_key(&s.entry) == key)
 }
 
+/// A file the user chose for an entry with no published hash (spec D8): it
+/// keeps its own name (the entry's may be synthetic), lands where the entry's
+/// kind goes, and is noted as the user's choice. An entry that does have a
+/// hash goes through the normal check instead.
+pub async fn supply_unverified(ctx: &Ctx<'_>, key: &str, display: &str) -> Applied {
+    let one = |row: SupplyRow| Applied {
+        rows: vec![row],
+        placed: vec![],
+    };
+    let Some(st) = status_for(ctx, key) else {
+        return one(SupplyRow::NotInPack {
+            path: display.to_string(),
+            found: None,
+            asked: false,
+        });
+    };
+    if state::expected(&st.entry) != Expected::Nothing || !state::is_actionable(&st.entry) {
+        let planned = plan(ctx, &[display.to_string()], None).await;
+        return apply(ctx, planned).await;
+    }
+    let (src, ext, _) = match probe(display).await {
+        Ok(p) => p,
+        Err(row) => return one(row),
+    };
+    let name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let d = match digest::digests(&src, false).await {
+        Ok(d) => d,
+        Err(e) => {
+            return one(SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason: e.to_string(),
+            })
+        }
+    };
+    let rel = match place::destination(&st.entry, &src, ext, &name).await {
+        Ok(Some(rel)) => rel,
+        Ok(None) => {
+            return one(SupplyRow::CantPlace {
+                path: display.to_string(),
+            })
+        }
+        Err(e) => {
+            return one(SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason: e.to_string(),
+            })
+        }
+    };
+    let pl = Placement {
+        src,
+        display: display.to_string(),
+        key: key.to_string(),
+        entry: st.entry.clone(),
+        rel,
+        sha1: d.sha1,
+        by: By::User,
+    };
+    let mut placed = Vec::new();
+    let row = place_one(ctx, pl, &mut placed).await;
+    Applied {
+        rows: vec![row],
+        placed,
+    }
+}
+
+/// What a Replace did, for the command to announce.
+pub struct Replaced {
+    pub row: SupplyRow,
+    pub trashed: Option<crate::mods::trash::Trashed>,
+    pub recycled: Vec<String>,
+    pub placed: Vec<PlacedFile>,
+}
+
+/// The confirmed Replace (spec D9): the pack's file is staged first, then the
+/// occupants leave the way a user removal does (a mod to the instance trash,
+/// anything else to the recycle bin), then the staged copy is renamed in. If
+/// that rename fails, the trashed mods are put back and that result is checked.
+pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str) -> Replaced {
+    let refuse = |row: SupplyRow| Replaced {
+        row,
+        trashed: None,
+        recycled: vec![],
+        placed: vec![],
+    };
+    let Some(st) = status_for(ctx, key) else {
+        return refuse(SupplyRow::NotInPack {
+            path: display.to_string(),
+            found: None,
+            asked: false,
+        });
+    };
+    let (src, ext, _) = match probe(display).await {
+        Ok(p) => p,
+        Err(row) => return refuse(row),
+    };
+    let want_md5 = matches!(state::expected(&st.entry), Expected::Md5(_));
+    let d = match digest::digests(&src, want_md5).await {
+        Ok(d) => d,
+        Err(e) => {
+            return refuse(SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason: e.to_string(),
+            })
+        }
+    };
+    if !hash_matches(st, &d) {
+        return refuse(SupplyRow::NotInPack {
+            path: display.to_string(),
+            found: None,
+            asked: false,
+        });
+    }
+    let rel = match place::destination(&st.entry, &src, ext, &st.entry.filename).await {
+        Ok(Some(rel)) => rel,
+        Ok(None) => {
+            return refuse(SupplyRow::CantPlace {
+                path: display.to_string(),
+            })
+        }
+        Err(e) => {
+            return refuse(SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason: e.to_string(),
+            })
+        }
+    };
+    let mc = ctx.instance_root.join(".minecraft");
+    let dest = mc.join(&rel);
+
+    // Who leaves: other versions of the mod, and whatever holds the name.
+    let mut mod_shas: Vec<String> = state::different_version_rows(&st.entry, ctx.installed)
+        .iter()
+        .map(|r| r.sha1.clone())
+        .collect();
+    let mut loose: Vec<PathBuf> = Vec::new();
+    match place::occupancy(
+        &mc,
+        &rel,
+        &d.sha1,
+        ctx.installed,
+        &pack_file_shas(ctx.origin),
+    )
+    .await
+    {
+        Err(e) => {
+            return refuse(SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason: e.to_string(),
+            })
+        }
+        Ok(Occupancy::PackFile { existing }) => {
+            return refuse(SupplyRow::Conflict {
+                path: display.to_string(),
+                existing,
+            })
+        }
+        Ok(Occupancy::Taken { existing, row_sha1 }) => match row_sha1 {
+            Some(sha) if rel.starts_with("mods/") => mod_shas.push(sha),
+            _ => loose.push(dest.with_file_name(existing)),
+        },
+        Ok(Occupancy::Same) | Ok(Occupancy::Free) => {}
+    }
+    mod_shas.sort();
+    mod_shas.dedup();
+
+    if let Some(parent) = dest.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return refuse(SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason: e.to_string(),
+            });
+        }
+    }
+    let staged = match store::stage_copy_verified(&src, &dest, &d.sha1).await {
+        Ok(s) => s,
+        Err(StageError::Changed) => {
+            return refuse(SupplyRow::Changed {
+                path: display.to_string(),
+            })
+        }
+        Err(StageError::Io(e)) => {
+            return refuse(SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason: e.details(),
+            })
+        }
+    };
+    let trashed = if mod_shas.is_empty() {
+        None
+    } else {
+        match crate::mods::trash::uninstall_to_trash(
+            ctx.instance_root,
+            &mod_shas,
+            std::time::SystemTime::now(),
+        )
+        .await
+        {
+            Ok(t) => Some(t),
+            Err(e) => {
+                staged.discard().await;
+                return refuse(SupplyRow::Unreadable {
+                    path: display.to_string(),
+                    reason: e.to_string(),
+                });
+            }
+        }
+    };
+    let mut recycled = Vec::new();
+    for path in loose {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match crate::platform::recycle_bin::off_thread(
+            path,
+            crate::platform::recycle_bin::to_recycle_bin,
+        )
+        .await
+        {
+            Ok(()) => {
+                if let Some(kind) = crate::mods::install::content_kind_for_install_path(&rel) {
+                    if let Err(e) =
+                        crate::mods::assets::remove(ctx.instance_root, kind, &name).await
+                    {
+                        crate::diag!("[manual-downloads] assets row for {name} not removed: {e}");
+                    }
+                }
+                recycled.push(name);
+            }
+            Err(e) => {
+                staged.discard().await;
+                let back = put_back(ctx.instance_root, trashed.as_ref()).await;
+                return refuse(SupplyRow::Unreadable {
+                    path: display.to_string(),
+                    reason: format!("{name}: {e}{back}"),
+                });
+            }
+        }
+    }
+    if let Err(e) = staged.commit().await {
+        let back = put_back(ctx.instance_root, trashed.as_ref()).await;
+        let reason = if recycled.is_empty() {
+            format!("{}{back}", e.details())
+        } else {
+            format!(
+                "{}{back} — {} in the recycle bin",
+                e.details(),
+                recycled.join(", ")
+            )
+        };
+        return Replaced {
+            row: SupplyRow::Unreadable {
+                path: display.to_string(),
+                reason,
+            },
+            trashed: None,
+            recycled,
+            placed: vec![],
+        };
+    }
+    let pl = Placement {
+        src,
+        display: display.to_string(),
+        key: key.to_string(),
+        entry: st.entry.clone(),
+        rel: rel.clone(),
+        sha1: d.sha1.clone(),
+        by: if want_md5 { By::Md5 } else { By::Sha1 },
+    };
+    let recorded = bookkeeping(ctx, &pl).await;
+    Replaced {
+        row: SupplyRow::Added {
+            path: display.to_string(),
+            key: key.to_string(),
+            mod_name: st.entry.mod_name.clone(),
+            recorded,
+        },
+        trashed,
+        recycled,
+        placed: vec![PlacedFile {
+            sha1: d.sha1,
+            filename: rel.rsplit('/').next().unwrap_or(&rel).to_string(),
+            name: st.entry.mod_name.clone(),
+            is_mod: rel.starts_with("mods/"),
+        }],
+    }
+}
+
+/// Bring trashed mods back after a failed Replace; the answer says how it went
+/// (Fallback discipline Q4 — a recovery's own result is checked and told).
+async fn put_back(instance_root: &Path, trashed: Option<&crate::mods::trash::Trashed>) -> String {
+    let Some(t) = trashed else {
+        return String::new();
+    };
+    match crate::mods::trash::restore(instance_root, &t.receipt.token).await {
+        Ok(_) => " (the removed mod was put back)".to_string(),
+        Err(e) => format!(" (the removed mod could not be put back: {e})"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +792,74 @@ mod tests {
         assert_eq!(
             after.manual_supplied[0].sha1,
             "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+    }
+    #[tokio::test]
+    async fn a_hashless_entry_takes_the_users_file_under_its_own_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        let e = entry(None, None, None);
+        crate::mods::installed::set_pack_origin(&root, origin(vec![e.clone()]))
+            .await
+            .unwrap();
+        let src = dir.path().join("my-choice.jar");
+        std::fs::write(&src, b"mine").unwrap();
+        let o = crate::mods::installed::get_pack_origin(&root)
+            .await
+            .unwrap()
+            .unwrap();
+        let st = state::statuses(&o, &[], &Default::default());
+        let ctx = Ctx {
+            instance_root: &root,
+            origin: &o,
+            installed: &[],
+            statuses: &st,
+        };
+        let applied =
+            supply_unverified(&ctx, &state::entry_key(&e), &src.display().to_string()).await;
+        assert!(matches!(
+            applied.rows[0],
+            SupplyRow::Added { recorded: true, .. }
+        ));
+        assert_eq!(applied.placed[0].filename, "my-choice.jar");
+        assert!(root.join(".minecraft/mods/my-choice.jar").exists());
+        let after = crate::mods::installed::get_pack_origin(&root)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.manual_supplied[0].verified, SupplyVerified::User);
+    }
+
+    #[tokio::test]
+    async fn replace_moves_the_old_version_to_the_trash_and_places_the_packs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        std::fs::write(root.join(".minecraft/mods/srp-2.0.jar"), b"old").unwrap();
+        let mut e = entry(None, None, Some(&sha(b"pack bytes")));
+        e.size = 10.0;
+        e.filename = "srp-1.0.jar".into();
+        let src = dir.path().join("SRP.jar");
+        std::fs::write(&src, b"pack bytes").unwrap();
+        let o = origin(vec![e.clone()]);
+        let installed = crate::mods::installed::list(&root).await.unwrap();
+        let disk =
+            crate::mods::manual_downloads::evidence::on_disk_shas(&root, &o, &installed).await;
+        let st = state::statuses(&o, &installed, &disk);
+        let ctx = Ctx {
+            instance_root: &root,
+            origin: &o,
+            installed: &installed,
+            statuses: &st,
+        };
+        let done = replace(&ctx, &state::entry_key(&e), &src.display().to_string()).await;
+        assert!(matches!(done.row, SupplyRow::Added { .. }));
+        assert!(done.trashed.is_some());
+        assert!(!root.join(".minecraft/mods/srp-2.0.jar").exists());
+        assert_eq!(
+            std::fs::read(root.join(".minecraft/mods/srp-1.0.jar")).unwrap(),
+            b"pack bytes"
         );
     }
 }
