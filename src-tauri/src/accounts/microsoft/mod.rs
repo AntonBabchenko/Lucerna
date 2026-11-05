@@ -219,7 +219,7 @@ async fn exchange_refresh_token(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(token_endpoint_failure(status, &text));
+        return Err(token_endpoint_failure(status.as_u16(), &text));
     }
     resp.json::<oauth::MsTokenResponse>()
         .await
@@ -246,12 +246,12 @@ fn stored_refresh_token(stored: Option<String>, account_id: &str) -> Result<Stri
 /// code (Lucerna's own registration), a 5xx, a body that is not the OAuth error
 /// shape — is a renewal that failed for a reason signing in would not fix, and
 /// keeps the raw answer for the log.
-fn token_endpoint_failure(status: reqwest::StatusCode, body: &str) -> Error {
+fn token_endpoint_failure(status: u16, body: &str) -> Error {
     #[derive(serde::Deserialize)]
     struct OAuthError {
         error: String,
     }
-    let refused = matches!(status.as_u16(), 400 | 401)
+    let refused = matches!(status, 400 | 401)
         && serde_json::from_str::<OAuthError>(body)
             .is_ok_and(|e| matches!(e.error.as_str(), "invalid_grant" | "interaction_required"));
     if refused {
@@ -269,7 +269,6 @@ fn token_endpoint_failure(status: reqwest::StatusCode, body: &str) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reqwest::StatusCode;
 
     fn oauth_error(code: &str) -> String {
         format!(
@@ -279,35 +278,29 @@ mod tests {
 
     #[test]
     fn an_invalid_grant_asks_to_sign_in_again() {
-        let e = token_endpoint_failure(StatusCode::BAD_REQUEST, &oauth_error("invalid_grant"));
+        let e = token_endpoint_failure(400, &oauth_error("invalid_grant"));
         assert_eq!(e, Error::MicrosoftSignInExpired);
     }
 
     #[test]
     fn interaction_required_asks_to_sign_in_again() {
-        let e = token_endpoint_failure(
-            StatusCode::BAD_REQUEST,
-            &oauth_error("interaction_required"),
-        );
+        let e = token_endpoint_failure(400, &oauth_error("interaction_required"));
         assert_eq!(e, Error::MicrosoftSignInExpired);
     }
 
     #[test]
     fn an_invalid_grant_on_401_asks_to_sign_in_again() {
-        let e = token_endpoint_failure(StatusCode::UNAUTHORIZED, &oauth_error("invalid_grant"));
+        let e = token_endpoint_failure(401, &oauth_error("invalid_grant"));
         assert_eq!(e, Error::MicrosoftSignInExpired);
     }
 
     #[test]
     fn microsoft_being_down_is_not_a_sign_in_question() {
         // A 5xx is Microsoft's trouble, even when its body happens to carry the word.
-        let e = token_endpoint_failure(
-            StatusCode::SERVICE_UNAVAILABLE,
-            &oauth_error("invalid_grant"),
-        );
+        let e = token_endpoint_failure(503, &oauth_error("invalid_grant"));
         assert!(
             matches!(&e, Error::AuthFailed { stage, details }
-                if stage == "refresh" && details.starts_with("HTTP 503 Service Unavailable: ")),
+                if stage == "refresh" && details.starts_with("HTTP 503: ")),
             "{e:?}"
         );
     }
@@ -315,14 +308,14 @@ mod tests {
     #[test]
     fn another_oauth_error_stays_a_failed_renewal() {
         // invalid_client / unauthorized_client are Lucerna's registration, not the user's sign-in.
-        let e = token_endpoint_failure(StatusCode::BAD_REQUEST, &oauth_error("invalid_client"));
+        let e = token_endpoint_failure(400, &oauth_error("invalid_client"));
         assert!(matches!(e, Error::AuthFailed { .. }), "{e:?}");
     }
 
     #[test]
     fn an_invalid_grant_on_403_stays_a_failed_renewal() {
         // Only 400/401 carry the OAuth error contract; a 403 is a refusal of another kind.
-        let e = token_endpoint_failure(StatusCode::FORBIDDEN, &oauth_error("invalid_grant"));
+        let e = token_endpoint_failure(403, &oauth_error("invalid_grant"));
         assert!(matches!(e, Error::AuthFailed { .. }), "{e:?}");
     }
 
@@ -344,10 +337,10 @@ mod tests {
 
     #[test]
     fn an_unreadable_body_stays_a_failed_renewal() {
-        let e = token_endpoint_failure(StatusCode::BAD_REQUEST, "<html>gateway</html>");
+        let e = token_endpoint_failure(400, "<html>gateway</html>");
         assert!(
             matches!(&e, Error::AuthFailed { details, .. }
-                if details == "HTTP 400 Bad Request: <html>gateway</html>"),
+                if details == "HTTP 400: <html>gateway</html>"),
             "{e:?}"
         );
     }
