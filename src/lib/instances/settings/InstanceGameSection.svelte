@@ -97,15 +97,24 @@
   // Snapshot toggle for the MC version picker. Off by default — most users
   // want stable releases.
   let showSnapshots = $state(false);
-  const visibleVersions = $derived(
-    versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
-  );
-  // Keep the empty "Choose…" row so Select greys the trigger of an instance
-  // that has no version yet. Picking it writes nothing (setMc).
-  const mcVersionOptions = $derived([
-    { value: '', label: $t('instance.manage.chooseMcOption') },
-    ...visibleVersions.map((v) => ({ value: v.id, label: v.id })),
-  ]);
+  const passesToggle = (v: VersionEntry) => showSnapshots || v.version_type === 'release';
+  // What the LIST offers to pick: the no-versions notice speaks about this.
+  const listedVersions = $derived(versions.filter(passesToggle));
+  // The field edits a saved value, so it always shows it (as the Java field
+  // shows "Your Java"): a snapshot the toggle hides keeps its place in the
+  // list, and a version the list lacks (offline, or an id the manifest does
+  // not have) comes last. Keep the empty "Choose…" row so Select greys the
+  // trigger of an instance that has no version yet. Picking it, or the shown
+  // version, writes nothing (setMc).
+  const mcVersionOptions = $derived.by(() => {
+    const current = instance.mc_version;
+    const ids = versions.filter((v) => passesToggle(v) || v.id === current).map((v) => v.id);
+    if (current && !ids.includes(current)) ids.push(current);
+    return [
+      { value: '', label: $t('instance.manage.chooseMcOption') },
+      ...ids.map((id) => ({ value: id, label: id })),
+    ];
+  });
 
   // Mod-compat summary after an MC/loader change. Sourced from the shared
   // offline scan (`compat-scan.svelte`), not a platform query: the platform
@@ -305,8 +314,9 @@
     // A modpack instance changes only on the user's say-so. `auto` is the
     // picker correcting a saved version the loader no longer offers: rewriting a
     // pack-pinned build silently is wrong, and so is raising an irreversible
-    // keep/detach question nobody asked. Refused, the picker shows the saved
-    // version as not on offer, and the user can pick one — which does ask.
+    // keep/detach question nobody asked. Refused, the picker keeps showing the
+    // saved version, as an entry of its own after the ones on offer, and the
+    // user can pick one of those — which does ask.
     if (origin === 'auto') return Promise.resolve(false);
     const versionOnly = kind === instance.loader;
     return new Promise<boolean>((settle) => {
@@ -427,7 +437,7 @@
       {$t('instance.manage.showSnapshots')}
     </label>
   </div>
-  {#if visibleVersions.length === 0}
+  {#if listedVersions.length === 0}
     <VersionListNotice
       total={versions.length}
       loading={versionList.loading}
