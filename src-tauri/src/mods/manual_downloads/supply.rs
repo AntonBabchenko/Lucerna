@@ -699,11 +699,18 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
             }
             Err(e) => {
                 staged.discard().await;
-                let (back, _) = put_back(ctx.instance_root, trashed.as_ref()).await;
-                return refuse(SupplyRow::Unreadable {
-                    path: display.to_string(),
-                    reason: format!("{name}: {e}{back}"),
-                });
+                let (back, restored) = put_back(ctx.instance_root, trashed.as_ref()).await;
+                // A mod that could not be put back is still in the trash:
+                // announce it so the user gets the Undo toast.
+                return Replaced {
+                    row: SupplyRow::Unreadable {
+                        path: display.to_string(),
+                        reason: format!("{name}: {e}{back}"),
+                    },
+                    trashed: if restored { None } else { trashed },
+                    recycled,
+                    placed: vec![],
+                };
             }
         }
     }
