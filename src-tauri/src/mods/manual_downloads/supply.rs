@@ -687,7 +687,7 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
             }
             Err(e) => {
                 staged.discard().await;
-                let back = put_back(ctx.instance_root, trashed.as_ref()).await;
+                let (back, _) = put_back(ctx.instance_root, trashed.as_ref()).await;
                 return refuse(SupplyRow::Unreadable {
                     path: display.to_string(),
                     reason: format!("{name}: {e}{back}"),
@@ -696,7 +696,7 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
         }
     }
     if let Err(e) = staged.commit().await {
-        let back = put_back(ctx.instance_root, trashed.as_ref()).await;
+        let (back, restored) = put_back(ctx.instance_root, trashed.as_ref()).await;
         let reason = if recycled.is_empty() {
             format!("{}{back}", e.details())
         } else {
@@ -711,7 +711,9 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
                 path: display.to_string(),
                 reason,
             },
-            trashed: None,
+            // A mod that could not be put back is still in the trash: announce
+            // it so the user gets the Undo toast.
+            trashed: if restored { None } else { trashed },
             recycled,
             placed: vec![],
         };
@@ -746,13 +748,19 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
 
 /// Bring trashed mods back after a failed Replace; the answer says how it went
 /// (Fallback discipline Q4 — a recovery's own result is checked and told).
-async fn put_back(instance_root: &Path, trashed: Option<&crate::mods::trash::Trashed>) -> String {
+async fn put_back(
+    instance_root: &Path,
+    trashed: Option<&crate::mods::trash::Trashed>,
+) -> (String, bool) {
     let Some(t) = trashed else {
-        return String::new();
+        return (String::new(), true);
     };
     match crate::mods::trash::restore(instance_root, &t.receipt.token).await {
-        Ok(_) => " (the removed mod was put back)".to_string(),
-        Err(e) => format!(" (the removed mod could not be put back: {e})"),
+        Ok(_) => (" (the removed mod was put back)".to_string(), true),
+        Err(e) => (
+            format!(" (the removed mod could not be put back: {e})"),
+            false,
+        ),
     }
 }
 
