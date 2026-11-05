@@ -79,6 +79,9 @@
         <span class="text-secondary">{$t('modpacks.imported.detail.substituted')}</span>
       {:else if status.state === 'different_version'}
         <span class="text-warning-text">{$t('modpacks.manual.state.other')}</span>
+      {:else if e.reason === 'unsupported_type'}
+        <!-- Nothing to download: a step the pack asks for that Lucerna cannot perform. -->
+        <span class="text-secondary">{$t('modpacks.manual.state.step')}</span>
       {:else if canChoose}
         <span class="text-warning-text">{$t('modpacks.manual.state.unchecked')}</span>
       {:else}

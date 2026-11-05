@@ -1673,7 +1673,7 @@
         "reimporting": "Re-importing…",
         "reimportBtn": "Re-import pack files",
         "missingHeading": "Pack mods needing attention ({count})",
-        "missingBody": "The pack author disabled automatic downloads for these. Download each from its source and drop the jar onto the Mods tab.",
+        "missingBody": "Lucerna couldn't download these files itself. Add them with Finish install.",
         "skippedHeading": "Bundled files skipped ({count})",
         "skippedBody": "The pack bundled these files inside it, but they exceed the size limit and aren't loadable mods (Minecraft only loads .jar files). They were left out; the pack's mods installed normally.",
         "skippedSyncedBody": "Kept as they were: this instance shares these files with your other instances (Shared game settings), and the pack's copies would have replaced them in every one of them.",
@@ -1855,7 +1855,8 @@
         "other": "Another version is installed",
         "found": "Found. Replace {file}?",
         "chosen": "Chosen by you, not verified",
-        "unchecked": "Can't be checked automatically"
+        "unchecked": "Can't be checked automatically",
+        "step": "Do this step by hand"
       },
       "action": {
         "download": "Download",

@@ -13,7 +13,8 @@ export type SupplyResult = {
 function fileName(path: string): string {
   return (
     path
-      .split(/[/]/)
+      // Both separators: a Windows path names its file after a backslash.
+      .split(/[\\/]/)
       .filter((p) => p !== '')
       .pop() ?? path
   );

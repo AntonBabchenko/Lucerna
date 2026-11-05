@@ -1654,6 +1654,7 @@ export type TranslationKey =
   | 'modpacks.manual.state.found'
   | 'modpacks.manual.state.needs'
   | 'modpacks.manual.state.other'
+  | 'modpacks.manual.state.step'
   | 'modpacks.manual.state.unchecked'
   | 'modpacks.manual.title'
   | 'modpacks.manual.toast.finish'

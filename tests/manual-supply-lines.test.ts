@@ -32,4 +32,8 @@ describe('supplyResult', () => {
     expect(r.tone).toBe('success');
     expect(r.details).toEqual([]);
   });
+  it('names a refused file by its name on a Windows path, not by the whole path', () => {
+    const r = supplyResult(t, [{ kind: 'wrong_type', path: 'C:\\Users\\u\\Downloads\\notes.txt' }]);
+    expect(r.details).toEqual([{ names: 'notes.txt', reason: 'modpacks.manual.result.wrongType' }]);
+  });
 });
