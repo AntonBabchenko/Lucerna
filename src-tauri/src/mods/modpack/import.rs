@@ -114,6 +114,8 @@ pub fn build_pack_origin(
                     UnresolvableReason::DistributionDisabled
                         | UnresolvableReason::HostNotAllowed
                         | UnresolvableReason::MissingChecksum
+                        | UnresolvableReason::SourceUnavailable
+                        | UnresolvableReason::UnsupportedType
                 )
             })
             .cloned()
@@ -356,6 +358,7 @@ pub fn compute_status(
 pub fn compute_update_diff(
     new_summary: &crate::mods::modpack::schema::ModpackSummary,
     current_origin: &PackOrigin,
+    supplied: &[crate::mods::manual_downloads::state::SuppliedOld],
     instance_mc_version: &str,
     instance_loader: crate::mods::platform::LoaderKind,
     instance_loader_version: &Option<String>,
@@ -397,6 +400,62 @@ pub fn compute_update_diff(
         .map(|(_, of)| (*of).clone())
         .collect();
 
+    use crate::mods::manual_downloads::state::{entry_key, is_actionable};
+    // Supplied files (spec §4.5): kept when the new version still lists the
+    // same file — same key, sha1 or md5 — removed otherwise.
+    let new_keys: std::collections::HashSet<String> =
+        new_summary.unresolvable.iter().map(entry_key).collect();
+    let new_shas: std::collections::HashSet<String> = new_summary
+        .files
+        .iter()
+        .map(|f| f.sha1.to_ascii_lowercase())
+        .chain(
+            new_summary
+                .unresolvable
+                .iter()
+                .filter_map(|u| u.sha1.as_deref().map(str::to_ascii_lowercase)),
+        )
+        .collect();
+    let new_md5s: std::collections::HashSet<String> = new_summary
+        .unresolvable
+        .iter()
+        .filter_map(|u| u.meta.md5.as_deref().map(str::to_ascii_lowercase))
+        .collect();
+    let kept: std::collections::HashSet<String> = supplied
+        .iter()
+        .filter(|s| {
+            new_keys.contains(&s.key)
+                || new_shas.contains(&s.file.sha1.to_ascii_lowercase())
+                || s.md5.as_ref().is_some_and(|m| new_md5s.contains(m))
+        })
+        .map(|s| s.file.sha1.to_ascii_lowercase())
+        .collect();
+    let mut removed = removed;
+    removed.extend(
+        supplied
+            .iter()
+            .filter(|s| !kept.contains(&s.file.sha1.to_ascii_lowercase()))
+            .map(|s| s.file.clone()),
+    );
+    // A supplied file the new version can now download is already in place.
+    added.retain(|f| !kept.contains(&f.sha1.to_ascii_lowercase()));
+    let manual_downloads = new_summary
+        .unresolvable
+        .iter()
+        .filter(|u| is_actionable(u))
+        .filter(|u| {
+            let key = entry_key(u);
+            !supplied.iter().any(|s| {
+                s.key == key
+                    || u.sha1
+                        .as_deref()
+                        .is_some_and(|x| x.eq_ignore_ascii_case(&s.file.sha1))
+                    || (u.meta.md5.is_some()
+                        && u.meta.md5.as_deref().map(str::to_ascii_lowercase) == s.md5)
+            })
+        })
+        .count() as u32;
+
     let version_bump = if new_summary.game_version != instance_mc_version
         || new_summary.loader != instance_loader
         || &new_summary.loader_version != instance_loader_version
@@ -417,7 +476,7 @@ pub fn compute_update_diff(
         updated,
         version_bump,
         new_version_number: new_summary.version.clone(),
-        manual_downloads: 0,
+        manual_downloads,
     }
 }
 
@@ -1139,6 +1198,19 @@ pub async fn install_resolved_pack(
     // so ATLauncher md5 files are recorded with their real sha1, not the
     // transient md5-as-selection-token.
     let resolved_refs: Vec<&ModpackFile> = resolved_for_origin.iter().collect();
+    let manual_downloads = summary
+        .unresolvable
+        .iter()
+        .filter(|u| {
+            matches!(
+                u.reason,
+                UnresolvableReason::DistributionDisabled
+                    | UnresolvableReason::HostNotAllowed
+                    | UnresolvableReason::MissingChecksum
+                    | UnresolvableReason::SourceUnavailable
+            )
+        })
+        .count() as u32;
     let mut origin = build_pack_origin(
         &summary,
         &resolved_refs,
@@ -1240,7 +1312,7 @@ pub async fn install_resolved_pack(
             skipped_overrides,
             inert_loader_jars,
             details,
-            manual_downloads: 0,
+            manual_downloads,
         })
     } else {
         Err(Error::ModpackPartialFailure {
@@ -2022,6 +2094,7 @@ mod tests {
         let diff = compute_update_diff(
             &summary,
             &origin,
+            &[],
             "1.20.1",
             crate::mods::platform::LoaderKind::Fabric,
             &Some("0.15.7".into()),
@@ -2048,6 +2121,7 @@ mod tests {
         let diff = compute_update_diff(
             &summary,
             &origin,
+            &[],
             "1.20.1",
             crate::mods::platform::LoaderKind::Fabric,
             &Some("0.15.7".into()),
@@ -2069,6 +2143,7 @@ mod tests {
         let diff = compute_update_diff(
             &summary,
             &origin,
+            &[],
             "1.20.1",
             crate::mods::platform::LoaderKind::Fabric,
             &Some("0.15.7".into()),
@@ -2076,6 +2151,87 @@ mod tests {
         let bump = diff.version_bump.expect("expected a version bump");
         assert_eq!(bump.old_game_version, "1.20.1");
         assert_eq!(bump.new_game_version, "1.20.4");
+    }
+
+    fn supplied(
+        key: &str,
+        sha: &str,
+        md5: Option<&str>,
+    ) -> crate::mods::manual_downloads::state::SuppliedOld {
+        crate::mods::manual_downloads::state::SuppliedOld {
+            key: key.into(),
+            md5: md5.map(str::to_string),
+            file: PackOriginFile {
+                sha1: sha.into(),
+                name: "S".into(),
+                filename: "s.jar".into(),
+                install_path: "mods/s.jar".into(),
+                url: String::new(),
+                size: 1.0,
+                project_id: "1".into(),
+                version_id: String::new(),
+                env_client: crate::mods::modpack::schema::EnvSupport::Required,
+                source: ModSource::Curseforge,
+            },
+        }
+    }
+
+    #[test]
+    fn a_supplied_file_stays_while_the_new_version_keeps_it_and_leaves_otherwise() {
+        use crate::mods::modpack::schema::ManualFileMeta;
+        let origin = origin_with(vec![]);
+        let mut same = missing_entry(Some("s1"), "s.jar", "S", Some("1"));
+        same.meta = ManualFileMeta {
+            file_id: Some("5".into()),
+            ..ManualFileMeta::default()
+        };
+        let mut summary = sample_summary(ModpackFormat::Curseforge);
+        summary.files = vec![];
+        summary.unresolvable = vec![same];
+        let kept = supplied("file:5", "s1", None);
+        let gone = supplied("file:6", "s2", None);
+        let by_md5 = supplied("md5:m", "s3", Some("m"));
+        let mut md5_entry = missing_entry(None, "m.jar", "M", Some("2"));
+        md5_entry.meta = ManualFileMeta {
+            md5: Some("m".into()),
+            ..ManualFileMeta::default()
+        };
+        summary.unresolvable.push(md5_entry);
+        let new_blocked = missing_entry(Some("n1"), "n.jar", "N", Some("3"));
+        summary.unresolvable.push(new_blocked);
+        let diff = compute_update_diff(
+            &summary,
+            &origin,
+            &[kept, gone, by_md5],
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Forge,
+            &None,
+        );
+        let removed: Vec<&str> = diff.removed.iter().map(|f| f.sha1.as_str()).collect();
+        assert_eq!(removed, vec!["s2"]);
+        assert_eq!(
+            diff.manual_downloads, 1,
+            "only the new blocked file still needs a download"
+        );
+    }
+
+    #[test]
+    fn a_supplied_file_the_new_version_can_download_is_not_added_twice() {
+        let origin = origin_with(vec![]);
+        let summary = ModpackSummary {
+            files: vec![mp_file("1", "s1")],
+            ..sample_summary(ModpackFormat::Curseforge)
+        };
+        let diff = compute_update_diff(
+            &summary,
+            &origin,
+            &[supplied("file:5", "s1", None)],
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Forge,
+            &None,
+        );
+        assert!(diff.added.is_empty());
+        assert!(diff.removed.is_empty());
     }
 
     #[test]

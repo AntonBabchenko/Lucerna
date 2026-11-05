@@ -624,9 +624,11 @@ pub async fn modpack_compute_update(
         })?;
     let summary =
         crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+    let supplied = crate::mods::manual_downloads::supplied_old_for(&inst_root).await;
     Ok(crate::mods::modpack::import::compute_update_diff(
         &summary,
         &origin,
+        &supplied,
         &inst.mc_version,
         inst.loader,
         &inst.loader_version,
@@ -697,9 +699,11 @@ pub async fn modpack_apply_update(
         })?;
     let summary =
         crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+    let supplied = crate::mods::manual_downloads::supplied_old_for(&inst_root).await;
     let diff = crate::mods::modpack::import::compute_update_diff(
         &summary,
         &origin,
+        &supplied,
         &inst.mc_version,
         inst.loader,
         &inst.loader_version,
@@ -826,7 +830,7 @@ pub async fn modpack_apply_update(
         instance: updated_inst,
         inert_loader_jars,
         details,
-        manual_downloads: 0,
+        manual_downloads: diff.manual_downloads,
     })
 }
 
