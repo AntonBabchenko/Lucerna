@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MissingModStatus, ModpackUnresolvable } from '$lib/ipc/bindings';
-import { entryKey, entryLink, needsAttention } from '$lib/modpacks/manual/entry-view';
+import { entryKey, entryLink, metaOf, needsAttention } from '$lib/modpacks/manual/entry-view';
 import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
 
 const base: ModpackUnresolvable = {
@@ -63,5 +63,26 @@ describe('entryKey', () => {
     const noMd5 = { ...noId, meta: { ...noId.meta, md5: '' }, sha1: 'CD' };
     expect(entryKey(noMd5)).toBe('sha1:cd');
     expect(entryKey({ ...noMd5, sha1: '', filename: 'SRP.jar' })).toBe('name:SRP|srp.jar');
+  });
+});
+
+describe('metaOf', () => {
+  it('reads an entry saved before meta as required with nothing known', () => {
+    const { meta: _dropped, ...legacy } = base;
+    expect(metaOf(legacy)).toEqual({
+      file_id: null,
+      md5: null,
+      install_path: null,
+      required: true,
+      download_url: null,
+    });
+    expect(entryLink(legacy)).toEqual({ url: base.manual_action_url, kind: 'page' });
+  });
+
+  it('lowercases only ASCII in the key, as the backend does', () => {
+    const named = { ...base, sha1: null, meta: { ...base.meta, file_id: null, md5: null } };
+    expect(entryKey({ ...named, filename: 'ШЕЙДЕР-A.jar' })).toBe(
+      `name:${base.mod_name}|ШЕЙДЕР-a.jar`,
+    );
   });
 });

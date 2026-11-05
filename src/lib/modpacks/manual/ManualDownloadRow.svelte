@@ -6,7 +6,7 @@
   import type { MissingModStatus } from '$lib/ipc/bindings';
   import { Icon } from '$lib/ui/icons';
   import { openExternalHttps } from '$lib/ui/safe-open';
-  import { canCheck, entryLink, LINK_LABEL, reasonText } from './entry-view';
+  import { canCheck, entryLink, LINK_LABEL, metaOf, reasonText } from './entry-view';
 
   let {
     status,
@@ -22,11 +22,12 @@
   } = $props();
 
   const e = $derived(status.entry);
+  const meta = $derived(metaOf(status.entry));
   const link = $derived(entryLink(e));
   const kind = $derived(
-    e.meta.install_path?.startsWith('resourcepacks/')
+    meta.install_path?.startsWith('resourcepacks/')
       ? 'resourcePack'
-      : e.meta.install_path?.startsWith('shaderpacks/')
+      : meta.install_path?.startsWith('shaderpacks/')
         ? 'shader'
         : null,
   );
@@ -55,7 +56,7 @@
           )}</span
         >
       {/if}
-      {#if !e.meta.required}
+      {#if !meta.required}
         <span class="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-secondary"
           >{$t('modpacks.manual.kind.optional')}</span
         >

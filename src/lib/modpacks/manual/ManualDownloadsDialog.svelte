@@ -33,7 +33,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { onWindowFocus } from '$lib/ui/window-focus';
-  import { entryKey, entryLink, needsAttention } from './entry-view';
+  import { entryKey, entryLink, metaOf, needsAttention } from './entry-view';
   import ManualDownloadRow from './ManualDownloadRow.svelte';
   import { noteManualDownloadsChanged } from './manual-downloads.svelte';
   import { scanResult, supplyResult } from './supply-lines';
@@ -69,7 +69,7 @@
   const rows = $derived(status?.missing_mods ?? []);
   const pending = $derived(rows.filter(needsAttention));
   const doneRows = $derived(rows.filter((m) => !needsAttention(m)));
-  const requiredLeft = $derived(pending.filter((m) => m.entry.meta.required).length);
+  const requiredLeft = $derived(pending.filter((m) => metaOf(m.entry).required).length);
   const folder = $derived(generalDisplayed()?.manual_downloads_folder ?? defaultFolder);
   const watchOn = $derived(generalDisplayed()?.manual_downloads_watch ?? false);
   const links = $derived(
