@@ -23,7 +23,7 @@ pub fn entry_key(e: &ModpackUnresolvable) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::mods::modpack::schema::{ManualFileMeta, ModpackUnresolvable, UnresolvableReason};
 

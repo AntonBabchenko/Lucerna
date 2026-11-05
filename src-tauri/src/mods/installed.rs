@@ -115,7 +115,7 @@ pub(crate) fn seed_hash_cache(path: &Path, sha1: &str) {
 /// `(mtime, size)` are unchanged since it was last hashed. `read_and_hash`
 /// is only awaited on a genuine miss, and only by ONE caller at a time per path.
 /// The std lock is never held across an await.
-async fn cached_sha1<F, Fut>(
+pub(crate) async fn cached_sha1<F, Fut>(
     path: &Path,
     mtime: SystemTime,
     size: u64,
@@ -207,6 +207,35 @@ pub(crate) async fn on_disk_sha1(mods_dir: &Path, filename: &str) -> Option<Stri
         };
     }
     None
+}
+
+/// SHA-1 of any file's bytes right now, through the same `(mtime, size)` memo,
+/// read in 64 KiB chunks. `None` is "could not tell" (absent, not a file,
+/// unreadable) — never "no file": a caller treats it as not satisfied.
+pub(crate) async fn path_sha1(path: &Path) -> Option<String> {
+    let meta = fs::metadata(path).await.ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let mtime = meta.modified().ok()?;
+    let read = cached_sha1(path, mtime, meta.len(), || async {
+        match crate::mods::txn::file_sha1(path).await {
+            Ok(Some(sha)) => Ok(sha),
+            Ok(None) => Err(io_err(
+                path,
+                std::io::Error::from(std::io::ErrorKind::NotFound),
+            )),
+            Err(e) => Err(io_err(path, e)),
+        }
+    })
+    .await;
+    match read {
+        Ok(sha) => Some(sha),
+        Err(e) => {
+            crate::diag!("[mods] sha1 of {} failed: {e}", path.display());
+            None
+        }
+    }
 }
 
 /// Snapshot of the mods the user selected at modpack-import time, kept
