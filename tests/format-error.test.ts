@@ -1128,7 +1128,9 @@ describe('formatError', () => {
 
     it('names the link and where it points, says what to do, and blames no write', () => {
       const msg = formatError(folder);
-      expect(msg).toContain(`${folder.path} links to the folder ${folder.target}, which is missing.`);
+      expect(msg).toContain(
+        `${folder.path} links to the folder ${folder.target}, which is missing.`,
+      );
       expect(msg).toContain('reconnect it');
       expect(msg).toContain('delete the link in the file manager');
       expect(msg).not.toMatch(/write|couldn't|I\/O|IO error/i);
@@ -1139,7 +1141,9 @@ describe('formatError', () => {
       locale.set('ru');
       try {
         const msg = formatError(folder);
-        expect(msg).toContain(`${folder.path} — ссылка на папку ${folder.target}, которой нет на месте.`);
+        expect(msg).toContain(
+          `${folder.path} — ссылка на папку ${folder.target}, которой нет на месте.`,
+        );
         expect(msg).toContain('подключите его');
         expect(msg).toContain('удалите ссылку в файловом менеджере');
         expect(withoutPaths(msg, folder)).not.toMatch(/[A-Za-z]/);
