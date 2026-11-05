@@ -122,15 +122,28 @@ pub fn batch_update_state(
 }
 
 /// `true` iff `installed` is one of the modpack's bundled mods — its
-/// SHA-1 matches a `mods/` entry in `pack_origin.files`. `false` when
-/// the instance has no `pack_origin`.
+/// SHA-1 matches a `mods/` entry in `pack_origin.files`, or a file supplied
+/// for one of its `missing_mods` entries. `false` when the instance has no
+/// `pack_origin`.
 pub fn is_pack_origin_mod(installed: &InstalledMod, pack_origin: Option<&PackOrigin>) -> bool {
     let Some(po) = pack_origin else {
         return false;
     };
-    po.files.iter().any(|f| {
-        f.install_path.starts_with("mods/") && f.sha1.eq_ignore_ascii_case(&installed.sha1)
-    })
+    let sha = installed.sha1.as_str();
+    po.files
+        .iter()
+        .any(|f| f.install_path.starts_with("mods/") && f.sha1.eq_ignore_ascii_case(sha))
+        // A file the user supplied for an entry the pack could not fetch is a
+        // pack file too (spec 2026-11-05 §3.4) — by its published sha1, or by
+        // the sha1 noted for an md5 match or the user's own choice.
+        || po
+            .missing_mods
+            .iter()
+            .any(|e| e.sha1.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(sha)))
+        || po
+            .manual_supplied
+            .iter()
+            .any(|s| s.sha1.eq_ignore_ascii_case(sha))
 }
 
 /// If `installed` is eligible for an update check, return its platform
@@ -221,16 +234,29 @@ pub fn classify_asset_update(
 }
 
 /// Build the chip data for an instance's modpack origin: the pack name
-/// and the lowercased SHA-1s of its bundled `mods/` files.
+/// and the lowercased SHA-1s of its bundled `mods/` files plus the files
+/// supplied for its `missing_mods` entries.
 pub fn pack_origin_summary(pack_origin: &PackOrigin) -> PackOriginSummary {
     PackOriginSummary {
         project_name: pack_origin.project_name.clone(),
-        mod_shas: pack_origin
-            .files
-            .iter()
-            .filter(|f| f.install_path.starts_with("mods/"))
-            .map(|f| f.sha1.to_ascii_lowercase())
-            .collect(),
+        mod_shas: {
+            let mut seen = std::collections::HashSet::new();
+            pack_origin
+                .files
+                .iter()
+                .filter(|f| f.install_path.starts_with("mods/"))
+                .map(|f| f.sha1.as_str())
+                .chain(
+                    pack_origin
+                        .missing_mods
+                        .iter()
+                        .filter_map(|e| e.sha1.as_deref()),
+                )
+                .chain(pack_origin.manual_supplied.iter().map(|s| s.sha1.as_str()))
+                .map(str::to_ascii_lowercase)
+                .filter(|sha| seen.insert(sha.clone()))
+                .collect()
+        },
     }
 }
 
@@ -479,6 +505,27 @@ mod tests {
         let s = pack_origin_summary(&po);
         assert_eq!(s.project_name, "Cool Pack");
         assert_eq!(s.mod_shas, vec!["aaa".to_string()]);
+    }
+
+    #[test]
+    fn a_supplied_jar_is_a_pack_mod_everywhere() {
+        use crate::mods::installed::{ManualSupplied, SupplyVerified};
+        let mut po = pack_origin(&[]);
+        let mut e = crate::mods::manual_downloads::state::tests::entry(None, None, Some("AA"));
+        e.filename = "srp.jar".into();
+        po.missing_mods = vec![e];
+        po.manual_supplied = vec![ManualSupplied {
+            key: "md5:x".into(),
+            sha1: "bb".into(),
+            verified: SupplyVerified::Md5,
+        }];
+        let m = |sha: &str| installed_mod(sha, Some(ModSource::Curseforge), Some("1"), Some("5"));
+        assert!(is_pack_origin_mod(&m("aa"), Some(&po)));
+        assert!(is_pack_origin_mod(&m("BB"), Some(&po)));
+        assert!(!is_pack_origin_mod(&m("cc"), Some(&po)));
+        let summary = pack_origin_summary(&po);
+        assert!(summary.mod_shas.contains(&"aa".to_string()));
+        assert!(summary.mod_shas.contains(&"bb".to_string()));
     }
 
     // ── Batch update state (2026-09-21 spec §5.4) ───────────────────────────
