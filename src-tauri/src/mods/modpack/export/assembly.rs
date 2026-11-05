@@ -164,9 +164,7 @@ pub fn write_archive(dest: &Path, entries: &[ZipEntry]) -> Result<(), Error> {
 /// external files out of the shared archive.
 pub fn collect_dir_entries(dir: &Path, archive_prefix: &str) -> Result<Vec<ZipEntry>, Error> {
     let mut out = Vec::new();
-    if !crate::content_root::has_content(dir, crate::content_root::Expect::Dir)
-        .map_err(|e| Error::io(dir.display().to_string(), e))?
-    {
+    if !crate::content_root::has_content(dir, crate::content_root::Expect::Dir)? {
         return Ok(out);
     }
     collect_recursive(dir, archive_prefix, &mut out)?;
@@ -336,7 +334,11 @@ mod archive_tests {
         link_dir(&pool, &link);
         std::fs::remove_dir(&pool).unwrap();
         let res = collect_dir_entries(&link, "overrides/config");
-        assert!(res.is_err(), "a broken link is could-not-tell, not empty");
+        assert!(
+            matches!(res, Err(Error::LinkTargetMissing { .. })),
+            "a broken link is could-not-tell, not empty: {:?}",
+            res.err()
+        );
     }
 
     #[test]

@@ -485,6 +485,12 @@ describe('formatError', () => {
       mods_unsafe_filename: { kind: 'mods_unsafe_filename', filename: '../../evil.jar' },
       mods_cache_io: { kind: 'mods_cache_io', details: 'd' },
       mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
+      link_target_missing: {
+        kind: 'link_target_missing',
+        path: 'p-link',
+        target: 't-gone',
+        is_file: false,
+      },
       addon_entry_is_link: { kind: 'addon_entry_is_link', name: 'Dev Pack' },
       modpack_update_rolled_back: {
         kind: 'modpack_update_rolled_back',
@@ -1097,6 +1103,65 @@ describe('formatError', () => {
       }
       expect(msg).not.toContain('�');
       expect(msg).toContain('… (open Logs for full text)');
+    });
+  });
+
+  // A content root that is a link to a missing place (#507 refuses it). It is
+  // a read refusal, not a write failure, and the Russian text must not carry
+  // the old English io::Error tail.
+  describe('broken-link refusal', () => {
+    type BrokenLink = Extract<IpcError, { kind: 'link_target_missing' }>;
+    const folder: BrokenLink = {
+      kind: 'link_target_missing',
+      path: 'C:\\Games\\Lucerna\\instances\\Pack\\.minecraft\\mods',
+      target: 'D:\\shared\\mods',
+      is_file: false,
+    };
+    const file: BrokenLink = {
+      kind: 'link_target_missing',
+      path: '/home/u/Lucerna/instances/Pack/.minecraft/options.txt',
+      target: '/mnt/usb/options.txt',
+      is_file: true,
+    };
+    const withoutPaths = (msg: string, e: BrokenLink) =>
+      msg.replaceAll(e.path, '').replaceAll(e.target, '');
+
+    it('names the link and where it points, says what to do, and blames no write', () => {
+      const msg = formatError(folder);
+      expect(msg).toContain(`${folder.path} links to the folder ${folder.target}, which is missing.`);
+      expect(msg).toContain('reconnect it');
+      expect(msg).toContain('delete the link in the file manager');
+      expect(msg).not.toMatch(/write|couldn't|I\/O|IO error/i);
+      expect(ERROR_CLASS.link_target_missing).toBe('clean');
+    });
+
+    it('says it in Russian with no English outside the paths', () => {
+      locale.set('ru');
+      try {
+        const msg = formatError(folder);
+        expect(msg).toContain(`${folder.path} — ссылка на папку ${folder.target}, которой нет на месте.`);
+        expect(msg).toContain('подключите его');
+        expect(msg).toContain('удалите ссылку в файловом менеджере');
+        expect(withoutPaths(msg, folder)).not.toMatch(/[A-Za-z]/);
+      } finally {
+        locale.set('en');
+      }
+    });
+
+    it('calls a file root a file, in both languages', () => {
+      const en = formatError(file);
+      expect(en).toContain(`links to the file ${file.target}`);
+      expect(en).toContain('if the file is gone');
+      expect(en).not.toContain('folder');
+      locale.set('ru');
+      try {
+        const ru = formatError(file);
+        expect(ru).toContain(`ссылка на файл ${file.target}, которого нет на месте`);
+        expect(ru).toContain('если файла больше нет');
+        expect(withoutPaths(ru, file)).not.toMatch(/[A-Za-z]|папк/);
+      } finally {
+        locale.set('en');
+      }
     });
   });
 

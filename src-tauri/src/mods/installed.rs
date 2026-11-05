@@ -584,10 +584,12 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
         // would then drop every row. That is could-not-tell, not empty.
         match fs::symlink_metadata(&dir).await {
             Ok(m) if m.file_type().is_symlink() => {
-                let target = fs::read_link(&dir).await.map_err(|e| io_err(&dir, e))?;
-                return Err(io_err(
+                use crate::content_root::{link_target, link_target_missing, Expect};
+                let named = fs::read_link(&dir).await.map_err(|e| io_err(&dir, e))?;
+                return Err(link_target_missing(
                     &dir,
-                    crate::content_root::broken_link_error(&target),
+                    &link_target(&dir, named),
+                    Expect::Dir,
                 ));
             }
             Ok(_) => {} // appeared since `try_exists`: the next read sees it
@@ -1123,10 +1125,23 @@ mod tests {
 
         std::fs::remove_dir_all(&pool).unwrap(); // the drive is unplugged
 
+        let err = list(root)
+            .await
+            .expect_err("a broken mods/ link is could-not-tell");
+        let Error::LinkTargetMissing {
+            path,
+            target,
+            is_file,
+        } = err
+        else {
+            panic!("a broken mods/ link is its own refusal, not a write failure: {err:?}");
+        };
+        assert_eq!(path, crate::content_root::display(&mods_dir(root)));
         assert!(
-            list(root).await.is_err(),
-            "a broken mods/ link is could-not-tell"
+            Path::new(&target).ends_with("pool") && !target.starts_with(r"\\?\"),
+            "names where mods/ points, as the user reads it: {target}"
         );
+        assert!(!is_file);
         assert_eq!(
             std::fs::read(registry_path(root)).unwrap(),
             before,

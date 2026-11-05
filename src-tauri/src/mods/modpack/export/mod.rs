@@ -53,8 +53,7 @@ pub async fn run_export(
     ] {
         if included {
             let dir = mc_dir.join(rel);
-            crate::content_root::has_content(&dir, crate::content_root::Expect::Dir)
-                .map_err(|e| Error::io(dir.display().to_string(), e))?;
+            crate::content_root::has_content(&dir, crate::content_root::Expect::Dir)?;
         }
     }
 

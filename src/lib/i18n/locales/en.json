@@ -2946,6 +2946,8 @@
     "modsUnsafeFilename": "Refused to install \"{filename}\": the file name is unsafe (contains a path separator or \"..\")",
     "modsCacheIo": "Couldn't write to mod cache",
     "modsInstancePath": "Couldn't write to instance at {path}",
+    "linkTargetMissing": "{path} links to the folder {target}, which is missing. If it is on a removable or network drive, reconnect it; if the folder is gone, delete the link in the file manager.",
+    "linkTargetMissingFile": "{path} links to the file {target}, which is missing. If it is on a removable or network drive, reconnect it; if the file is gone, delete the link in the file manager.",
     "modpackInvalidArchive": "Modpack archive is invalid",
     "modpackFormatUnknown": "This file is not a recognised modpack (.mrpack or CurseForge .zip).",
     "importUrlInvalid": "That link can't be imported: {reason}",
