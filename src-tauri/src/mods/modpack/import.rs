@@ -1108,220 +1108,242 @@ pub async fn install_resolved_pack(
         details: e.to_string(),
     })?;
 
+    // `create_instance` resolved this same path a moment ago.
     let instance_root = crate::paths::instance_dir(app, &inst.id).map_err(|e| Error::Io {
         path: "<instance_dir>".into(),
         details: e.to_string(),
     })?;
-    let data_dir = crate::paths::app_dir(app).map_err(|e| Error::Io {
-        path: "<app_dir>".into(),
-        details: e.to_string(),
-    })?;
-    // Which shipped worlds already exist, decided before this import writes
-    // anything: the index's files are installed first and may land in
-    // saves/<world>/, which a later check would mistake for the player's.
-    let protected_worlds = match archive_bytes {
-        Some(bytes) if apply_overrides => {
-            overrides::ProtectedWorlds::snapshot(bytes, &instance_root)?
-        }
-        _ => overrides::ProtectedWorlds::default(),
-    };
+    // From here every way out but success removes the unfinished instance: a
+    // returned error below (where a removal that fails can still be reported),
+    // and a panic or a dropped future through this guard (the app closing
+    // mid-import). A partial failure is a success here — the instance stands.
+    let cleanup = crate::naming::DirCleanup::new(&instance_root);
+    let populated: Result<_, Error> = async {
+        let data_dir = crate::paths::app_dir(app).map_err(|e| Error::Io {
+            path: "<app_dir>".into(),
+            details: e.to_string(),
+        })?;
+        // Which shipped worlds already exist, decided before this import writes
+        // anything: the index's files are installed first and may land in
+        // saves/<world>/, which a later check would mistake for the player's.
+        let protected_worlds = match archive_bytes {
+            Some(bytes) if apply_overrides => {
+                overrides::ProtectedWorlds::snapshot(bytes, &instance_root)?
+            }
+            _ => overrides::ProtectedWorlds::default(),
+        };
 
-    let selected: Vec<&ModpackFile> = summary
-        .files
-        .iter()
-        .filter(|f| {
-            selected_shas
-                .iter()
-                .any(|s| s.eq_ignore_ascii_case(&f.sha1))
-        })
-        .collect();
-    // Concurrent pre-warm (HIGH-5): download every sha1-keyed selected file
-    // into the shared content cache, up to MODPACK_PREWARM_CONCURRENCY at a
-    // time, BEFORE the serial install loop below. The loop is otherwise
-    // unchanged — each per-file `fetch_to_cache` then becomes an instant cache
-    // hit, so total wall-clock collapses from sum(per-file network latency) to
-    // roughly one concurrent batch of network time plus the sum of local
-    // copies. Errors are deliberately swallowed here: the serial loop stays the
-    // single source of truth for per-file success/failure, ordering, and the
-    // origin snapshot — a pre-warm miss just means that file's serial fetch
-    // re-attempts (and fails identically). The install-time guards (filename
-    // safety, distribution, path-escape) also stay in the serial loop;
-    // pre-warm only populates the SHA-verified, content-addressed cache, never
-    // the instance. (ATLauncher md5 files are excluded — see `prewarm_targets`.)
-    prewarm_cache(&data_dir, &selected, &install_progress).await;
+        let selected: Vec<&ModpackFile> = summary
+            .files
+            .iter()
+            .filter(|f| {
+                selected_shas
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(&f.sha1))
+            })
+            .collect();
+        // Concurrent pre-warm (HIGH-5): download every sha1-keyed selected file
+        // into the shared content cache, up to MODPACK_PREWARM_CONCURRENCY at a
+        // time, BEFORE the serial install loop below. The loop is otherwise
+        // unchanged — each per-file `fetch_to_cache` then becomes an instant cache
+        // hit, so total wall-clock collapses from sum(per-file network latency) to
+        // roughly one concurrent batch of network time plus the sum of local
+        // copies. Errors are deliberately swallowed here: the serial loop stays the
+        // single source of truth for per-file success/failure, ordering, and the
+        // origin snapshot — a pre-warm miss just means that file's serial fetch
+        // re-attempts (and fails identically). The install-time guards (filename
+        // safety, distribution, path-escape) also stay in the serial loop;
+        // pre-warm only populates the SHA-verified, content-addressed cache, never
+        // the instance. (ATLauncher md5 files are excluded — see `prewarm_targets`.)
+        prewarm_cache(&data_dir, &selected, &install_progress).await;
 
-    let (failures, resolved_for_origin, mut details) = install_selected_files(
-        &data_dir,
-        &instance_root,
-        &selected,
-        &summary.game_version,
-        summary.loader,
-        on_progress,
-        &install_progress,
-    )
-    .await;
-
-    // md5-in-sha1 selection tokens must never reach the persisted PackOrigin.
-    debug_assert!(
-        resolved_for_origin.iter().all(|f| f.md5.is_none()),
-        "md5-in-sha1 selection token must be resolved to a real sha1 before PackOrigin"
-    );
-
-    // Bundled assets from overrides/ (mods/*.jar plus top-level
-    // resourcepacks/ and shaderpacks/ files) are tracked here so the
-    // origin snapshot below captures them. Without this, the drawer's
-    // scan-reconcile-driven InstalledMod entries land with source=None
-    // and fall into the "manual" badge even though the bytes came
-    // straight from the pack archive.
-    // FTB packs have no archive and therefore no overrides — `archive_bytes`
-    // is `None` for that path and the block is skipped entirely.
-    let mut bundled_assets: Vec<crate::mods::modpack::overrides::ExtractedAsset> = vec![];
-    // Oversized `overrides/` blobs the extractor skipped (e.g. a `.rar` left
-    // in `mods/`). Surfaced informationally — the import still succeeds.
-    let mut skipped_overrides: Vec<crate::mods::modpack::schema::SkippedOverride> = vec![];
-    if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
-        if let Some(bytes) = archive_bytes {
-            let bytes_clone = bytes.to_vec();
-            // A first import keeps no synced files: the instance joins
-            // settings sync after this returns, and its join applies then.
-            let outcome = overrides::extract(
-                &bytes_clone,
-                &instance_root,
-                &protected_worlds,
-                &overrides::SyncedFiles::default(),
-                |c, t| {
-                    on_progress(ModpackProgress::ExtractingOverrides {
-                        current: c,
-                        total: t,
-                    });
-                },
-            )
-            .await?;
-            bundled_assets = outcome.extracted;
-            skipped_overrides = outcome.skipped;
-        }
-    }
-    // One TaskDetail row per bundled/skipped overrides entry, alongside the
-    // rows `install_selected_files` already produced for the manifest-listed
-    // files.
-    details.extend(bundled_assets.iter().map(extracted_asset_detail));
-    details.extend(skipped_overrides.iter().map(skipped_override_detail));
-
-    // Persist the origin snapshot. Best-effort — the import itself
-    // is already done at this point; a write failure here only loses
-    // the modified/restore affordance, not any installed mod or
-    // instance. Log and continue.
-    // Use `resolved_for_origin` (real sha1s, md5 cleared) instead of `selected`
-    // so ATLauncher md5 files are recorded with their real sha1, not the
-    // transient md5-as-selection-token.
-    let resolved_refs: Vec<&ModpackFile> = resolved_for_origin.iter().collect();
-    let manual_downloads = summary
-        .unresolvable
-        .iter()
-        .filter(|u| {
-            matches!(
-                u.reason,
-                UnresolvableReason::DistributionDisabled
-                    | UnresolvableReason::HostNotAllowed
-                    | UnresolvableReason::MissingChecksum
-                    | UnresolvableReason::SourceUnavailable
-            )
-        })
-        .count() as u32;
-    let mut origin = build_pack_origin(
-        &summary,
-        &resolved_refs,
-        mrpack_project_id_for_origin,
-        &pack_name,
-    );
-    // Fold bundled-from-overrides jars into the origin so they badge
-    // as "pack" in the drawer. `url` stays empty (bundled bytes have
-    // no remote source) — the Restore path checks for this and
-    // returns a typed error instead of trying to install_one a no-URL
-    // entry.
-    let bundled_source = origin.source;
-    for m in &bundled_assets {
-        origin.files.push(crate::mods::installed::PackOriginFile {
-            sha1: m.sha1.clone(),
-            name: m
-                .filename
-                .trim_end_matches(".jar")
-                .trim_end_matches(".disabled")
-                .to_string(),
-            filename: m.filename.clone(),
-            install_path: m.install_path.clone(),
-            url: String::new(),
-            size: m.size as f64,
-            project_id: String::new(),
-            version_id: String::new(),
-            env_client: crate::mods::modpack::schema::EnvSupport::Required,
-            source: bundled_source,
-        });
-    }
-    // Bundled resource packs / shaders from overrides/ also belong in the
-    // assets registry so they show under Add-ons → Installed. Bundled mods and
-    // other files are skipped (content_kind_for_install_path returns None).
-    for m in &bundled_assets {
-        register_asset_if_applicable(
+        let (failures, resolved_for_origin, mut details) = install_selected_files(
+            &data_dir,
             &instance_root,
-            &m.install_path,
-            &m.filename,
-            &m.sha1,
-            &m.filename,
-            None,
-            None,
-            None,
+            &selected,
+            &summary.game_version,
+            summary.loader,
+            on_progress,
+            &install_progress,
         )
         .await;
-    }
-    // Scan the freshly-installed mods folder for jars built for a loader
-    // family this instance cannot load (inert — e.g. a Fabric jar on a Forge
-    // instance). Best-effort and non-fatal: the import already succeeded; this
-    // is surfaced for transparency only. Loader-family only, so it never
-    // false-positives on a bundled multi-loader or descriptor-less jar.
-    let mods_dir = instance_root.join(".minecraft").join("mods");
-    // Reads + zip-parses every jar in `mods/` — a full pass over the pack, so
-    // run it on a blocking thread instead of the async runtime. Join failure
-    // degrades to "no inert jars found" (the scan is best-effort anyway).
-    let inert_loader_jars = {
-        let mods_dir = mods_dir.clone();
-        let loader = summary.loader;
-        let game_version = summary.game_version.clone();
-        tokio::task::spawn_blocking(move || {
-            classify_inert_loader_jars(&mods_dir, loader, &game_version)
-        })
+
+        // md5-in-sha1 selection tokens must never reach the persisted PackOrigin.
+        debug_assert!(
+            resolved_for_origin.iter().all(|f| f.md5.is_none()),
+            "md5-in-sha1 selection token must be resolved to a real sha1 before PackOrigin"
+        );
+
+        // Bundled assets from overrides/ (mods/*.jar plus top-level
+        // resourcepacks/ and shaderpacks/ files) are tracked here so the
+        // origin snapshot below captures them. Without this, the drawer's
+        // scan-reconcile-driven InstalledMod entries land with source=None
+        // and fall into the "manual" badge even though the bytes came
+        // straight from the pack archive.
+        // FTB packs have no archive and therefore no overrides — `archive_bytes`
+        // is `None` for that path and the block is skipped entirely.
+        let mut bundled_assets: Vec<crate::mods::modpack::overrides::ExtractedAsset> = vec![];
+        // Oversized `overrides/` blobs the extractor skipped (e.g. a `.rar` left
+        // in `mods/`). Surfaced informationally — the import still succeeds.
+        let mut skipped_overrides: Vec<crate::mods::modpack::schema::SkippedOverride> = vec![];
+        if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
+            if let Some(bytes) = archive_bytes {
+                let bytes_clone = bytes.to_vec();
+                // A first import keeps no synced files: the instance joins
+                // settings sync after this returns, and its join applies then.
+                let outcome = overrides::extract(
+                    &bytes_clone,
+                    &instance_root,
+                    &protected_worlds,
+                    &overrides::SyncedFiles::default(),
+                    |c, t| {
+                        on_progress(ModpackProgress::ExtractingOverrides {
+                            current: c,
+                            total: t,
+                        });
+                    },
+                )
+                .await?;
+                bundled_assets = outcome.extracted;
+                skipped_overrides = outcome.skipped;
+            }
+        }
+        // One TaskDetail row per bundled/skipped overrides entry, alongside the
+        // rows `install_selected_files` already produced for the manifest-listed
+        // files.
+        details.extend(bundled_assets.iter().map(extracted_asset_detail));
+        details.extend(skipped_overrides.iter().map(skipped_override_detail));
+
+        // Persist the origin snapshot. Best-effort — the import itself
+        // is already done at this point; a write failure here only loses
+        // the modified/restore affordance, not any installed mod or
+        // instance. Log and continue.
+        // Use `resolved_for_origin` (real sha1s, md5 cleared) instead of `selected`
+        // so ATLauncher md5 files are recorded with their real sha1, not the
+        // transient md5-as-selection-token.
+        let resolved_refs: Vec<&ModpackFile> = resolved_for_origin.iter().collect();
+        let manual_downloads = summary
+            .unresolvable
+            .iter()
+            .filter(|u| {
+                matches!(
+                    u.reason,
+                    UnresolvableReason::DistributionDisabled
+                        | UnresolvableReason::HostNotAllowed
+                        | UnresolvableReason::MissingChecksum
+                        | UnresolvableReason::SourceUnavailable
+                )
+            })
+            .count() as u32;
+        let mut origin = build_pack_origin(
+            &summary,
+            &resolved_refs,
+            mrpack_project_id_for_origin,
+            &pack_name,
+        );
+        // Fold bundled-from-overrides jars into the origin so they badge
+        // as "pack" in the drawer. `url` stays empty (bundled bytes have
+        // no remote source) — the Restore path checks for this and
+        // returns a typed error instead of trying to install_one a no-URL
+        // entry.
+        let bundled_source = origin.source;
+        for m in &bundled_assets {
+            origin.files.push(crate::mods::installed::PackOriginFile {
+                sha1: m.sha1.clone(),
+                name: m
+                    .filename
+                    .trim_end_matches(".jar")
+                    .trim_end_matches(".disabled")
+                    .to_string(),
+                filename: m.filename.clone(),
+                install_path: m.install_path.clone(),
+                url: String::new(),
+                size: m.size as f64,
+                project_id: String::new(),
+                version_id: String::new(),
+                env_client: crate::mods::modpack::schema::EnvSupport::Required,
+                source: bundled_source,
+            });
+        }
+        // Bundled resource packs / shaders from overrides/ also belong in the
+        // assets registry so they show under Add-ons → Installed. Bundled mods and
+        // other files are skipped (content_kind_for_install_path returns None).
+        for m in &bundled_assets {
+            register_asset_if_applicable(
+                &instance_root,
+                &m.install_path,
+                &m.filename,
+                &m.sha1,
+                &m.filename,
+                None,
+                None,
+                None,
+            )
+            .await;
+        }
+        // Scan the freshly-installed mods folder for jars built for a loader
+        // family this instance cannot load (inert — e.g. a Fabric jar on a Forge
+        // instance). Best-effort and non-fatal: the import already succeeded; this
+        // is surfaced for transparency only. Loader-family only, so it never
+        // false-positives on a bundled multi-loader or descriptor-less jar.
+        let mods_dir = instance_root.join(".minecraft").join("mods");
+        // Reads + zip-parses every jar in `mods/` — a full pass over the pack, so
+        // run it on a blocking thread instead of the async runtime. Join failure
+        // degrades to "no inert jars found" (the scan is best-effort anyway).
+        let inert_loader_jars = {
+            let mods_dir = mods_dir.clone();
+            let loader = summary.loader;
+            let game_version = summary.game_version.clone();
+            tokio::task::spawn_blocking(move || {
+                classify_inert_loader_jars(&mods_dir, loader, &game_version)
+            })
+            .await
+            .unwrap_or_default()
+        };
+
+        // Record the skipped oversized overrides so the Imported drawer can
+        // show the informational "skipped" note after a restart (the returned
+        // outcome below only reaches the live import toast).
+        origin.skipped_overrides = skipped_overrides.clone();
+        origin.inert_loader_jars = inert_loader_jars.clone();
+        if let Err(e) = crate::mods::installed::set_pack_origin(&instance_root, origin).await {
+            crate::diag!("[modpack::import] set_pack_origin failed (non-fatal): {e}");
+        }
+
+        // Final phase: hash-enrich the override-bundled mods so the
+        // Installed view shows their icons on first open. Best-effort — the
+        // import (instance + mods on disk) is already complete; a failure
+        // here only delays enrichment to the Installed-view backfill.
+        on_progress(ModpackProgress::Enriching);
+        let cf_key = crate::mods::curseforge::keyring::resolve();
+        if let Err(e) = crate::mods::enrich::enrich_instance(
+            &instance_root,
+            "https://api.modrinth.com",
+            cf_base,
+            cf_key.as_deref(),
+        )
         .await
-        .unwrap_or_default()
-    };
+        {
+            crate::diag!("[modpack::import] enrich_instance failed (non-fatal): {e}");
+        }
 
-    // Record the skipped oversized overrides so the Imported drawer can
-    // show the informational "skipped" note after a restart (the returned
-    // outcome below only reaches the live import toast).
-    origin.skipped_overrides = skipped_overrides.clone();
-    origin.inert_loader_jars = inert_loader_jars.clone();
-    if let Err(e) = crate::mods::installed::set_pack_origin(&instance_root, origin).await {
-        crate::diag!("[modpack::import] set_pack_origin failed (non-fatal): {e}");
+        // Phase marker only — the result rides the return value below.
+        on_progress(ModpackProgress::Done);
+        Ok((
+            failures,
+            skipped_overrides,
+            inert_loader_jars,
+            details,
+            manual_downloads,
+        ))
     }
-
-    // Final phase: hash-enrich the override-bundled mods so the
-    // Installed view shows their icons on first open. Best-effort — the
-    // import (instance + mods on disk) is already complete; a failure
-    // here only delays enrichment to the Installed-view backfill.
-    on_progress(ModpackProgress::Enriching);
-    let cf_key = crate::mods::curseforge::keyring::resolve();
-    if let Err(e) = crate::mods::enrich::enrich_instance(
-        &instance_root,
-        "https://api.modrinth.com",
-        cf_base,
-        cf_key.as_deref(),
-    )
-    .await
-    {
-        crate::diag!("[modpack::import] enrich_instance failed (non-fatal): {e}");
-    }
-
-    // Phase marker only — the result rides the return value below.
-    on_progress(ModpackProgress::Done);
+    .await;
+    cleanup.keep();
+    let (failures, skipped_overrides, inert_loader_jars, details, manual_downloads) =
+        match populated {
+            Ok(parts) => parts,
+            Err(cause) => return Err(discard_failed_import(&inst, &instance_root, cause)),
+        };
 
     if failures.is_empty() {
         Ok(crate::mods::modpack::schema::ModpackImportOutcome {
@@ -1336,6 +1358,46 @@ pub async fn install_resolved_pack(
             instance_id: inst.id,
             failed: failures,
         })
+    }
+}
+
+/// The import failed after creating `inst`: remove it, so the list does not
+/// keep a profile the toast says was never imported. Refused like any other
+/// removal while a game runs in it or a maintenance holds it.
+fn discard_failed_import(
+    inst: &crate::instances::schema::InstanceWithStatus,
+    instance_root: &std::path::Path,
+    cause: Error,
+) -> Error {
+    let removed = crate::instances::maintenance::write_allowed(&inst.id)
+        .and_then(|()| crate::instances::remove_instance_dir(instance_root));
+    failed_import_error(cause, removed, &inst.name, instance_root)
+}
+
+/// What a failed import reports once it tried to remove its instance: the
+/// import's own failure when nothing is left, else `ModpackImportLeftover`
+/// naming the folder still on disk — this runs because something already
+/// failed, so its own failure is put on record (Fallback discipline Q4).
+fn failed_import_error(
+    cause: Error,
+    removed: Result<(), Error>,
+    name: &str,
+    instance_root: &std::path::Path,
+) -> Error {
+    match removed {
+        Ok(()) => cause,
+        Err(e) => {
+            crate::diag!(
+                "[modpack::import] the import failed ({cause}) and its unfinished instance \
+                 {} could not be removed: {e}",
+                instance_root.display()
+            );
+            Error::ModpackImportLeftover {
+                name: name.to_string(),
+                path: instance_root.display().to_string(),
+                details: cause.to_string(),
+            }
+        }
     }
 }
 
@@ -3374,5 +3436,57 @@ mod tests {
         let out = with_carried_notes(rebuilt_origin(), noted_origin(), fresh_inert());
         assert_eq!(out.version, "2.0.0");
         assert_eq!(out.project_name, "Pack (renamed)");
+    }
+
+    // ── a failed import removes its unfinished instance (v0.29 regression, F2) ──
+
+    #[test]
+    fn a_removed_instance_leaves_the_imports_own_failure() {
+        let cause = Error::ModpackOverridesPathEscape {
+            entry: "config/x".into(),
+        };
+        let out = failed_import_error(
+            cause,
+            Ok(()),
+            "RLCraft",
+            std::path::Path::new("C:/d/rlcraft"),
+        );
+        assert!(
+            matches!(&out, Error::ModpackOverridesPathEscape { entry } if entry == "config/x"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn an_instance_that_could_not_be_removed_is_named_with_its_folder() {
+        let cause = Error::ModpackOverridesPathEscape {
+            entry: "config/x".into(),
+        };
+        let details = cause.to_string();
+        let refused = Err(Error::io(
+            "C:/d/rlcraft",
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        ));
+        let out = failed_import_error(
+            cause,
+            refused,
+            "RLCraft",
+            std::path::Path::new("C:/d/rlcraft"),
+        );
+        match out {
+            Error::ModpackImportLeftover {
+                name,
+                path,
+                details: d,
+            } => {
+                assert_eq!(name, "RLCraft");
+                assert_eq!(
+                    path,
+                    std::path::Path::new("C:/d/rlcraft").display().to_string()
+                );
+                assert_eq!(d, details, "the import's own failure rides along");
+            }
+            other => panic!("expected ModpackImportLeftover, got {other:?}"),
+        }
     }
 }

@@ -546,6 +546,12 @@ describe('formatError', () => {
         kind: 'modpack_instance_creation_failed',
         details: 'd',
       },
+      modpack_import_leftover: {
+        kind: 'modpack_import_leftover',
+        name: 'RLCraft',
+        path: 'C:\\data\\instances\\rlcraft',
+        details: 'd',
+      },
       modpack_partial_failure: {
         kind: 'modpack_partial_failure',
         instance_id: 'i1',

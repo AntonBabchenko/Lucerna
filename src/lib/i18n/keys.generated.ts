@@ -385,6 +385,7 @@ export type TranslationKey =
   | 'errors.modpackDownloadHostNotAllowed'
   | 'errors.modpackExportFailed'
   | 'errors.modpackFormatUnknown'
+  | 'errors.modpackImportLeftover'
   | 'errors.modpackInstanceCreationFailed'
   | 'errors.modpackInvalidArchive'
   | 'errors.modpackManifestInvalid'
