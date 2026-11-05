@@ -1440,7 +1440,7 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**  Use the user's own file for an entry with nothing to check against (D8). */
 	manualDownloadsSupplyUnverified: (instanceId: string, key: string, path: string) => typedError<SupplyRow, Error>(__TAURI_INVOKE("manual_downloads_supply_unverified", { instanceId, key, path })),
 	/**  The confirmed Replace (D9). */
-	manualDownloadsReplace: (instanceId: string, key: string, path: string) => typedError<ReplaceOutcome, Error>(__TAURI_INVOKE("manual_downloads_replace", { instanceId, key, path })),
+	manualDownloadsReplace: (instanceId: string, key: string, path: string, existing: string) => typedError<ReplaceOutcome, Error>(__TAURI_INVOKE("manual_downloads_replace", { instanceId, key, path, existing })),
 	/**
 	 *  The OS downloads folder, for the dialog's folder line and the picker; `None`
 	 *  when the OS does not name one.
@@ -9331,8 +9331,11 @@ export type SupplyRow =
  *  the file is there, but may read as missing until it is added again.
  */
 { kind: "added"; path: string; key: string; mod_name: string; recorded: boolean } | 
-/**  The same bytes were already in place (bookkeeping redone). */
-{ kind: "already_there"; path: string; key: string; mod_name: string } | 
+/**
+ *  The same bytes were already in place (bookkeeping redone).
+ *  `recorded: false` when that bookkeeping could not be written.
+ */
+{ kind: "already_there"; path: string; key: string; mod_name: string; recorded: boolean } | 
 /**  The pack's exact file, but another file holds its place (spec D9). */
 { kind: "needs_replace"; path: string; key: string; mod_name: string; existing: string } | 
 /**  Another version of a mod this pack waits for. */

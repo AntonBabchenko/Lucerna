@@ -186,6 +186,7 @@ pub async fn manual_downloads_replace(
     instance_id: String,
     key: String,
     path: String,
+    existing: String,
 ) -> Result<ReplaceOutcome> {
     let root = instance_root(&app, &instance_id)?;
     let l = loaded(&root).await?;
@@ -196,7 +197,7 @@ pub async fn manual_downloads_replace(
         statuses: &l.statuses,
     };
     let write = crate::instances::maintenance::claim_shared_write(&instance_id)?;
-    let done = supply::replace(&ctx, &key, &path).await;
+    let done = supply::replace(&ctx, &key, &path, &existing).await;
     drop(write);
     let receipt = done
         .trashed

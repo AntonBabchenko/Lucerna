@@ -135,17 +135,15 @@ async fn plan_one(ctx: &Ctx<'_>, display: &str) -> One {
     };
     let key = state::entry_key(&st.entry);
     if st.state == MissingModState::DifferentVersion {
-        let existing = state::different_version_rows(&st.entry, ctx.installed)
-            .iter()
-            .map(|r| r.filename.clone())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return One::Planned(Planned::Row(SupplyRow::NeedsReplace {
-            path: display.to_string(),
-            key,
-            mod_name: st.entry.mod_name.clone(),
-            existing,
-        }));
+        let others = replace_candidates(ctx, &st.entry);
+        if !others.is_empty() {
+            return One::Planned(Planned::Row(SupplyRow::NeedsReplace {
+                path: display.to_string(),
+                key,
+                mod_name: st.entry.mod_name.clone(),
+                existing: names_of(&others),
+            }));
+        }
     }
     let by = if matches!(state::expected(&st.entry), Expected::Md5(_)) {
         By::Md5
@@ -218,6 +216,26 @@ async fn record(instance_root: &Path, pl: &Placement) -> bool {
             false
         }
     }
+}
+
+/// Installed jars that look like another version of `e`'s mod, minus the
+/// pack's own files: those are never something a Replace may remove.
+pub(crate) fn replace_candidates<'a>(
+    ctx: &'a Ctx<'_>,
+    e: &ModpackUnresolvable,
+) -> Vec<&'a InstalledMod> {
+    let packs = pack_file_shas(ctx.origin);
+    state::different_version_rows(e, ctx.installed)
+        .into_iter()
+        .filter(|r| !packs.contains(&r.sha1.to_ascii_lowercase()))
+        .collect()
+}
+
+fn names_of(rows: &[&InstalledMod]) -> String {
+    rows.iter()
+        .map(|r| r.filename.clone())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub(crate) fn pack_file_shas(origin: &PackOrigin) -> HashSet<String> {
@@ -368,17 +386,15 @@ pub async fn supply_unverified(ctx: &Ctx<'_>, key: &str, display: &str) -> Appli
     match st.state {
         MissingModState::Missing => {}
         MissingModState::DifferentVersion => {
-            let existing = state::different_version_rows(&st.entry, ctx.installed)
-                .iter()
-                .map(|r| r.filename.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
-            return one(SupplyRow::NeedsReplace {
-                path: display.to_string(),
-                key: key.to_string(),
-                mod_name: st.entry.mod_name.clone(),
-                existing,
-            });
+            let others = replace_candidates(ctx, &st.entry);
+            if !others.is_empty() {
+                return one(SupplyRow::NeedsReplace {
+                    path: display.to_string(),
+                    key: key.to_string(),
+                    mod_name: st.entry.mod_name.clone(),
+                    existing: names_of(&others),
+                });
+            }
         }
         _ => {
             return one(SupplyRow::AlreadyThere {
@@ -449,7 +465,10 @@ pub struct Replaced {
 /// occupants leave the way a user removal does (a mod to the instance trash,
 /// anything else to the recycle bin), then the staged copy is renamed in. If
 /// that rename fails, the trashed mods are put back and that result is checked.
-pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str) -> Replaced {
+///
+/// `confirmed` is what the user was shown as leaving; if what would leave now
+/// differs, nothing is written and the new names come back to be asked again.
+pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -> Replaced {
     let refuse = |row: SupplyRow| Replaced {
         row,
         trashed: None,
@@ -502,10 +521,9 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str) -> Replaced {
     let dest = mc.join(&rel);
 
     // Who leaves: other versions of the mod, and whatever holds the name.
-    let mut mod_shas: Vec<String> = state::different_version_rows(&st.entry, ctx.installed)
-        .iter()
-        .map(|r| r.sha1.clone())
-        .collect();
+    let others = replace_candidates(ctx, &st.entry);
+    let mut shown = names_of(&others);
+    let mut mod_shas: Vec<String> = others.iter().map(|r| r.sha1.clone()).collect();
     let mut loose: Vec<PathBuf> = Vec::new();
     match place::occupancy(
         &mc,
@@ -528,14 +546,27 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str) -> Replaced {
                 existing,
             })
         }
-        Ok(Occupancy::Taken { existing, row_sha1 }) => match row_sha1 {
-            Some(sha) if rel.starts_with("mods/") => mod_shas.push(sha),
-            _ => loose.push(dest.with_file_name(existing)),
-        },
+        Ok(Occupancy::Taken { existing, row_sha1 }) => {
+            if shown.is_empty() {
+                shown = existing.clone();
+            }
+            match row_sha1 {
+                Some(sha) if rel.starts_with("mods/") => mod_shas.push(sha),
+                _ => loose.push(dest.with_file_name(existing)),
+            }
+        }
         Ok(Occupancy::Same) | Ok(Occupancy::Free) => {}
     }
     mod_shas.sort();
     mod_shas.dedup();
+    if !shown.is_empty() && shown != confirmed {
+        return refuse(SupplyRow::NeedsReplace {
+            path: display.to_string(),
+            key: key.to_string(),
+            mod_name: st.entry.mod_name.clone(),
+            existing: shown,
+        });
+    }
 
     if let Some(parent) = dest.parent() {
         if let Err(e) = tokio::fs::create_dir_all(parent).await {
@@ -925,6 +956,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_pack_file_is_never_listed_or_trashed_by_a_replace() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        std::fs::write(root.join(".minecraft/mods/srp-2.0.jar"), b"old").unwrap();
+        let mut e = entry(None, None, Some(&sha(b"pack bytes")));
+        e.size = 10.0;
+        e.filename = "srp-1.0.jar".into();
+        let src = dir.path().join("SRP.jar");
+        std::fs::write(&src, b"pack bytes").unwrap();
+        let mut o = origin(vec![e.clone()]);
+        o.files = vec![crate::mods::installed::PackOriginFile {
+            sha1: sha(b"old"),
+            name: "Bundled".into(),
+            filename: "srp-2.0.jar".into(),
+            install_path: "mods/srp-2.0.jar".into(),
+            url: String::new(),
+            size: 3.0,
+            project_id: "1".into(),
+            version_id: "1".into(),
+            env_client: crate::mods::modpack::schema::EnvSupport::Required,
+            source: ModSource::Curseforge,
+        }];
+        let installed = crate::mods::installed::list(&root).await.unwrap();
+        let disk =
+            crate::mods::manual_downloads::evidence::on_disk_shas(&root, &o, &installed).await;
+        let st = state::statuses(&o, &installed, &disk);
+        let ctx = Ctx {
+            instance_root: &root,
+            origin: &o,
+            installed: &installed,
+            statuses: &st,
+        };
+        let planned = plan(&ctx, &[src.display().to_string()], None).await;
+        assert!(
+            matches!(planned[0], Planned::Place(_)),
+            "a pack file is not an occupant to ask about: {planned:?}"
+        );
+        let done = replace(&ctx, &state::entry_key(&e), &src.display().to_string(), "").await;
+        assert!(
+            matches!(done.row, SupplyRow::Added { .. }),
+            "{:?}",
+            done.row
+        );
+        assert!(done.trashed.is_none());
+        assert!(root.join(".minecraft/mods/srp-2.0.jar").exists());
+    }
+
+    #[tokio::test]
     async fn replace_moves_the_old_version_to_the_trash_and_places_the_packs() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("inst");
@@ -946,7 +1026,13 @@ mod tests {
             installed: &installed,
             statuses: &st,
         };
-        let done = replace(&ctx, &state::entry_key(&e), &src.display().to_string()).await;
+        let done = replace(
+            &ctx,
+            &state::entry_key(&e),
+            &src.display().to_string(),
+            "srp-2.0.jar",
+        )
+        .await;
         assert!(matches!(done.row, SupplyRow::Added { .. }));
         assert!(done.trashed.is_some());
         assert!(!root.join(".minecraft/mods/srp-2.0.jar").exists());

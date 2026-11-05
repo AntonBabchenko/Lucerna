@@ -191,14 +191,26 @@
       return;
     }
     busy = true;
+    let askAgain: typeof ask = null;
     try {
       if (a.kind === 'unverified') {
         const r = await commands.manualDownloadsSupplyUnverified(instanceId, a.key, a.path);
         result = r.status === 'ok' ? supplyResult(get(t), [r.data]) : failed(r.error);
       } else {
-        const r = await commands.manualDownloadsReplace(instanceId, a.key, a.path);
+        const r = await commands.manualDownloadsReplace(instanceId, a.key, a.path, a.existing);
         if (r.status === 'ok') {
           remember([r.data.row]);
+          const row = r.data.row;
+          // What would leave changed since it was shown: ask again with the new names.
+          if (row.kind === 'needs_replace') {
+            askAgain = {
+              kind: 'replace',
+              key: row.key,
+              path: row.path,
+              existing: row.existing,
+              mod: row.mod_name,
+            };
+          }
           result = supplyResult(get(t), [r.data.row]);
           if (r.data.receipt) {
             announceRemoval(
@@ -219,7 +231,7 @@
       }
       noteManualDownloadsChanged();
     } finally {
-      ask = null;
+      ask = askAgain;
       busy = false;
       await load();
     }
