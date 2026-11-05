@@ -330,6 +330,7 @@ pub(crate) async fn resolve_cf_refs(
                     Some(f.sha1)
                 },
                 project_id: Some(f.project_id),
+                meta: Default::default(),
             });
         }
         return;
@@ -357,6 +358,7 @@ pub(crate) async fn resolve_cf_refs(
                         Some(f.sha1)
                     },
                     project_id: Some(f.project_id),
+                    meta: Default::default(),
                 });
             }
             return;
@@ -442,6 +444,7 @@ pub(crate) async fn resolve_cf_refs(
             size: f.size,
             sha1,
             project_id: Some(f.project_id),
+            meta: Default::default(),
         });
     }
 }

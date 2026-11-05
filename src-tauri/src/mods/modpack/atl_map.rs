@@ -117,6 +117,7 @@ fn unres(
         size,
         sha1,
         project_id: None,
+        meta: Default::default(),
     }
 }
 

@@ -136,6 +136,7 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
                 size: f.file_size as f64,
                 sha1: Some(f.hashes.sha1.to_ascii_lowercase()),
                 project_id: None,
+                meta: Default::default(),
             });
             continue;
         }
@@ -170,6 +171,7 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
                 size: f.file_size as f64,
                 sha1: Some(f.hashes.sha1.to_ascii_lowercase()),
                 project_id: None,
+                meta: Default::default(),
             });
             continue;
         }

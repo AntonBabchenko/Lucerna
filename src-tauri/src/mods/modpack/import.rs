@@ -415,6 +415,7 @@ pub fn compute_status(
         // Reading the completer's manifest needs the instance directory; this
         // function is pure, so the command fills it in afterwards.
         pack_completion: None,
+        supplied_shas: Vec::new(),
     }
 }
 
@@ -488,6 +489,7 @@ pub fn compute_update_diff(
         updated,
         version_bump,
         new_version_number: new_summary.version.clone(),
+        manual_downloads: 0,
     }
 }
 
@@ -1310,6 +1312,7 @@ pub async fn install_resolved_pack(
             skipped_overrides,
             inert_loader_jars,
             details,
+            manual_downloads: 0,
         })
     } else {
         Err(Error::ModpackPartialFailure {
@@ -1475,6 +1478,7 @@ mod tests {
             size: 1.0,
             sha1: None,
             project_id: Some("1".into()),
+            meta: Default::default(),
         }];
         assert!(selection_refusal(&summary, 0).is_none());
     }
@@ -1761,6 +1765,7 @@ mod tests {
             ],
             version_bump: None,
             new_version_number: "2.0".into(),
+            manual_downloads: 0,
         };
         let carry = carry_disabled_shas(&[off, on], &diff);
         // Only the disabled old carries; matching is case-insensitive and the
@@ -1781,6 +1786,7 @@ mod tests {
             }],
             version_bump: None,
             new_version_number: "2.0".into(),
+            manual_downloads: 0,
         };
         assert!(carry_disabled_shas(&[], &diff).is_empty());
     }
@@ -2187,6 +2193,7 @@ mod tests {
                 size: 1.0,
                 sha1: None,
                 project_id: None,
+                meta: Default::default(),
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::HostNotAllowed,
@@ -2196,6 +2203,7 @@ mod tests {
                 size: 2.0,
                 sha1: Some("ab".into()),
                 project_id: None,
+                meta: Default::default(),
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::UnsafePath,
@@ -2205,6 +2213,7 @@ mod tests {
                 size: 3.0,
                 sha1: None,
                 project_id: None,
+                meta: Default::default(),
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::MissingChecksum,
@@ -2214,6 +2223,7 @@ mod tests {
                 size: 4.0,
                 sha1: None,
                 project_id: None,
+                meta: Default::default(),
             },
         ];
         let origin = build_pack_origin(&summary, &[], None, "Test Pack");
@@ -2271,6 +2281,7 @@ mod tests {
             size: 1.0,
             sha1: sha1.map(|s| s.to_string()),
             project_id: project_id.map(|s| s.to_string()),
+            meta: Default::default(),
         }
     }
 

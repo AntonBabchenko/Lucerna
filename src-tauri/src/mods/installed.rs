@@ -1918,6 +1918,7 @@ mod tests {
             size: 4096.0,
             sha1: Some("abc".into()),
             project_id: None,
+            meta: Default::default(),
         }];
         set_pack_origin(td.path(), origin.clone()).await.unwrap();
         let got = get_pack_origin(td.path()).await.unwrap();

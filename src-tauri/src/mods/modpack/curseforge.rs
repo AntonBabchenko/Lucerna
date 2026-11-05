@@ -169,6 +169,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                 size: 0.0,
                 sha1: None,
                 project_id: None,
+                meta: Default::default(),
             });
             continue;
         };
@@ -195,6 +196,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                         .find(|h| h.algo == 1)
                         .map(|h| h.value.to_ascii_lowercase()),
                     project_id: Some(detail.mod_id.to_string()),
+                    meta: Default::default(),
                 });
                 continue;
             }
@@ -216,6 +218,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                 size: detail.file_length as f64,
                 sha1: None,
                 project_id: Some(detail.mod_id.to_string()),
+                meta: Default::default(),
             });
             continue;
         };

@@ -822,6 +822,7 @@ pub async fn modpack_apply_update(
         instance: updated_inst,
         inert_loader_jars,
         details,
+        manual_downloads: 0,
     })
 }
 
