@@ -16,6 +16,7 @@ import {
   type MissingModStatus,
   type PlaytimeStats,
 } from '$lib/ipc/bindings';
+import { needsAttention } from '$lib/modpacks/manual/entry-view';
 import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
 import { ensureCompatScan } from '$lib/mods/compat-scan.svelte';
 import { ensureLiveCompat, knownCompatHints } from '$lib/mods/installed/compat-check.svelte';
@@ -218,7 +219,7 @@ export function createInstanceStats() {
     },
     // Computed getter (reads `$state` at call time → reactive in templates).
     get unresolvedMissing() {
-      return packMissingMods.filter((m) => isUnresolvedMissingState(m.state));
+      return packMissingMods.filter(needsAttention);
     },
     refreshInstalledStats,
     refreshIncompatible,

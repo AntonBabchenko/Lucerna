@@ -48,6 +48,7 @@ import type { TransferRequest } from '$lib/instances/transfer/transfer-runner';
 import { outcomeLines } from '$lib/instances/transfer/transfer-view';
 import { commands } from '$lib/ipc/bindings';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
+import { pushManualDownloadsToast } from '$lib/modpacks/manual/manual-toast';
 import { cloneInstance } from '$lib/tasks/adapters/clone';
 import { runRepair, runVerify } from '$lib/tasks/adapters/integrity';
 import { importLauncherInstance } from '$lib/tasks/adapters/launcher-import';
@@ -180,12 +181,23 @@ async function runImportOp(
               })
             : tr('page.modpackImport.imported', { name: outcome.name });
       const id = outcome.instanceId;
-      pushActionToast(
-        'success',
-        title,
-        { label: tr('ops.openInstance'), run: () => void selectInstance(id) },
-        lines,
-      );
+      if (outcome.manualDownloads > 0) {
+        pushManualDownloadsToast(
+          'imported',
+          outcome.name,
+          id,
+          outcome.manualDownloads,
+          lines,
+          () => void selectInstance(id),
+        );
+      } else {
+        pushActionToast(
+          'success',
+          title,
+          { label: tr('ops.openInstance'), run: () => void selectInstance(id) },
+          lines,
+        );
+      }
       importCompletionTick += 1;
     } else if (outcome.status === 'partial') {
       pushWarning(

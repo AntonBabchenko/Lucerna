@@ -13,6 +13,7 @@ import type { InstanceWithStatus, ModpackUpdateDiff, ModpackVersionEntry } from 
 import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { applyModpackUpdate } from '$lib/tasks/adapters/pack-update';
+import { pushManualDownloadsToast } from './manual/manual-toast';
 
 export type UpdateFlowPhase = 'idle' | 'preparing' | 'confirming' | 'applying';
 /** What an in-flight update is doing: fetching file `current` of `total`, zipping world `current`
@@ -151,6 +152,9 @@ export function createModpackUpdateFlow() {
     if (out.status === 'error') {
       error = out.message;
       return false;
+    }
+    if (out.manualDownloads > 0) {
+      pushManualDownloadsToast('updated', inst.name, inst.id, out.manualDownloads);
     }
     return true;
   }

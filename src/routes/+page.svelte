@@ -152,7 +152,10 @@
   import WhatsNewModal from '$lib/changelog/WhatsNewModal.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { importTitle } from '$lib/modpacks/import-request';
-  import { manualDownloads } from '$lib/modpacks/manual/manual-downloads.svelte';
+  import {
+    manualDownloads,
+    openManualDownloads,
+  } from '$lib/modpacks/manual/manual-downloads.svelte';
   import { dataLocation } from '$lib/settings/data-location.svelte';
   import { dataRootPlayDisabledKey } from '$lib/settings/data-root-gating';
   import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
@@ -1048,6 +1051,15 @@
     pagePreflight.invalidate();
     void stats.refreshIncompatible(activeInstance?.id ?? null, instances, { force: true });
   }, 150);
+  // Finish install adding or undoing a file moves the missing-file count and the pre-flight: refresh
+  // like a mod install does. The first run is the mount, so the counter it starts from is skipped.
+  let seenManualChanged = manualDownloads.changed;
+  $effect(() => {
+    const changed = manualDownloads.changed;
+    if (changed === seenManualChanged) return;
+    seenManualChanged = changed;
+    debouncedModSetStats.call();
+  });
   onDestroy(() => {
     debouncedModSetStats.cancel();
     debouncedModToggleStats.cancel();

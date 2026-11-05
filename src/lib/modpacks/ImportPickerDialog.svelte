@@ -301,6 +301,7 @@
             </li>
           {/each}
         </ul>
+        <p class="text-xs text-muted pl-4 mb-2">{$t('modpacks.manual.pickerAfter')}</p>
       </details>
     {/if}
   </div>

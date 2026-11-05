@@ -8,6 +8,7 @@
   import { summarizeIntegrity } from '$lib/instances/integrity-summary';
   import JavaRescuePanel, { type JavaProblem } from '$lib/java/JavaRescuePanel.svelte';
   import type { ManageFocusField } from '$lib/instances/manage-focus';
+  import { openManualDownloads } from '$lib/modpacks/manual/manual-downloads.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { OVERVIEW_STEPS } from '$lib/onboarding/contextual-tours';
@@ -203,7 +204,9 @@
 
   function onAttention(kind: AttentionKind) {
     if (kind === 'log_issue' || kind === 'log_fix') onOpenLogs();
-    else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
+    else if (kind === 'missing_mods') {
+      if (activeInstance) openManualDownloads(activeInstance.id);
+    } else if (kind === 'modpack_update') onOpenPackDrawer();
     // Both levels of the one problem view (spec §6.2).
     else if (kind === 'mods_blocking' || kind === 'incompatible') onNavInstalled('issues');
     // The dependency panel and «Перепроверить зависимости» both live on the

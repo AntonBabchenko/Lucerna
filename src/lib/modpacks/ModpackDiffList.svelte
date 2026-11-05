@@ -13,19 +13,19 @@
 </script>
 
 <div class="flex-1 overflow-y-auto border rounded divide-y text-sm" data-testid="update-diff-list">
-  {#each diff.added as f (f.install_path)}
+  {#each diff.added as f (`${f.install_path}|${f.sha1}`)}
     <div class="px-2 py-1 text-success flex items-center gap-1.5">
       <Icon name="plus" />
       {f.name}
     </div>
   {/each}
-  {#each diff.updated as e (e.new.install_path)}
+  {#each diff.updated as e (`${e.new.install_path}|${e.new.sha1}`)}
     <div class="px-2 py-1 text-accent flex items-center gap-1.5">
       <Icon name="update" />
       {e.new.name}
     </div>
   {/each}
-  {#each diff.removed as f (f.install_path)}
+  {#each diff.removed as f (`${f.install_path}|${f.sha1}`)}
     <div class="px-2 py-1 text-danger line-through flex items-center gap-1.5">
       <Icon name="minus" />
       {f.name}
@@ -35,3 +35,8 @@
     <div class="px-2 py-3 text-muted text-center">{$t('modpacks.update.noChanges')}</div>
   {/if}
 </div>
+{#if (diff.manual_downloads ?? 0) > 0}
+  <p class="text-xs text-warning-text mt-1" data-testid="update-diff-manual">
+    {$t('modpacks.manual.diffLine', { count: diff.manual_downloads ?? 0 })}
+  </p>
+{/if}

@@ -29,6 +29,8 @@
   import { openExternalHttps } from '$lib/ui/safe-open';
   import { drawerCache } from './drawer-cache';
   import { isUnresolvedMissingState } from './missing-mod';
+  import { LINK_LABEL, entryLink, needsAttention, reasonText } from './manual/entry-view';
+  import { manualDownloads, openManualDownloads } from './manual/manual-downloads.svelte';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
   import ModpackUpdateProgress from './ModpackUpdateProgress.svelte';
   import { createModpackUpdateFlow } from './modpack-update-flow.svelte';
@@ -162,7 +164,10 @@
   const shownUpdateError = $derived(updateError ?? updateFlow.error);
 
   const originShas = $derived(
-    new Set((status?.origin.files ?? []).map((f) => f.sha1.toLowerCase())),
+    new Set([
+      ...(status?.origin.files ?? []).map((f) => f.sha1.toLowerCase()),
+      ...(status?.supplied_shas ?? []).map((sha) => sha.toLowerCase()),
+    ]),
   );
 
   // A pack file's category, from its install_path prefix. A resourcepack /
@@ -204,6 +209,16 @@
   // (e.g. a drag-drop local install on the Mods tab) can resolve or
   // un-resolve a "Mods to install manually" entry. Refresh silently so
   // the section and provenance badges stay live without a loading flash.
+  // Finish install adding or undoing a file changes what is missing: reload when it says so. The
+  // first run is the mount, which `load()` above already covers.
+  let seenChanged = manualDownloads.changed;
+  $effect(() => {
+    const changed = manualDownloads.changed;
+    if (changed === seenChanged) return;
+    seenChanged = changed;
+    void load(true);
+  });
+
   onMount(() => {
     const unlisten = [
       events.modInstalled.listen(() => void load(true)),
@@ -551,17 +566,26 @@
       <details class="mt-2" open data-testid="imported-detail-missing-section">
         {@render sectionSummary(
           $t('modpacks.imported.detail.missingHeading', {
-            count: status.missing_mods.filter((m) => isUnresolvedMissingState(m.state)).length,
+            count: status.missing_mods.filter(needsAttention).length,
           }),
         )}
         <p class="text-xs text-muted mb-2 pl-4">
           {$t('modpacks.imported.detail.missingBody')}
         </p>
+        <div class="pl-4 mb-2">
+          <button
+            type="button"
+            class="btn-secondary btn-xs"
+            onclick={() => openManualDownloads(inst.id)}
+            >{$t('modpacks.manual.finishInstall')}</button
+          >
+        </div>
         <ul class="space-y-1 pl-4">
           {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
             {@const isInstalled = m.state === 'installed'}
             {@const isDifferentVersion = m.state === 'different_version'}
             {@const isSubstituted = m.state === 'substituted'}
+            {@const link = entryLink(m.entry)}
             <li
               class="flex items-center gap-2 text-sm py-1 px-2 rounded border {isInstalled
                 ? 'bg-success-bg border-success'
@@ -592,18 +616,16 @@
                 <span
                   class="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
                 >
-                  {m.entry.reason === 'distribution_disabled'
-                    ? $t('modpacks.imported.detail.distributionDisabled')
-                    : $t('modpacks.imported.detail.hostNotAllowed')}
+                  {reasonText($t, m.entry)}
                 </span>
               {/if}
-              {#if !isInstalled && m.entry.manual_action_url}
+              {#if !isInstalled && link}
                 <button
                   type="button"
-                  onclick={() => void openExternalHttps(m.entry.manual_action_url!)}
+                  onclick={() => void openExternalHttps(link.url)}
                   class="btn-link text-xs flex-shrink-0 inline-flex items-center gap-1"
                 >
-                  {$t('modpacks.imported.detail.openLink')}
+                  {$t(LINK_LABEL[link.kind])}
                   <Icon name="externalLink" size={12} />
                 </button>
               {/if}
