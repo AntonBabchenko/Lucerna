@@ -288,9 +288,13 @@
     void supply(paths);
   });
 
-  // The opt-in watch (spec D4): polls only while this dialog is open and the user turned it on.
+  // The opt-in watch (spec D4): polls only while this dialog is open, the user turned it on, and
+  // some file is still waiting — with every file in place there is nothing to look for.
+  const watching = $derived(
+    watchOn && folder !== null && watchStopped === null && pending.length > 0,
+  );
   $effect(() => {
-    if (!watchOn || folder === null || watchStopped !== null) return;
+    if (!watching) return;
     const id = setInterval(() => void scan(true), WATCH_EVERY_MS);
     return () => clearInterval(id);
   });
@@ -357,7 +361,7 @@
       <button type="button" class="btn-link text-xs" onclick={() => void changeFolder()}
         >{$t('modpacks.manual.changeFolder')}</button
       >
-      {#if watchOn && watchStopped === null && folder !== null}
+      {#if watching}
         <Spinner
           size="sm"
           label={$t('modpacks.manual.watching')}

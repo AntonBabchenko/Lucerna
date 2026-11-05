@@ -1593,7 +1593,6 @@
         "optionalSection": "Необязательные ({count})",
         "installModAriaLabel": "Установить {name}",
         "cannotAutoInstall": "Нельзя установить автоматически ({count})",
-        "openLink": "Открыть",
         "groupMods": "Моды",
         "groupResourcepacks": "Ресурспаки",
         "groupShaderpacks": "Шейдеры",

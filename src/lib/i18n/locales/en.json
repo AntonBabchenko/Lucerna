@@ -1593,7 +1593,6 @@
         "optionalSection": "Optional ({count})",
         "installModAriaLabel": "Install {name}",
         "cannotAutoInstall": "Cannot auto-install ({count})",
-        "openLink": "Open",
         "groupMods": "Mods",
         "groupResourcepacks": "Resource packs",
         "groupShaderpacks": "Shader packs",

@@ -288,7 +288,8 @@ describe('ImportPickerDialog selection', () => {
     expect(getByText(/saved worlds/)).toBeTruthy();
   });
 
-  it('renders the unresolvable list with an Open ↗ link', async () => {
+  it('links an unresolvable file to its own download page, as Finish install does', async () => {
+    const download = 'https://www.curseforge.com/minecraft/mc-mods/embeddium/download/5';
     const summary = {
       ...baseSummary,
       unresolvable: [
@@ -299,6 +300,7 @@ describe('ImportPickerDialog selection', () => {
           filename: 'embeddium.jar',
           size: 100,
           sha1: null,
+          meta: { file_id: '5', download_url: download },
         },
       ],
     };
@@ -306,17 +308,15 @@ describe('ImportPickerDialog selection', () => {
       props: { summary, onCancel: () => {}, onConfirm: () => {} },
     });
     expect(getByText('Embeddium')).toBeTruthy();
-    // The "Open ↗" control is now a <button> that routes through the Tauri
-    // opener plugin — not an <a href> — to prevent javascript: injection from
-    // upstream-controlled URLs.
-    const btn = getByText('Open') as HTMLButtonElement;
+    // A <button> routed through the Tauri opener plugin — not an <a href> — so an
+    // upstream-controlled URL cannot inject javascript:.
+    const btn = getByText('Download') as HTMLButtonElement;
     expect(btn.tagName).toBe('BUTTON');
     expect(btn.getAttribute('href')).toBeNull();
-    // Clicking must invoke openUrl via the plugin, not navigate the browser.
     openUrlMock.mockClear();
     await fireEvent.click(btn);
     await vi.waitFor(() => {
-      expect(openUrlMock).toHaveBeenCalledWith('https://www.curseforge.com/projects/911');
+      expect(openUrlMock).toHaveBeenCalledWith(download);
     });
   });
 
@@ -340,7 +340,7 @@ describe('ImportPickerDialog selection', () => {
       props: { summary, onCancel: () => {}, onConfirm: () => {} },
     });
     openUrlMock.mockClear();
-    await fireEvent.click(getByText('Open'));
+    await fireEvent.click(getByText('Open link'));
     // The opener plugin must never see a non-https scheme.
     await new Promise((r) => setTimeout(r, 20));
     expect(openUrlMock).not.toHaveBeenCalled();
