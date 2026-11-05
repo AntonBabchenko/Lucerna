@@ -3293,8 +3293,8 @@
       "gameDamagedOptions": "Replacing it puts the damaged file in the Recycle Bin; the shared options then apply after the next launch, once the game has written a new options.txt.",
       "recordsDamaged": "Starting this instance's records afresh joins it again, as when turning it on; its file is kept."
     },
-    "manualDownloadsFolderUnreadable": "Couldn't read the folder {path}: {details}",
-    "manualDownloadsFolderUnknown": "Couldn't find your downloads folder: {details}"
+    "manualDownloadsFolderUnreadable": "Couldn't read the folder {path}",
+    "manualDownloadsFolderUnknown": "Couldn't find your downloads folder"
   },
   "settings": {
     "title": "Settings",

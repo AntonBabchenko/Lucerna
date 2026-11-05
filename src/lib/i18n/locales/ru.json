@@ -3293,8 +3293,8 @@
       "gameDamagedOptions": "Если заменить его, повреждённый файл уйдёт в корзину, а общие параметры применятся после следующего запуска, когда игра запишет новый options.txt.",
       "recordsDamaged": "Если начать служебные записи заново, профиль подключится снова, как при включении; его файл останется."
     },
-    "manualDownloadsFolderUnreadable": "Не удалось прочитать папку {path}: {details}",
-    "manualDownloadsFolderUnknown": "Не удалось найти папку загрузок: {details}"
+    "manualDownloadsFolderUnreadable": "Не удалось прочитать папку {path}",
+    "manualDownloadsFolderUnknown": "Не удалось найти папку загрузок"
   },
   "settings": {
     "title": "Настройки",
