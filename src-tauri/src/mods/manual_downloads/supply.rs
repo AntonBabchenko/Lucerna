@@ -363,6 +363,32 @@ pub async fn supply_unverified(ctx: &Ctx<'_>, key: &str, display: &str) -> Appli
         let planned = plan(ctx, &[display.to_string()], None).await;
         return apply(ctx, planned).await;
     }
+    // Classify like `plan_one`: another version asks first; a closed entry has
+    // nothing to supply.
+    match st.state {
+        MissingModState::Missing => {}
+        MissingModState::DifferentVersion => {
+            let existing = state::different_version_rows(&st.entry, ctx.installed)
+                .iter()
+                .map(|r| r.filename.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return one(SupplyRow::NeedsReplace {
+                path: display.to_string(),
+                key: key.to_string(),
+                mod_name: st.entry.mod_name.clone(),
+                existing,
+            });
+        }
+        _ => {
+            return one(SupplyRow::AlreadyThere {
+                path: display.to_string(),
+                key: key.to_string(),
+                mod_name: st.entry.mod_name.clone(),
+                recorded: true,
+            })
+        }
+    }
     let (src, ext, _) = match probe(display).await {
         Ok(p) => p,
         Err(row) => return one(row),
@@ -864,6 +890,38 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(after.manual_supplied[0].verified, SupplyVerified::User);
+    }
+
+    #[tokio::test]
+    async fn a_hashless_entry_with_another_version_installed_asks_to_replace() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        std::fs::write(root.join(".minecraft/mods/srp-2.0.jar"), b"old").unwrap();
+        let src = dir.path().join("my-choice.jar");
+        std::fs::write(&src, b"mine").unwrap();
+        let e = entry(None, None, None);
+        let o = origin(vec![e.clone()]);
+        let installed = crate::mods::installed::list(&root).await.unwrap();
+        let disk =
+            crate::mods::manual_downloads::evidence::on_disk_shas(&root, &o, &installed).await;
+        let st = state::statuses(&o, &installed, &disk);
+        assert_eq!(st[0].state, MissingModState::DifferentVersion);
+        let ctx = Ctx {
+            instance_root: &root,
+            origin: &o,
+            installed: &installed,
+            statuses: &st,
+        };
+        let applied =
+            supply_unverified(&ctx, &state::entry_key(&e), &src.display().to_string()).await;
+        assert!(
+            matches!(&applied.rows[0], SupplyRow::NeedsReplace { existing, .. } if existing == "srp-2.0.jar"),
+            "{:?}",
+            applied.rows[0]
+        );
+        assert!(applied.placed.is_empty());
+        assert!(!root.join(".minecraft/mods/my-choice.jar").exists());
     }
 
     #[tokio::test]
