@@ -4,5 +4,6 @@
 //! user downloaded against what the pack's source published, and placing it
 //! through `mods::store`.
 
+pub mod digest;
 pub mod evidence;
 pub mod state;
