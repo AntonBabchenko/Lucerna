@@ -7103,7 +7103,10 @@ export type ModpackImportOutcome = {
 	 *  registry; the backend separately persists them as an install report.
 	 */
 	details: TaskDetail[],
-	/**  Files of this pack that must be downloaded by hand (spec §5.4 item 1). */
+	/**
+	 *  Files of this pack that must be downloaded by hand (spec §5.4 item 1):
+	 *  every actionable one, optional files included, like the Overview row.
+	 */
 	manual_downloads?: number,
 };
 
@@ -7307,7 +7310,8 @@ export type ModpackUpdateDiff = {
 	new_version_number: string,
 	/**
 	 *  The new version's files the instance will still have to get by hand
-	 *  (spec §4.5), shown on the confirm step.
+	 *  (spec §4.5), shown on the confirm step: every actionable one, optional
+	 *  files included, like the Overview row.
 	 */
 	manual_downloads?: number,
 };
@@ -7338,7 +7342,10 @@ export type ModpackUpdateOutcome = {
 	 *  one that fails is undone and returns an error instead.
 	 */
 	details: TaskDetail[],
-	/**  Files of this pack that must be downloaded by hand (spec §5.4 item 1). */
+	/**
+	 *  Files of this pack that must be downloaded by hand (spec §5.4 item 1):
+	 *  every actionable one, optional files included, like the Overview row.
+	 */
 	manual_downloads?: number,
 };
 

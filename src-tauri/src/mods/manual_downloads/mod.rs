@@ -46,7 +46,9 @@ pub async fn load(instance_root: &Path) -> Result<Option<Loaded>, Error> {
 
 /// Required, actionable entries with nothing of the mod on disk — what the Play
 /// gate lists (spec D10). A read that fails is logged and answers empty: the
-/// gate never blocks, and the Overview row still reads the status.
+/// gate never blocks, and a registry that cannot be read fails the whole
+/// pre-flight, which the page already shows as "couldn't check" — so an empty
+/// answer here is acceptable rather than a hidden "nothing pending".
 pub async fn pending_required(instance_root: &Path) -> Vec<types::ManualPending> {
     match load(instance_root).await {
         Ok(Some(l)) => l

@@ -331,7 +331,8 @@ pub struct ModpackImportOutcome {
     /// how big, and what happened to it. The UI hands these to the task
     /// registry; the backend separately persists them as an install report.
     pub details: Vec<crate::tasks::TaskDetail>,
-    /// Files of this pack that must be downloaded by hand (spec §5.4 item 1).
+    /// Files of this pack that must be downloaded by hand (spec §5.4 item 1):
+    /// every actionable one, optional files included, like the Overview row.
     #[serde(default)]
     pub manual_downloads: u32,
 }
@@ -348,7 +349,8 @@ pub struct ModpackUpdateOutcome {
     /// Per-file rows for the files the update placed. A committed update only:
     /// one that fails is undone and returns an error instead.
     pub details: Vec<crate::tasks::TaskDetail>,
-    /// Files of this pack that must be downloaded by hand (spec §5.4 item 1).
+    /// Files of this pack that must be downloaded by hand (spec §5.4 item 1):
+    /// every actionable one, optional files included, like the Overview row.
     #[serde(default)]
     pub manual_downloads: u32,
 }
@@ -460,7 +462,8 @@ pub struct ModpackUpdateDiff {
     pub version_bump: Option<ModpackVersionBump>,
     pub new_version_number: String,
     /// The new version's files the instance will still have to get by hand
-    /// (spec §4.5), shown on the confirm step.
+    /// (spec §4.5), shown on the confirm step: every actionable one, optional
+    /// files included, like the Overview row.
     #[serde(default)]
     pub manual_downloads: u32,
 }
