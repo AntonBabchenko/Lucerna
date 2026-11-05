@@ -262,6 +262,36 @@ describe('a modpack instance changes only on the user say-so', () => {
     expect(screen.getByLabelText(/loader version/i).textContent).not.toContain('0.20.0');
   });
 
+  it('a pinned build the loader no longer offers stays shown, last and only once', async () => {
+    const stalePack = makeInstance({
+      id: 'inst-stale-pack',
+      name: 'Stale Pack',
+      loader: 'fabric',
+      loader_version: '0.1.0-gone',
+      mrpack_name: 'Stale Pack',
+    });
+    render(InstanceGameSection, { props: props({ instance: stalePack }) });
+    const field = await screen.findByLabelText(/loader version/i);
+    await waitFor(() => expect(field.textContent).toContain('0.1.0-gone'));
+    await fireEvent.click(field);
+    expect(screen.getAllByRole('option').map((o) => o.textContent?.trim())).toEqual([
+      '0.20.0 (recommended)',
+      '0.16.0',
+      '0.1.0-gone',
+    ]);
+  });
+
+  it('a saved build the list has is listed once, in its place', async () => {
+    render(InstanceGameSection, { props: props({ instance: packInstance }) });
+    const field = await screen.findByLabelText(/loader version/i);
+    await waitFor(() => expect(field.textContent).toContain('0.16.0'));
+    await fireEvent.click(field);
+    expect(screen.getAllByRole('option').map((o) => o.textContent?.trim())).toEqual([
+      '0.20.0 (recommended)',
+      '0.16.0',
+    ]);
+  });
+
   it('picking another version of the same loader asks about the VERSION, not the loader', async () => {
     render(InstanceGameSection, { props: props({ instance: packInstance }) });
     const trigger = await screen.findByLabelText(/loader version/i);

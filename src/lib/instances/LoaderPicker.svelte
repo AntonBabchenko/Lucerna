@@ -254,8 +254,10 @@
     reloadFocused = false;
     await tick();
     // The field stays after a failure when it holds a version, so its presence
-    // does not say the reload worked: only a filled list does.
-    (versions.length > 0 ? document.getElementById(versionSelectId) : reloadBtn)?.focus();
+    // does not say the reload worked: only a filled list does. A definitive
+    // answer has no Reload to come back to: then the field, if it is there.
+    const field = document.getElementById(versionSelectId);
+    (versions.length > 0 || !reloadBtn ? field : reloadBtn)?.focus();
   }
 
   function pickLoader(k: LoaderKind) {
@@ -299,7 +301,7 @@
 
   // Mirror the previous <option> markup: stable entries carry the
   // "(recommended)" suffix, non-stable show the bare version. Recomputed
-  // whenever the fetched `versions` list changes.
+  // whenever the fetched `versions` list or the shown version changes.
   //
   // The field shows the version the picker holds even when the list does not
   // have it (offline, or a pinned build the loader no longer offers): an entry

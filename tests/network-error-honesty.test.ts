@@ -133,6 +133,32 @@ describe('the loader picker’s failed list', () => {
     );
   });
 
+  it('a Reload that ends in a definitive answer hands the focus to the saved build', async () => {
+    vi.mocked(commands.listFabricLoaders)
+      .mockReset()
+      .mockResolvedValueOnce({ status: 'error', error: netFailure })
+      .mockResolvedValueOnce({ status: 'ok', data: [] });
+    render(LoaderPicker, { ...saved, onchange: vi.fn().mockResolvedValue(true) });
+    const reload = await screen.findByRole('button', { name: 'Reload' });
+    reload.focus();
+    await fireEvent.click(reload);
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/does not support/i));
+    expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Loader version')),
+    );
+  });
+
+  it('the create form shows no build while the list cannot be loaded', async () => {
+    vi.mocked(commands.listFabricLoaders)
+      .mockReset()
+      .mockResolvedValueOnce({ status: 'error', error: netFailure });
+    // Bind mode (no onchange): a failed list clears the draft's build, so Create stays blocked.
+    render(LoaderPicker, { ...saved });
+    expect(await screen.findByRole('button', { name: 'Reload' })).toBeTruthy();
+    expect(screen.queryByLabelText('Loader version')).toBeNull();
+  });
+
   it('a definitive answer offers no Reload', async () => {
     vi.mocked(commands.listQuiltLoaders).mockResolvedValue({
       status: 'error',
