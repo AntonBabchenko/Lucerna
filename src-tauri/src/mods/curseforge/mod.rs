@@ -124,6 +124,24 @@ impl CurseForgeClient {
         }
         Ok(out)
     }
+
+    /// `files_by_fingerprint` keyed by the fingerprint itself — for files that
+    /// have no other identity yet (a file the user dropped that matched
+    /// nothing a pack waits for).
+    pub async fn files_by_murmur(
+        &self,
+        fingerprints: &[u32],
+    ) -> Result<std::collections::HashMap<u32, FingerprintFile>, Error> {
+        let pairs: Vec<(u32, String)> = fingerprints
+            .iter()
+            .map(|fp| (*fp, fp.to_string()))
+            .collect();
+        let by_key = self.files_by_fingerprint(&pairs).await?;
+        Ok(by_key
+            .into_iter()
+            .filter_map(|(k, f)| k.parse::<u32>().ok().map(|fp| (fp, f)))
+            .collect())
+    }
 }
 
 /// Response-mirror structs for `POST /v1/fingerprints`, mirroring the private
@@ -1103,6 +1121,27 @@ mod tests {
         assert_eq!(hit.project_id, "42");
         assert_eq!(hit.version_id, "555");
         assert_eq!(hit.version_number.as_deref(), Some("JEI 15.0.0"));
+    }
+
+    #[tokio::test]
+    async fn files_by_murmur_keys_matches_by_fingerprint() {
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "exactMatches": [{ "file": {
+                    "id": 7, "modId": 238222, "fileFingerprint": 111, "displayName": "SRP 1.2.0"
+                } }] }
+            })))
+            .mount(&s)
+            .await;
+        let c = client(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let got = c.files_by_murmur(&[111, 222]).await.unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[&111].project_id, "238222");
+        assert_eq!(got[&111].version_number.as_deref(), Some("SRP 1.2.0"));
     }
 
     #[tokio::test]
