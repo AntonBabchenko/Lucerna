@@ -28,7 +28,6 @@
   import { tooltip } from '$lib/ui/tooltip';
   import { openExternalHttps } from '$lib/ui/safe-open';
   import { drawerCache } from './drawer-cache';
-  import { isUnresolvedMissingState } from './missing-mod';
   import { LINK_LABEL, entryLink, needsAttention, reasonText } from './manual/entry-view';
   import { manualDownloads, openManualDownloads } from './manual/manual-downloads.svelte';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
@@ -629,7 +628,7 @@
                   <Icon name="externalLink" size={12} />
                 </button>
               {/if}
-              {#if isUnresolvedMissingState(m.state)}
+              {#if needsAttention(m)}
                 <button
                   type="button"
                   class="btn-tertiary text-xs flex-shrink-0"
