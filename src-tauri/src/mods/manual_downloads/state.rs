@@ -217,13 +217,15 @@ pub struct SuppliedOld {
 
 /// The supplied files of an origin, each described where it actually is: a
 /// mods row with its sha1 → `mods/<its name>`; an assets row → its folder;
-/// else the entry's own path.
+/// else the entry's own path when that is not a pack folder. `assets: None` =
+/// the assets registry could not be read. A file that cannot be located is left
+/// out — the update then keeps it (restrictive) — never guessed at.
 pub fn supplied_old(
     origin: &PackOrigin,
     statuses: &[MissingModStatus],
     on_disk: &HashSet<String>,
     installed: &[InstalledMod],
-    assets: &[crate::mods::platform::InstalledAsset],
+    assets: Option<&[crate::mods::platform::InstalledAsset]>,
 ) -> Vec<SuppliedOld> {
     let files: HashSet<String> = origin
         .files
@@ -243,18 +245,29 @@ pub fn supplied_old(
         if files.contains(&sha) {
             continue;
         }
-        let install_path = installed
-            .iter()
-            .find(|r| r.sha1.eq_ignore_ascii_case(&sha))
-            .map(|r| format!("mods/{}", r.filename))
-            .or_else(|| {
-                assets
-                    .iter()
-                    .find(|a| a.sha1.eq_ignore_ascii_case(&sha))
-                    .map(|a| crate::mods::install::asset_subpath(a.kind, &a.filename))
-            })
-            .or_else(|| st.entry.meta.install_path.clone())
-            .unwrap_or_else(|| format!("mods/{}", st.entry.filename));
+        let located =
+            installed
+                .iter()
+                .find(|r| r.sha1.eq_ignore_ascii_case(&sha))
+                .map(|r| format!("mods/{}", r.filename))
+                .or_else(|| {
+                    assets?
+                        .iter()
+                        .find(|a| a.sha1.eq_ignore_ascii_case(&sha))
+                        .map(|a| crate::mods::install::asset_subpath(a.kind, &a.filename))
+                })
+                .or_else(|| {
+                    st.entry.meta.install_path.clone().filter(|p| {
+                        !p.starts_with("resourcepacks/") && !p.starts_with("shaderpacks/")
+                    })
+                });
+        let Some(install_path) = located else {
+            crate::diag!(
+                "[manual-downloads] {} is supplied but cannot be located; the update keeps it",
+                st.entry.mod_name
+            );
+            continue;
+        };
         out.push(SuppliedOld {
             key: entry_key(&st.entry),
             md5: present(&st.entry.meta.md5).map(str::to_ascii_lowercase),
@@ -383,10 +396,37 @@ pub(crate) mod tests {
             String::new(),
         )];
         let on_disk: HashSet<String> = ["aa".to_string()].into();
-        let old = supplied_old(&origin, &statuses, &on_disk, &[], &assets);
+        let old = supplied_old(&origin, &statuses, &on_disk, &[], Some(&assets));
         assert_eq!(old.len(), 1);
         assert_eq!(old[0].key, "file:5");
         assert_eq!(old[0].file.install_path, "shaderpacks/shader.zip");
         assert_eq!(old[0].file.version_id, "5");
+    }
+
+    #[test]
+    fn a_supplied_shader_whose_assets_are_unknown_is_left_out() {
+        use crate::mods::installed::PackOrigin;
+        use crate::mods::platform::ModSource;
+        let mut e = entry(Some("5"), None, Some("aa"));
+        e.filename = "shader.zip".into();
+        e.meta.install_path = Some("shaderpacks/shader.zip".into());
+        let origin = PackOrigin {
+            project_id: None,
+            source: ModSource::Curseforge,
+            project_name: "P".into(),
+            version: "1".into(),
+            files: vec![],
+            missing_mods: vec![e.clone()],
+            skipped_overrides: vec![],
+            resolved_missing: vec![],
+            manual_supplied: vec![],
+            inert_loader_jars: vec![],
+        };
+        let statuses = vec![MissingModStatus {
+            entry: e,
+            state: MissingModState::Installed,
+        }];
+        let on_disk: HashSet<String> = ["aa".to_string()].into();
+        assert!(supplied_old(&origin, &statuses, &on_disk, &[], None).is_empty());
     }
 }

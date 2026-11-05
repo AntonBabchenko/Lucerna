@@ -81,11 +81,17 @@ pub async fn supplied_old_for(instance_root: &Path) -> Vec<state::SuppliedOld> {
         }
     };
     let assets = match crate::mods::assets::list_all(instance_root).await {
-        Ok(a) => a,
+        Ok(a) => Some(a),
         Err(e) => {
             crate::diag!("[manual-downloads] assets registry unreadable: {e}");
-            Vec::new()
+            None
         }
     };
-    state::supplied_old(&l.origin, &l.statuses, &l.on_disk, &l.installed, &assets)
+    state::supplied_old(
+        &l.origin,
+        &l.statuses,
+        &l.on_disk,
+        &l.installed,
+        assets.as_deref(),
+    )
 }
