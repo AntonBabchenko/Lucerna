@@ -202,6 +202,9 @@
     try {
       if (a.kind === 'unverified') {
         const r = await commands.manualDownloadsSupplyUnverified(instanceId, a.key, a.path);
+        // A hashless entry with another version installed answers needs_replace:
+        // remember it so the row offers Replace.
+        if (r.status === 'ok') remember([r.data]);
         result = r.status === 'ok' ? supplyResult(get(t), [r.data]) : failed(r.error);
       } else {
         const r = await commands.manualDownloadsReplace(instanceId, a.key, a.path, a.existing);
