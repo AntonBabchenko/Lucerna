@@ -619,7 +619,7 @@ pub(crate) fn installer_cache_path(app_data_dir: &std::path::Path, mc: &str, fv:
 /// whitespace and the filename; we take the first token and require it to
 /// be exactly 40 hex chars. Returns `None` for anything else (empty,
 /// truncated, non-hex) so the caller can hard-error rather than trust it.
-fn parse_maven_sha1(body: &str) -> Option<String> {
+pub(super) fn parse_maven_sha1(body: &str) -> Option<String> {
     let token = body.split_whitespace().next()?;
     if token.len() == 40 && token.bytes().all(|b| b.is_ascii_hexdigit()) {
         Some(token.to_ascii_lowercase())
@@ -629,9 +629,9 @@ fn parse_maven_sha1(body: &str) -> Option<String> {
 }
 
 /// Fetch (or load from disk cache) the installer JAR bytes for
-/// `(flavor, mc, fv)`. On a fresh download, writes to
-/// `<app_data>/forge/installers/<mc>-<fv>.jar`; subsequent calls
-/// return cached bytes.
+/// `(flavor, mc, fv)`. A verified download is kept at
+/// `<app_data>/forge/installers/<mc>-<fv>.jar` with its SHA-1 beside it;
+/// later calls return the cached bytes while they still match it.
 pub async fn fetch_installer_bytes(
     flavor: ForgeFlavor,
     mc: &str,
@@ -653,15 +653,19 @@ pub async fn fetch_installer_bytes_in(
 ) -> Result<Vec<u8>> {
     let path = installer_cache_path(app_data, mc, fv);
 
-    // Cache hit: trusted without re-verification. The invariant is that a file
-    // only reaches this path via the SHA-1-guarded write at the end of this
-    // function, so anything on disk was verified when it was written. (Files
-    // cached by pre-SHA1-check builds predate that guarantee but came from the
-    // same maven host; clearing the installer cache re-verifies on next fetch.)
-    if path.exists() {
-        return tokio::fs::read(&path)
-            .await
-            .map_err(|e| Error::io(path.display().to_string(), e));
+    // The cache is used only while it holds what was kept: bytes matching the
+    // SHA-1 recorded beside them, or, for a file an older Lucerna kept with no
+    // record, a whole zip. Anything else (a file an interrupted write cut short,
+    // or one that cannot be read) is downloaded again below, once: this function
+    // has no retry, and a download that fails its check is an error (spec
+    // 2026-11-04-forge-installer-cache-recovery).
+    match crate::forge::installer_cache::load(&path).await {
+        crate::forge::installer_cache::Cached::Intact(bytes) => return Ok(bytes),
+        crate::forge::installer_cache::Cached::Absent => {}
+        crate::forge::installer_cache::Cached::Unusable(why) => crate::diag!(
+            "forge: the cached {mc}-{fv} installer {} is not usable ({why}); downloading it again",
+            path.display()
+        ),
     }
 
     // Guard: for Forge (not NeoForge), validate that a published build
@@ -771,15 +775,9 @@ pub async fn fetch_installer_bytes_in(
         });
     }
 
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| Error::io(parent.display().to_string(), e))?;
-    }
-    tokio::fs::write(&path, &bytes)
-        .await
-        .map_err(|e| Error::io(path.display().to_string(), e))?;
-
+    // In one step, then its SHA-1: an interrupted write leaves the old file or
+    // the new one, never part of one.
+    crate::forge::installer_cache::keep(&path, &bytes, &expected_sha1).await?;
     Ok(bytes)
 }
 
@@ -1470,7 +1468,13 @@ mod tests {
             fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
         let bytes = result.expect("a verified installer must be returned");
         assert_eq!(bytes, installer);
-        assert!(installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
+        let jar = installer_cache_path(td.path(), "1.21.1", "21.1.0");
+        assert_eq!(std::fs::read(&jar).unwrap(), installer);
+        // The SHA-1 it was verified against is recorded beside it.
+        assert_eq!(
+            std::fs::read_to_string(digest_path(&jar)).unwrap().trim(),
+            sha
+        );
     }
 
     #[tokio::test]
@@ -1562,5 +1566,174 @@ mod tests {
             "expected the sidecar's own 503, got {err:?}"
         );
         assert!(!installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
+    }
+
+    // ---- fetch_installer_bytes_in: what is already cached --------------------
+    //
+    // Spec 2026-11-04-forge-installer-cache-recovery. Every mock pins how often it is hit:
+    // `MockServer` checks the counts when it drops, so "downloaded again once" and "no request"
+    // are measured, not assumed.
+
+    use crate::forge::installer_cache::digest_path;
+
+    const JAR_PATH: &str = "/forge-1.21.1-21.1.0-installer.jar";
+    const SHA1_PATH: &str = "/forge-1.21.1-21.1.0-installer.jar.sha1";
+
+    /// An installer `read_install_profile` can read.
+    fn installer_zip() -> Vec<u8> {
+        use std::io::Write;
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        zw.start_file("install_profile.json", opts).unwrap();
+        zw.write_all(br#"{"spec":1,"profile":"NeoForge"}"#).unwrap();
+        zw.finish().unwrap().into_inner()
+    }
+
+    fn sha(b: &[u8]) -> String {
+        hex::encode(Sha1::digest(b))
+    }
+
+    fn sidecar_of(b: &[u8]) -> ResponseTemplate {
+        ResponseTemplate::new(200)
+            .set_body_string(format!("{}  forge-1.21.1-21.1.0-installer.jar", sha(b)))
+    }
+
+    /// Serve `installer` and `sidecar`, each expected the given number of times.
+    async fn serve(
+        s: &MockServer,
+        installer: &[u8],
+        installer_hits: impl Into<wiremock::Times>,
+        sidecar: ResponseTemplate,
+        sidecar_hits: impl Into<wiremock::Times>,
+    ) {
+        Mock::given(method("GET"))
+            .and(wpath(JAR_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(installer.to_vec()))
+            .expect(installer_hits)
+            .mount(s)
+            .await;
+        Mock::given(method("GET"))
+            .and(wpath(SHA1_PATH))
+            .respond_with(sidecar)
+            .expect(sidecar_hits)
+            .mount(s)
+            .await;
+    }
+
+    /// Put `bytes` in the cache, with `record` as its recorded SHA-1 if given.
+    fn cache(td: &TempDir, bytes: &[u8], record: Option<&str>) -> PathBuf {
+        let jar = installer_cache_path(td.path(), "1.21.1", "21.1.0");
+        std::fs::create_dir_all(jar.parent().unwrap()).unwrap();
+        std::fs::write(&jar, bytes).unwrap();
+        if let Some(r) = record {
+            std::fs::write(digest_path(&jar), format!("{r}\n")).unwrap();
+        }
+        jar
+    }
+
+    async fn fetch(td: &TempDir, s: &MockServer) -> Result<Vec<u8>> {
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", &s.uri()),
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ]);
+        fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await
+    }
+
+    #[tokio::test]
+    async fn a_damaged_cached_installer_is_downloaded_again_once() {
+        let installer = installer_zip();
+        let s = MockServer::start().await;
+        serve(&s, &installer, 1, sidecar_of(&installer), 1).await;
+        let td = TempDir::new().unwrap();
+        // What an interrupted write left: the first half of the verified bytes. Its record is
+        // the right digest, spelled the way maven's sidecar may spell it, so only a record written
+        // by this download reads back as exactly `<sha1>\n`.
+        let jar = cache(
+            &td,
+            &installer[..installer.len() / 2],
+            Some(&format!(
+                "{}  installer.jar",
+                sha(&installer).to_uppercase()
+            )),
+        );
+        let bytes = fetch(&td, &s)
+            .await
+            .expect("a damaged cache must be replaced");
+        assert_eq!(bytes, installer);
+        assert_eq!(std::fs::read(&jar).unwrap(), installer);
+        assert_eq!(
+            std::fs::read_to_string(digest_path(&jar)).unwrap(),
+            format!("{}\n", sha(&installer))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_verified_download_is_not_downloaded_again_even_if_it_does_not_read() {
+        // Bytes maven publishes that no caller can read: the next call uses them rather than
+        // downloading the same bytes again (spec §3.3), and the caller's error names the installer.
+        let published = b"published, verified, and not a zip";
+        let s = MockServer::start().await;
+        serve(&s, published, 1, sidecar_of(published), 1).await;
+        let td = TempDir::new().unwrap();
+        assert_eq!(fetch(&td, &s).await.unwrap(), published);
+        assert_eq!(fetch(&td, &s).await.unwrap(), published);
+    }
+
+    #[tokio::test]
+    async fn an_intact_cache_is_used_without_a_request() {
+        let installer = installer_zip();
+        let s = MockServer::start().await;
+        serve(&s, b"never served", 0, sidecar_of(b"never served"), 0).await;
+        let td = TempDir::new().unwrap();
+        cache(&td, &installer, Some(&sha(&installer)));
+        assert_eq!(fetch(&td, &s).await.unwrap(), installer);
+    }
+
+    #[tokio::test]
+    async fn an_unrecorded_whole_cache_is_used_without_a_request_and_recorded() {
+        // What Lucerna 0.28 and older left: the jar alone. Checked here, offline.
+        let installer = installer_zip();
+        let s = MockServer::start().await;
+        serve(&s, b"never served", 0, sidecar_of(b"never served"), 0).await;
+        let td = TempDir::new().unwrap();
+        let jar = cache(&td, &installer, None);
+        assert_eq!(fetch(&td, &s).await.unwrap(), installer);
+        assert_eq!(
+            std::fs::read_to_string(digest_path(&jar)).unwrap().trim(),
+            sha(&installer)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unrecorded_cache_cut_short_is_downloaded_again_once() {
+        let installer = installer_zip();
+        let s = MockServer::start().await;
+        serve(&s, &installer, 1, sidecar_of(&installer), 1).await;
+        let td = TempDir::new().unwrap();
+        let jar = cache(&td, &installer[..installer.len() / 2], None);
+        assert_eq!(fetch(&td, &s).await.unwrap(), installer);
+        assert_eq!(std::fs::read(&jar).unwrap(), installer);
+        assert_eq!(
+            std::fs::read_to_string(digest_path(&jar)).unwrap().trim(),
+            sha(&installer)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_damaged_cache_whose_download_fails_its_sha1_stops_after_one_try() {
+        let installer = installer_zip();
+        let s = MockServer::start().await;
+        serve(&s, b"tampered bytes", 1, sidecar_of(&installer), 1).await;
+        let td = TempDir::new().unwrap();
+        let jar = cache(&td, b"trunc", Some(&sha(&installer)));
+        let err = fetch(&td, &s)
+            .await
+            .expect_err("an unverified download must not be accepted");
+        assert!(
+            matches!(err, Error::ForgeInstallerCorrupted { .. }),
+            "expected ForgeInstallerCorrupted, got {err:?}"
+        );
+        // The unverified bytes never replace what was there.
+        assert_eq!(std::fs::read(&jar).unwrap(), b"trunc");
     }
 }

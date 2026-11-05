@@ -580,7 +580,7 @@
       "countBuiltDifferently": "{count} built differently from Forge's own installer",
       "builtDifferentlyNote": "Older Lucerna versions built these Forge files with their own code, so they differ from the ones Forge's own installer makes. If the game started with them before, it still does, so you can leave them as they are. Repair is optional: it rebuilds them the way Forge's installer does.",
       "forgeInstallerNotSaved": "Forge's installer isn't saved on this computer, so the files it builds weren't checked. Repair downloads it and rebuilds any of its files that differ.",
-      "forgeInstallerUnreadable": "Forge's saved installer can't be read, so the files it builds weren't checked.",
+      "forgeInstallerUnreadable": "Forge's saved installer can't be read, so the files it builds weren't checked. If it's damaged, Repair downloads it again and rebuilds any of its files that differ.",
       "busy": "Stop the running game before verifying.",
       "checkedAt": "checked {date}",
       "statusNotChecked": "Integrity not checked",

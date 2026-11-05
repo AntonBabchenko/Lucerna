@@ -44,6 +44,10 @@ behaviour is worth knowing, it is stated as a property of the feature under
   still starts on the saved sign-in; a notice now says single-player works and
   online servers may not let you in, with "Sign in again" when Microsoft asks
   for it.
+- **A damaged Forge installer no longer breaks Install and Repair.** If Lucerna
+  was interrupted while saving a Forge or NeoForge installer, every Install and
+  Repair of that version failed until the file was deleted by hand. Now the
+  damaged file is downloaded again.
 
 ### Security
 
