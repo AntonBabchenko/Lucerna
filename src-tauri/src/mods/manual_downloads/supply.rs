@@ -548,14 +548,26 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
             })
         }
     };
-    if !hash_matches(st, &d) {
+    // An entry with no published hash has nothing to check against: the user's
+    // choice stands in for it (spec D8), under the file's own name.
+    let hashless = state::expected(&st.entry) == Expected::Nothing;
+    if !hashless && !hash_matches(st, &d) {
         return refuse(SupplyRow::NotInPack {
             path: display.to_string(),
             found: None,
             asked: false,
         });
     }
-    let rel = match place::destination(&st.entry, &src, ext, &st.entry.filename).await {
+    let own_name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let name = if hashless {
+        &own_name
+    } else {
+        &st.entry.filename
+    };
+    let rel = match place::destination(&st.entry, &src, ext, name).await {
         Ok(Some(rel)) => rel,
         Ok(None) => {
             return refuse(SupplyRow::CantPlace {
@@ -725,7 +737,13 @@ pub async fn replace(ctx: &Ctx<'_>, key: &str, display: &str, confirmed: &str) -
         entry: st.entry.clone(),
         rel: rel.clone(),
         sha1: d.sha1.clone(),
-        by: if want_md5 { By::Md5 } else { By::Sha1 },
+        by: if hashless {
+            By::User
+        } else if want_md5 {
+            By::Md5
+        } else {
+            By::Sha1
+        },
     };
     let recorded = bookkeeping(ctx, &pl).await;
     Replaced {
@@ -1081,6 +1099,57 @@ mod tests {
         );
         assert!(applied.placed.is_empty());
         assert!(!root.join(".minecraft/mods/my-choice.jar").exists());
+    }
+
+    #[tokio::test]
+    async fn a_hashless_replace_trashes_the_other_version_and_places_the_users_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        std::fs::write(root.join(".minecraft/mods/srp-2.0.jar"), b"old").unwrap();
+        let src = dir.path().join("my-choice.jar");
+        std::fs::write(&src, b"mine").unwrap();
+        let e = entry(None, None, None);
+        crate::mods::installed::set_pack_origin(&root, origin(vec![e.clone()]))
+            .await
+            .unwrap();
+        let o = crate::mods::installed::get_pack_origin(&root)
+            .await
+            .unwrap()
+            .unwrap();
+        let installed = crate::mods::installed::list(&root).await.unwrap();
+        let disk =
+            crate::mods::manual_downloads::evidence::on_disk_shas(&root, &o, &installed).await;
+        let st = state::statuses(&o, &installed, &disk);
+        let ctx = Ctx {
+            instance_root: &root,
+            origin: &o,
+            installed: &installed,
+            statuses: &st,
+        };
+        let done = replace(
+            &ctx,
+            &state::entry_key(&e),
+            &src.display().to_string(),
+            "srp-2.0.jar",
+        )
+        .await;
+        assert!(
+            matches!(done.row, SupplyRow::Added { .. }),
+            "{:?}",
+            done.row
+        );
+        assert!(done.trashed.is_some());
+        assert!(!root.join(".minecraft/mods/srp-2.0.jar").exists());
+        assert_eq!(
+            std::fs::read(root.join(".minecraft/mods/my-choice.jar")).unwrap(),
+            b"mine"
+        );
+        let after = crate::mods::installed::get_pack_origin(&root)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.manual_supplied[0].verified, SupplyVerified::User);
     }
 
     #[tokio::test]
