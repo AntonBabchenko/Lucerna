@@ -97,18 +97,25 @@ async fn plan_one(ctx: &Ctx<'_>, display: &str) -> One {
         Ok(p) => p,
         Err(row) => return One::Planned(Planned::Row(row)),
     };
-    let candidates: Vec<&MissingModStatus> = ctx
+    let waiting = |s: &&MissingModStatus| {
+        matches!(
+            s.state,
+            MissingModState::Missing | MissingModState::DifferentVersion
+        ) && state::is_actionable(&s.entry)
+            && state::expected(&s.entry) != Expected::Nothing
+    };
+    // A published size is a hint, not a gate: ATLauncher and FTB sizes are
+    // author-written and may be wrong, so a file no size matches is still
+    // hashed against every waiting entry, up to the fingerprint cap.
+    let mut candidates: Vec<&MissingModStatus> = ctx
         .statuses
         .iter()
-        .filter(|s| {
-            matches!(
-                s.state,
-                MissingModState::Missing | MissingModState::DifferentVersion
-            ) && state::is_actionable(&s.entry)
-                && state::expected(&s.entry) != Expected::Nothing
-                && (s.entry.size <= 0.0 || s.entry.size as u64 == len)
-        })
+        .filter(waiting)
+        .filter(|s| s.entry.size <= 0.0 || s.entry.size as u64 == len)
         .collect();
+    if candidates.is_empty() && len <= naming::FINGERPRINT_CAP {
+        candidates = ctx.statuses.iter().filter(waiting).collect();
+    }
     if candidates.is_empty() {
         return One::Unmatched(Unmatched {
             path: display.to_string(),
@@ -1005,6 +1012,31 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[tokio::test]
+    async fn a_file_is_placed_even_when_the_published_size_is_wrong() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("inst");
+        std::fs::create_dir_all(root.join(".minecraft/mods")).unwrap();
+        let src = dir.path().join("dl.jar");
+        std::fs::write(&src, b"0123456789").unwrap();
+        let mut e = entry(Some("9"), None, Some(&sha(b"0123456789")));
+        e.size = 999.0;
+        let o = origin(vec![e]);
+        let st = state::statuses(&o, &[], &Default::default());
+        let ctx = Ctx {
+            instance_root: &root,
+            origin: &o,
+            installed: &[],
+            statuses: &st,
+        };
+        let applied = apply(&ctx, plan(&ctx, &[src.display().to_string()], None).await).await;
+        assert!(
+            matches!(applied.rows[0], SupplyRow::Added { .. }),
+            "{:?}",
+            applied.rows[0]
+        );
     }
 
     #[tokio::test]

@@ -3,6 +3,8 @@
 //! whose length is one a pending entry has — so a folder of thousands of files
 //! costs one listing and a few hashes. An unreadable folder is an error, never
 //! an empty answer; one unreadable file is counted and tried again next time.
+//! Unlike a drop (where size is only a hint), the folder scan keeps its size
+//! filter: it is what keeps a folder of thousands of files cheap.
 
 use std::collections::HashSet;
 use std::path::Path;
