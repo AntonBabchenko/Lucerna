@@ -80,6 +80,12 @@ pub enum DescriptorSource {
     /// the requirements FML enforces and its `version` is the version FML
     /// compares them against (`mods::mod_annotation`).
     McmodAnnotation,
+    /// A coremod's mod container — Forge ≤ 1.12.2: the class the jar's
+    /// `FMLCorePlugin` returns from `getModContainerClass()`, loaded under the
+    /// `ModMetadata.modId` it assigns (`mods::mod_annotation`). PROVIDERS ONLY,
+    /// ranked like the annotation for the pre-flight; kept out of a jar's
+    /// identity (`same_mod::loader_ids`), which predates it.
+    CoremodContainer,
     /// `META-INF/mods.toml` — MinecraftForge ≥ 1.13, NeoForge ≤ 1.20.4.
     ModsToml,
     /// `META-INF/neoforge.mods.toml` — NeoForge ≥ 1.20.6.

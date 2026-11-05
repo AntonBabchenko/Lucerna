@@ -711,6 +711,58 @@ async fn legacy_annotation_version_is_what_a_requirement_is_measured_against() {
     assert!(report.violations.is_empty(), "{:?}", report.violations);
 }
 
+/// TNTUtils (RLCraft) requires `tnt_utilities_core`, which its own jar provides
+/// through a coremod's mod container: the manifest's `FMLCorePlugin` names a
+/// plugin, the plugin names the container, the container assigns
+/// `ModMetadata.modId`. Without reading the container, every RLCraft profile
+/// read as unable to start (v0.29 regression pass, F3).
+#[tokio::test]
+async fn legacy_requirement_met_by_its_own_jars_coremod_container() {
+    let manifest = b"Manifest-Version: 1.0\r\nFMLCorePlugin: coremodfixture.CorePlugin\r\n\
+          FMLCorePluginContainsFMLMod: true\r\n\r\n";
+    let with_container = |manifest: Option<&[u8]>| {
+        let mut entries: Vec<(&str, &[u8])> = vec![
+            (
+                "coremodfixture/CorePlugin.class",
+                class!("coremodfixture/CorePlugin.class"),
+            ),
+            (
+                "coremodfixture/CoreContainer.class",
+                class!("coremodfixture/CoreContainer.class"),
+            ),
+            (
+                "coremodfixture/NeedsCore.class",
+                class!("coremodfixture/NeedsCore.class"),
+            ),
+        ];
+        if let Some(m) = manifest {
+            entries.push(("META-INF/MANIFEST.MF", m));
+        }
+        make_jar_raw(&entries)
+    };
+
+    let td = TempDir::new().unwrap();
+    register(
+        td.path(),
+        "needs_core-1.0.jar",
+        &with_container(Some(manifest)),
+    )
+    .await;
+    let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert!(report.violations.is_empty(), "{:?}", report.violations);
+
+    // The same classes without the plugin attribute: FML builds no container,
+    // so the requirement really is missing.
+    let td = TempDir::new().unwrap();
+    register(td.path(), "needs_core-1.0.jar", &with_container(None)).await;
+    let report = dependency_preflight_for_root(td.path(), None, LoaderKind::Forge, "1.12.2", None)
+        .await
+        .unwrap();
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+}
+
 /// No `version` in the annotation: FML reads `version.properties` →
 /// `<modid>.version` before `mcmod.info` (BoP's `mcmod.info` says `7.0.1`).
 #[tokio::test]

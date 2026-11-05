@@ -290,9 +290,10 @@ fn descriptor_rank(
             // (`FMLModContainer.bindMetadata`: annotation → `version.properties`
             // → `mcmod.info` → "1.0"); `mcmod.info` answers only for a mod-id no
             // annotation names a version for. `effective_rank` never shadows it,
-            // because `McmodAnnotation` never enters `sources_present`.
+            // because `McmodAnnotation` never enters `sources_present`. A coremod
+            // container is FML's own registration too: same rank, never shadowed.
             E::Legacy => match source {
-                S::McmodAnnotation => Some(0),
+                S::McmodAnnotation | S::CoremodContainer => Some(0),
                 S::McmodInfo => Some(1),
                 S::ModsToml | S::NeoForgeToml | S::FabricJson | S::QuiltJson => None,
             },
@@ -300,6 +301,7 @@ fn descriptor_rank(
                 S::ModsToml => Some(0),
                 S::McmodInfo
                 | S::McmodAnnotation
+                | S::CoremodContainer
                 | S::NeoForgeToml
                 | S::FabricJson
                 | S::QuiltJson => None,
@@ -312,15 +314,22 @@ fn descriptor_rank(
         L::NeoForge => match source {
             S::NeoForgeToml => Some(0),
             S::ModsToml => Some(1),
-            S::McmodInfo | S::McmodAnnotation | S::FabricJson | S::QuiltJson => None,
+            S::McmodInfo
+            | S::McmodAnnotation
+            | S::CoremodContainer
+            | S::FabricJson
+            | S::QuiltJson => None,
         },
         // Fabric reads only fabric.mod.json — a Quilt mod on a Fabric instance is
         // a loader-compat issue (handled elsewhere), not a missing-dependency one.
         L::Fabric => match source {
             S::FabricJson => Some(0),
-            S::QuiltJson | S::ModsToml | S::NeoForgeToml | S::McmodInfo | S::McmodAnnotation => {
-                None
-            }
+            S::QuiltJson
+            | S::ModsToml
+            | S::NeoForgeToml
+            | S::McmodInfo
+            | S::McmodAnnotation
+            | S::CoremodContainer => None,
         },
         // Quilt runs Fabric mods, but a jar shipping `quilt.mod.json` never
         // reaches Quilt Loader's Fabric plugin at all: `QuiltPluginManagerImpl`
@@ -329,7 +338,11 @@ fn descriptor_rank(
         L::Quilt => match source {
             S::QuiltJson => Some(0),
             S::FabricJson => Some(1),
-            S::ModsToml | S::NeoForgeToml | S::McmodInfo | S::McmodAnnotation => None,
+            S::ModsToml
+            | S::NeoForgeToml
+            | S::McmodInfo
+            | S::McmodAnnotation
+            | S::CoremodContainer => None,
         },
         // Vanilla loads no mods → no declared descriptor applies.
         L::Vanilla => None,
