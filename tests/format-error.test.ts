@@ -285,7 +285,7 @@ describe('formatError', () => {
 
   it('formats microsoft_sign_in_expired as a sign-in to redo, with no raw tail', () => {
     expect(formatError({ kind: 'microsoft_sign_in_expired' })).toBe(
-      "Microsoft no longer accepts this account's saved sign-in. Sign in again.",
+      "This account's saved Microsoft sign-in can no longer be used. Sign in again.",
     );
   });
 

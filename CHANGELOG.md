@@ -26,44 +26,44 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Finish a pack whose files Lucerna can't download.** When a mod's author
   forbids other launchers from downloading it, the pack now offers Finish
   install: open the files' download pages, then drop them in, pick them, or let
-  Lucerna find them in your Downloads folder. Each file is checked against the
-  pack before it's added, and a pack update keeps it in step.
-- **Lucerna opens where you left it.** The window comes back at the position
-  and size it had when it closed, maximized if it was maximized, and the
-  compact strip at its own spot. A window last seen on a screen that is gone
-  opens where a first start would put it.
+  Lucerna find them in your Downloads folder. Each file is checked against its
+  published checksum, where one exists, before it's added; a pack update keeps
+  it while the new version still uses it and removes it once that version drops
+  it.
+- **Lucerna opens where you left it.** The window comes back at the position and
+  size it had when it closed (on Wayland, without the position), maximized if it
+  was maximized, and in compact mode the strip where you last left it. A window
+  last seen on a screen that is gone opens where a first start would put it.
 - **Simplified Chinese, partly.** Translation is under way on Weblate. System
-  doesn't switch to it yet: choose 简体中文 in Settings → Appearance → Language,
-  and anything not translated yet stays in English.
+  doesn't switch to it yet: choose 简体中文 in Settings → Appearance → Language, and
+  anything not translated yet stays in English.
 
 ### Fixed
 
-- **A pack mod is counted as installed only when its bytes are.** A different
-  file with the same name no longer passes for it.
-- **An enlarged window no longer shrinks on its own.** After F5, or after going
-  to mini mode and back, the window's height could snap down to the sidebar's.
-- **A long data folder path no longer makes the launch command too long.**
-  Recent loader versions, such as Forge for Minecraft 26.2, could fail to start
-  because the command ran past Windows' limit of 32 767 characters. With Java 9
-  or newer, the version's JVM arguments now go in a file.
-- **Checking a server's port no longer makes Windows Firewall ask about
-  Lucerna.** The check listened on the port, so Windows asked whether to let
-  Lucerna accept connections, and an unanswered prompt left block rules behind.
-  On Windows it also now catches a port another program holds on one address,
-  such as 127.0.0.1.
 - **A launch that couldn't renew your Microsoft sign-in says so.** The game
   still starts on the saved sign-in; a notice now says single-player works and
-  online servers may not let you in, with "Sign in again" when Microsoft asks
-  for it.
+  online servers may not let you in, with "Sign in again" when only signing in
+  again can help.
 - **A damaged Forge installer no longer breaks Install and Repair.** If Lucerna
   was interrupted while saving a Forge or NeoForge installer, every Install and
   Repair of that version failed until the file was deleted by hand. Now the
   damaged file is downloaded again.
-- **A folder linked to a missing place gets a clear message.** When an
-  instance's mods folder, or another folder Lucerna copies, is a link to a
-  drive or folder that is gone, the mods list, export, clone and import
-  reported a failed write or an I/O error. The message now names the link and
-  where it points, and says how to fix it.
+- **A requirement met by a coremod in the same jar no longer counts as
+  missing.** On 1.12.2 and older, TNTUtils in RLCraft needs
+  `tnt_utilities_core`, which its own jar registers; the instance read as unable
+  to start, and the pre-launch check listed `tnt_utilities_core` as missing.
+- **A long data folder path no longer makes the launch command too long.**
+  Recent loader versions, such as Forge for Minecraft 26.2, could fail to start
+  because the command ran past Windows' limit of 32 767 characters. On Windows
+  with Java 9 or newer, the version's JVM arguments now go in a file.
+- **A modpack imports on a long data folder path, and a failed import cleans up
+  after itself.** On Windows, once a folder in the instance had a path longer
+  than 256 characters, a pack with deep config folders such as RLCraft was
+  refused as if a file tried to escape the instance. A failed import now removes
+  the instance it started; if that removal fails too, the message names the
+  folder left behind.
+- **A pack file Lucerna couldn't download counts as installed only when its
+  bytes match.** A different file with the same name no longer passes for it.
 - **The Settings tab shows an instance's versions without internet.** Offline,
   the Minecraft version field was empty and the loader version field was gone.
   An instance on a snapshot had an empty version field online too, while "Show
@@ -73,15 +73,18 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the Installed list and in its messages; packs installed earlier are renamed
   when the list next opens. Opened from that list, a pack's window now offers
   its versions instead of asking for a mod loader or showing none.
-- **A modpack imports on a long data folder path, and a failed import leaves
-  no half-made profile.** Once a file's full path passed 260 characters, a pack
-  with deep config folders such as RLCraft was refused as if a file tried to
-  escape the profile. When an import fails now, its unfinished profile is
-  removed instead of staying in the list.
-- **A requirement met by a coremod in the same jar no longer counts as
-  missing.** On 1.12.2 and older, TNTUtils in RLCraft needs
-  `tnt_utilities_core`, which its own jar registers; the profile read as unable
-  to start, and the pre-launch check listed the mod as missing.
+- **A folder linked to a missing place gets a clear message.** When an
+  instance's mods folder, or another folder Lucerna copies, is a link to a drive
+  or folder that is gone, the mods list, export, clone and import reported a
+  failed write or an I/O error. The message now names the link and where it
+  points, and says how to fix it.
+- **Checking a server's port no longer makes Windows Firewall ask about
+  Lucerna.** The check listened on the port, so Windows asked whether to let
+  Lucerna accept connections, and an unanswered prompt left block rules behind.
+  On Windows it also now catches a port another program holds on one address,
+  such as 127.0.0.1.
+- **An enlarged window no longer shrinks on its own.** After F5, or after going
+  to mini mode and back, the window's height could snap down to the sidebar's.
 
 ### Security
 
