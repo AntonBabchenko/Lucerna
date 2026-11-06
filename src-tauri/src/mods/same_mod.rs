@@ -38,8 +38,8 @@ const PLATFORM_IDS: &[&str] = &[
 /// - on the legacy era the `@Mod` annotation's ids, `mcmod.info`'s only when the jar has none —
 ///   `mcmod.info` is display metadata, and a suite may list every module in each jar's copy;
 /// - Fabric/Quilt `provides` included: the loader treats a provided id as present;
-/// - never Jar-in-Jar (`ManifestDeps::provided` holds none — the scan keeps it apart) and never
-///   a platform id.
+/// - never Jar-in-Jar (`ManifestDeps::provided` holds none — the scan keeps it apart), never a
+///   coremod container's id, and never a platform id.
 pub(crate) fn loader_ids(
     manifest: &ManifestDeps,
     loader: LoaderKind,
@@ -55,6 +55,10 @@ pub(crate) fn loader_ids(
     manifest
         .provided
         .iter()
+        // A coremod container's id answers «is it provided» for the pre-flight,
+        // but never decides whether two jars are the same mod: identity stays
+        // what it was before containers were read.
+        .filter(|p| p.source != DescriptorSource::CoremodContainer)
         .filter(|p| read(p.source))
         .filter(|p| !(annotated && p.source == DescriptorSource::McmodInfo))
         .map(|p| canon_id(&p.mod_id))

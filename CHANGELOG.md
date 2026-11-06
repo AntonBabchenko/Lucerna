@@ -73,6 +73,15 @@ behaviour is worth knowing, it is stated as a property of the feature under
   the Installed list and in its messages; packs installed earlier are renamed
   when the list next opens. Opened from that list, a pack's window now offers
   its versions instead of asking for a mod loader or showing none.
+- **A modpack imports on a long data folder path, and a failed import leaves
+  no half-made profile.** Once a file's full path passed 260 characters, a pack
+  with deep config folders such as RLCraft was refused as if a file tried to
+  escape the profile. When an import fails now, its unfinished profile is
+  removed instead of staying in the list.
+- **A requirement met by a coremod in the same jar no longer counts as
+  missing.** On 1.12.2 and older, TNTUtils in RLCraft needs
+  `tnt_utilities_core`, which its own jar registers; the profile read as unable
+  to start, and the pre-launch check listed the mod as missing.
 
 ### Security
 

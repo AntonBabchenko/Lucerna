@@ -80,7 +80,9 @@ pub(crate) struct ModAnnotation {
 /// FML itself ignores a jar it cannot read (`JarDiscoverer.java:81`) — or a
 /// file the answer depends on could not be read. The caller turns that into the
 /// scan's own "could not tell", which is listed as unjudged and never cached.
-/// One `diag!` line names what failed.
+/// One `diag!` line names what failed. A coremod's plugin or mod container
+/// that exists but cannot be read is "could not tell" too: it might be what
+/// provides a required id ([`coremod_containers`]).
 ///
 /// FML's jar-level exclusions (a coremod without `FMLCorePluginContainsFMLMod`,
 /// `TweakClass`, `ModSide`, `ModType`) are deliberately NOT mirrored: Mixin's FML
@@ -88,7 +90,16 @@ pub(crate) struct ModAnnotation {
 /// rule would delete real providers.
 pub(crate) fn read_jar_legacy_annotations(jar_bytes: &[u8]) -> Option<LegacyAnnotations> {
     let mut zip = zip::ZipArchive::new(Cursor::new(jar_bytes)).ok()?;
-    let read = scan_classes(&mut zip).and_then(|found| declarations(&mut zip, found));
+    let read = scan_classes(&mut zip)
+        .and_then(|found| declarations(&mut zip, found))
+        .and_then(|mut out| {
+            for container in coremod_containers(&mut zip)? {
+                if !out.provided.iter().any(|p| p.mod_id == container.mod_id) {
+                    out.provided.push(container);
+                }
+            }
+            Ok(out)
+        });
     match read {
         Ok(out) => Some(out),
         Err(reason) => {
@@ -207,6 +218,421 @@ fn declarations(zip: &mut Zip<'_>, found: Vec<ModAnnotation>) -> Result<LegacyAn
         });
     }
     Ok(out)
+}
+
+// ── coremod containers ─────────────────────────────────────────────────────
+
+/// Largest `META-INF/MANIFEST.MF` read. Real ones are a few KiB of digests.
+const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+/// Longest method code a class file may hold (JVMS §4.7.3: `code_length` < 65536).
+const MAX_CODE_BYTES: usize = 65_535;
+
+/// The `ModMetadata` classes a container assigns, 1.8–1.12.2 then ≤ 1.7.10.
+const MOD_METADATA_CLASSES: [&[u8]; 2] = [
+    b"net/minecraftforge/fml/common/ModMetadata",
+    b"cpw/mods/fml/common/ModMetadata",
+];
+
+/// The mods a coremod jar registers WITHOUT `@Mod`. The manifest names a
+/// loading plugin (`FMLCorePlugin`); FML calls its `getModContainerClass()` and
+/// loads the class it returns (a `DummyModContainer` subclass) like any mod,
+/// under the `ModMetadata.modId` that class assigns. TNTUtils' `@Mod` requires
+/// `tnt_utilities_core`, which its own jar provides this way.
+///
+/// Read as FML runs it: the container is what `getModContainerClass()`'s code
+/// loads — a string (`ldc "a.b.C"`) or a class literal (`C.class.getName()`) —
+/// and its id is a String stored straight into `ModMetadata.modId`
+/// (`md.modId = "x"`), its version the same into `ModMetadata.version`.
+///
+/// `Ok(vec![])` where FML would build no container we can name: no plugin
+/// attribute, no plugin class, a method returning null, a choice between
+/// several classes, or a container whose id depends on a branch. Those keep
+/// the answer this pass did not change: a requirement on the id stays
+/// missing. `Err`: a manifest, plugin or container that exists but cannot be
+/// read — "could not tell", which the caller turns into the jar's own.
+///
+/// What this cannot see is FML skipping the coremod altogether (an
+/// `@MCVersion` mismatch, a `TweakClass` jar without Mixin): the container's id
+/// is then reported as provided although FML loads nothing.
+fn coremod_containers(zip: &mut Zip<'_>) -> Result<Vec<ProvidedMod>, String> {
+    let Some(manifest) = read_capped(zip, "META-INF/MANIFEST.MF", MAX_MANIFEST_BYTES)? else {
+        return Ok(Vec::new());
+    };
+    let text = String::from_utf8_lossy(&manifest);
+    let Some(plugin) = manifest_main_attribute(&text, "FMLCorePlugin") else {
+        return Ok(Vec::new());
+    };
+    let plugin_entry = format!("{}.class", plugin.replace('.', "/"));
+    // A plugin FML cannot find registers no container either.
+    let Some(plugin_bytes) = read_capped(zip, &plugin_entry, MAX_CLASS_BYTES)? else {
+        return Ok(Vec::new());
+    };
+    let plugin_class = class_methods(&plugin_bytes)
+        .ok_or_else(|| format!("{plugin_entry} is not a readable class"))?;
+    let named = plugin_class
+        .container_class_names()
+        .ok_or_else(|| format!("{plugin_entry}: getModContainerClass does not decode"))?;
+    // None, or a choice between classes FML resolves at run time: nothing to name.
+    let [container] = named.as_slice() else {
+        return Ok(Vec::new());
+    };
+    let entry = format!("{container}.class");
+    let Some(bytes) = read_capped(zip, &entry, MAX_CLASS_BYTES)? else {
+        return Ok(Vec::new()); // FML fails to load it: no container
+    };
+    let class = class_methods(&bytes).ok_or_else(|| format!("{entry} is not a readable class"))?;
+    let stores = class
+        .metadata_stores()
+        .ok_or_else(|| format!("{entry}: its code does not decode"))?;
+    let [mod_id] = stores.mod_ids.as_slice() else {
+        return Ok(Vec::new());
+    };
+    let version = match stores.versions.as_slice() {
+        [v] if !v.is_empty() => Some(v.clone()),
+        _ => None,
+    };
+    Ok(vec![ProvidedMod {
+        mod_id: mod_id.clone(),
+        version,
+        source: DescriptorSource::CoremodContainer,
+    }])
+}
+
+/// A main-section attribute of a JAR manifest (the part before the first blank
+/// line), with continuation lines (a leading space) joined, as
+/// `java.util.jar.Manifest` reads it. Names compare case-insensitively.
+fn manifest_main_attribute(text: &str, name: &str) -> Option<String> {
+    let mut logical: Vec<String> = Vec::new();
+    for raw in text.lines() {
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        if line.is_empty() {
+            break;
+        }
+        match (line.strip_prefix(' '), logical.last_mut()) {
+            (Some(rest), Some(last)) => last.push_str(rest),
+            _ => logical.push(line.to_string()),
+        }
+    }
+    logical.iter().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        k.trim()
+            .eq_ignore_ascii_case(name)
+            .then(|| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    })
+}
+
+/// One method's name, descriptor and code.
+struct Method<'a> {
+    name: &'a [u8],
+    descriptor: &'a [u8],
+    code: Option<Code<'a>>,
+}
+
+/// A `Code` attribute: the bytecode and its exception handlers' entry points,
+/// which are jump targets like any branch's.
+struct Code<'a> {
+    bytes: &'a [u8],
+    handlers: Vec<usize>,
+}
+
+/// A class file's constant pool and methods.
+struct ClassMethods<'a> {
+    pool: Vec<Constant<'a>>,
+    methods: Vec<Method<'a>>,
+}
+
+/// `None`: not a readable class file.
+fn class_methods(class: &[u8]) -> Option<ClassMethods<'_>> {
+    let mut r = Reader::new(class);
+    if r.u4()? != 0xCAFE_BABE {
+        return None;
+    }
+    r.skip(4)?;
+    let pool = constant_pool(&mut r)?;
+    r.skip(6)?; // access_flags, this_class, super_class
+    let interfaces = usize::from(r.u2()?);
+    r.skip(interfaces * 2)?;
+    skip_members(&mut r)?; // fields
+    let mut methods = Vec::new();
+    for _ in 0..r.u2()? {
+        r.skip(2)?; // access_flags
+        let name = utf8(&pool, r.u2()?)?;
+        let descriptor = utf8(&pool, r.u2()?)?;
+        let mut code = None;
+        for _ in 0..r.u2()? {
+            let attribute = utf8(&pool, r.u2()?)?;
+            let len = usize::try_from(r.u4()?).ok()?;
+            let body = r.take(len)?;
+            if attribute == b"Code" {
+                code = Some(code_attribute(body)?);
+            }
+        }
+        methods.push(Method {
+            name,
+            descriptor,
+            code,
+        });
+    }
+    // The class's own attributes close the file: a class cut anywhere is
+    // unreadable, as FML's class reader would find it.
+    for _ in 0..r.u2()? {
+        r.skip(2)?;
+        let len = usize::try_from(r.u4()?).ok()?;
+        r.skip(len)?;
+    }
+    Some(ClassMethods { pool, methods })
+}
+
+/// JVMS §4.7.3: max_stack, max_locals, the code, then the exception table.
+fn code_attribute(body: &[u8]) -> Option<Code<'_>> {
+    let mut c = Reader::new(body);
+    c.skip(4)?;
+    let len = usize::try_from(c.u4()?).ok()?;
+    // JVMS §4.7.3: 1..=65535 bytes. Anything else is no class a JVM loads, and
+    // a crafted multi-megabyte method would cost an allocation per instruction.
+    if len == 0 || len > MAX_CODE_BYTES {
+        return None;
+    }
+    let bytes = c.take(len)?;
+    let mut handlers = Vec::new();
+    for _ in 0..c.u2()? {
+        c.skip(4)?; // start_pc, end_pc
+        handlers.push(usize::from(c.u2()?));
+        c.skip(2)?; // catch_type
+    }
+    Some(Code { bytes, handlers })
+}
+
+/// What a class stores straight into `ModMetadata`: distinct values, in code
+/// order.
+struct MetadataStores {
+    mod_ids: Vec<String>,
+    versions: Vec<String>,
+}
+
+impl<'a> ClassMethods<'a> {
+    /// Internal names (`a/b/C`) of the classes `getModContainerClass()`'s code
+    /// loads: `ldc` of a String shaped like a class name, or of a class (the
+    /// literal behind `C.class.getName()`). `Some(vec![])` when the method is
+    /// absent or loads none (`return null`). `None`: its code does not decode.
+    fn container_class_names(&self) -> Option<Vec<String>> {
+        let Some(method) = self
+            .methods
+            .iter()
+            .find(|m| m.name == b"getModContainerClass" && m.descriptor == b"()Ljava/lang/String;")
+        else {
+            return Some(Vec::new());
+        };
+        let Some(code) = &method.code else {
+            return Some(Vec::new()); // abstract or native: nothing to read
+        };
+        let mut out: Vec<String> = Vec::new();
+        for insn in decode(code.bytes)? {
+            let name = match self.loaded_constant(code.bytes, &insn) {
+                Some(Constant::Str(i)) => {
+                    let text = String::from_utf8_lossy(utf8(&self.pool, i)?).into_owned();
+                    if !looks_like_class_name(&text) {
+                        continue;
+                    }
+                    text.replace('.', "/")
+                }
+                Some(Constant::Class(i)) => {
+                    String::from_utf8_lossy(utf8(&self.pool, i)?).into_owned()
+                }
+                _ => continue,
+            };
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+        Some(out)
+    }
+
+    /// Every String an `ldc`/`ldc_w` loads and the very next instruction stores
+    /// into `ModMetadata.modId` or `.version`, in the class's constructors —
+    /// javac's `md.modId = "x"`. A pair
+    /// either of whose instructions is a jump target is skipped: its value
+    /// depends on a branch (`md.modId = c ? "a" : "b"` ends in a jump onto the
+    /// store). `None`: some method's code does not decode.
+    fn metadata_stores(&self) -> Option<MetadataStores> {
+        let mut out = MetadataStores {
+            mod_ids: Vec::new(),
+            versions: Vec::new(),
+        };
+        // The constructor: where a container assigns the metadata FML reads
+        // (`super(new ModMetadata()); md.modId = …`). A store in another method
+        // may never run, or fill a second `ModMetadata`.
+        let constructors = self.methods.iter().filter(|m| m.name == b"<init>");
+        for code in constructors.filter_map(|m| m.code.as_ref()) {
+            let insns = decode(code.bytes)?;
+            let mut targets: HashSet<usize> = code.handlers.iter().copied().collect();
+            for insn in &insns {
+                targets.extend(branch_targets(code.bytes, insn)?);
+            }
+            for pair in insns.windows(2) {
+                let (load, store) = (&pair[0], &pair[1]);
+                if store.op != 0xB5 || targets.contains(&load.pc) || targets.contains(&store.pc) {
+                    continue;
+                }
+                let Some(Constant::Str(text)) = self.loaded_constant(code.bytes, load) else {
+                    continue;
+                };
+                let Some((owner, field)) = field_ref(&self.pool, u2_at(code.bytes, store.pc + 1)?)
+                else {
+                    continue;
+                };
+                if !MOD_METADATA_CLASSES.contains(&owner) {
+                    continue;
+                }
+                let list = match field {
+                    b"modId" => &mut out.mod_ids,
+                    b"version" => &mut out.versions,
+                    _ => continue,
+                };
+                let value = String::from_utf8_lossy(utf8(&self.pool, text)?).into_owned();
+                if !list.contains(&value) {
+                    list.push(value);
+                }
+            }
+        }
+        Some(out)
+    }
+
+    /// The constant an `ldc` / `ldc_w` loads; `None` for any other instruction.
+    fn loaded_constant(&self, code: &[u8], insn: &Insn) -> Option<Constant<'a>> {
+        let index = match insn.op {
+            0x12 => u16::from(*code.get(insn.pc + 1)?),
+            0x13 => u2_at(code, insn.pc + 1)?,
+            _ => return None,
+        };
+        self.pool.get(usize::from(index)).copied()
+    }
+}
+
+/// `a.b.C`: dot-separated Java identifiers, at least one dot.
+fn looks_like_class_name(text: &str) -> bool {
+    text.contains('.')
+        && text.split('.').all(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
+                && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        })
+}
+
+/// A `CONSTANT_Fieldref`'s owning class (internal name) and field name.
+fn field_ref<'a>(pool: &[Constant<'a>], index: u16) -> Option<(&'a [u8], &'a [u8])> {
+    let Constant::FieldRef(class, nat) = *pool.get(usize::from(index))? else {
+        return None;
+    };
+    let Constant::Class(class_name) = *pool.get(usize::from(class))? else {
+        return None;
+    };
+    let Constant::NameAndType(name, _descriptor) = *pool.get(usize::from(nat))? else {
+        return None;
+    };
+    Some((utf8(pool, class_name)?, utf8(pool, name)?))
+}
+
+/// One decoded instruction: where it starts and its opcode.
+#[derive(Debug, Clone, Copy)]
+struct Insn {
+    pc: usize,
+    op: u8,
+}
+
+/// Every instruction of a method's code, in order. `None`: an instruction does
+/// not decode.
+fn decode(code: &[u8]) -> Option<Vec<Insn>> {
+    let mut out = Vec::new();
+    let mut pc = 0;
+    while pc < code.len() {
+        let len = instruction_len(code, pc)?;
+        out.push(Insn { pc, op: code[pc] });
+        pc += len;
+    }
+    Some(out)
+}
+
+fn u2_at(code: &[u8], at: usize) -> Option<u16> {
+    let b: [u8; 2] = code.get(at..at.checked_add(2)?)?.try_into().ok()?;
+    Some(u16::from_be_bytes(b))
+}
+
+fn i32_at(code: &[u8], at: usize) -> Option<i32> {
+    let b: [u8; 4] = code.get(at..at.checked_add(4)?)?.try_into().ok()?;
+    Some(i32::from_be_bytes(b))
+}
+
+/// Where a branch instruction may jump (JVMS §6.5): its offsets are relative to
+/// its own pc. Empty for any other instruction. `None`: a target outside the
+/// address space.
+fn branch_targets(code: &[u8], insn: &Insn) -> Option<Vec<usize>> {
+    let at = |offset: i64| usize::try_from(i64::try_from(insn.pc).ok()? + offset).ok();
+    let pc = insn.pc;
+    let offsets: Vec<i64> = match insn.op {
+        // if*, goto, jsr, ifnull, ifnonnull: a signed 16-bit offset.
+        0x99..=0xA8 | 0xC6 | 0xC7 => vec![i64::from(u2_at(code, pc + 1)? as i16)],
+        // goto_w, jsr_w.
+        0xC8 | 0xC9 => vec![i64::from(i32_at(code, pc + 1)?)],
+        0xAA => {
+            let base = (pc + 4) & !3;
+            let (low, high) = (i32_at(code, base + 4)?, i32_at(code, base + 8)?);
+            let entries = usize::try_from(i64::from(high) - i64::from(low) + 1).ok()?;
+            let mut v = vec![i64::from(i32_at(code, base)?)];
+            for k in 0..entries {
+                v.push(i64::from(i32_at(code, base + 12 + k * 4)?));
+            }
+            v
+        }
+        0xAB => {
+            let base = (pc + 4) & !3;
+            let pairs = usize::try_from(i32_at(code, base + 4)?).ok()?;
+            let mut v = vec![i64::from(i32_at(code, base)?)];
+            for k in 0..pairs {
+                v.push(i64::from(i32_at(code, base + 8 + k * 8 + 4)?));
+            }
+            v
+        }
+        _ => Vec::new(),
+    };
+    offsets.into_iter().map(at).collect()
+}
+
+/// The length of the instruction at `pc` (JVMS §6.5). `None`: an opcode no
+/// class file may contain, or one whose operands run past the code.
+fn instruction_len(code: &[u8], pc: usize) -> Option<usize> {
+    let op = *code.get(pc)?;
+    // Switch operands start at the next multiple of four from the code start.
+    let aligned = (pc + 4) & !3;
+    let len = match op {
+        0x00..=0x0F | 0x1A..=0x35 | 0x3B..=0x83 | 0x85..=0x98 | 0xAC..=0xB1 => 1,
+        0xBE | 0xBF | 0xC2 | 0xC3 => 1,
+        0x10 | 0x12 | 0x15..=0x19 | 0x36..=0x3A | 0xA9 | 0xBC => 2,
+        0x11 | 0x13 | 0x14 | 0x84 | 0x99..=0xA8 | 0xB2..=0xB8 | 0xBB | 0xBD => 3,
+        0xC0 | 0xC1 | 0xC6 | 0xC7 => 3,
+        0xC5 => 4,
+        0xB9 | 0xBA | 0xC8 | 0xC9 => 5,
+        0xC4 => match *code.get(pc + 1)? {
+            0x84 => 6, // wide iinc
+            _ => 4,
+        },
+        0xAA => {
+            let (low, high) = (i32_at(code, aligned + 4)?, i32_at(code, aligned + 8)?);
+            let entries = usize::try_from(i64::from(high) - i64::from(low) + 1).ok()?;
+            (aligned - pc) + 12 + entries.checked_mul(4)?
+        }
+        0xAB => {
+            let pairs = usize::try_from(i32_at(code, aligned + 4)?).ok()?;
+            (aligned - pc) + 8 + pairs.checked_mul(8)?
+        }
+        // 0xCA breakpoint, 0xFE/0xFF impdep and the unassigned rest: reserved,
+        // never in a class file.
+        _ => return None,
+    };
+    (pc.checked_add(len)? <= code.len()).then_some(len)
 }
 
 /// FML step 2: `Properties.getProperty(key)` over `version.properties`, for the
@@ -434,10 +860,19 @@ impl<'a> Reader<'a> {
 }
 
 /// The constants this reader resolves; every other tag is skipped by size.
+/// Indices are into the same pool, as the class file stores them.
 #[derive(Debug, Clone, Copy)]
 enum Constant<'a> {
     Utf8(&'a [u8]),
     Integer(i32),
+    /// `CONSTANT_Class`: the index of its internal name (`a/b/C`).
+    Class(u16),
+    /// `CONSTANT_String`: the index of its text.
+    Str(u16),
+    /// `CONSTANT_Fieldref`: the owning class, then the name-and-type.
+    FieldRef(u16, u16),
+    /// `CONSTANT_NameAndType`: the name, then the descriptor.
+    NameAndType(u16, u16),
     Other,
 }
 
@@ -466,11 +901,15 @@ fn constant_pool<'a>(r: &mut Reader<'a>) -> Option<Vec<Constant<'a>>> {
                 pool.push(Constant::Other);
                 pool.push(Constant::Other);
             }
-            7 | 8 | 16 | 19 | 20 => {
+            7 => pool.push(Constant::Class(r.u2()?)),
+            8 => pool.push(Constant::Str(r.u2()?)),
+            16 | 19 | 20 => {
                 r.skip(2)?;
                 pool.push(Constant::Other);
             }
-            9 | 10 | 11 | 12 | 17 | 18 => {
+            9 => pool.push(Constant::FieldRef(r.u2()?, r.u2()?)),
+            12 => pool.push(Constant::NameAndType(r.u2()?, r.u2()?)),
+            10 | 11 | 17 | 18 => {
                 r.skip(4)?;
                 pool.push(Constant::Other);
             }
@@ -962,5 +1401,204 @@ mod tests {
             Some(100)
         );
         assert_eq!(read_capped(&mut z, "absent", 100), Ok(None));
+    }
+
+    // ── coremod containers ───────────────────────────────────────────────
+
+    /// A manifest naming `plugin` as the jar's `FMLCorePlugin`.
+    fn manifest(plugin: &str) -> Vec<u8> {
+        format!(
+            "Manifest-Version: 1.0\r\nFMLCorePlugin: {plugin}\r\n\
+             FMLCorePluginContainsFMLMod: true\r\n\r\n"
+        )
+        .into_bytes()
+    }
+
+    /// TNTUtils' shape: the plugin names its container by a string, the
+    /// container assigns `ModMetadata`, and the jar's `@Mod` requires that id.
+    /// `DecoyContainer` is a container the plugin never names.
+    fn tntutils_shaped(manifest_bytes: Option<&[u8]>, container: &[u8]) -> Vec<u8> {
+        let mut entries: Vec<(&str, &[u8])> = vec![
+            (
+                "coremodfixture/CorePlugin.class",
+                fixture!("coremodfixture/CorePlugin.class"),
+            ),
+            ("coremodfixture/CoreContainer.class", container),
+            (
+                "coremodfixture/CoreTransformer.class",
+                fixture!("coremodfixture/CoreTransformer.class"),
+            ),
+            (
+                "coremodfixture/DecoyContainer.class",
+                fixture!("coremodfixture/DecoyContainer.class"),
+            ),
+            (
+                "coremodfixture/NeedsCore.class",
+                fixture!("coremodfixture/NeedsCore.class"),
+            ),
+        ];
+        if let Some(m) = manifest_bytes {
+            entries.push(("META-INF/MANIFEST.MF", m));
+        }
+        jar(&entries)
+    }
+
+    fn provided(out: &LegacyAnnotations) -> Vec<(&str, Option<&str>)> {
+        out.provided
+            .iter()
+            .map(|p| (p.mod_id.as_str(), p.version.as_deref()))
+            .collect()
+    }
+
+    #[test]
+    fn a_coremod_container_provides_the_id_its_jar_requires() {
+        let m = manifest("coremodfixture.CorePlugin");
+        let j = tntutils_shaped(Some(&m), fixture!("coremodfixture/CoreContainer.class"));
+        let out = read_jar_legacy_annotations(&j).expect("readable");
+        // `decoy_core` is in the jar too, but FML never builds a container the
+        // plugin does not name.
+        assert_eq!(
+            provided(&out),
+            [("needs_core", Some("1.0")), ("test_core", Some("1.2.3"))]
+        );
+        let sources: Vec<DescriptorSource> = out.provided.iter().map(|p| p.source).collect();
+        assert_eq!(
+            sources,
+            [
+                DescriptorSource::McmodAnnotation,
+                DescriptorSource::CoremodContainer
+            ]
+        );
+        assert!(
+            out.deps.iter().any(|d| d.dep_id == "test_core"),
+            "{:?}",
+            out.deps
+        );
+    }
+
+    #[test]
+    fn without_fml_core_plugin_no_container_is_read() {
+        let container = fixture!("coremodfixture/CoreContainer.class");
+        let out = read_jar_legacy_annotations(&tntutils_shaped(None, container)).unwrap();
+        assert_eq!(provided(&out), [("needs_core", Some("1.0"))]);
+        let other = b"Manifest-Version: 1.0\r\nMain-Class: x.Y\r\n\r\n";
+        let out = read_jar_legacy_annotations(&tntutils_shaped(Some(other), container)).unwrap();
+        assert_eq!(provided(&out), [("needs_core", Some("1.0"))]);
+    }
+
+    #[test]
+    fn a_container_named_by_a_class_literal_behind_switches_is_read() {
+        let m = manifest("coremodfixture.SwitchPlugin");
+        let j = jar(&[
+            ("META-INF/MANIFEST.MF", &m),
+            (
+                "coremodfixture/SwitchPlugin.class",
+                fixture!("coremodfixture/SwitchPlugin.class"),
+            ),
+            (
+                "coremodfixture/SwitchContainer.class",
+                fixture!("coremodfixture/SwitchContainer.class"),
+            ),
+        ]);
+        let out = read_jar_legacy_annotations(&j).expect("readable");
+        assert_eq!(provided(&out), [("switch_core", None)]);
+    }
+
+    #[test]
+    fn a_1_7_10_container_is_read() {
+        let m = manifest("cpwcoremodfixture.OldCorePlugin");
+        let j = jar(&[
+            ("META-INF/MANIFEST.MF", &m),
+            (
+                "cpwcoremodfixture/OldCorePlugin.class",
+                fixture!("cpwcoremodfixture/OldCorePlugin.class"),
+            ),
+            (
+                "cpwcoremodfixture/OldCoreContainer.class",
+                fixture!("cpwcoremodfixture/OldCoreContainer.class"),
+            ),
+        ]);
+        let out = read_jar_legacy_annotations(&j).expect("readable");
+        assert_eq!(provided(&out), [("old_core", Some("0.9"))]);
+    }
+
+    #[test]
+    fn an_unreadable_container_is_could_not_tell() {
+        // It might have provided the id: the jar's answer is "could not tell",
+        // which is never cached, not a measured "provides nothing".
+        let m = manifest("coremodfixture.CorePlugin");
+        let whole = fixture!("coremodfixture/CoreContainer.class");
+        for cut in 0..whole.len() {
+            let j = tntutils_shaped(Some(&m), &whole[..cut]);
+            assert_eq!(read_jar_legacy_annotations(&j), None, "cut at {cut}");
+        }
+    }
+
+    #[test]
+    fn a_plugin_returning_null_registers_no_container() {
+        // The plugin mentions CoreContainer's name elsewhere; only what
+        // getModContainerClass() loads counts.
+        let m = manifest("coremodfixture.NullPlugin");
+        let j = jar(&[
+            ("META-INF/MANIFEST.MF", &m),
+            (
+                "coremodfixture/NullPlugin.class",
+                fixture!("coremodfixture/NullPlugin.class"),
+            ),
+            (
+                "coremodfixture/CoreContainer.class",
+                fixture!("coremodfixture/CoreContainer.class"),
+            ),
+        ]);
+        assert_eq!(provided(&read_jar_legacy_annotations(&j).unwrap()), []);
+    }
+
+    #[test]
+    fn an_id_chosen_by_a_branch_is_not_reported() {
+        // `modId = legacy ? "ternary_old" : "ternary_new"`: javac leaves only the
+        // second string beside the store, and both sit on jump targets.
+        let m = manifest("coremodfixture.TernaryPlugin");
+        let j = jar(&[
+            ("META-INF/MANIFEST.MF", &m),
+            (
+                "coremodfixture/TernaryPlugin.class",
+                fixture!("coremodfixture/TernaryPlugin.class"),
+            ),
+            (
+                "coremodfixture/TernaryContainer.class",
+                fixture!("coremodfixture/TernaryContainer.class"),
+            ),
+        ]);
+        assert_eq!(provided(&read_jar_legacy_annotations(&j).unwrap()), []);
+    }
+
+    #[test]
+    fn a_manifest_attribute_is_read_across_continuation_lines() {
+        let text = "Manifest-Version: 1.0\r\nFMLCorePlugin: coremodfixture.Core\r\n Plugin\r\n\
+                    \r\nName: x\r\nFMLCorePlugin: no.Section\r\n";
+        assert_eq!(
+            manifest_main_attribute(text, "fmlcoreplugin").as_deref(),
+            Some("coremodfixture.CorePlugin")
+        );
+        // An attribute only in a per-entry section is not the jar's.
+        let per_entry = "Manifest-Version: 1.0\n\nName: x\nFMLCorePlugin: a.B\n";
+        assert_eq!(manifest_main_attribute(per_entry, "FMLCorePlugin"), None);
+    }
+
+    #[test]
+    fn instruction_lengths_cover_wide_and_refuse_reserved_opcodes() {
+        assert_eq!(instruction_len(&[0xC4, 0x84, 0, 1, 0, 1], 0), Some(6)); // wide iinc
+        assert_eq!(instruction_len(&[0xC4, 0x15, 1, 0], 0), Some(4)); // wide iload
+        assert_eq!(instruction_len(&[0xCA], 0), None); // breakpoint
+        assert_eq!(instruction_len(&[0xFF], 0), None); // impdep2
+        assert_eq!(instruction_len(&[0x13, 0], 0), None); // ldc_w cut short
+                                                          // lookupswitch at pc 1: two padding bytes, default, one pair.
+        let mut code = vec![0x00, 0xAB, 0, 0];
+        code.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 7, 0, 0, 0, 9]);
+        assert_eq!(instruction_len(&code, 1), Some(code.len() - 1));
+        // A table claiming more entries than the code holds is refused.
+        let mut huge = vec![0xAA, 0, 0, 0];
+        huge.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0x7F, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(instruction_len(&huge, 0), None);
     }
 }

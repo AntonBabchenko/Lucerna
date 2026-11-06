@@ -568,6 +568,16 @@ pub enum Error {
     #[error("Modpack instance creation failed: {details}")]
     ModpackInstanceCreationFailed { details: String },
 
+    /// A pack import failed after it had created the instance, and removing
+    /// that unfinished instance failed too: `path` is the folder left on disk,
+    /// `details` the import's own failure.
+    #[error("Modpack import failed and its unfinished instance {name} could not be removed ({path}): {details}")]
+    ModpackImportLeftover {
+        name: String,
+        path: String,
+        details: String,
+    },
+
     // Display intentionally omits `failed.len()`; the FE handler renders the
     // count from `.failed.length` (thiserror 2.0 disallows function-call
     // expressions in `#[error("...")]` format strings).

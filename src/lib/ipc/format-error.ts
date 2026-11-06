@@ -120,6 +120,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   modpack_invalid_archive: 'opaque',
   modpack_manifest_invalid: 'opaque',
   modpack_instance_creation_failed: 'opaque',
+  // Names the unfinished profile and its folder; the import's own failure is the tail.
+  modpack_import_leftover: 'opaque',
   modpack_export_failed: 'opaque',
   backup_corrupt: 'opaque',
   world_import_invalid_archive: 'opaque',
@@ -884,6 +886,11 @@ export function formatError(e: IpcError): string {
       return translate('errors.modpackNoFilesSelected');
     case 'modpack_instance_creation_failed':
       return withDetailTail(translate('errors.modpackInstanceCreationFailed'), e.details);
+    case 'modpack_import_leftover':
+      return withDetailTail(
+        translate('errors.modpackImportLeftover', { name: e.name, path: e.path }),
+        e.details,
+      );
     case 'modpack_partial_failure':
       return translate('errors.modpackPartialFailure', { count: e.failed.length });
     case 'modpack_bundled_no_url':

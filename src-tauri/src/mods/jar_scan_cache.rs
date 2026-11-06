@@ -59,7 +59,9 @@ use crate::mods::mod_annotation::LegacyAnnotations;
 /// A mismatch discards the ENTIRE file rather than the entries predating it:
 /// records carry no per-entry stamp, and the whole file is derived data that
 /// rebuilds itself on the next scan.
-pub const SCHEMA_VERSION: u32 = 2;
+///
+/// 3: legacy scans also read coremod mod containers (`tnt_utilities_core`).
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Serializes the disk read-modify-write; held only over the synchronous
 /// load/save, never across a scan. Mirrors `l10n::coverage::CACHE_DISK_LOCK`.
