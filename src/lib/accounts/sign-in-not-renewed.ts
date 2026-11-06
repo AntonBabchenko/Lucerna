@@ -9,7 +9,8 @@ export type SignInNotRenewedToast = {
   /** The reason as `formatError` words it, shown first; null when the title already says it. */
   cause: IpcError | null;
   lineKeys: TranslationKey[];
-  /** Offer «Sign in again» — only when Microsoft itself refused the saved sign-in. */
+  /** Offer «Sign in again» — only when signing in again is all that can help: Microsoft refused the
+   *  saved sign-in, or none is stored (`MicrosoftSignInExpired`). */
   signInAgain: boolean;
 };
 

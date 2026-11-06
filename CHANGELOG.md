@@ -26,13 +26,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 - **Finish a pack whose files Lucerna can't download.** When a mod's author
   forbids other launchers from downloading it, the pack now offers Finish
   install: open the files' download pages, then drop them in, pick them, or let
-  Lucerna find them in your Downloads folder. Each file is checked against the
-  pack's checksum, where the pack lists one, before it's added; a pack update
-  keeps it while the new version still uses it.
+  Lucerna find them in your Downloads folder. Each file is checked against its
+  published checksum, where one exists, before it's added; a pack update keeps
+  it while the new version still uses it and removes it once that version drops
+  it.
 - **Lucerna opens where you left it.** The window comes back at the position and
-  size it had when it closed, maximized if it was maximized, and in compact mode
-  the strip where you last left it. A window last seen on a screen that is gone
-  opens where a first start would put it.
+  size it had when it closed (on Wayland, without the position), maximized if it
+  was maximized, and in compact mode the strip where you last left it. A window
+  last seen on a screen that is gone opens where a first start would put it.
 - **Simplified Chinese, partly.** Translation is under way on Weblate. System
   doesn't switch to it yet: choose 简体中文 in Settings → Appearance → Language, and
   anything not translated yet stays in English.
@@ -49,17 +50,17 @@ behaviour is worth knowing, it is stated as a property of the feature under
   damaged file is downloaded again.
 - **A requirement met by a coremod in the same jar no longer counts as
   missing.** On 1.12.2 and older, TNTUtils in RLCraft needs
-  `tnt_utilities_core`, which its own jar registers; the profile read as unable
+  `tnt_utilities_core`, which its own jar registers; the instance read as unable
   to start, and the pre-launch check listed `tnt_utilities_core` as missing.
 - **A long data folder path no longer makes the launch command too long.**
   Recent loader versions, such as Forge for Minecraft 26.2, could fail to start
   because the command ran past Windows' limit of 32 767 characters. On Windows
   with Java 9 or newer, the version's JVM arguments now go in a file.
 - **A modpack imports on a long data folder path, and a failed import cleans up
-  after itself.** On Windows, once a folder in the profile had a path longer
+  after itself.** On Windows, once a folder in the instance had a path longer
   than 256 characters, a pack with deep config folders such as RLCraft was
-  refused as if a file tried to escape the profile. A failed import now removes
-  the profile it started; if that removal fails too, the message names the
+  refused as if a file tried to escape the instance. A failed import now removes
+  the instance it started; if that removal fails too, the message names the
   folder left behind.
 - **A pack file Lucerna couldn't download counts as installed only when its
   bytes match.** A different file with the same name no longer passes for it.

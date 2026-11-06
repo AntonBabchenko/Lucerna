@@ -1815,7 +1815,7 @@
     },
     "manual": {
       "title": "Finish installing {pack}",
-      "lead": "Lucerna couldn't download these files itself. Download each one in your browser; Lucerna checks it against the pack and puts it in place. A file the pack gives no checksum for goes in only through Use a file… on its row.",
+      "lead": "Lucerna couldn't download these files itself. Download each one in your browser, then drop it here or use Look in the folder; Lucerna checks it against its published checksum and puts it in place. A file with no published checksum goes in only through Use a file… on its row.",
       "openAll": "Open all ({count})",
       "copyLinks": "Copy links",
       "copied": "{count, plural, one {# link copied} other {# links copied}}",
