@@ -21,6 +21,8 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-11-07
+
 ### Added
 
 - **Finish a pack whose files Lucerna can't download.** When a mod's author
@@ -2338,7 +2340,8 @@ A broad quality, accessibility, and security hardening pass across the launcher.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.25.0...v0.26.0
