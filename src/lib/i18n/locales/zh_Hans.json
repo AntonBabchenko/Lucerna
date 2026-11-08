@@ -580,7 +580,7 @@
       "countBuiltDifferently": "{count} 个与 Forge 自带安装程序构建方式不同",
       "builtDifferentlyNote": "旧版 Lucerna 会通过自身代码生成这些 Forge 文件，因此生成的文件与 Forge 官方安装程序生成的文件有所不同。如果游戏之前能够正常运行，那么现在也不会有问题，无需修改这些文件。选择“修复”后，程序将按照 Forge 官方安装程序的方式重新生成这些文件。",
       "forgeInstallerNotSaved": "Forge 安装程序未保存在此电脑上，因此无法检查由其生成的文件。修复程序会先下载安装程序，再重新生成所有不一致的文件。",
-      "forgeInstallerUnreadable": "Forge 保存的安装程序无法读取，因此无法检查由其生成的文件。",
+      "forgeInstallerUnreadable": "无法读取 Forge 已保存的安装程序，其生成的文件因此未经校验。若该安装程序已损坏，「修复」会重新下载它，并重建其中所有不一致的文件。",
       "busy": "验证前请停止正在运行的游戏。",
       "checkedAt": "已检查 {date}",
       "statusNotChecked": "完整性未经检查",
