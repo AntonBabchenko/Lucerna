@@ -32,7 +32,8 @@
       "onlyDatapacks": "此处仅可添加数据包（.zip ）",
       "onlyModpacks": "此处仅支持导入模组整合包（.mrpack 或 .zip）",
       "oneModpack": "整合包会逐个导入",
-      "oneServer": "服务器将逐一导入"
+      "oneServer": "服务器将逐一导入",
+      "onlyJarsAndZips": "此处只能添加整合包中的 .jar 和 .zip 文件"
     },
     "fileFilter": {
       "modrinthModpack": "Modrinth 模组整合包",
@@ -637,7 +638,12 @@
         "machineBadge": "AI",
         "machineBadgeTitle": "由 AI 翻译。编辑后将归为您的翻译。",
         "revertMachineButton": "还原此模组中的 AI 翻译",
-        "revertConfirmTitle": "撤销 AI 翻译？"
+        "revertConfirmTitle": "撤销 AI 翻译？",
+        "revertConfirmBody": "{count, plural, one {这将移除 # 条 AI 翻译} other {这将移除 # 条 AI 翻译}}，范围为 {namespace}。您自己编写或修改的内容会保留。",
+        "revertConfirmButton": "还原",
+        "revertFailed": "无法还原 AI 翻译：{error}",
+        "savedAnnouncement": "已保存",
+        "clearedAnnouncement": "翻译已移除"
       },
       "title": "模组翻译",
       "beta": "测试版",
@@ -798,26 +804,4186 @@
       "editTooltip": "更改实例图片",
       "errorDecode": "该文件不是受支持的图像。",
       "errorSave": "无法保存图片。请重试。"
+    },
+    "updateRecovery": {
+      "restored": "上次对“{name}”的更新被中断；现已撤销，实例已恢复原状。",
+      "incomplete": "对“{name}”的一次更新被中断，未能完全撤销。请检查其模组；无法还原的部分保存在 {folder} 中。",
+      "dataCopyRestored": "上次将数据从“{source}”复制到“{name}”的过程被中断；现已撤销，实例已恢复原状。",
+      "dataCopyIncomplete": "向“{name}”复制数据的过程被中断，未能完全撤销；无法还原的部分保存在 {folder} 中。",
+      "keptAside": "此前复制数据时在“{name}”中被替换的文件已移至文件夹“{folder}”。",
+      "keptInPlace": "此前复制数据时在“{name}”中被替换的文件无法移出；它们保存在 {folder} 中。",
+      "unknownRestored": "上次对“{name}”的更改被中断；现已撤销，实例已恢复原状。",
+      "unknownIncomplete": "对“{name}”的一次更改被中断，未能完全撤销；无法还原的部分保存在 {folder} 中。",
+      "openFolder": "打开文件夹",
+      "openFolderFailed": "无法打开该文件夹。"
+    },
+    "settings": {
+      "tabAria": "实例设置",
+      "gameSection": "游戏",
+      "launchSection": "启动",
+      "launchNextStart": "对内存、Java 和 JVM 参数的更改将在下次游戏启动时生效。",
+      "dangerTitle": "危险区域",
+      "busyBlocked": "请等待此实例上的当前任务完成。",
+      "lockedRunning": "请停止游戏以更改版本或加载器。",
+      "lockedBusy": "此实例上的当前任务完成后，方可更改版本和加载器。",
+      "applyingChange": "您上次对版本或加载器的更改仍在应用中。",
+      "folderLocked": "游戏停止且此实例上无任务运行时，方可重命名该文件夹。",
+      "noInstances": "尚无实例。",
+      "noActive": "请在侧边栏中选择一个实例以查看其设置。",
+      "createdNotSwitched": "已创建 {name}",
+      "activateFailed": "无法切换到 {name}",
+      "saveFailedLate": "无法为 {name} 保存 {field}",
+      "deletedNowActive": "已删除 {name}。当前活动实例为 {other}。"
     }
   },
   "mods": {
     "detail": {
-      "loading": "加载中……"
+      "loading": "加载中……",
+      "byAuthorSourceDownloads": "作者 {author} · {source} · {downloads, number} 次下载",
+      "viewOnModrinth": "在 Modrinth 上查看",
+      "viewOnCurseForge": "在 CurseForge 上查看",
+      "closeAriaLabel": "关闭模组详情",
+      "closeBackdropAriaLabel": "关闭",
+      "tabOverview": "概述",
+      "tabVersions": "版本",
+      "contentDisclaimer": "内容来自 {source}——其中的任何广告或链接均属于作者，而非 Lucerna。",
+      "loadingDescription": "正在加载描述……",
+      "loadingVersions": "正在加载版本……",
+      "showAllVersions": "显示所有版本",
+      "noVersionsPlatform": "平台未返回任何版本。",
+      "noVersionsCompat": "没有适用于此 MC + 加载器的兼容版本。",
+      "versionInstalled": " · 已安装",
+      "offPlatformBadge": "不适用于此实例",
+      "versionTargets": "MC：{mc} · {loaders}",
+      "offPlatformMc": "为 Minecraft {versions} 构建，此实例运行 {instance}",
+      "offPlatformLoader": "为 {loaders} 构建，此实例使用 {instance}",
+      "btnInstalled": "已安装",
+      "btnRestricted": "受限",
+      "btnSwitch": "切换",
+      "footerInstalled": "已安装 {version}",
+      "footerRestricted": "受限——请在平台上打开",
+      "selectInstanceHint": "请选择 Fabric / Quilt / Forge / NeoForge 实例以安装模组。",
+      "noCompatVersion": "没有适用于 {mc} / {loader} 的兼容版本。",
+      "noCompatVersionAsset": "没有与 {mc} 兼容的版本。"
     },
     "card": {
-      "update": "更新"
+      "update": "更新",
+      "checking": "正在检查……",
+      "updateAvailableTitle": "有可用更新",
+      "checkFailed": "无法检查",
+      "installed": "已安装",
+      "inLibrary": "在库中",
+      "inLibraryVersion": "在库中 · {version}",
+      "disabled": "已禁用",
+      "disable": "禁用",
+      "enable": "启用",
+      "uninstall": "移除",
+      "fromModpackTitle": "来自整合包：{name}",
+      "byAuthorDownloads": "作者 {author} · {downloads, number} 次下载",
+      "details": "详情",
+      "revealFile": "在文件夹中显示",
+      "revealFailed": "无法显示该文件",
+      "menuAriaLabel": "{name} 的操作"
+    },
+    "changelog": {
+      "view": "更新日志",
+      "loading": "正在加载更新日志……",
+      "empty": "此更新未发布更新日志。",
+      "noNotes": "作者未为此版本提供说明。",
+      "truncated": "正在显示最新 {shown} 个版本（共 {total} 个）。",
+      "retry": "请重试"
+    },
+    "browse": {
+      "tabBrowse": "浏览",
+      "tabInstalled": "已安装",
+      "searchAriaLabel": "搜索模组",
+      "searchPlaceholder": "搜索模组……",
+      "sortDownloads": "下载量",
+      "sortRelevance": "相关度",
+      "sortUpdated": "更新日期",
+      "searching": "正在搜索……",
+      "noResults": "无结果。",
+      "errorRetry": "重新加载",
+      "allInstalledOnPage": "此页面上的所有模组均已安装。使用分页器查看更多，或开启「显示已安装」。",
+      "vanillaHeading": "此实例是原版 Minecraft",
+      "vanillaBody": "原版 Minecraft 没有模组加载器，因此来自 Modrinth / CurseForge 的模组 jar 无法在运行时加载。要安装模组，请在此实例的「设置」选项卡中选择 Fabric、Quilt、Forge 或 NeoForge，或在侧边栏的「新建实例」中创建一个带加载器的实例。",
+      "errorNoInstance": "无活动实例",
+      "errorNoCompatibleVersion": "未找到兼容的版本",
+      "errorNoVersionForMc": "{mod} 没有适用于 Minecraft {mcVersion} 的版本（实例“{profile}”）。支持的最新版本：{list}",
+      "errorWrongLoader": "您的实例“{profile}”使用 {loader}，但 {mod} 没有 {loader} 版本。可用：{list}",
+      "errorFilenameConflictNamed": "无法安装 {newMod}：其 jar“{filename}”与已安装的 {existingMod} 同名，但内容不同。请先移除 {existingMod}。",
+      "distributionDisabledTitle": "无法自动下载 {mod}",
+      "distributionDisabledBody": "其作者已在 {platform} 上禁用第三方启动器下载。请打开项目页面手动下载。",
+      "distributionDisabledAction": "在 {platform} 上打开",
+      "errorVanillaLoader": "此实例是原版 Minecraft（无模组加载器）。请切换到 Fabric / Quilt / Forge / NeoForge 实例以安装模组。",
+      "dropzoneLabel": "将模组 .jar 拖到此处进行安装——或点击浏览",
+      "dropzoneDisabled": "请选择非原版实例以安装模组",
+      "toastInstallFailed": "模组安装失败",
+      "toastInstallFailedWithMod": "无法安装 {name}",
+      "toastRetry": "重试",
+      "toastInstalledMod": "已安装 {name}",
+      "toastDepAlreadyInstalled": "{name} 已安装",
+      "mismatchLoader": "看起来是 {detected} 模组，而实例是 {instance}",
+      "mismatchMc": "需要 Minecraft {detected}，此实例运行 {instance}",
+      "mismatchPlatformLoader": "需要加载器版本 {detected}，此实例运行 {instance}",
+      "mismatchDefault": "可能不兼容",
+      "toastCouldNotRead": "无法读取 {filename}",
+      "toastInstalled": "{count, plural, one {已安装 # 个模组} other {已安装 # 个模组}}",
+      "toastFailedToInstall": "{count, plural, one {# 个模组安装失败} other {# 个模组安装失败}}",
+      "toastSkipped": "{count, plural, one {已跳过 # 个不兼容模组} other {已跳过 # 个不兼容模组}}"
+    },
+    "findAlt": {
+      "title": "在其他来源中查找“{mod}”",
+      "body": "此模组无法自动下载。请在 Modrinth 上搜索同名模组并直接安装。匹配依据为名称——安装前请确认是所需的模组。",
+      "searchLabel": "搜索关键词",
+      "searchBtn": "搜索",
+      "searching": "正在搜索 Modrinth……",
+      "empty": "在 Modrinth 上未找到匹配的模组。请优化搜索，或在下方打开 CurseForge 上的原始项目——它可能仅在 CurseForge 上发布。",
+      "likelyMatch": "可能匹配",
+      "installed": "已安装 {name}",
+      "noVersion": "{mod} 没有适用于此实例的 Minecraft + 加载器的 Modrinth 版本。",
+      "openCurseForge": "在 CurseForge 上打开",
+      "close": "关闭",
+      "toastAction": "在 Modrinth 上查找"
+    },
+    "source": {
+      "label": "来源：",
+      "ariaLabel": "模组来源"
+    },
+    "mcVersion": {
+      "anyVersion": "任意版本",
+      "noMatch": "无匹配"
+    },
+    "pageSize": {
+      "perPage": "每页："
+    },
+    "layout": {
+      "groupAriaLabel": "结果布局",
+      "grid": "网格",
+      "list": "列表"
+    },
+    "curseforgeBanner": {
+      "heading": "CurseForge 需要 API 密钥",
+      "body": "Modrinth 可匿名使用，但 CurseForge 需要一个免费的 API 密钥。获取大约需要 5 分钟——在 console.curseforge.com 注册免费账户，生成密钥，然后粘贴到「设置」中。",
+      "openSettings": "打开「设置 → 集成」"
+    },
+    "installed": {
+      "filterPlaceholder": "筛选已安装的模组……",
+      "filterAriaLabel": "筛选已安装的模组",
+      "sortLabel": "排序：",
+      "sortNameAsc": "名称（A → Z）",
+      "sortNameDesc": "名称（Z → A）",
+      "sortRecent": "最近安装",
+      "sortSource": "来源",
+      "checkUpdates": "检查更新",
+      "updateAll": "全部更新（{count}）",
+      "moreActions": "更多操作",
+      "recheckAll": "重新检查兼容性和依赖项",
+      "rechecking": "正在检查兼容性和依赖项……",
+      "recheckFailed": "无法重新检查兼容性",
+      "filterGroupAriaLabel": "模组筛选",
+      "filterAll": "全部（{count}）",
+      "filterEnabled": "已启用（{count}）",
+      "filterDisabled": "已禁用（{count}）",
+      "filterUpdates": "更新（{count}）",
+      "filterIssues": "问题（{count}）",
+      "filterAllLabel": "全部",
+      "filterEnabledLabel": "已启用",
+      "filterDisabledLabel": "已禁用",
+      "filterUpdatesLabel": "更新",
+      "filterIssuesLabel": "问题",
+      "filterNeededLabel": "被其他模组依赖",
+      "filterUnusedLibrariesLabel": "未使用的库",
+      "reasonLoaderMismatch": "无法加载：这是 {loader} 的模组",
+      "reasonNoRelease": "可能无法工作：没有适用于 {loader} {mc} 的正式版本",
+      "reasonMore": "以及另外 {count} 个",
+      "incompatHintLoader": "此模组适用于 {detected}；而实例使用 {loader}",
+      "incompatHintNoRelease": "该模组的页面未列出适用于 {loader} {mc} 的正式版本。此文件可能无法加载——也可能正常工作；如果游戏能正常运行就保留它。",
+      "pickInstanceFirst": "请先选择一个实例。",
+      "loading": "正在加载已安装的模组……",
+      "empty": "此实例中尚未安装任何模组。",
+      "bulkUpdateTitle": "请先点击「检查更新」；只有存在待处理更新的模组才能更新",
+      "bulkHint": "选择模组以批量启用、禁用、更新或移除",
+      "resolvingShort": "加载中……",
+      "depCount": "{count, plural, one {# 个依赖项} other {# 个依赖项}}",
+      "depOptionalCount": "{count, plural, one {# 个可选} other {# 个可选}}",
+      "requiredByCount": "被 {count} 个模组依赖",
+      "sectionRequires": "需要",
+      "sectionOptional": "可选",
+      "sectionRequiredBy": "被依赖",
+      "requiredByMore": "再显示 {count} 个",
+      "requiredByFewer": "显示更少",
+      "fromModpack": "来自整合包",
+      "detailsUnavailable": "详情不可用",
+      "manualMod": "手动安装的模组",
+      "enabledStatus": "已启用",
+      "disabledStatus": "已禁用",
+      "toastEnabled": "{count, plural, one {已启用 # 个模组} other {已启用 # 个模组}}",
+      "toastDisabled": "{count, plural, one {已禁用 # 个模组} other {已禁用 # 个模组}}",
+      "toastEnabledFailed": "{count, plural, one {已启用 # 个模组} other {已启用 # 个模组}}，{failed} 个失败",
+      "toastDisabledFailed": "{count, plural, one {已禁用 # 个模组} other {已禁用 # 个模组}}，{failed} 个失败",
+      "toastUpdated": "{count, plural, one {已更新 # 个模组} other {已更新 # 个模组}}",
+      "toastUpdatedFailed": "{count, plural, one {已更新 # 个模组} other {已更新 # 个模组}}，{failed} 个失败",
+      "installDepFailed": "{name} 没有兼容的版本",
+      "disabledNoMods": "请先安装一些模组。",
+      "disabledBusy": "请等待当前检查完成。"
+    },
+    "deps": {
+      "installedStatus": "已安装",
+      "notInstalledStatus": "未安装",
+      "stateLoaderRequired": "未安装——缺少它游戏无法启动",
+      "statePlatformOnly": "未安装 · 据平台信息；缺少它模组仍可启动",
+      "stateUnknown": "未安装 · 据平台信息",
+      "disabledStatus": "已禁用",
+      "optionalMark": "可选",
+      "enableAriaLabel": "启用 {name}",
+      "disableAriaLabel": "禁用 {name}",
+      "uninstallAriaLabel": "移除 {name}",
+      "toggleUnavailable": "{name} 未安装，因此没有可启用的内容",
+      "fixConflictAriaLabel": "修复与 {name} 的版本冲突",
+      "cycleSelf": "此模组",
+      "cycleSelfTooltip": "这就是 {name} 本身——其依赖项已列在上方。",
+      "cycleAbove": "已在上方展开",
+      "cycleAboveTooltip": "{name} 已在此分支上方展开，因此其依赖项不再重复列出。",
+      "depsUnknownStatus": "依赖项未知",
+      "depsUnknownUnreachable": "依赖项未知——平台不可用",
+      "depsUnknownUnidentified": "依赖项未知——已安装的版本无法在平台中识别",
+      "jumpToTitle": "在列表中显示 {name}",
+      "jumpUnavailable": "{name} 未安装，因此列表中无对应行",
+      "installAriaLabel": "安装 {name}",
+      "addAriaLabel": "添加 {name}"
+    },
+    "orphan": {
+      "confirmUninstallAriaLabel": "确认移除",
+      "confirmBtn": "{count, plural, one {移除 # 个模组} other {移除 # 个模组}}"
+    },
+    "depDialog": {
+      "heading": "安装 {name} {version}",
+      "requiredLabel": "必需（将安装）",
+      "optionalLabel": "可选",
+      "loaderMismatchHeading": "加载器不匹配。",
+      "loaderMismatchBody": "此版本面向 {modLoaders}，但您的实例使用 {instanceLoader}。安装后会在 mods 文件夹中留下 Minecraft 无法加载的 jar。请选择其他版本，或切换实例的加载器。",
+      "loaderRequirementsInfo": "此模组面向 {loaders}。请确保您的实例使用兼容的加载器。",
+      "incompatibleWarning": "不兼容：{names}",
+      "unresolvableHeading": "部分必需依赖项没有兼容版本——仍要安装？",
+      "unresolvableRowNoMc": "{name}——没有适用于 Minecraft {mcVersion} 的版本。最新：{list}",
+      "unresolvableRowWrongLoader": "{name}——没有 {loader} 版本。可用：{list}",
+      "unresolvableRowNoVersions": "{name}——未找到兼容版本",
+      "subRequires": "需要：{name}",
+      "installBtn": "{count, plural, one {安装（# 个模组）} other {安装（# 个模组）}}"
+    },
+    "range": {
+      "any": "任意版本",
+      "soft": "推荐 {version}（任意版本均可）",
+      "exact": "恰好 {version}",
+      "atLeast": "{version} 或更新",
+      "above": "高于 {version}",
+      "atMost": "{version} 或更旧",
+      "below": "低于 {version}",
+      "from": "从 {version} 起",
+      "upTo": "至多 {version}",
+      "joinAnd": "{a}、{b}",
+      "joinSpan": "{a}，但 {b}",
+      "joinOr": "{a}，或 {b}"
+    },
+    "preflight": {
+      "panelTitle": "阻止游戏启动的问题",
+      "panelTitleWarnOnly": "部分模组可能无法工作",
+      "fixAll": "全部修复（{count}）",
+      "fixIncompatible": "修复不兼容项（{count}）",
+      "missing": "{dependent} 需要 {dep}，但后者未安装",
+      "requiredDisabled": "{dependent} 无法加载：{dep} 已禁用",
+      "outOfRange": "{dependent} 需要 {dep} {needed}——已安装：{installed}",
+      "incompatibleWith": "{dependent} 与 {dep} {needed} 不兼容——已安装：{installed}",
+      "incompatibleWithAny": "{dependent} 与 {dep} 不兼容——已安装：{installed}",
+      "optionalOutOfRange": "{dependent} 无法与 {dep} {installed} 一起加载——仅支持版本 {needed}，或不装 {dep}",
+      "platformMismatch": "{dependent} 适用于 {platform} {needed}——此实例为 {installed}",
+      "gateFixLaunch": "修复并启动",
+      "gateFixed": "已修复 {fixed}，共 {total}",
+      "gateLaunchAnyway": "仍要启动",
+      "gateCancel": "取消",
+      "treeOutOfRange": "版本不匹配",
+      "checkFailed": "无法检查兼容性",
+      "gateFixFailed": "未能完成修复——游戏未启动。",
+      "install": "安装 {dep}",
+      "enable": "启用",
+      "installSearchFallback": "无法自动找到 {dep}——正在打开搜索",
+      "notFound": "无法自动找到要安装的模组",
+      "dependentGone": "{name} 已不再安装",
+      "chooseVersion": "选择版本",
+      "fixPlan": "修复……",
+      "planLooking": "正在查找修复方案……",
+      "planUpdateDependent": "将 {dependent} 更新到 {version}",
+      "planUpgradeDep": "将 {dep} 更新到 {version}",
+      "planDowngradeDep": "将 {dep} 回退到 {version}",
+      "planSwitchDep": "将 {dep} 切换到 {version}",
+      "planBreaks": "将破坏：{names}",
+      "planFailed": "无法查找修复方案：{reason}",
+      "noCompatible": "无兼容版本",
+      "openModPage": "打开模组页面",
+      "findAlternative": "查找替代项",
+      "installedVersion": "已安装 {dep} {version}",
+      "pickerFits": "符合范围",
+      "pickerUnfit": "超出范围",
+      "installTip": "安装此缺失的必需模组。",
+      "enableTip": "重新启用已禁用的模组。",
+      "chooseVersionTip": "手动选择指定版本。",
+      "findAlternativeTip": "在没有合适版本时搜索替代模组。"
+    },
+    "migration": {
+      "openBtn": "修复不兼容模组",
+      "title": "迁移方案",
+      "loading": "正在检查已安装的模组……",
+      "progress": {
+        "findingReplacements": "正在查找替代项……",
+        "resolvingDependencies": "正在检查替代项所需的依赖……",
+        "count": "已完成 {done}，共 {total}"
+      },
+      "retryBtn": "请重试",
+      "summary": "{fits} 个模组已适配此配置 · {replaceable} 个可重新获取 · {stranded} 个无法处理",
+      "summaryNoRelease": "{count} 个在此版本下没有正式版本",
+      "unjudgedLine": "{count, plural, one {# 个模组} other {# 个模组}}无法确认是否可用——已保持原样",
+      "nothingToDo": "所有已安装的模组都已适配此配置——无需迁移。",
+      "replaceableHeading": "可重新获取（{count}）",
+      "replaceableTarget": "新构建：{version}",
+      "newDependenciesHeading": "需要的新依赖项（{count}）",
+      "neededBy": "被以下项需要：{names}",
+      "strandedHeading": "需要您决定（{count}）",
+      "noReleaseHeading": "此版本无正式版本（{count}）",
+      "noReleaseIntro": "此模组的页面未列出适用于该 Minecraft 版本和加载器的正式版本，且文件本身也未说明支持的版本。它可能无法加载——也可能正常运行。如果游戏能正常运行就保留它。",
+      "dispositionAriaLabel": "如何处理 {name}",
+      "disposition": {
+        "disable": "禁用",
+        "remove": "移除",
+        "keep": "保留"
+      },
+      "reason": {
+        "noBuildForTarget": "尚未发布适用于该 Minecraft 版本和加载器的构建。",
+        "noProjectToAsk": "此 jar 未关联模组页面，因此无法自动重新获取。",
+        "packOrigin": "此模组来自整合包——请改从整合包更新流程更改其版本。",
+        "queryFailed": "无法检查替代项——请稍后重试。",
+        "loaderTooOld": "此模组是为与此实例不同的 Minecraft 版本构建的——其加载器已是您所用版本的最新版本。重新安装无济于事；请将实例的 Minecraft 版本改为匹配的版本，或移除此模组。",
+        "loaderTooOldFor": "为 Minecraft {mc} 构建。此实例运行的是其他版本，且其加载器已是该版本可用的最新版本——重新安装无济于事。请将实例的 Minecraft 版本改为匹配的版本，或移除此模组。"
+      },
+      "unjudgedReason": {
+        "unreadable": "无法读取该文件。",
+        "packOwned": "未声明其支持的版本。它属于整合包，因此未查询其页面。",
+        "noModPage": "未声明其支持的版本，且未关联可查询的模组页面。",
+        "noLoader": "此实例没有模组加载器，因此未按加载器检查模组。",
+        "platformUnavailable": "未声明其支持的版本，且无法访问其模组页面。",
+        "fileNotListed": "未声明其支持的版本，且其模组页面未列出适用于此环境的该文件。"
+      },
+      "applyBtn": "应用",
+      "applyDisabledReason": "请至少选择一项要应用的更改",
+      "resultSummary": "已应用 {succeeded} 项更改，共 {total} 项",
+      "outcome": {
+        "replaced": "已替换",
+        "installedDependency": "已安装",
+        "disabled": "已禁用",
+        "removed": "已移除",
+        "failedBadge": "失败"
+      },
+      "doneBtn": "完成"
+    },
+    "ops": {
+      "onlyTargets": "{count, plural, =1 {仅此一项} other {仅这些}}",
+      "busy": "另一项操作——例如整合包更新、迁移或克隆——正在使用此实例。请在其完成后重试。",
+      "undo": {
+        "action": "撤销",
+        "removedOne": "已移除 {name}",
+        "removedMany": "{count, plural, one {已移除 # 个模组} other {已移除 # 个模组}}",
+        "alsoDisabled": "{count, plural, =1 {同时已禁用：{names}} other {同时已禁用：{names}}}",
+        "more": "以及另外 {count} 个"
+      },
+      "disable": {
+        "titleOne": "禁用 {name}？",
+        "titleMany": "{count, plural, one {禁用 # 个模组？} other {禁用 # 个模组？}}",
+        "withDependents": "{count, plural, one {连同 # 个依赖它的模组一起禁用} other {连同 # 个依赖它的模组一起禁用}}"
+      },
+      "remove": {
+        "titleOne": "移除 {name}？",
+        "titleMany": "{count, plural, one {移除 # 个模组？} other {移除 # 个模组？}}",
+        "andDisable": "{count, plural, one {移除并禁用 # 个依赖它的模组} other {移除并禁用 # 个依赖它的模组}}"
+      },
+      "dependents": {
+        "lead": "{count, plural, =1 {缺少它时，} other {缺少它们时，}}{dependents, plural, =1 {此模组} other {这些模组}}将无法加载：",
+        "needs": "需要：{names}",
+        "note": "只要 {dependents, plural, =1 {此模组} other {这些模组}} 处于启用状态，游戏就无法启动。"
+      },
+      "enable": {
+        "titleOne": "启用 {name} 并同时启用 {deps}？",
+        "titleMany": "{count, plural, one {启用 # 个模组} other {启用 # 个模组}} 并同时启用 {deps}？",
+        "body": "{count, plural, =1 {{name} 将无法加载} other {这些模组将无法加载}}，因为 {requirements, plural, =1 {{deps} 已禁用} other {{deps} 已禁用}}。",
+        "together": "一并启用"
+      },
+      "checkFailed": {
+        "dependents": "{count, plural, =1 {无法检查是否有其他模组依赖 {name}} other {无法检查是否有其他模组依赖 # 个模组}}",
+        "requirements": "{count, plural, =1 {无法检查 {name} 是否需要已禁用的模组} other {无法检查 # 个模组是否需要已禁用的模组}}",
+        "disableAnyway": "仍要禁用",
+        "removeAnyway": "仍要移除",
+        "enableAnyway": "仍要启用"
+      },
+      "failed": {
+        "disable": "无法禁用 {name}",
+        "enable": "无法启用 {name}",
+        "removeOne": "无法移除 {name}",
+        "removeMany": "{count, plural, one {无法移除 # 个模组} other {无法移除 # 个模组}}"
+      },
+      "restore": {
+        "doneOne": "已恢复 {name}",
+        "done": "{count, plural, one {已恢复 # 个模组} other {已恢复 # 个模组}}",
+        "failed": "无法恢复",
+        "incomplete": "未能恢复全部内容",
+        "nameTaken": "无法恢复 {name}：已存在同名文件",
+        "missing": "无法恢复 {name}：其文件已不存在",
+        "alreadyInstalled": "{name} 已重新安装",
+        "expired": "无法恢复：已移除的文件不再保留",
+        "busy": "另一项操作正在使用此实例时无法恢复 {what}",
+        "modsCount": "{count, plural, one {# 个模组} other {# 个模组}}",
+        "inProfile": "实例：{profile}",
+        "stillDisabled": "{count, plural, =1 {仍处于禁用状态：{names}} other {仍处于禁用状态：{names}}}",
+        "reenabled": "{count, plural, one {已重新启用 # 个依赖它的模组} other {已重新启用 # 个依赖它的模组}}：{names}",
+        "reenableFailed": "无法重新启用 {name}"
+      },
+      "orphans": {
+        "title": "是否同时移除无人需要的库？",
+        "removing": "{count, plural, one {正在移除 # 个模组：} other {正在移除 # 个模组：}}",
+        "listLabel": "仅作为依赖项安装（可选）"
+      }
+    },
+    "updates": {
+      "checkedAt": "检查于 {when}",
+      "reviewTitle": "更新模组",
+      "reviewHint": "取消勾选某个模组即可保留其当前版本。",
+      "reviewConfirm": "更新 {count}",
+      "changelogFor": "更新日志：{name}",
+      "installedDeps": "+ 已安装：{names}",
+      "heldTooltip": "不提供此模组的更新",
+      "hold": "不更新",
+      "unhold": "允许更新",
+      "holdFailed": "无法更改 {name} 的更新设置",
+      "updateFailed": "无法更新 {name}",
+      "badgeChangelogAria": "{from} → {to}，更新日志",
+      "previousKept": "上一版本仍保留在原位。"
     }
   },
   "modpacks": {
     "update": {
       "cancelBtn": "取消",
-      "updateBtn": "更新"
+      "updateBtn": "更新",
+      "dialogAriaLabel": "整合包更新确认",
+      "title": "更新到 {version}",
+      "changeSummary": "+{added} 新增 · −{removed} 移除 · {updated} 更新",
+      "versionBump": "Minecraft {oldVersion} → {newVersion}。更新后，点击「安装」下载新的 Minecraft 版本。",
+      "noChanges": "此版本没有文件变更。",
+      "backupWorlds": "先备份世界（{count}）",
+      "backupWorldsNoCount": "先备份世界",
+      "backupWorldsHint": "压缩包副本会存入实例的 backups 文件夹；可在「世界」选项卡中恢复。"
+    },
+    "modal": {
+      "title": "整合包",
+      "scopeNote": "安装整合包会创建新实例——您现有的实例不受影响。",
+      "closeScrimAriaLabel": "关闭",
+      "closeAriaLabel": "关闭整合包"
+    },
+    "tab": {
+      "browse": "浏览",
+      "imported": "已导入",
+      "dropzoneLabel": "将 .mrpack 或 .zip 拖到此处导入——或点击浏览",
+      "dropzoneDrag": "松开以导入整合包",
+      "importFromUrl": "从 URL 导入……"
+    },
+    "import": {
+      "url": {
+        "title": "从链接导入整合包",
+        "dialogAriaLabel": "从 URL 导入整合包",
+        "inputLabel": "整合包页面链接",
+        "placeholder": "https://modrinth.com/modpack/…",
+        "help": "粘贴 Modrinth 或 CurseForge 整合包页面链接。Lucerna 只读取整合包的详情——您仍需自行选择版本并确认安装。",
+        "external": "另一个应用请求 Lucerna 打开此链接。在您确认之前不会安装任何内容。",
+        "continue": "继续",
+        "resolving": "正在查找整合包……"
+      },
+      "picker": {
+        "dialogAriaLabel": "整合包导入选择器",
+        "savesWarning": "此整合包在 overrides 中包含存档世界。它们会被复制到新实例中。",
+        "requiredSection": "必需（{count}）",
+        "requiredModAriaLabel": "必需：“{name}”",
+        "optionalSection": "可选（{count}）",
+        "installModAriaLabel": "安装“{name}”",
+        "cannotAutoInstall": "无法自动安装（{count}）",
+        "groupMods": "模组",
+        "groupResourcepacks": "资源包",
+        "groupShaderpacks": "光影包",
+        "groupConfig": "配置",
+        "groupScripts": "脚本",
+        "groupOther": "其他",
+        "groupHeader": "{label}（{count} · {size}）",
+        "groupHeaderNoSize": "{label}（{count}）",
+        "selectionCount": "已选择 {selected} 项，共 {total} 项",
+        "requiredBadge": "必需",
+        "optionalBadge": "可选",
+        "requiredModsUncheckedWarning": "未勾选的必需模组：{count}——整合包可能无法启动。",
+        "otherFilesUncheckedNotice": "未勾选的整合包文件：{count}——整合包将与作者的构建不同，但仍可启动。",
+        "nothingToInstall": "此整合包没有可安装的内容。",
+        "bundledOnlyNotice": "此整合包未列出要下载的文件：它安装的内容已打包在其中。"
+      },
+      "progress": {
+        "ariaLabel": "整合包导入进度",
+        "heading": "正在导入整合包……",
+        "phaseInspecting": "正在检查整合包……",
+        "phaseCreatingInstance": "正在创建实例“{name}”……",
+        "phaseInstallingFile": "正在安装文件 {current}/{total}：{fileName}",
+        "phaseExtractingOverrides": "正在解压 overrides {current}/{total}……",
+        "phaseEnriching": "正在识别内置模组……",
+        "phaseDone": "完成。",
+        "phaseBackingUpWorlds": "正在备份世界……",
+        "phaseApplyingChanges": "正在应用更改……"
+      }
+    },
+    "imported": {
+      "view": {
+        "emptyState": "尚未导入任何整合包。将 .mrpack 拖到下方，或从搜索中选择一个。",
+        "filterPlaceholder": "筛选整合包……",
+        "allMcVersions": "所有 MC 版本",
+        "allLoaders": "所有加载器",
+        "sortNewest": "最新优先",
+        "sortOldest": "最早优先",
+        "sortName": "名称（A–Z）",
+        "noResults": "没有符合筛选条件的整合包。",
+        "updatesAvailable": "{count} {count, plural, one {个整合包有更新} other {个整合包有更新}}",
+        "checkUpdates": "检查更新",
+        "checkingUpdates": "正在检查……"
+      },
+      "card": {
+        "modifiedTitle": "已安装的模组与导入的整合包不同",
+        "modifiedTag": "已修改",
+        "updateTag": "更新 {version}",
+        "updateTitle": "此整合包有更新的版本可用",
+        "instanceLabel": "实例：{name}",
+        "importedAt": "导入于 {when}"
+      },
+      "detail": {
+        "ariaLabel": "已导入整合包详情",
+        "closeAriaLabel": "关闭已导入整合包详情",
+        "closeBackdropAriaLabel": "关闭",
+        "openOn": "在 {platform} 上打开",
+        "updating": "正在更新……",
+        "updateProgressDownloading": "正在下载第 {current} 项，共 {total} 项：{fileName}",
+        "updateAvailable": "有可用更新 → {version}",
+        "updateBtn": "更新",
+        "modsHeading": "模组（{count}）",
+        "loading": "正在加载……",
+        "modsEmpty": "未安装模组。",
+        "badgeFromPackTitle": "来自整合包",
+        "badgeFromPack": "整合包",
+        "badgeUserAddedTitle": "通过模组浏览器添加",
+        "badgeUserAdded": "+ 已添加",
+        "badgeManualTitle": "手动放置",
+        "badgeManual": "? 手动",
+        "disabled": "已禁用",
+        "resourcePacksHeading": "资源包（{count}）",
+        "shaderPacksHeading": "光影包（{count}）",
+        "configsHeading": "配置（{count}）",
+        "removedHeading": "已从整合包移除（{count}）",
+        "restoreDisabledTitle": "已内置于 .mrpack 中——无法自动恢复。请重新导入整合包以恢复。",
+        "restoreBtn": "恢复",
+        "reimporting": "正在重新导入……",
+        "reimportBtn": "重新导入整合包文件",
+        "missingHeading": "需要处理的整合包模组（{count}）",
+        "missingBody": "Lucerna 无法自行下载这些文件。请通过「完成安装」添加它们。",
+        "skippedHeading": "已跳过的内置文件（{count}）",
+        "skippedBody": "整合包将这些文件打包在内，但它们超出大小限制且不是可加载的模组（Minecraft 只加载 .jar 文件）。它们被略过；整合包中的模组已正常安装。",
+        "skippedSyncedBody": "保持原样：此实例与您的其他实例共享这些文件（共享游戏设置），整合包中的副本本来会在所有这些实例中替换它们。",
+        "pendingHeading": "{count, plural, one {整合包仍需要的 # 个文件} other {整合包仍需要的 # 个文件}}",
+        "pendingBody": "此整合包无法打包这些文件——其作者不允许再分发。首次游玩时整合包会自行请求它们。",
+        "pendingOpen": "打开页面",
+        "inertLoaderHeading": "无法加载的文件（{count}）",
+        "inertLoaderBody": "这些内置的 jar 是为与此实例不同的模组加载器构建的，因此 Minecraft 不会加载它们。它们不会生效——可以安全地忽略或移除。整合包的其他模组已正常安装。",
+        "inertDisable": "禁用",
+        "inertDisabledNote": "已禁用",
+        "differentVersion": "——与整合包中的版本不同——可能不兼容",
+        "findAlternative": "在其他来源中查找",
+        "substituted": "（已替换为替代项）",
+        "deleteBtn": "删除整合包",
+        "openInstanceBtn": "打开实例",
+        "deleteConfirmAriaLabel": "删除整合包确认",
+        "deleteConfirmTitle": "删除整合包及其实例？",
+        "deleteConfirmBody": "此实例的世界、模组、配置和截图将被永久删除。此操作无法撤销。",
+        "deleteConfirmBtn": "删除",
+        "updateProgressBackingUp": "正在备份第 {current} 个世界，共 {total} 个：{worldName}",
+        "updateProgressApplying": "正在应用更改……"
+      }
+    },
+    "export": {
+      "dialogAriaLabel": "导出整合包",
+      "title": "导出整合包",
+      "loading": "正在加载……",
+      "formatLabel": "格式",
+      "formatModrinth": ".mrpack（Modrinth）",
+      "formatCurseForge": "CurseForge .zip",
+      "modeLabel": "模式",
+      "modeLightweight": "轻量（下载链接）",
+      "modeFull": "完整（打包所有内容）",
+      "contentLabel": "内容",
+      "modsCount": "模组（{count}）",
+      "nothingToExport": "此实例没有模组，因此没有可导出的内容。",
+      "configs": "配置",
+      "configsWarning": "部分模组会在 config/ 中保存 API 密钥或令牌——分享前请检查。",
+      "resourcePacks": "资源包",
+      "shaderPacks": "光影包",
+      "worlds": "世界",
+      "worldsWarning": "世界可能包含个人建筑和较大的区域文件。仅在您打算分享存档时才包含它们。",
+      "unresolvableLabel": "没有下载链接的模组",
+      "unresolvableBody": "这些模组无法在此格式中引用。请将它们打包进文件或跳过。",
+      "detailsLabel": "详情",
+      "namePlaceholder": "整合包名称",
+      "versionPlaceholder": "版本",
+      "authorPlaceholder": "作者（可选）",
+      "summaryPlaceholder": "简介（可选）",
+      "exportBtn": "导出",
+      "exported": "已将“{name}”导出到 {dest}",
+      "failed": "导出失败",
+      "phase": {
+        "resolving": "正在解析模组……",
+        "bundling": "正在打包文件……",
+        "writing": "正在写入归档……",
+        "done": "完成"
+      }
+    },
+    "browse": {
+      "searchAriaLabel": "搜索整合包",
+      "searchPlaceholderCurseForge": "在 CurseForge 上搜索整合包……",
+      "searchPlaceholderModrinth": "在 Modrinth 上搜索整合包……",
+      "searchPlaceholderFtb": "在 FTB 上搜索整合包……",
+      "searchPlaceholderAtlauncher": "在 ATLauncher 上搜索整合包……",
+      "ftbClientFilterNote": "FTB 筛选在客户端进行——结果可能不精确。",
+      "sortRelevance": "相关度",
+      "sortDownloads": "下载量",
+      "sortNewest": "最新",
+      "sortUpdated": "最近更新",
+      "searching": "正在搜索……",
+      "noResults": "未找到整合包。",
+      "errorRetry": "重新加载"
+    },
+    "card": {
+      "byAuthor": "作者：{author}",
+      "quickInstall": "将此整合包的最新版本安装为新实例。其 Minecraft 版本和加载器取决于该整合包版本。",
+      "quickInstallForMc": "将此整合包适用于 Minecraft {mc} 的最新版本安装为新实例。",
+      "downloads": "{count, plural, one {# 次下载} other {# 次下载}}",
+      "downloadsShort": "{count, number} 次下载",
+      "distributionDisabled": "CurseForge 下载已禁用",
+      "distributionDisabledShort": "CF 已禁用"
+    },
+    "detail": {
+      "scopeNote": "将安装到新实例中。",
+      "pickNewest": "最新版本",
+      "pickNewestFiltered": "符合筛选条件的最新版本",
+      "mcLabel": "Minecraft {mc}",
+      "installRowTip": "将 {version} 安装为新实例",
+      "dialogAriaLabel": "整合包详情",
+      "closeScrimAriaLabel": "关闭",
+      "closeAriaLabel": "关闭整合包详情",
+      "viewOn": "在 {platform} 上查看",
+      "blockedBody": "此 CurseForge 整合包的作者禁用了第三方启动器下载，因此无法自动安装。请在 CurseForge 上打开它以下载 .zip，然后用上方的拖放区域导入。",
+      "openOnCurseForge": "在 CurseForge 上打开",
+      "tabOverview": "概览",
+      "tabVersions": "版本",
+      "contentDisclaimer": "内容来自 {source}——其中的任何广告或链接均属于作者，而非 Lucerna。",
+      "loadingVersions": "正在加载版本……",
+      "noVersionsForMc": "没有适用于 MC {mc} 的版本。请清除搜索中的 MC 筛选以查看全部。",
+      "noVersions": "没有可用版本。"
+    },
+    "switch": {
+      "openBtn": "更改版本",
+      "title": "更改版本——{pack}",
+      "newerBadge": "较新",
+      "olderBadge": "较旧",
+      "installedBadge": "已安装",
+      "loadingVersions": "正在加载版本……",
+      "preparing": "正在准备版本……",
+      "versionsEmpty": "没有匹配的版本。",
+      "filterMcLabel": "Minecraft 版本",
+      "filterMcAll": "全部",
+      "versionMeta": "{mc} · {loader} · {date}",
+      "reviewTitle": "切换到 {version}？",
+      "confirmBtn": "切换到 {version}",
+      "cancelBtn": "取消",
+      "backBtn": "返回",
+      "retryBtn": "重试",
+      "changelogGained": "新增内容",
+      "changelogLost": "将失去的更改",
+      "riskMcChange": "Minecraft {from} → {to}。在一个 Minecraft 版本上保存的世界可能无法在另一个版本中打开，且 Minecraft 的世界升级是单向的。请先备份您重视的世界。切换后，点击「安装」下载新的 Minecraft 版本。",
+      "riskDowngrade": "这是整合包的较旧版本。由较新模组版本写入的世界和模组配置可能无法被旧版本读取。",
+      "riskLoaderChange": "模组加载器 {from} → {to}。为旧加载器版本构建的模组可能无法加载。",
+      "riskCustomizationsUser": "您自行添加的 {count} 个模组将被保留。它们是为当前版本选择的，可能无法在此版本中工作。",
+      "riskCustomizationsManual": "手动放置的 {count} 个 jar 将被保留，且不会检查兼容性。",
+      "riskBundledOverrides": "更改版本不会重新应用整合包内置的配置文件——您当前的配置保持原样。如果新版本需要自己的配置，请在之后使用「重新导入整合包文件」。"
+    },
+    "manual": {
+      "title": "完成安装“{pack}”",
+      "lead": "Lucerna 无法自行下载这些文件。请在浏览器中逐个下载，然后拖到此处，或使用「在文件夹中查找」；Lucerna 会将其与已发布的校验值比对后放入对应位置。没有发布校验值的文件只能通过其所在行的「使用文件……」放入。",
+      "openAll": "全部打开（{count}）",
+      "copyLinks": "复制链接",
+      "copied": "{count, plural, one {已复制 # 个链接} other {已复制 # 个链接}}",
+      "copyFailed": "无法复制链接",
+      "lookInFolder": "在文件夹中查找",
+      "folderLine": "文件夹：{path}",
+      "folderUnknown": "Lucerna 找不到您的下载文件夹。请通过「更改文件夹」选择。",
+      "changeFolder": "更改文件夹……",
+      "watch": "在此窗口打开期间监视该文件夹",
+      "watching": "正在监视文件夹",
+      "watchStopped": "已停止监视文件夹",
+      "dropLabel": "将下载的文件拖到此处，或点击选择",
+      "dropDrag": "松开以检查并添加",
+      "fileFilter": "模组或整合包文件",
+      "done": "完成",
+      "allDone": "所有文件均已就位。整合包可以开始游戏了。",
+      "finishInstall": "完成安装……",
+      "pickerAfter": "导入后，您可以在「完成安装」中添加它们。",
+      "diffLine": "{count, plural, one {更新后必须手动下载此版本的 # 个文件。} other {更新后必须手动下载此版本的 # 个文件。}}",
+      "kind": {
+        "resourcePack": "资源包",
+        "shader": "光影",
+        "optional": "可选"
+      },
+      "reason": {
+        "author": "其作者不允许其他启动器下载",
+        "host": "Lucerna 不会从此站点下载",
+        "unsafe": "整合包为其指定了不安全的位置",
+        "noChecksum": "没有发布用于校验的校验值",
+        "source": "安装整合包时无法连接 CurseForge",
+        "step": "Lucerna 无法完成的手动步骤"
+      },
+      "state": {
+        "needs": "需要下载",
+        "added": "已添加",
+        "other": "已安装其他版本",
+        "found": "已找到。替换 {file}？",
+        "chosen": "由您选择，未经校验",
+        "unchecked": "无法自动校验",
+        "step": "请手动完成此步骤"
+      },
+      "action": {
+        "download": "下载",
+        "modPage": "模组页面",
+        "openLink": "打开链接",
+        "useFile": "使用文件……",
+        "replace": "替换"
+      },
+      "openAllAsk": {
+        "title": "{count, plural, one {打开 # 个选项卡？} other {打开 # 个选项卡？}}",
+        "body": "每个都会在浏览器中打开对应文件的下载页面。",
+        "action": "{count, plural, one {打开 # 个选项卡} other {打开 # 个选项卡}}"
+      },
+      "unverifiedAsk": {
+        "title": "不经校验使用此文件？",
+        "body": "Lucerna 无法对照来源校验此文件。仍要为 {mod} 使用它吗？",
+        "action": "使用它"
+      },
+      "replaceAsk": {
+        "title": "替换 {existing}？",
+        "body": "{existing} 会被移除（几秒内可以撤销），随后由 {mod} 所需的版本取而代之。"
+      },
+      "replace": {
+        "recycled": "{count, plural, one {# 个文件已移至回收站} other {# 个文件已移至回收站}}"
+      },
+      "result": {
+        "added": "{count, plural, one {已添加 # 个文件} other {已添加 # 个文件}}",
+        "needsReplace": "{count, plural, one {# 个文件等待替换} other {# 个文件等待替换}}",
+        "noneAdded": "未添加任何内容",
+        "notRecorded": "已添加，但 Lucerna 未能记录；在您再次添加前，它可能会显示为缺失",
+        "otherVersion": "这是 {found}，而整合包需要 {wanted}",
+        "notInPack": "不属于此整合包所需的文件",
+        "notInPackFound": "这是 {found}，此整合包不需要它",
+        "notAsked": "不属于此整合包所需的文件（无法向 CurseForge 查询它是什么）",
+        "cantPlace": "Lucerna 无法判断此文件该放到哪里",
+        "conflict": "整合包中另一个文件已命名为 {existing}",
+        "unreadable": "无法读取：{reason}",
+        "wrongType": "不是 .jar 或 .zip 文件",
+        "changed": "复制过程中文件发生了变化，请重试"
+      },
+      "scan": {
+        "none": "此文件夹中没有此整合包的文件",
+        "busy": "{count, plural, one {# 个文件仍在写入，稍后会再次尝试} other {# 个文件仍在写入，稍后会再次尝试}}"
+      },
+      "toast": {
+        "imported": "已导入 {name}。{count, plural, one {# 个文件需要} other {# 个文件需要}}手动下载。",
+        "updated": "已更新 {name}。{count, plural, one {# 个文件需要} other {# 个文件需要}}手动下载。",
+        "finish": "完成安装"
+      },
+      "gate": {
+        "heading": "{count, plural, one {# 个整合包文件仍需要手动下载} other {# 个整合包文件仍需要手动下载}}",
+        "maybeManual": "可能是仍需下载的文件之一"
+      }
     }
   },
   "servers": {
     "propsUi": {
       "save": "保存",
-      "saved": "已保存"
+      "saved": "已保存",
+      "title": "服务器属性",
+      "searchPlaceholder": "搜索属性……",
+      "onlyChanged": "仅显示已更改",
+      "default": "默认：{value}",
+      "reset": "重置为默认值",
+      "changed": "已更改",
+      "otherNote": "文件中存在 Lucerna 未记录的键——请谨慎编辑。",
+      "noResults": "没有符合搜索条件的属性。",
+      "preview": "预览文件",
+      "restartToApply": "重启服务器以应用对 server.properties 的更改。"
+    },
+    "create": "创建服务器",
+    "empty": "尚无服务器",
+    "loading": "正在加载服务器……",
+    "loadError": "无法加载您的服务器。",
+    "retry": "重试",
+    "lanHint": "服务器在本机与您的局域网中监听。如需互联网访问，需要托管服务商（单独提供）。",
+    "status": {
+      "running": "运行中",
+      "stopped": "已停止",
+      "crashed": "已崩溃"
+    },
+    "tab": {
+      "settings": "设置",
+      "overview": "概览",
+      "addons": "附加组件",
+      "hosting": "托管",
+      "backups": "备份"
+    },
+    "action": {
+      "start": "启动",
+      "stop": "停止",
+      "restart": "重启",
+      "forceStop": "立即强制停止"
+    },
+    "console": {
+      "inputPlaceholder": "输入命令（例如 say hi、op Steve、stop）",
+      "send": "发送",
+      "notRunning": "启动服务器后即可使用控制台",
+      "empty": "尚无输出",
+      "searchPlaceholder": "搜索控制台……",
+      "matchCounter": "{current}/{total}",
+      "noMatches": "无匹配项",
+      "searchPrev": "上一个匹配项",
+      "searchNext": "下一个匹配项",
+      "showLevels": "显示级别",
+      "noMatchingLines": "没有符合当前筛选条件的行。"
+    },
+    "logs": {
+      "openFolder": "打开日志文件夹",
+      "pastSessions": "过去的会话",
+      "latest": "当前会话",
+      "noLogs": "尚无日志",
+      "viewing": "正在查看 {name}",
+      "backToLive": "返回实时控制台",
+      "share": "分享日志",
+      "shareCopied": "日志已上传——链接已复制到剪贴板。",
+      "shareEmpty": "尚无可分享的内容——没有日志输出。",
+      "sharedAt": "可分享的链接："
+    },
+    "wizard": {
+      "title": "新服务器",
+      "fromInstance": "从实例创建",
+      "fromInstanceHint": "使用所选实例的版本、加载器和模组",
+      "standalone": "从零开始",
+      "standaloneHint": "手动选择版本和加载器",
+      "name": "名称",
+      "instance": "实例",
+      "version": "Minecraft 版本",
+      "coreVersionsLoading": "正在检查可用版本……",
+      "coreVersionsError": "无法加载此核心的版本列表。",
+      "memory": "内存（MB）",
+      "eula": "我接受 Minecraft EULA",
+      "eulaPrefix": "我接受",
+      "eulaLink": "Minecraft EULA",
+      "eulaLinkAria": "在浏览器中打开 Minecraft EULA",
+      "eulaRead": "阅读 Minecraft EULA",
+      "eulaRequired": "创建服务器所必需",
+      "create": "创建",
+      "cancel": "取消",
+      "disabledReason": {
+        "name": "请输入名称以继续。",
+        "instance": "请选择一个实例以继续。",
+        "version": "请选择 Minecraft 版本以继续。",
+        "loader": "请选择加载器版本以继续。",
+        "eula": "请接受 Minecraft EULA 以继续。"
+      }
+    },
+    "overview": {
+      "serverCard": "服务器",
+      "connectionCard": "连接",
+      "consoleCard": "控制台",
+      "version": "版本",
+      "core": "核心",
+      "memory": "内存",
+      "versionNotRecorded": "未记录"
+    },
+    "addons": {
+      "kindPlugins": "插件",
+      "kindDatapacks": "数据包（Beta）",
+      "pinnedFacets": "适用于 {core} {mcVersion}",
+      "dropzonePlugin": "将插件 .jar 拖到此处，或点击选择文件",
+      "dropzoneDatapack": "将数据包 .zip 拖到此处，或点击选择文件",
+      "noKinds": "此服务器的 Minecraft 版本低于 1.13，其核心既不支持模组也不支持插件——Lucerna 无法在这里添加任何内容。"
+    },
+    "datapacks": {
+      "stateGhost": "世界中有记录，但文件已不存在",
+      "enable": "启用",
+      "disable": "禁用",
+      "checkUpdates": "检查更新",
+      "note": "在此处启用或禁用数据包会修改世界自身的包列表，与游戏内 /datapack enable 和 /datapack disable 修改的是同一个列表。此列表显示世界 datapacks 文件夹中的内容；/datapack list 还会显示内置和模组提供的数据包，这些不会列在此处。",
+      "notGenerated": "世界尚未创建——请先启动服务器一次。在此之前，可以添加、更新和移除数据包，但无法启用或禁用。",
+      "onlyOldLevelDat": "世界的 level.dat 缺失——只剩备份副本 level.dat_old。请先启动服务器一次，让 Minecraft 从中恢复 level.dat，然后停止服务器以管理数据包。",
+      "blockedNotCreated": "请先启动服务器一次",
+      "blockedOnlyOld": "启动服务器一次以恢复 level.dat",
+      "blockedUnknown": "无法读取此数据包是启用还是禁用",
+      "empty": "此服务器的世界中尚无数据包。",
+      "remove": "移除数据包",
+      "removeConfirm": "从此服务器的世界中移除 {name}？",
+      "removeGhostConfirm": "世界中仍列出 {name}，但其文件已不存在。服务器下次保存世界时，Minecraft 会自动删除该条目。现在清除吗？",
+      "pinnedFacets": "Minecraft {mcVersion}",
+      "bulkHint": "选择数据包以一次启用、禁用、更新或移除多个",
+      "removeManyConfirm": "{count, plural, one {从此服务器的世界中移除 # 个数据包？} other {从此服务器的世界中移除 # 个数据包？}}",
+      "removeManyGhostNote": "{count, plural, one {其中 # 个只是残留条目：其文件已不存在，服务器下次保存世界时 Minecraft 会自动删除它。} other {其中 # 个只是残留条目：其文件已不存在，服务器下次保存世界时 Minecraft 会自动删除它们。}}"
+    },
+    "settings": {
+      "launchSection": "启动",
+      "java": "Java",
+      "javaRestart": "重启服务器以使用新选择的 Java 运行。"
+    },
+    "propGroups": {
+      "gameplay": "游戏玩法",
+      "world": "世界与生成",
+      "players": "玩家与访问",
+      "performance": "视野、模拟与性能",
+      "network": "网络",
+      "rcon": "RCON 与 Query",
+      "resourcePack": "资源包",
+      "misc": "高级",
+      "other": "其他（自定义键）"
+    },
+    "propEnums": {
+      "gamemode": {
+        "survival": "生存",
+        "creative": "创造",
+        "adventure": "冒险",
+        "spectator": "旁观"
+      },
+      "difficulty": {
+        "peaceful": "和平",
+        "easy": "简单",
+        "normal": "普通",
+        "hard": "困难"
+      }
+    },
+    "props": {
+      "gamemode": {
+        "label": "游戏模式",
+        "desc": "首次加入的玩家的默认游戏模式。"
+      },
+      "difficulty": {
+        "label": "难度",
+        "desc": "世界难度；影响敌对生物、饥饿和伤害。"
+      },
+      "hardcore": {
+        "label": "极限模式",
+        "desc": "将难度锁定为困难，玩家死亡后永久封禁。"
+      },
+      "pvp": {
+        "label": "PvP",
+        "desc": "玩家之间是否可以造成伤害。"
+      },
+      "forceGamemode": {
+        "label": "强制游戏模式",
+        "desc": "玩家每次加入时重置为服务器的默认游戏模式。"
+      },
+      "allowFlight": {
+        "label": "允许飞行",
+        "desc": "允许由模组/插件授予的飞行，而不会因飞行踢出玩家。"
+      },
+      "allowNether": {
+        "label": "允许下界",
+        "desc": "启用下界维度和下界传送门。"
+      },
+      "enableCommandBlock": {
+        "label": "命令方块",
+        "desc": "允许命令方块执行。"
+      },
+      "spawnMonsters": {
+        "label": "生成怪物",
+        "desc": "是否自然生成敌对生物。"
+      },
+      "spawnAnimals": {
+        "label": "生成动物",
+        "desc": "是否自然生成被动动物。"
+      },
+      "spawnNpcs": {
+        "label": "生成村民",
+        "desc": "是否生成村民。"
+      },
+      "generateStructures": {
+        "label": "生成结构",
+        "desc": "在新区块中生成村庄、要塞和其他结构。"
+      },
+      "playerIdleTimeout": {
+        "label": "空闲超时（分钟）",
+        "desc": "玩家空闲达到此分钟数后踢出；0 表示从不踢出。"
+      },
+      "opPermissionLevel": {
+        "label": "OP 权限等级",
+        "desc": "授予管理员的权限等级（0–4）。"
+      },
+      "functionPermissionLevel": {
+        "label": "函数权限等级",
+        "desc": "运行数据包函数和受限命令所需的权限等级。"
+      },
+      "levelName": {
+        "label": "世界文件夹",
+        "desc": "要加载或创建的世界文件夹名称。"
+      },
+      "levelSeed": {
+        "label": "世界种子",
+        "desc": "世界生成的种子；留空则随机选择种子。"
+      },
+      "levelType": {
+        "label": "世界类型",
+        "desc": "生成预设：minecraft:normal、flat、largebiomes、amplified 或自定义 id。"
+      },
+      "generatorSettings": {
+        "label": "生成器设置",
+        "desc": "世界类型的 JSON 自定义设置（主要是超平坦层）。"
+      },
+      "maxWorldSize": {
+        "label": "最大世界大小",
+        "desc": "以方块为单位的世界边界半径（从中心算起）。"
+      },
+      "spawnProtection": {
+        "label": "出生点保护",
+        "desc": "出生点周围仅管理员可建造的方块半径；0 表示禁用。"
+      },
+      "initialEnabledPacks": {
+        "label": "启用的数据包",
+        "desc": "世界创建时启用的数据包，以逗号分隔。"
+      },
+      "initialDisabledPacks": {
+        "label": "禁用的数据包",
+        "desc": "世界创建时禁用的数据包，以逗号分隔。"
+      },
+      "maxPlayers": {
+        "label": "最大玩家数",
+        "desc": "同时在线玩家的最大数量。"
+      },
+      "whiteList": {
+        "label": "白名单",
+        "desc": "开启后，仅白名单中的玩家可以加入。"
+      },
+      "enforceWhitelist": {
+        "label": "强制白名单",
+        "desc": "白名单重新加载时，踢出已在线的非白名单玩家。"
+      },
+      "onlineMode": {
+        "label": "在线模式",
+        "desc": "通过 Microsoft/Mojang 验证玩家身份；关闭后允许离线账户，但也允许任何人冒充任意名称。"
+      },
+      "enforceSecureProfile": {
+        "label": "强制安全档案",
+        "desc": "需要已签名的聊天档案；没有的玩家无法加入。"
+      },
+      "motd": {
+        "label": "MOTD",
+        "desc": "多人游戏列表中显示在服务器名称下方的消息。"
+      },
+      "hideOnlinePlayers": {
+        "label": "隐藏在线玩家",
+        "desc": "在 ping 时显示的服务器状态中省略玩家列表。"
+      },
+      "viewDistance": {
+        "label": "视距",
+        "desc": "服务器发送给每位玩家的区块半径。"
+      },
+      "simulationDistance": {
+        "label": "模拟距离",
+        "desc": "玩家周围实体和方块被计算的区块半径。"
+      },
+      "entityBroadcastRangePercentage": {
+        "label": "实体广播范围",
+        "desc": "实体需要多近才会被发送给玩家，以默认范围的百分比表示。"
+      },
+      "maxTickTime": {
+        "label": "最大刻时间（毫秒）",
+        "desc": "若单个刻超过此值，看门狗会使服务器崩溃；-1 表示禁用看门狗。"
+      },
+      "syncChunkWrites": {
+        "label": "同步区块写入",
+        "desc": "同步将区块写入磁盘；更安全，但在慢速磁盘上可能卡顿。"
+      },
+      "maxChainedNeighborUpdates": {
+        "label": "最大连锁更新数",
+        "desc": "连续连锁方块更新的上限，超出后多余更新会被跳过。"
+      },
+      "networkCompressionThreshold": {
+        "label": "压缩阈值",
+        "desc": "压缩大于此字节数的数据包；-1 表示禁用，0 表示压缩全部。"
+      },
+      "pauseWhenEmptySeconds": {
+        "label": "空载暂停（秒）",
+        "desc": "无玩家达到此秒数后暂停刻计算；0 表示从不暂停。"
+      },
+      "serverIp": {
+        "label": "绑定 IP",
+        "desc": "绑定到指定的网络接口；留空则绑定所有接口。"
+      },
+      "serverPort": {
+        "label": "端口",
+        "desc": "服务器监听的 TCP/UDP 端口。"
+      },
+      "preventProxyConnections": {
+        "label": "阻止代理连接",
+        "desc": "踢出认证地区与连接地区不一致的玩家（可阻挡部分代理/VPN）。"
+      },
+      "rateLimit": {
+        "label": "速率限制",
+        "desc": "每玩家每刻的最大数据包数，超出即踢出；0 表示不限制。"
+      },
+      "useNativeTransport": {
+        "label": "原生传输",
+        "desc": "使用优化的 Linux 数据包收发；在其他平台上保持开启也无害。"
+      },
+      "enableStatus": {
+        "label": "显示状态",
+        "desc": "响应 ping，使服务器在多人游戏列表中显示为在线。"
+      },
+      "acceptsTransfers": {
+        "label": "接受转送",
+        "desc": "允许从其他服务器转送玩家进入。"
+      },
+      "enableRcon": {
+        "label": "启用 RCON",
+        "desc": "启用远程控制台以便外部管理。"
+      },
+      "rconPort": {
+        "label": "RCON 端口",
+        "desc": "RCON 服务器监听的端口。"
+      },
+      "rconPassword": {
+        "label": "RCON 密码",
+        "desc": "RCON 的密码；启用 RCON 时必填。"
+      },
+      "broadcastRconToOps": {
+        "label": "向管理员广播 RCON",
+        "desc": "向在线管理员显示 RCON 命令输出。"
+      },
+      "enableQuery": {
+        "label": "启用查询",
+        "desc": "启用部分服务器列表工具使用的查询协议。"
+      },
+      "queryPort": {
+        "label": "查询端口",
+        "desc": "查询协议监听的端口。"
+      },
+      "resourcePack": {
+        "label": "资源包 URL",
+        "desc": "玩家加入时提供的资源包 URL。"
+      },
+      "resourcePackSha1": {
+        "label": "资源包 SHA-1",
+        "desc": "资源包的 SHA-1 哈希值，用于完整性校验。"
+      },
+      "resourcePackId": {
+        "label": "资源包 ID",
+        "desc": "标识该资源包的 UUID。"
+      },
+      "resourcePackPrompt": {
+        "label": "资源包提示",
+        "desc": "询问玩家是否接受该资源包时显示的自定义消息。"
+      },
+      "requireResourcePack": {
+        "label": "强制要求资源包",
+        "desc": "踢出拒绝服务器资源包的玩家。"
+      },
+      "enableJmxMonitoring": {
+        "label": "JMX 监控",
+        "desc": "通过 JMX 暴露刻耗时，供外部监控工具使用。"
+      },
+      "broadcastConsoleToOps": {
+        "label": "向管理员广播控制台",
+        "desc": "向在线管理员显示控制台命令输出。"
+      },
+      "textFilteringConfig": {
+        "label": "文本过滤配置",
+        "desc": "外部聊天文本过滤服务的配置。"
+      },
+      "logIps": {
+        "label": "记录 IP",
+        "desc": "是否将玩家 IP 地址写入服务器日志。"
+      },
+      "bugReportLink": {
+        "label": "问题反馈链接",
+        "desc": "玩家报告问题时所指向的 URL。"
+      }
+    },
+    "mods": {
+      "empty": "无模组",
+      "delete": "移除",
+      "checkUpdates": "检查更新",
+      "openFolder": "打开文件夹",
+      "serverOnlyLabel": "仅服务端",
+      "serverOnlyTooltip": "隐藏平台标记为仅客户端的模组——小地图、HUD、光影。如果您要找的是某个服务端配套模组所需的模组，或是 Modrinth 标注有误的模组，请关闭此项。",
+      "serverOnlyUnavailable": "CurseForge 不会说明模组能否在服务端运行，因此该来源无法使用此筛选。",
+      "deleteConfirm": "移除“{name}”？",
+      "note": "在服务器的 mods 文件夹中添加或移除模组。",
+      "setAside": "暂存",
+      "setAsideClientOnly": "暂存：仅客户端",
+      "restore": "恢复",
+      "stopToManage": "停止服务器后才能更改其模组和数据包。",
+      "localInstalled": "已安装“{name}”",
+      "searchPlaceholder": "搜索模组……",
+      "searching": "正在搜索……",
+      "noResults": "无结果。",
+      "noCompatibleVersion": "“{name}”没有适用于此服务器的 Minecraft + 加载器的版本。",
+      "installedOne": "已安装“{name}”",
+      "installedWithDeps": "已安装“{name}”以及 {count, plural, one {# 个依赖项} other {# 个依赖项}}",
+      "someDepsUnresolved": "部分依赖项无法解析：{deps}。如果服务器需要，请手动安装它们。",
+      "externalDownload": "无法自动下载“{name}”（作者已禁用第三方下载）。请打开项目页面获取，然后将 .jar 拖到「附加组件」区域。",
+      "pluginCoreHint": "此核心不加载模组。Paper 系列服务器改用插件：请在「附加组件」选项卡中选择「插件」。",
+      "datapacksTitle": "数据包",
+      "addDatapack": "添加数据包",
+      "datapacksEmpty": "无数据包",
+      "datapackInstalled": "已安装数据包“{name}”",
+      "removeDatapackConfirm": "移除“{name}”？",
+      "remove": "移除",
+      "bulkHint": "选择模组以一次启用、禁用、更新或移除多个",
+      "deleteManyConfirm": "{count, plural, one {移除 # 个模组？} other {移除 # 个模组？}}"
+    },
+    "plugins": {
+      "empty": "无插件",
+      "note": "插件仅在服务端运行。玩家使用原版客户端即可加入。",
+      "requiresCore": "插件需要 Paper 或 Purpur 核心。您可以在「设置」选项卡中切换此服务器的核心。",
+      "openFolder": "打开文件夹",
+      "checkUpdates": "检查更新",
+      "stopToManage": "停止服务器后才能更改其插件。",
+      "searchPlaceholder": "搜索插件……",
+      "noResults": "无结果。",
+      "noCompatibleVersion": "“{name}”没有适用于此服务器 Minecraft 版本的版本。",
+      "installedOne": "已安装“{name}”",
+      "installedWithDeps": "已安装“{name}”以及 {count, plural, one {# 个依赖项} other {# 个依赖项}}",
+      "someDepsUnresolved": "部分依赖项无法解析：{deps}。如果服务器需要，请手动安装它们。",
+      "externalDownload": "“{name}”在 Hangar 之外分发。请从项目页面下载，然后将 .jar 拖到「附加组件」区域。",
+      "disable": "暂存",
+      "restore": "恢复",
+      "delete": "移除",
+      "deleteConfirm": "移除“{name}”？",
+      "setAside": "暂存",
+      "bulkHint": "选择插件以一次启用、禁用、更新或移除多个",
+      "deleteManyConfirm": "{count, plural, one {移除 # 个插件？} other {移除 # 个插件？}}"
+    },
+    "contentDetail": {
+      "tabOverview": "概览",
+      "versions": "版本",
+      "contentDisclaimer": "内容来自 {source}——其中的任何广告或链接均属于作者，而非 Lucerna。",
+      "loadingDescription": "正在加载描述……",
+      "noDescription": "未提供描述。",
+      "loadingVersions": "正在加载版本……",
+      "noVersions": "此服务器没有可用版本。",
+      "openProjectPage": "打开项目页面",
+      "openPage": "打开页面",
+      "externalNote": "在 Hangar 之外分发。"
+    },
+    "core": {
+      "sectionTitle": "服务器核心",
+      "current": "当前核心",
+      "switchButton": "切换核心……",
+      "modalTitle": "切换服务器核心",
+      "targetLabel": "新核心",
+      "warnConvert": "首次启动时，{target} 会将世界转换为其自身的存储结构。之后想要转回原版服务器，需要手动操作。",
+      "warnPaperFamily": "Paper 与 Purpur 可以互换：两者之间双向切换都是安全的。",
+      "backupNote": "切换前会自动创建一份新的备份。",
+      "confirm": "切换核心",
+      "switching": "正在切换到 {target}……",
+      "switched": "核心已切换为 {target}",
+      "latestBuildHint": "会自动安装最新的稳定版本。",
+      "stopToSwitch": "停止服务器后才能切换其核心。"
+    },
+    "hosting": {
+      "host": "主机",
+      "port": "端口",
+      "user": "用户",
+      "password": "密码",
+      "remotePath": "远程文件夹",
+      "save": "保存",
+      "saved": "已保存",
+      "upload": "上传到主机",
+      "uploading": "正在上传 {done}/{total}……",
+      "uploaded": "上传完成",
+      "exportZip": "导出 .zip",
+      "exported": "已导出",
+      "startBlockedByUpload": "上传到托管期间保持空闲",
+      "runningBlock": "请先停止服务器再上传",
+      "exportRunningBlock": "请先停止服务器——导出正在运行的世界可能会捕获到保存到一半的状态。如需为运行中的服务器创建安全快照，请使用「备份」。",
+      "passwordStored": "密码已保存",
+      "passphraseStored": "密钥口令已保存",
+      "hostRequired": "请输入主机",
+      "userRequired": "请输入用户",
+      "keyPathRequired": "请选择私钥文件",
+      "authMethod": "认证方式",
+      "authPassword": "密码",
+      "authKey": "SSH 密钥",
+      "privateKeyPath": "私钥文件",
+      "passphrase": "密钥口令（如有）",
+      "browse": "浏览……",
+      "hostKeyFirstTitle": "验证主机密钥",
+      "hostKeyFirstBody": "这是首次连接该主机。在信任它之前，请将下方的指纹与服务商列出的指纹进行核对——这样可确认您连接的是正确的服务器，而不是冒名者。",
+      "hostKeyFingerprint": "SHA-256 指纹",
+      "hostKeyTitle": "主机密钥已更改",
+      "hostKeyBody": "自上次连接以来，该主机的密钥已更改。如果服务器被重装过，这属于正常情况——但也可能意味着连接正被拦截。仅在您信任该主机时继续。",
+      "hostKeyTrust": "信任并上传",
+      "cancel": "取消",
+      "skipWorlds": "不上传世界",
+      "skipWorldsHint": "重新同步模组与配置，但不覆盖远程正在运行的世界。",
+      "resumeAvailable": "中断的上传可以继续（已上传 {done}/{total} 个文件）。",
+      "resumeUpload": "继续上传",
+      "resumeHint": "跳过已上传的文件，重新检查其余文件。",
+      "preflightTotal": "已选择：{size}",
+      "preflightFree": "主机可用空间：{size}",
+      "preflightOver": "所选文件（{total}）超出主机的可用空间（{free}）。请释放空间或跳过世界。",
+      "preflightUnknown": "主机未报告可用空间——将继续上传。",
+      "preflightFailed": "无法检查大小——主机不可达。您仍可上传。",
+      "checkSize": "检查大小",
+      "lastUpload": "上次上传：{when} → {target}",
+      "cancelUpload": "取消上传",
+      "uploadingBytes": "{doneSize} / {totalSize} · {rate} · ~{eta}",
+      "savePassword": "保存密码",
+      "savePasswordHint": "密码将保存在系统密钥环中。",
+      "revealPassword": "显示密码",
+      "hidePassword": "隐藏密码",
+      "passwordNeededEachUpload": "请在上方输入密码以上传。",
+      "authLoadFailed": "无法读取已保存的连接设置：{error}。已禁用保存，以免覆盖您存储的设置。",
+      "passwordUnknown": "无法在系统密钥环中检查已保存的密码——请重新输入以上传。"
+    },
+    "diagnose": {
+      "clientOnly": {
+        "title": "仅客户端模组导致服务器崩溃",
+        "explanation": "一个本应仅供游戏客户端的模组被加载到了专用服务器上。",
+        "recommendation": "移除下方仅客户端模组，然后重新启动服务器。"
+      },
+      "portInUse": {
+        "title": "服务器端口已被占用",
+        "explanation": "其他程序或服务器正在使用此端口。",
+        "recommendation": "停止另一个服务器，或在服务器的「设置」选项卡中更改端口。"
+      },
+      "eula": {
+        "title": "未接受 Minecraft EULA",
+        "explanation": "在接受 Minecraft EULA 之前，服务器无法运行。",
+        "recommendation": "接受 Minecraft EULA，然后启动服务器。"
+      },
+      "orphan": {
+        "title": "此服务器的残留副本仍在运行",
+        "explanation": "上次启动器会话遗留的服务器进程仍占用该世界的文件，因此无法再次启动。",
+        "recommendation": "停止残留进程，然后启动服务器。"
+      },
+      "oom": {
+        "title": "服务器内存不足",
+        "explanation": "分配给服务器的内存不足——这在大型整合包或加载大量区块时很常见。",
+        "recommendation": "在下方提高服务器的内存，然后重新启动。"
+      },
+      "heapTooBig": {
+        "title": "内存设置超出此计算机的容量",
+        "explanation": "Java 无法启动，因为最大内存大于本机的可用内存。",
+        "recommendation": "在下方降低服务器的内存，然后重新启动。"
+      },
+      "javaTooOld": {
+        "title": "Java 版本对此服务器过旧",
+        "explanation": "某个模组或加载器需要比启动此服务器所用版本更新的 Java。",
+        "recommendation": "使用更新的 Minecraft 版本（会安装更新的 Java），或更新需要它的模组。"
+      },
+      "corruptJar": {
+        "title": "服务器文件已损坏",
+        "explanation": "服务器尝试读取某个 jar 时发现其已损坏或不完整——通常是下载中断所致。",
+        "recommendation": "重新下载下方损坏的文件，然后重新启动服务器。"
+      },
+      "modConflict": {
+        "title": "两个模组相互冲突",
+        "explanation": "加载器已停止，因为两个已安装的模组无法共同运行——其中一个要求的版本被另一个禁止。",
+        "recommendation": "禁用下方冲突模组中的一个，然后重新启动服务器。"
+      },
+      "missingDep": {
+        "title": "某个模组缺少所需的另一个模组",
+        "explanation": "服务器上的某个模组所需的依赖模组未安装（或版本不正确）。",
+        "recommendation": "在下方安装缺失的依赖项，或移除需要它的模组，然后重新启动服务器。"
+      },
+      "fabricApiMissing": {
+        "title": "缺少 Fabric API 模组",
+        "explanation": "此服务器上的某个模组需要 Fabric API 库模组，但尚未安装。",
+        "recommendation": "在下方安装 Fabric API，然后重新启动服务器。"
+      },
+      "mixinCrash": {
+        "title": "某个模组在启动时崩溃",
+        "explanation": "某个模组在早期启动阶段失败（mixin 应用错误）。崩溃报告中会指明相关模组。",
+        "recommendation": "禁用下方指明的模组，然后重新启动服务器。"
+      },
+      "worldCorrupt": {
+        "title": "世界数据似乎已损坏",
+        "explanation": "某个区域或区块文件似乎已损坏，导致世界无法加载。",
+        "recommendation": "请从备份恢复此世界。不要让服务器自动覆盖它——否则有数据丢失的风险。"
+      },
+      "sessionLock": {
+        "title": "世界仍被其他进程锁定",
+        "explanation": "此服务器的残留副本仍持有该世界的会话锁，因此新副本无法打开它。",
+        "recommendation": "停止残留进程，然后重新启动服务器。"
+      },
+      "wrongLoader": {
+        "title": "某个模组属于其他模组加载器",
+        "explanation": "服务器 mods 文件夹中的某个文件不是此服务器加载器的有效模组——通常是其他加载器的模组。",
+        "recommendation": "移除与此服务器加载器不匹配的模组，然后重新启动。"
+      },
+      "diskLow": {
+        "title": "磁盘空间不足",
+        "explanation": "此服务器所在磁盘几乎已满，因此创建或启动可能失败，或留下写了一半的世界。",
+        "recommendation": "请释放该磁盘的空间，然后重试。"
+      },
+      "crashUnknown": {
+        "title": "服务器意外停止",
+        "explanation": "服务器进程在报告问题前以退出码 {code} 退出——通常由安全软件、内存不足或启动失败导致。",
+        "recommendation": "请再次尝试启动。如果反复出现，请将启动器和 Java 加入杀毒软件的排除项，在服务器的「设置」选项卡中降低内存，或打开日志文件夹进一步查看。"
+      },
+      "fix": {
+        "acceptEula": "接受 EULA 并启动",
+        "stopOrphan": "停止残留进程并重试",
+        "changePort": "使用端口 {port}",
+        "raiseHeap": "将内存提高到 {mb} MB 并重试",
+        "lowerHeap": "将内存降低到 {mb} MB 并重试",
+        "redownloadJar": "重新下载服务器文件并重试",
+        "installMissingDep": "安装缺失的模组并重试"
+      },
+      "conflictNamed": "加载器已指明这些模组。请在服务器的「模组」选项卡中禁用其中之一，然后重新启动服务器。",
+      "showClientMods": "显示仅客户端模组",
+      "removeSelected": "移除选中项",
+      "disableSelected": "禁用选中项",
+      "reason": {
+        "manifestClient": "仅客户端（模组信息）",
+        "crash": "崩溃中指明"
+      },
+      "confidence": {
+        "high": "很可能是仅客户端",
+        "medium": "可能是仅客户端"
+      },
+      "forgeSkipNote": "Forge 已跳过 {count} 个仅客户端模组。",
+      "diagnoseBtn": "诊断",
+      "diagnoseDone": "已重新检查服务器日志。",
+      "removed": "{count, plural, one {已移除 # 个模组} other {已移除 # 个模组}}",
+      "restartHint": "重启服务器以应用更改。",
+      "quarantineClientMods": "暂存仅客户端模组",
+      "quarantined": "{count, plural, one {已暂存 # 个仅客户端模组，以便服务器可以启动。} other {已暂存 # 个仅客户端模组，以便服务器可以启动。}}",
+      "quarantineNone": "没有可暂存的仅客户端模组。",
+      "quarantineKeptRequired": "{count, plural, one {保留了 # 个被其他模组依赖的模组。} other {保留了 # 个被其他模组依赖的模组。}}",
+      "installReportOk": "{count, plural, one {已安装 # 个缺失的模组。} other {已安装 # 个缺失的模组。}}",
+      "installReportUnresolved": "无法自动找到：{names}。请打开模组浏览器手动添加。"
+    },
+    "toInstance": {
+      "button": "创建客户端实例",
+      "title": "创建客户端实例",
+      "nameLabel": "实例名称",
+      "nameRequired": "请输入实例名称",
+      "addToMultiplayer": "将服务器添加到多人游戏列表",
+      "addressHint": "{address}",
+      "clientModsHint": "仅客户端模组（Sodium、光影、小地图）不在服务器上——请之后自行添加。仅服务端模组会原样复制；客户端上的加载器不会加载它们。",
+      "create": "创建",
+      "success": "已创建客户端实例“{name}”",
+      "successNoServer": "已创建客户端实例“{name}”，但无法将服务器添加到多人游戏列表"
+    },
+    "general": {
+      "name": "名称",
+      "memory": "内存",
+      "jvmArgs": "额外的 JVM 参数",
+      "jvmArgsHint": "高级选项。将在下次启动时应用到服务器 JVM。",
+      "save": "保存",
+      "saved": "已保存",
+      "restartToApply": "重启服务器以应用内存 / JVM 更改。",
+      "dangerTitle": "危险区域"
+    },
+    "delete": {
+      "trigger": "删除服务器",
+      "title": "删除服务器？",
+      "question": "删除“{name}”及其所有数据？",
+      "description": "这将永久移除服务器的文件（世界、模组、配置）。此操作无法撤销。",
+      "confirm": "删除",
+      "runningBlock": "请先停止服务器再删除"
+    },
+    "backups": {
+      "create": "创建备份",
+      "creating": "正在创建……",
+      "empty": "暂无备份",
+      "restore": "恢复",
+      "delete": "删除",
+      "restoreConfirm": "恢复“{name}”？这将替换当前的世界和文件（当前状态会先备份）。",
+      "deleteConfirm": "删除备份“{name}”？",
+      "runningBlock": "请先停止服务器再恢复",
+      "note": "服务器的快照（世界、模组、配置）。仅保留最新的 {n} 个。",
+      "autoTitle": "自动备份",
+      "autoHint": "当启动器打开且服务器运行时，按计划创建快照（同样受最新 {n} 个的限制）。",
+      "autoEnable": "自动备份",
+      "autoInterval": "每隔",
+      "autoIntervalUnit": "分钟",
+      "autoSave": "应用",
+      "autoSaved": "已保存",
+      "autoLoadFailed": "无法读取备份计划：{error}。已禁用应用，以免覆盖您保存的计划。"
+    },
+    "connect": {
+      "stoppedHint": "启动服务器以获取加入地址。",
+      "lanTitle": "在您的网络上（LAN）",
+      "lanHint": "同一 Wi-Fi / 网络上的好友可以通过「直接连接」加入：",
+      "copyInvite": "复制邀请",
+      "copied": "已复制！",
+      "copyFailed": "无法自动复制——请选中上方地址并按 Ctrl+C。",
+      "localHint": "在本机上，请使用 localhost 或 127.0.0.1。",
+      "internetTitle": "通过互联网",
+      "portForwardGuide": "在路由器上将 TCP 端口 {port} 转发到此电脑，然后将此地址分享给好友。",
+      "publicIpUnknown": "无法检测您的公网 IP（服务器可能离线，或您的网络阻止了该查询）。",
+      "portForwardGeneric": "要让好友通过互联网加入，请在路由器上将 TCP 端口 {port} 转发到这台电脑。",
+      "onlineModeOn": "online-mode 已开启：只有使用 Microsoft/Mojang 账户登录的好友才能加入。",
+      "onlineModeOff": "online-mode 已关闭：离线/破解账户可以加入，但任何人都能冒充任意名称——仅在可信/局域网中使用。",
+      "noLan": "无法检测局域网地址。",
+      "firewall": {
+        "blockedTitle": "Windows 防火墙可能正在阻止好友加入",
+        "blockedHint": "在允许端口 {port} 的入站规则之前，您网络中的好友无法连接到服务器。",
+        "addRule": "添加防火墙规则",
+        "added": "规则已添加——请重试连接。",
+        "allowed": "Windows 防火墙：此服务器的端口已允许。",
+        "manual": "手动添加",
+        "manualSteps": "请在管理员 PowerShell / 命令提示符中运行："
+      }
+    },
+    "import": {
+      "mode": "导入现有",
+      "modeHint": "导入您已有的服务器（.zip 或文件夹）",
+      "pickZip": "选择 .zip",
+      "pickFolder": "选择文件夹",
+      "dropzone": "将服务器 .zip 或文件夹拖到此处，或点击选择",
+      "dropzoneDrag": "松开以导入服务器",
+      "inspecting": "正在读取服务器……",
+      "detected": "已从导入内容中检测——如有需要请调整。",
+      "willPreserve": "可直接运行",
+      "willReprovision": "将重新安装加载器",
+      "loaderUnknownWarn": "无法检测模组加载器——已默认为原版。如果此服务器使用模组，请在下方选择正确的加载器，否则模组将无法加载。",
+      "modCount": "{count, plural, one {# 个模组} other {# 个模组}}",
+      "worldPresent": "包含一个世界",
+      "import": "导入",
+      "importing": "正在导入……",
+      "back": "返回",
+      "mcVersionUndetected": "Lucerna 无法读取此服务器的 Minecraft 版本。请输入版本以导入服务器。",
+      "disabledReason": {
+        "version": "请输入服务器的 Minecraft 版本以继续。"
+      }
     }
+  },
+  "instances": {
+    "import": {
+      "dialogAriaLabel": "从启动器导入",
+      "step1Title": "选择要导入的实例",
+      "contentLabel": "要导入的内容",
+      "mcVersionInputLabel": "Minecraft 版本",
+      "mcVersionPlaceholder": "例如 1.20.1",
+      "mcVersionHint": "普通的 .minecraft 文件夹不会记录其版本——请填写版本以启用导入。",
+      "loaderInputLabel": "模组加载器",
+      "vanillaWithModsWarning": "此实例包含模组，但未选择加载器——它们将无法加载。请在上方选择匹配的加载器。",
+      "sourcePathLabel": "源文件夹",
+      "step2Title": "导入“{name}”",
+      "discover": "搜索实例",
+      "discoverSubtitle": "选择在此电脑上找到的实例，或浏览到某个文件夹。",
+      "noContent": "此文件夹中未找到可导入的内容。",
+      "linkedFolder": "链接的文件夹：",
+      "brokenLink": "链接到不存在的文件夹：",
+      "unreadableFolder": "无法读取此文件夹：{reason}",
+      "nothingReadable": "此实例的所有文件夹均无法读取。",
+      "linkedFile": "链接的文件：",
+      "brokenLinkFile": "链接到不存在的文件：",
+      "unreadableFile": "无法读取此文件：{reason}",
+      "discovering": "正在搜索……",
+      "discoverEmpty": "未找到启动器实例。请尝试浏览到指定文件夹。",
+      "discoverEmptyFound": "找到了 {launchers}，但没有可导入的内容。请在其中添加模组或世界，或浏览到某个文件夹。",
+      "discoverError": "无法发现实例",
+      "browseFolder": "浏览到文件夹……",
+      "sourcePrism": "Prism Launcher",
+      "sourceCurseforge": "CurseForge",
+      "sourceModrinth": "Modrinth App",
+      "sourceAtlauncher": "ATLauncher",
+      "sourceMojang": "Minecraft Launcher",
+      "sourceTlauncher": "TLauncher",
+      "sourceXmcl": "XMCL",
+      "sourceLegacyLauncher": "Legacy Launcher",
+      "sourceRaw": "原版 .minecraft",
+      "mcLabel": "Minecraft {version}",
+      "loaderLabel": "{loader} {version}",
+      "categoryMods": "模组",
+      "categoryConfig": "配置",
+      "categorySaves": "存档",
+      "categoryResourcePacks": "资源包",
+      "categoryShaderpacks": "光影包",
+      "categoryOptionsTxt": "选项",
+      "nameLabel": "实例名称",
+      "importBtn": "导入",
+      "disabledReason": {
+        "name": "请输入实例名称以继续。",
+        "version": "请输入 Minecraft 版本以继续。",
+        "content": "请至少勾选一种要导入的内容。"
+      },
+      "back": "返回",
+      "imported": "已导入 {name}",
+      "failed": "启动器导入失败",
+      "progress": "正在导入 {name}……",
+      "phase": {
+        "creating_instance": "正在创建实例……",
+        "copying": "正在复制文件……",
+        "recovering_identities": "正在识别模组……",
+        "done": "完成。"
+      }
+    }
+  },
+  "java": {
+    "default": {
+      "label": "默认（跟随「设置」）",
+      "labelSettings": "默认（当前：「设置」中的 Java {major}）",
+      "labelLucerna": "默认（当前：Lucerna 的 Java）",
+      "pinnedLabel": "始终使用 Lucerna 的 Java",
+      "statusUnknownInstance": "跟随「设置」：其中为此实例所需版本选择的 Java，否则使用 Lucerna 的 Java。Lucerna 会在启动时检查。",
+      "statusUnknownServer": "跟随「设置」：其中为此服务器所需版本选择的 Java，否则使用 Lucerna 的 Java。",
+      "statusSettings": "「设置」中为 Java {major} 指定的 Java：{path}。Lucerna 会在每次启动时检查。",
+      "pinnedStatusInstance": "无论「设置」为其 Java 版本指定了什么，此实例始终在 Lucerna 的 Java 上运行。",
+      "pinnedStatusServer": "无论「设置」为其 Java 版本指定了什么，此服务器始终在 Lucerna 的 Java 上运行。",
+      "statusUnread": "跟随「设置」中为 Java {major} 设定的 Java（若有）；否则使用 Lucerna 的 Java。"
+    },
+    "rescue": {
+      "offer": "游戏也可以改用此电脑上 Java {major} 或更高版本运行。",
+      "offerExact": "游戏也可以改用此电脑上的 Java {major} 运行。",
+      "none": "此电脑上未找到 Java {major} 或更高版本。请安装一个，或通过「浏览」选择。",
+      "noneExact": "此电脑上未找到 Java {major}。请安装一个，或通过「浏览」选择。",
+      "pickLabel": "要使用的 Java",
+      "forInstance": "用于此实例",
+      "forMajor": "用于所有使用 Java {major} 的实例",
+      "installerExplain": "Forge 和 NeoForge 安装器只能在 Lucerna 的 Java 上运行，因此此电脑上的 Java 无法替代这一步。",
+      "installerRetry": "待其可以下载后请重新安装。",
+      "installerNone": "没有适用于此电脑的 Lucerna Java，因此无法在此安装 Forge 和 NeoForge。Fabric、Quilt 和原版实例可以使用您自己的 Java 运行。",
+      "missingExplain": "请下载它以在 Lucerna 的 Java 上游玩，或在实例设置中选择此电脑上的 Java。",
+      "download": "下载 Java",
+      "searchFailed": "无法在此电脑上查找 Java {major} 或更高版本。请通过「浏览」选择一个。",
+      "searchFailedExact": "无法在此电脑上查找 Java {major}。请通过「浏览」选择一个。"
+    }
+  },
+  "launch": {
+    "warning": {
+      "title": "要启动另一个实例吗？",
+      "launchAnyway": "仍要启动",
+      "ram": "运行中的实例已预留约 {reserved, number, ::.0 group-off} GB，共 {total, number, ::.0 group-off} GB。",
+      "accountMicrosoft": "账户 {account} 已被正在运行的实例使用；加入在线服务器可能会使该会话断开。",
+      "accountOffline": "账户 {account} 已被正在运行的实例使用；服务器可能会拒绝重复的用户名。"
+    },
+    "settingsSync": {
+      "failedTitle": "游戏设置未同步",
+      "failedChoice": "本次可以不同步直接启动：下次启动会再次尝试，您在游戏中所做的更改会为其保留。或者在此实例中停止同步 {what}。",
+      "failedChoiceAll": "本次可以不同步直接启动，或在此实例中关闭同步：无法读取的文件将被移入回收站。",
+      "launchWithoutSync": "不同步直接启动",
+      "stopKind": {
+        "servers": "此处不同步服务器",
+        "history": "此处不同步命令历史",
+        "hotbars": "此处不同步快捷栏",
+        "options": "此处不同步游戏选项"
+      },
+      "stopAll": "在此实例中关闭同步",
+      "closedTitle": "游戏是否已关闭？",
+      "closedBody": "在 Lucerna 重启前于该实例中启动的游戏可能仍在运行，Lucerna 无法判断。如果它仍在运行，请先关闭：在运行中同步会丢失其在关闭时保存的内容。",
+      "itsClosed": "已关闭",
+      "exitFailedTitle": "游戏关闭后设置未同步",
+      "exitFailedLine": "{instance}：无法同步 {what}。{detail} {next}",
+      "repairAndLaunch": {
+        "replaceShared": "替换共享副本并启动",
+        "replaceOwn": "替换此实例的文件并启动",
+        "resetRecords": "重新开始记录并启动"
+      },
+      "exitFixInSettings": "修复方法位于实例的「设置」选项卡中，在「共享游戏设置」下。"
+    }
+  },
+  "addons": {
+    "kindMods": "模组",
+    "kindResourcePacks": "资源包",
+    "kindShaders": "光影",
+    "kindDatapacks": "数据包（Beta）",
+    "kindSwitchAria": "内容类型",
+    "subTabsLabel": "附加组件视图",
+    "dropzoneResourcePack": "将资源包 .zip 拖放到此处以安装——或点击浏览",
+    "dropzoneShader": "将光影 .zip 拖放到此处以安装——或点击浏览",
+    "dropzoneDatapack": "将数据包 .zip 拖放到此处以添加到库中——或点击浏览",
+    "dropzoneDisabled": "请选择要安装到的实例",
+    "datapacks": {
+      "empty": "此实例的库中还没有数据包。",
+      "onlyInWorlds": "仅存在于世界中",
+      "stateUnknown": "状态未知",
+      "placementNoLevelDat": "无 level.dat",
+      "placementOnlyOld": "仅有 level.dat_old",
+      "addToWorlds": "添加到世界……",
+      "expandAria": "显示 {name} 的世界",
+      "noPlacements": "此包尚未放入任何世界——使用「添加到世界……」将其放入。",
+      "summaryInNoWorld": "未在任何世界中",
+      "summaryDisabledEverywhere": "已在所有世界禁用",
+      "summaryEnabledIn": "已在 {enabled} 个世界中启用（共 {total, plural, one {# 个世界} other {# 个世界}}）",
+      "summaryUnchecked": "无法检查 {count, plural, one {# 个世界} other {# 个世界}}",
+      "updateIncomplete": "{name} 未更新到所有世界——旧版本已保留，以便重试完成：",
+      "refreshIncomplete": "{name} 的新版本未更新到所有世界——以下世界可能仍在使用旧版本：",
+      "worldsUnchecked": "无法检查世界：{error}",
+      "picker": {
+        "title": "将“{name}”添加到世界",
+        "noWorlds": "此实例还没有世界。世界在游戏内创建——该包已保存在库中，创建世界后会显示在此处。",
+        "apply": "添加到所选世界",
+        "libraryOnly": "仅保存到库",
+        "toastAdded": "{count, plural, one {已添加到 # 个世界} other {已添加到 # 个世界}}",
+        "toastFailed": "{count, plural, one {# 个世界失败} other {# 个世界失败}}",
+        "libraryReadFailed": "无法读取此实例的数据包库，因此世界选择器未打开。您可以从「已安装」视图将数据包添加到世界。"
+      },
+      "remove": {
+        "title": "移除“{name}”？",
+        "titleThisWorld": "从此世界移除“{name}”？",
+        "affectedWorlds": "{count, plural, one {它被用于 # 个世界：} other {它被用于 # 个世界：}}",
+        "uncheckedWorlds": "{count, plural, one {# 个世界无法检查：} other {# 个世界无法检查：}}",
+        "uncheckedKeepsLibrary": "如果在移除该包时仍无法检查这些世界，它们将保持原样，该包也会保留在库中，以便稍后重试完成操作。",
+        "uncheckedWorldsOnly": "移除时也会尝试这些世界，并告知您哪些无法更改。",
+        "unchangedWorlds": "{count, plural, one {# 个世界将不会更改：} other {# 个世界将不会更改：}}",
+        "onlyOldKeepsLibrary": "Lucerna 不会更改仅有 level.dat_old 的世界，因此该世界会保留此包，包也会保留在库中，直到您恢复该世界并再次移除该包。",
+        "cascade": "同时从世界移除",
+        "keepNote": "如果取消勾选，世界会保留各自的副本，该包仍会在游戏中加载。",
+        "bodyNoWorlds": "该包不在任何世界中；它将从库中移除。",
+        "bodyLibraryCopy": "该包仅从此世界移除。其在实例库中的副本会保留，您可随时重新添加。",
+        "bodyOwnFile": "此文件不是库中的副本，因此移除将永久删除它。无法恢复。",
+        "bodyOwnFolder": "此文件夹不在库中，因此移除将永久删除该文件夹及其中的所有内容。无法恢复。",
+        "bodyMissing": "文件已不存在；移除将从此世界的列表中清除其条目。",
+        "bodyUnchecked": "Lucerna 无法确认这是否为库中的副本。如果不是，移除将永久删除它。",
+        "confirm": "移除",
+        "confirmFromWorld": "从世界移除",
+        "confirmDelete": "删除",
+        "toastRemoved": "已移除 {name}",
+        "toastRemovedFromWorldKept": "已从 {world} 移除 {name}。它仍保留在库中。",
+        "toastDeletedFromWorld": "已从 {world} 删除 {name}",
+        "toastClearedEntry": "已从 {world} 的列表中清除 {name}",
+        "toastRemovedFromWorld": "已从 {world} 移除 {name}",
+        "toastRemovedSomeUnchanged": "已从 Lucerna 能更改的所有世界中移除 {name}。以下世界保持原样：",
+        "toastFailed": "无法移除 {name}",
+        "toastFailedWorlds": "{count, plural, one {# 个世界无法清理——库中的副本已保留，以便重试完成移除} other {# 个世界无法清理——库中的副本已保留，以便重试完成移除}}",
+        "toastFailedWorldsOnly": "{count, plural, one {# 个世界无法清理} other {# 个世界无法清理}}",
+        "toastKeptNotOurs": "{count, plural, one {# 个世界保留了副本——其中的文件与库中的不一致，因此未作更改} other {# 个世界保留了副本——其中的文件与库中的不一致，因此未作更改}}",
+        "worldsOnlyNote": "此包不在库中，因此移除将从 Lucerna 能更改的所有世界中永久删除它。无法恢复。",
+        "worldsOnlyNothing": "Lucerna 不会更改这些世界中的任何一个，因此没有可移除的内容。",
+        "manyTitle": "{count, plural, one {移除 # 个数据包？} other {移除 # 个数据包？}}",
+        "manyTitleThisWorld": "{count, plural, one {从此世界移除 # 个数据包？} other {从此世界移除 # 个数据包？}}",
+        "manyLibraryCopies": "{count, plural, one {# 个仅从此世界移除；其在库中的副本会保留。} other {# 个仅从此世界移除；其在库中的副本会保留。}}",
+        "manyOwnFiles": "{count, plural, one {# 个不是库中的副本，将被永久删除。无法恢复。} other {# 个不是库中的副本，将被永久删除。无法恢复。}}",
+        "manyMissing": "{count, plural, one {# 个文件已不存在；其条目将从此世界清除。} other {# 个文件已不存在；其条目将从此世界清除。}}",
+        "manyUnchecked": "{count, plural, one {# 个无法检查。如果不是库中的副本，移除将永久删除它。} other {# 个无法检查。如果不是库中的副本，移除将永久删除它们。}}",
+        "manyUsedIn": "{count, plural, one {它们共被用于 # 个世界：} other {它们共被用于 # 个世界：}}",
+        "manyNoWorlds": "它们都不在任何世界中；将从库中移除。",
+        "manyWorldsOnlyNote": "{count, plural, one {其中 # 个已不在库中，因此将从 Lucerna 能更改的所有世界中永久删除。无法恢复。} other {其中 # 个已不在库中，因此将从 Lucerna 能更改的所有世界中永久删除。无法恢复。}}",
+        "manyKeptNotOurs": "已保留，因为其中的副本并非来自库：",
+        "manyFailedWorlds": "无法清理：",
+        "manyLeftUnchanged": "保持原样：",
+        "keptInLibrary": "库中的副本已保留，以便重试完成移除"
+      },
+      "vt": {
+        "open": "Vanilla Tweaks……",
+        "title": "Vanilla Tweaks",
+        "subtitle": "勾选您想要的调整项。Vanilla Tweaks 会将它们组合起来，Lucerna 会像其他数据包一样添加它们。",
+        "build": "添加所选",
+        "selected": "{count, plural, one {已选择 # 个包} other {已选择 # 个包}}",
+        "installed": "已添加",
+        "conflicts": "无法与 {names} 同时使用",
+        "empty": "Vanilla Tweaks 尚无适用于该 Minecraft 版本的包。",
+        "someFailed": "{count, plural, one {# 个包无法添加} other {# 个包无法添加}}"
+      },
+      "libraryReadFailed": "无法读取此实例的数据包库，因此结果可能无法显示哪些包已安装。",
+      "bulkHint": "选择数据包可一次更新或移除多个",
+      "bulkUpdateKeptOld": "旧版本已保留，以便重试完成",
+      "blockedRunning": "请退出 Minecraft 以更改此实例的数据包",
+      "libraryFolders": "库中的文件夹不会被使用：{names}。请将它们压缩，或将每个放入世界的 datapacks 文件夹。",
+      "libraryUnreadable": "无法读取库文件夹，因此手动添加的包可能不会显示。"
+    },
+    "install": {
+      "toastInstalled": "{count, plural, one {已安装 # 个附加组件} other {已安装 # 个附加组件}}",
+      "toastFailed": "{count, plural, one {# 个附加组件安装失败} other {# 个附加组件安装失败}}"
+    },
+    "shaderLoaderHint": {
+      "intro": "光影需要一个光影加载器才能运行——请安装一个：",
+      "introOne": "光影需要一个光影加载器才能运行——请安装：",
+      "iris": "Iris",
+      "oculus": "Oculus",
+      "or": "或",
+      "optifine": "OptiFine",
+      "generic": "光影需要一个光影加载器才能运行：Iris、Oculus 或 OptiFine。",
+      "noInstanceHint": "选择实例后，Lucerna 会告诉您哪一个适合其模组加载器和 Minecraft 版本。",
+      "needLoader": "光影需要一个光影加载器才能运行。",
+      "checking": "正在检查哪一个合适……",
+      "optifineForgeRelease": "OptiFine：在 optifine.net 上找到 Minecraft {mc}（旧版本位于「显示所有版本」下），下载列有 Forge 版本的文件。",
+      "optifineForgePreview": "OptiFine：据 Lucerna 所知，Minecraft {mc} 只有预览版的 OptiFine 兼容 Forge。请在 optifine.net 上打开「显示所有版本」，然后打开 Minecraft {mc} 下的「+ 预览版本」。",
+      "optifinePreviewLabel": "OptiFine（预览版）",
+      "unchecked": "无法检查：{names}。",
+      "recheck": "重新检查",
+      "noneFoundIris": "Lucerna 没有为“{profile}”找到光影加载器：Iris 在 Modrinth 上没有适配它的版本。",
+      "noneFoundIrisOculus": "Lucerna 没有为“{profile}”找到光影加载器：Iris 和 Oculus 在 Modrinth 上都没有适配它的版本。",
+      "noneFoundForge": "Lucerna 没有为“{profile}”找到光影加载器：Oculus 在 Modrinth 上没有适配它的版本，而且 Lucerna 不知道这个 Minecraft 版本有兼容 Forge 的 OptiFine。",
+      "quiltFabricOnly": "Iris 有适用于 Minecraft {mc} 的 Fabric 版本，但作者没有将其标记为支持 Quilt，所以 Lucerna 不会把它安装到 Quilt 实例上。",
+      "noneFoundTail": "您仍然可以安装光影包，但没有光影加载器它们无法工作。",
+      "vanillaIntro": "此实例没有模组加载器，而没有它光影无法工作。对于 Minecraft {mc}，您可以使用：",
+      "vanillaOption": "{modLoader}：{shaderLoaders}",
+      "vanillaUnchecked": "此实例没有模组加载器，而没有它光影无法工作。Lucerna 无法检查哪个模组加载器适用于 Minecraft {mc}。",
+      "vanillaNoneFound": "此实例没有模组加载器。Lucerna 没有找到可用于 Minecraft {mc} 且支持光影的模组加载器。",
+      "chooseModLoader": "选择模组加载器"
+    },
+    "installed": {
+      "checkUpdates": "检查更新",
+      "update": "更新",
+      "updateAll": "全部更新（{count}）",
+      "toastUpdated": "{count, plural, one {已更新 # 个附加组件} other {已更新 # 个附加组件}}",
+      "toastUpdatedFailed": "{count, plural, one {已更新 # 个附加组件} other {已更新 # 个附加组件}}，{failed} 个失败",
+      "remove": "移除",
+      "empty": "此实例尚未安装任何内容。",
+      "loading": "正在加载……",
+      "pickInstance": "请先选择实例。",
+      "upToDateToast": "全部为最新版本。",
+      "nothingToCheck": "这些包都不是来自 Modrinth 或 CurseForge，因此没有可检查的内容。",
+      "checkFailed": "检查更新失败",
+      "installedToast": "已安装“{name}”",
+      "updatedToast": "已更新“{name}”",
+      "removedToast": "已移除“{name}”",
+      "installFailedToast": "安装失败",
+      "updateFailedToast": "更新失败",
+      "removeFailedToast": "移除失败",
+      "bulkHint": "选择附加组件可一次更新或移除多个",
+      "removeManyConfirm": "{count, plural, one {移除 # 个附加组件？} other {移除 # 个附加组件？}}",
+      "folderTag": "文件夹",
+      "trashedToast": "已将“{name}”移至回收站",
+      "bulkRecycleNote": "文件夹以及非来自 Modrinth 或 CurseForge 的包会移至回收站；其余的可以重新下载。",
+      "folderUnreadable": "无法读取文件夹，因此手动添加的包可能未显示。",
+      "oldFileKept": "已更新“{name}”，但旧文件 {file} 仍在文件夹中",
+      "oldFilesKept": "{count, plural, one {# 个旧文件} other {# 个旧文件}}仍在文件夹中"
+    },
+    "openFolder": {
+      "mods": "模组文件夹",
+      "resourcePacks": "资源包文件夹",
+      "shaders": "光影文件夹",
+      "datapacks": "数据包文件夹"
+    },
+    "openFolderFailed": "无法打开文件夹。"
+  },
+  "screenshots": {
+    "noInstance": "请选择一个实例以查看其截图。",
+    "loading": "正在加载截图……",
+    "emptyTab": "还没有截图。开始游戏后，在游戏内按 F2 即可截取。",
+    "emptyGallery": "您的所有实例中还没有截图。",
+    "openFolder": "打开截图文件夹",
+    "reveal": "在文件管理器中显示",
+    "saveCopy": "保存副本……",
+    "copy": "复制图片",
+    "delete": "删除",
+    "toastCopied": "截图已复制到剪贴板",
+    "toastSaved": "截图已保存",
+    "toastDeleted": "截图已移至回收站",
+    "saveDialogTitle": "保存截图副本",
+    "galleryTitle": "截图画廊",
+    "viewerTitle": "截图查看器",
+    "galleryClose": "关闭画廊",
+    "filterInstance": "实例",
+    "filterAll": "所有实例",
+    "groupToday": "今天",
+    "groupYesterday": "昨天",
+    "groupBy": "分组方式",
+    "groupDays": "天",
+    "groupMonths": "月",
+    "sortBy": "排序",
+    "sortNewest": "最新",
+    "sortOldest": "最早",
+    "showMore": "显示更多",
+    "shownOf": "显示 {shown} / {total}",
+    "total": "共 {n} 张",
+    "toolPan": "平移",
+    "toolMarker": "标记",
+    "toolEraser": "橡皮擦",
+    "toolCrop": "裁剪",
+    "applyCrop": "应用裁剪",
+    "cancelCrop": "取消",
+    "clearAll": "全部清除",
+    "undo": "撤销",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "resetZoom": "重置缩放",
+    "thin": "细",
+    "thick": "粗",
+    "color": "颜色",
+    "colorRed": "红",
+    "colorOrange": "橙",
+    "colorYellow": "黄",
+    "colorGreen": "绿",
+    "colorBlue": "蓝",
+    "colorWhite": "白"
+  },
+  "worlds": {
+    "quickPlay": {
+      "playWorld": "游玩此世界",
+      "disabledNotReady": "请先安装实例",
+      "disabledRunning": "Minecraft 已在运行",
+      "disabledUnsupported": "需要 Minecraft 1.20 或更高版本"
+    },
+    "detail": {
+      "tabsLabel": "世界详情"
+    },
+    "tab": {
+      "noInstance": "请选择一个实例以查看其世界。",
+      "loading": "正在加载世界……",
+      "empty": "还没有世界。游玩 Minecraft 即可创建一个。",
+      "backupCountAriaLabel": "{count, plural, one {# 个备份} other {# 个备份}}",
+      "openSavesFolder": "打开存档文件夹",
+      "openBackupsAriaLabel": "打开 {name} 的详情",
+      "backupNow": "立即备份",
+      "deleteWorld": "删除世界",
+      "toastBackedUp": "已备份 {name}（{size}）"
+    },
+    "import": {
+      "dropzoneLabel": "将世界 .zip 或文件夹拖到此处，或点击选择 .zip",
+      "fromFolder": "从文件夹……",
+      "toastAdded": "已添加世界“{name}”"
+    },
+    "backups": {
+      "tab": "备份",
+      "loading": "正在加载备份……",
+      "empty": "还没有备份。点击「立即备份」创建一个。",
+      "backupNow": "立即备份",
+      "total": "总计：{size}",
+      "openBackupsFolder": "打开备份文件夹",
+      "restore": "恢复",
+      "deleteBackup": "删除备份",
+      "confirmDelete": "删除备份 {timestamp}？"
+    },
+    "orphaned": {
+      "title": "没有对应世界的备份",
+      "description": "这些备份所属的世界已不在此实例中。",
+      "openBtn": "查看备份",
+      "asCopyNote": "备份将被解压为一个新世界。"
+    },
+    "stranded": {
+      "title": "恢复被中断",
+      "description": "“{worldFolder}”的恢复未完成。该世界的文件是安全的，可以放回。",
+      "recoverBtn": "将世界放回",
+      "toastRecovered": "已恢复 {world}",
+      "leftoverTitle": "恢复遗留的副本",
+      "leftoverDescription": "“{worldFolder}”的恢复已完成，但磁盘上仍保留着恢复前世界的副本。您当前的世界是已恢复的那个——没有缺失任何内容。不再需要旧副本时，请删除该文件夹。",
+      "openFolderBtn": "打开存档文件夹",
+      "migrationTitle": "移动被中断",
+      "migrationDescription": "将“{worldFolder}”移入此实例的操作未完成。该世界的文件在这里是安全的，可以按原名称放回。",
+      "migrationBlockedTitle": "已移动的世界正等待可用名称",
+      "migrationBlockedDescription": "此处已存在名为“{worldFolder}”的世界，而从另一实例移来的世界正以相同名称停放在其旁边。请在存档文件夹中重命名其中一个，再将移来的世界放回。"
+    },
+    "datapacks": {
+      "tab": "数据包（测试版）",
+      "title": "数据包",
+      "empty": "还没有数据包",
+      "add": "添加数据包",
+      "addFromFolder": "从文件夹……",
+      "addToWorld": "添加到此世界",
+      "removeFromWorld": "从此世界移除",
+      "clearEntry": "清除条目",
+      "enable": "在此世界中启用",
+      "disable": "在此世界中禁用",
+      "stateEnabled": "已启用",
+      "stateDisabled": "已禁用",
+      "stateNotAdded": "不在此世界中",
+      "stateOrphaned": "文件缺失",
+      "stateIgnored": "被游戏忽略",
+      "stateCouldNotCheck": "无法检查",
+      "orphanedHint": "此世界的数据包列表仍列有该数据包，但其文件已不存在。Minecraft 会跳过它，并在下次保存世界时删除该名称；在此清除只是提前整理列表。",
+      "ignoredReason": {
+        "folderWithoutPackMcmeta": "仅当 pack.mcmeta 直接位于文件夹内时 Minecraft 才会加载该文件夹，而此文件夹中没有 pack.mcmeta。",
+        "folderPackNestedInside": "pack.mcmeta 多嵌套了一层文件夹。请将内层文件夹直接移入 datapacks。",
+        "zipExtensionNotLowercase": "Minecraft 只会加载名称以小写 .zip 结尾的文件。请重命名文件，使其以 .zip 结尾。",
+        "zipWithoutPackMcmeta": "此 zip 的顶层没有 pack.mcmeta。如果其中只有一个文件夹，则数据包多嵌套了一层。",
+        "unreadable": "Lucerna 无法读取此条目，因此无法检查 Minecraft 是否会加载它。"
+      },
+      "external": "不在库中",
+      "copyNotLinked": "此数据包是复制而非链接的——它现在占用自己的磁盘空间。",
+      "compatUnknown": "兼容性未知",
+      "compatTooOld": "为较旧版本的 Minecraft 制作（数据包格式 {madeFor}；此版本使用 {game}）。Minecraft 仍会加载它，但可能无法正常工作。",
+      "compatTooNew": "为较新版本的 Minecraft 制作（数据包格式 {madeFor}；此版本使用 {game}）。Minecraft 仍会加载它，但可能无法正常工作。",
+      "compatBroken": "此版本的 Minecraft 无法解析该数据包 pack.mcmeta 中的版本信息，并将其标记为“已损坏或不兼容”。它仍会加载该数据包，但可能无法正常工作。",
+      "compatWontLoadNoPackMcmeta": "游戏会跳过此数据包：其顶层没有 pack.mcmeta。",
+      "compatWontLoadNoPackSection": "游戏会跳过此数据包：其 pack.mcmeta 中没有“pack”部分。",
+      "compatWontLoadNoDescription": "游戏会跳过此数据包：其 pack.mcmeta 中没有“description”，而 Minecraft 需要它才能读取。",
+      "compatWontLoadNoPackFormat": "此版本的 Minecraft 会跳过此数据包：其 pack.mcmeta 中没有“pack_format”，此版本需要它才能读取。",
+      "blockedRunning": "请退出 Minecraft 以更改此世界的数据包",
+      "blockedBusy": "另一项数据包更改仍在进行中",
+      "noLevelDat": "此文件夹没有 level.dat，因此 Minecraft 不会将其列为世界，也不会从中加载任何数据包。",
+      "onlyOldLevelDat": "此世界的 level.dat 已缺失——只剩下备份副本 level.dat_old。请在 Minecraft 中打开该世界；如果提示世界加载失败，请选择「尝试恢复」，Minecraft 将从备份重建 level.dat。在此之前，无法在此更改其数据包。",
+      "blockedNoLevelDat": "不是世界：此文件夹没有 level.dat",
+      "blockedOnlyOld": "请在 Minecraft 中打开此世界并从备份恢复",
+      "blockedUntilListed": "读取此世界的数据包列表后可用",
+      "bulkHint": "选择数据包以一次启用、禁用、添加或移除多个",
+      "bulkEnabled": "已在此世界中启用 {ok} / {total}",
+      "bulkEnabledFailed": "已在此世界中启用 {ok} / {total}，{failed} 个失败",
+      "bulkDisabled": "已在此世界中禁用 {ok} / {total}",
+      "bulkDisabledFailed": "已在此世界中禁用 {ok} / {total}，{failed} 个失败",
+      "bulkAdded": "已添加到此世界 {ok} / {total}",
+      "bulkAddedFailed": "已添加到此世界 {ok} / {total}，{failed} 个失败",
+      "bulkRemoved": "已从此世界移除 {ok} / {total}",
+      "bulkRemovedFailed": "已从此世界移除 {ok} / {total}，{failed} 个失败",
+      "bulkAdd": "添加",
+      "bulkRemove": "移除"
+    },
+    "restore": {
+      "title": "从 {timestamp} 恢复“{world}”",
+      "replaceLabel": "替换当前世界",
+      "replaceDescription": "当前状态会先自动保存为备份（标记为“pre-restore-……”），以便您需要时回滚。",
+      "asCopyLabel": "作为副本恢复",
+      "asCopyDescription": "原世界保持不变。备份将被解压为“{world} (restored)”。",
+      "restoreBtn": "恢复",
+      "toastRestored": "已恢复 {world} → {result}"
+    },
+    "delete": {
+      "title": "删除“{world}”？",
+      "description": "这将永久删除该世界文件夹及其全部内容。此世界的备份也会一并移除。此操作无法撤销。",
+      "deleteBtn": "删除"
+    },
+    "migrate": {
+      "title": "迁移“{world}”",
+      "targetLabel": "目标实例",
+      "targetPlaceholder": "选择实例……",
+      "noTargets": "没有其他实例可以接收此世界。",
+      "excludedNoVersion": "未列出——未设置 Minecraft 版本：{names}",
+      "modeLegend": "方式",
+      "copyLabel": "复制",
+      "copyDescription": "原世界保留在 {source}，其备份也随之保留。",
+      "moveLabel": "移动",
+      "moveDescription": "世界将离开 {source}，其备份也随之移动。",
+      "moveShortcutsNote": "在 {source} 中打开此世界的桌面快捷方式和快速游玩条目将失效；启动器无法更新它们。",
+      "size": "磁盘占用 {size}",
+      "backupsCopy": "{count, plural, =0 {无备份} one {# 个备份——将保留在此} other {# 个备份——将保留在此}}",
+      "backupsMove": "{count, plural, =0 {无备份} one {# 个备份——将随世界移动} other {# 个备份——将随世界移动}}",
+      "planning": "正在检查目标……",
+      "worldVersion": "最后由 Minecraft {name} 保存",
+      "datapacks": {
+        "total": "{count, plural, =0 {无数据包} one {# 个数据包} other {# 个数据包}}",
+        "inTarget": "{count, plural, one {# 个已在目标库中——将链接到它} other {# 个已在目标库中——将链接到它}}",
+        "adopted": "{count, plural, one {# 个将添加到目标库} other {# 个将添加到目标库}}",
+        "keptNameTaken": "{count, plural, one {# 个保留为普通副本——其名称正被目标库中另一个数据包使用} other {# 个保留为普通副本——它们的名称正被目标库中的其他数据包使用}}",
+        "keptNotAdded": "{count, plural, one {# 个保留为普通副本——不会添加到目标库} other {# 个保留为普通副本——不会添加到目标库}}",
+        "folders": "{count, plural, one {# 个文件夹数据包将按原样复制} other {# 个文件夹数据包将按原样复制}}"
+      },
+      "verdict": {
+        "willUpgrade": "Minecraft 首次打开时将把此世界升级到 {target}。此操作无法撤销。",
+        "worldIsNewer": "此世界最后由较新的 Minecraft（{name}）保存，版本高于 {target}。在其中打开不受支持，可能会损坏世界。",
+        "versionNameUnknown": "版本名称未记录",
+        "unknown": {
+          "noLevelDat": "此世界没有 level.dat，因此版本未知。",
+          "unreadable": "无法读取此世界的 level.dat，因此版本未知。",
+          "notRecorded": "此世界未记录其版本（在 Minecraft 1.10 之前保存的世界不会记录）。",
+          "targetVersionUnset": "目标实例未设置 Minecraft 版本。",
+          "targetNotInstalled": "此处未安装 Minecraft {target}（或其文件已损坏）——请先安装或修复以检查兼容性。",
+          "targetNotRecorded": "Minecraft {target} 不记录其数据版本（1.14 之前的版本不会记录），因此两者无法比较。"
+        }
+      },
+      "modsMissing": "{count, plural, one {# 个此世界游玩时使用的模组不在目标中：它们添加的方块、物品和实体将从游戏在目标中加载的区块里消失。} other {# 个此世界游玩时使用的模组不在目标中：它们添加的方块、物品和实体将从游戏在目标中加载的区块里消失。}}",
+      "loaderDiffers": "上次使用 {source} 游玩；目标运行 {target}。",
+      "disabledNoTarget": "请先选择目标实例。",
+      "disabledPlanning": "请等待目标检查完成。",
+      "disabledBusy": "此实例上已有操作正在运行。",
+      "cancelledQueued": "迁移在开始前已被取消，未做任何更改。",
+      "copyBtn": "复制世界",
+      "moveBtn": "移动世界",
+      "role": {
+        "source": "源",
+        "target": "目标"
+      },
+      "entry": {
+        "action": "迁移……",
+        "disabledRunning": "请先停止“{name}”"
+      },
+      "leftReason": {
+        "nameHeldByDifferentPack": "其名称正被目标库中另一个数据包使用",
+        "tooLarge": "它大于目标库允许的大小",
+        "linkFailed": "无法创建指向目标库的链接",
+        "unreadable": "无法读取该文件",
+        "io": "文件操作失败——请查看日志"
+      },
+      "toast": {
+        "titleCopied": "已复制“{name}”",
+        "titleMoved": "已移动“{name}”",
+        "nowIn": "现位于“{target}”中，名称为“{name}”",
+        "datapackLeftAsCopy": "{filename} 仍为普通副本，未链接到目标库：{reason}",
+        "datapackCopiedNotLinked": "{filename} 与目标库中的某个数据包匹配，但无法硬链接到它——它占用自己的磁盘空间",
+        "linksSkipped": "{count, plural, one {# 个世界内的符号链接未被复制} other {# 个世界内的符号链接未被复制}}",
+        "backupsLeft": "在“{source}”中：{count, plural, one {# 个备份留在原处——无法移动} other {# 个备份留在原处——无法移动}}",
+        "sourceLeftIntact": "无法从“{source}”中移除原“{name}”，它仍然存在。“{target}”中的世界是完整的；不再需要时请删除“{source}”中的副本。原因请查看日志。",
+        "sourceLeftPartial": "“{source}”中的原“{name}”仅被部分移除，已不再是完整的世界。“{target}”中的世界是完整的；请从“{source}”的存档文件夹中删除残留的“{name}”文件夹。原因请查看日志。"
+      }
+    }
+  },
+  "logs": {
+    "toolbar": {
+      "title": "日志",
+      "readCap": "读取上限：",
+      "reload": "重新加载",
+      "openFolder": "打开文件夹",
+      "wrapLines": "自动换行",
+      "collapseStacks": "折叠堆栈",
+      "showLevels": "显示：",
+      "rawView": "原始视图",
+      "collapseRepeats": "折叠重复项"
+    },
+    "severity": {
+      "game": "游戏日志",
+      "gameConsole": "游戏控制台输出",
+      "crash": "崩溃报告",
+      "launcher": "启动器日志"
+    },
+    "sourceHint": {
+      "gameConsole": "启动器捕获的游戏原始 stdout/stderr——可显示从未写入 latest.log 的崩溃。",
+      "launcher": "Lucerna 自身的诊断信息。"
+    },
+    "search": {
+      "placeholder": "在文件中查找（不区分大小写）……",
+      "matchCounter": "{current} / {total}",
+      "noMatches": "无匹配项",
+      "prevAriaLabel": "上一个匹配项",
+      "prevTitle": "上一个匹配项（Shift+Enter）",
+      "nextAriaLabel": "下一个匹配项",
+      "nextTitle": "下一个匹配项（Enter）"
+    },
+    "share": {
+      "shareBtn": "分享",
+      "uploading": "正在上传……",
+      "dialogTitle": "将日志分享到 mclo.gs？",
+      "dialogBody": "上传前会移除路径和令牌。分享前请再次确认是否含有敏感内容。",
+      "uploadBtn": "上传并分享",
+      "sharedLabel": "已分享：",
+      "copyBtn": "复制",
+      "dismissAriaLabel": "关闭分享链接",
+      "uploadFailed": "日志上传失败"
+    },
+    "rowMenu": {
+      "aria": "日志文件操作"
+    },
+    "diagnosis": {
+      "whatToTry": "建议尝试：",
+      "matchedLine": "匹配的行",
+      "patterns": {
+        "javaVersionTooOld": {
+          "title": "此实例的 Java 版本过旧",
+          "explanation": "您的某个模组是针对比实例当前运行的 Java 更新的版本构建的。Minecraft 启动了游戏，但该模组的类加载失败。",
+          "recommendation": "请在实例的「设置」选项卡中提高其 Minecraft 版本——较新的 MC 版本会自动安装较新的 JRE。如果您的整合包锁定在此 MC 版本，则该模组本身可能需要其作者更新。"
+        },
+        "modResolutionConflict": {
+          "title": "两个模组相互冲突",
+          "explanation": "Fabric 停止加载，因为您安装的两个模组无法同时运行——其中一个需要某个组件的版本，而另一个禁止该版本。",
+          "recommendation": "打开下方的崩溃日志以查看涉及哪些模组。请在「已安装」选项卡中禁用其中一个并重试。如果您导入了整合包，请查看整合包作者是否列出了已知的不良组合。"
+        },
+        "fabricLoaderMissingMain": {
+          "title": "此实例未安装 Fabric 加载器",
+          "explanation": "启动器要求 Java 启动 Fabric，但 Fabric 加载器文件不在类路径中。这通常意味着实例是以原版方式创建的、未选择 Fabric，或者加载器安装失败。",
+          "recommendation": "打开实例的「设置」选项卡，将加载器设为 Fabric，选择加载器版本，然后让启动器在启动前重新安装。"
+        },
+        "corruptModJar": {
+          "title": "某个模组文件已损坏",
+          "explanation": "Minecraft 尝试读取某个模组 jar，却发现它已损坏或不完整。最常见的原因是下载中途被中断。",
+          "recommendation": "打开下方的崩溃日志以找到该 jar 的文件名。请在「已安装」选项卡中卸载该模组并重新安装。如果您导入了整合包，重新导入整合包会以 SHA-1 校验重新获取每个 jar。"
+        },
+        "outOfMemory": {
+          "title": "Minecraft 内存不足",
+          "explanation": "实例分配的内存（heap）不足——这在重度整合包或加载大量区块时很常见。",
+          "recommendation": "打开实例的「设置」选项卡，提高其内存（原版风格的整合包可试 4096 MB，重度整合包则需 6144 MB 或更多），然后重试。不要超过系统内存的一半。"
+        },
+        "portAlreadyInUse": {
+          "title": "网络端口已被占用",
+          "explanation": "Minecraft 尝试打开一个网络端口——通常是用于内置局域网服务器——但另一个程序已在使用它。",
+          "recommendation": "请退出其他正在运行的 Minecraft 窗口（包括来自其他启动器的窗口），然后重试。如果问题仍然存在，请重启电脑以清除卡住的连接。"
+        },
+        "diskFull": {
+          "title": "硬盘已满",
+          "explanation": "Minecraft 尝试写入文件（区块、截图、模组缓存、日志），但磁盘因空间不足而拒绝。",
+          "recommendation": "请释放存放启动器数据所在驱动器的空间——在 Windows 上通常是 %APPDATA%。启动器的「存储」设置会显示模组缓存占用的空间，如果您想从那里开始清理。"
+        },
+        "serverMissingMods": {
+          "title": "服务器需要您没有的模组",
+          "explanation": "服务器拒绝了连接，因为您的客户端缺少它所需的模组，或者这些模组版本不对。Minecraft 在断开连接前已列出它们。",
+          "recommendation": "打开此日志并使用「安装缺失的模组」将它们添加到此实例，然后重新连接。启动器无法自动识别的模组会被列出，以便您在「附加组件」浏览器中查找。"
+        },
+        "clientExtraMods": {
+          "title": "服务器拒绝接受您的部分模组",
+          "explanation": "服务器因这些模组拒绝了连接。可能是服务器没有它们，也可能是您的版本与服务器不同——Minecraft 无法告诉启动器是哪一种，但其断开连接界面会显示所需的任何版本。",
+          "recommendation": "打开此日志。如果服务器没有某个模组，请禁用它（可逆）并重新连接。如果是版本差异，请安装服务器所需的版本，而不是禁用它。"
+        },
+        "createGoggleOverlayCrash": {
+          "title": "Create 护目镜不断刷出错误",
+          "explanation": "佩戴 Create 护目镜并看向生物或其他实体时，某个 Create 附加组件每帧都会抛出错误。游戏仍会继续运行，但日志会被迅速填满，护目镜叠加层也会不断闪烁。",
+          "recommendation": "Lucerna 可以安装一个小型社区修复模组来解决此问题。它是第三方模组，并非官方补丁——安装前请先确认。"
+        },
+        "javafmlLanguageProvider": {
+          "title": "模组需要比此实例更新的 Forge",
+          "explanation": "Forge 会用“语言提供器”版本（javafml）标记每一组模组加载特性。您的一个或多个模组 jar 是为比当前实例更新的 Forge 构建的，因此 Forge 在预加载阶段拒绝加载它们。这通常是在更改实例的 Minecraft/Forge 版本后，旧版本构建的 jar 仍留在 mods 文件夹中导致的。",
+          "recommendation": "打开此实例的「已安装」选项卡——与其当前 Minecraft/Forge 版本不匹配的模组会在那里标出，Lucerna 可以引导您迁移或移除它们，使其重新与此实例匹配。"
+        },
+        "forgeDuplicateMods": {
+          "title": "安装了同一个模组的两份副本",
+          "explanation": "模组加载器在 mods 文件夹中两次找到同一个模组——通常是旧版本被留在新版本旁边。在删除其中一份副本之前，它不会启动。",
+          "recommendation": "打开「已安装」选项卡（或 mods 文件夹），删除较旧的重复 jar，然后重新启动。"
+        },
+        "forgeMissingDependencies": {
+          "title": "某个模组缺少必需的依赖项",
+          "explanation": "您的一个模组需要另一个未安装的模组（或其更新版本）。本行之后的行会指明该模组及其所需版本。",
+          "recommendation": "按所需版本安装下方指明的依赖项，或移除要求该依赖项的模组。"
+        },
+        "fabricUnmetDependency": {
+          "title": "某个模组的依赖项缺失或版本错误",
+          "explanation": "Fabric 停止加载，因为某个模组需要的东西未安装或版本错误。下方各行会准确指明哪个模组需要什么。",
+          "recommendation": "按所需的版本安装下方指明的模组（大多数 Fabric 模组还需要 Fabric API），或移除需要它的模组。"
+        },
+        "mixinApplyFailed": {
+          "title": "某个模组未能挂接到游戏",
+          "explanation": "某个模组的 mixin（其修补游戏代码的方式）应用失败。这几乎总是意味着该模组是为其他 Minecraft 版本构建的，或两个模组修补了同一段代码而相互冲突。",
+          "recommendation": "检查本行指明的模组。安装与您确切的 Minecraft 版本和加载器匹配的构建；如果它已是最新，请尝试移除以找出冲突的两个模组。"
+        },
+        "brokenModMetadata": {
+          "title": "某个模组文件的元数据已损坏",
+          "explanation": "加载器无法读取某个模组的描述文件（fabric.mod.json / mods.toml）。该 jar 格式有误——通常是下载损坏，或该文件不是适用于此加载器的模组。",
+          "recommendation": "从该模组官方的、适用于您的加载器和 Minecraft 版本的页面重新下载，并替换损坏的文件。"
+        },
+        "overlayRenderCrash": {
+          "title": "绘制加载叠加层时崩溃",
+          "explanation": "游戏在模组加载界面时崩溃了。下方的“Caused by”行会指明初始化失败的模组或资源。",
+          "recommendation": "在下方堆栈中找到指明的模组并更新或移除它。若指明的是资源包，请禁用该资源包。"
+        },
+        "datapackLoadFailed": {
+          "title": "此世界的数据包加载失败",
+          "explanation": "Minecraft 无法加载此世界所需的数据：数据包内或模组内置数据（加载方式相同）中的某个文件无法读取。仅凭数据包的格式编号绝不会阻止加载，但为其他版本编写的内容往往无法读取。紧邻本行上方的错误行会指明该文件。",
+          "recommendation": "在上方错误行中找到该文件；其名称中冒号之前的部分即为其命名空间。如果此世界的「数据包」选项卡（或服务器的）中有某个数据包拥有该命名空间，请在那里将其关闭或移除；如果由某个模组拥有，请更新或移除该模组。不要把安全模式（游戏中的按钮，或服务器上的 --safeMode）当作修复手段：它只加载原版数据，而在安全模式下保存的世界会忘记您曾关闭过哪些数据包，因此下一次正常加载会把其文件夹中的每个数据包都重新启用，包括损坏的那个。"
+        },
+        "modLinkageError": {
+          "title": "某个模组是为其他游戏版本构建的",
+          "explanation": "Java 找不到另一个模组所预期的方法、字段或类——某个模组是针对与已安装版本不同的 Minecraft 或模组版本编译的。NoClassDefFoundError 也可能是同一模组中更早失败的余波——请检查其上方第一个错误。",
+          "recommendation": "查看本行指明的模组（或下方的“Caused by”），并安装与您确切的 Minecraft 版本以及它所交互的模组版本相匹配的构建。"
+        },
+        "oomMetaspace": {
+          "title": "Java 的元空间已耗尽",
+          "explanation": "类元数据区域已被填满——在安装数百个模组时会出现，与常规 heap 设置无关。",
+          "recommendation": "在此实例的自定义 JVM 参数中添加 -XX:MaxMetaspaceSize=1G，或减少已安装模组的数量。"
+        },
+        "oomGcOverhead": {
+          "title": "内存已满，Java 放弃运行",
+          "explanation": "由于 heap 几近耗尽，Java 几乎把所有时间都花在垃圾回收上——实际上就是内存不足的情况。",
+          "recommendation": "提高此实例的最大内存（heap）。对于重型整合包，可尝试 6144 MB 或更多，但请保持在系统内存的一半以下。"
+        },
+        "heapReserveFailed": {
+          "title": "内存设置大于可用内存",
+          "explanation": "Java 甚至无法启动，因为配置的最大 heap 大于系统能提供给它的内存（或该值格式有误）。",
+          "recommendation": "降低最大内存设置，关闭占用内存的程序，并确保游戏在 64 位 Java 上运行。"
+        },
+        "badJvmArg": {
+          "title": "某个自定义 Java 参数无效",
+          "explanation": "Java 拒绝启动，因为某个自定义 JVM 参数无法识别——通常是拼写错误，或来自其他 Java 版本的标志。",
+          "recommendation": "打开此实例的「设置」选项卡，在「额外的 JVM 参数」中修正或移除本行指明的参数。"
+        },
+        "nativesLinkError": {
+          "title": "某个本机库加载失败",
+          "explanation": "Java 无法加载某个平台本机库（通常是 LWJGL）。文件可能缺失、损坏，或被杀毒软件阻止。",
+          "recommendation": "运行实例修复以重新下载这些库。如果问题反复出现，请将启动器的数据文件夹加入杀毒软件的排除列表。"
+        },
+        "jvmNativeCrash": {
+          "title": "Java 自身崩溃（本机崩溃）",
+          "explanation": "崩溃发生在 Java 之下，即本机代码中——在客户端上最常见的是显卡驱动故障；超频和内存故障也会导致。",
+          "recommendation": "请先更新显卡驱动。如果仍然发生，请移除最近添加的使用本机代码的模组，并查看附近提到的 hs_err 文件以确定出错的模块。"
+        },
+        "glfwNoOpengl": {
+          "title": "显卡驱动不提供 OpenGL",
+          "explanation": "Minecraft 无法创建 OpenGL 窗口。显卡驱动缺失、过旧，或游戏运行在了错误的 GPU 上（在拥有两块显卡芯片的笔记本上很常见）。",
+          "recommendation": "从 NVIDIA/AMD/Intel 安装最新驱动（不要只依赖 Windows 更新）。在双 GPU 笔记本上，请在 Windows 图形设置中或通过启动器的 GPU 选项，为 Java 强制使用独立显卡。"
+        },
+        "pixelFormatNotAccelerated": {
+          "title": "没有可用的硬件图形加速",
+          "explanation": "系统仅提供软件渲染——显卡驱动缺失或过时（在重装 Windows 后以及远程桌面上很常见）。",
+          "recommendation": "从厂商网站安装正确的显卡驱动并重启。远程桌面会话通常没有加速——请尝试在本地运行。"
+        },
+        "openglErrorSpam": {
+          "title": "OpenGL 报告渲染错误",
+          "explanation": "渲染器遇到了无效的 GL 状态——通常是光影包、资源包，或与当前游戏或驱动不匹配的渲染模组。",
+          "recommendation": "禁用最近添加的光影包或资源包。如果问题持续，请将显卡驱动和渲染模组（Sodium/Iris/OptiFine）更新到适用于此确切 Minecraft 版本的构建。"
+        },
+        "invalidSession": {
+          "title": "Minecraft 会话无效",
+          "explanation": "会话令牌已过期或登录未完成，因此服务器拒绝了加入请求。偶尔是 Minecraft 会话服务本身出现故障——此时只能等待。",
+          "recommendation": "退出并重新登录（「账户」），然后重启游戏。在服务器日志中，这意味着加入的玩家需要这样做。"
+        },
+        "notWhitelisted": {
+          "title": "不在服务器的白名单中",
+          "explanation": "该服务器启用了白名单，而此账户不在其中——您这边没有任何问题。",
+          "recommendation": "请服务器管理员将您确切的用户名加入白名单（whitelist add <name>）。"
+        },
+        "dnsUnknownHost": {
+          "title": "无法解析服务器地址",
+          "explanation": "DNS 查询失败——地址有拼写错误、域名已不存在，或此机器没有可用的网络/DNS。该地址通常是您尝试加入的服务器，但检查更新的模组也可能记录此错误。",
+          "recommendation": "请仔细检查服务器地址是否有拼写错误，然后确认网络连接。如果两者都正常，请尝试其他 DNS（例如 1.1.1.1）。"
+        },
+        "sslHandshakeFailed": {
+          "title": "安全连接失败",
+          "explanation": "无法建立 HTTPS 连接（登录、模组下载、API）。最常见的原因是系统时钟错误；其次是进行拦截的杀毒软件/代理软件。",
+          "recommendation": "检查系统日期和时间是否正确，然后重试。如果问题持续，请临时关闭杀毒软件或代理的 HTTPS 扫描，以确认原因。"
+        },
+        "connectionTimedOut": {
+          "title": "连接超时",
+          "explanation": "对方始终没有响应——服务器已关闭、地址/端口错误，或防火墙拦截了流量。（如果您并未加入服务器却出现此提示，则是某个模组的后台下载超时——无害。）",
+          "recommendation": "确认服务器正在运行且地址与端口正确，然后检查两端的防火墙（包括自建服务器的路由器端口转发）。"
+        },
+        "connectionRefused": {
+          "title": "连接被拒绝",
+          "explanation": "目标机器有响应，但该端口上没有程序在监听——服务器没有在那里运行，或者监听的是其他端口。（模组的后台更新检查也可能记录此错误——如果您并未加入服务器，则无害。）",
+          "recommendation": "确保服务器正在运行且端口与其配置一致。对于自建服务器，请在 server.properties 中确认端口。"
+        },
+        "sessionLock": {
+          "title": "该世界已被另一个进程打开",
+          "explanation": "此世界的会话锁被另一个正在运行的游戏或服务器副本占用，因此无法同时打开两次。",
+          "recommendation": "关闭另一个打开此世界的 Minecraft/服务器进程（请检查系统托盘和任务管理器），然后重试。"
+        },
+        "chunkCorruption": {
+          "title": "世界区块数据已损坏",
+          "explanation": "游戏无法读取世界的部分内容——某个区域文件或区块文件已损坏或缺失，通常发生在保存时崩溃或强制关机之后。",
+          "recommendation": "从备份恢复此世界（「世界 → 备份」）。只有在您能接受丢失受损区域的情况下，才继续在损坏的世界中游玩。"
+        },
+        "levelDatCorrupt": {
+          "title": "世界的 level.dat 已损坏",
+          "explanation": "无法读取该世界的主元数据文件——通常发生在保存被中断之后。",
+          "recommendation": "从备份恢复该世界。Minecraft 还会在 level.dat 旁边保留 level.dat_old——将其重命名覆盖损坏的文件，可恢复大多数世界。"
+        },
+        "accessDenied": {
+          "title": "无法访问某个文件",
+          "explanation": "操作系统阻止了某项文件操作——文件被其他程序锁定（通常是杀毒软件正在扫描），或文件夹权限不正确。",
+          "recommendation": "关闭其他使用该文件夹的程序，并将启动器的数据目录加入杀毒软件的排除列表。请避免将游戏数据放在 OneDrive 同步的文件夹中。"
+        },
+        "shaderCompileFailed": {
+          "title": "光影包加载失败",
+          "explanation": "无法为此 GPU/驱动编译该光影包——它与当前的 Iris/OptiFine 版本不兼容，或光影包本身已损坏。如果未安装光影包，则是渲染模组或显卡驱动本身的问题。",
+          "recommendation": "尝试该光影包的其他版本（或其他光影包），并确保 Iris/OptiFine 与您的 Minecraft 版本匹配。"
+        },
+        "serverEulaNotAccepted": {
+          "title": "未接受 Minecraft EULA",
+          "explanation": "在 eula.txt 中接受 EULA 之前，Minecraft 服务器会拒绝启动。",
+          "recommendation": "在服务器设置中接受 EULA（或在 eula.txt 中设置 eula=true），然后重新启动。"
+        },
+        "serverPortInUse": {
+          "title": "服务器端口已被占用",
+          "explanation": "另一个程序——通常是此服务器的另一个副本——已在监听配置的端口。",
+          "recommendation": "停止该进程，或在设置中更改此服务器的端口后重新启动。"
+        },
+        "serverOutOfMemory": {
+          "title": "服务器内存不足",
+          "explanation": "分配给服务器的内存不足——在重型整合包、玩家众多或已加载区域较大时很常见。",
+          "recommendation": "在服务器设置中提高内存，保持在机器内存的一半以下，然后重新启动。"
+        },
+        "serverCantKeepUp": {
+          "title": "服务器运行滞后",
+          "explanation": "游戏刻耗时超过 50 ms，因此游戏时间比现实时间走得慢。在单人游戏中由游戏内置服务器记录。这是关于性能的警告，而非崩溃。",
+          "recommendation": "降低负载：减少或使用更轻量的模组、缩小视距/模拟距离，或增加内存。偶尔单次出现无害。"
+        },
+        "serverWatchdogStall": {
+          "title": "服务器刻卡住——看门狗已触发",
+          "explanation": "某一刻的耗时远超配置的上限，因此看门狗终止了服务器以解除卡死。通常是有某个模组或某次区块操作卡住了。",
+          "recommendation": "查看本行下方打印的堆栈，找出卡住的模组。作为临时方案，可提高 server.properties 中的 max-tick-time，但真正的修复是找到卡住的模组。"
+        }
+      }
+    },
+    "hints": {
+      "badgeAriaLabel": "已知问题——详情",
+      "cardAriaLabel": "已知日志错误的说明"
+    },
+    "repair": {
+      "fixThis": "修复此项",
+      "checking": "检查中……",
+      "apply": "应用修复",
+      "working": "处理中……",
+      "unavailable": "无法自动修复——请按照上述步骤操作。",
+      "raiseHeap": "将此实例的内存从 {from} MB 提高到 {to} MB。",
+      "reinstallLoader": "为此实例重新安装 {loader} 加载器。",
+      "redownloadMod": "重新下载 {file}（替换损坏的副本，并通过校验值验证）。",
+      "conflictPrompt": "这两个模组相互冲突——请选择一种修复方式：",
+      "compatHint": "可能不适用于此实例",
+      "disableNamed": "禁用 {name}",
+      "updateNamed": "将 {name} 更新到 {version}",
+      "toastDone": "已对 {name} 应用修复。",
+      "toastError": "无法修复 {name}：{error}",
+      "queuedToast": "已将 {name} 加入队列——关闭游戏后生效。",
+      "missingMods": {
+        "title": "安装缺失的模组",
+        "intro": "服务器需要这些模组。已确认匹配的项已勾选；匹配不确定的请从建议中选择。",
+        "exactHeading": "可安装",
+        "fuzzyHeading": "选择正确的一个",
+        "unresolvedHeading": "无法识别——请自行查找",
+        "serverWants": "服务器需要 {version}",
+        "findInBrowser": "在附加组件中查找",
+        "installedLabel": "已安装",
+        "none": "已找到问题所在，但无法自动识别任何模组。请使用上方的名称在附加组件浏览器中查找。",
+        "installedToast": "已安装 {name}",
+        "failedToast": "无法安装 {name}：{error}"
+      },
+      "fixMod": {
+        "intro": "Lucerna 可以为此安装社区修复：",
+        "thirdPartyNote": "第三方社区模组，并非官方补丁",
+        "install": "安装修复",
+        "degraded": "Lucerna 无法在此自动安装此项。",
+        "openProject": "打开项目页面"
+      },
+      "blockingMods": {
+        "title": "服务器拒绝的模组",
+        "intro": "服务器因这些模组而拒绝了连接。通常只是您的版本与服务器的不同。打开游戏内的断开连接界面——每个模组都会在「Server has」列中显示服务器的版本，旁边是您的版本；请为下方列出的模组安装该版本。只有当某个模组确实不在服务器上时，禁用才有帮助。",
+        "disableQuestion": "服务器没有此模组？",
+        "disableHint": "仅当服务器确实没有此模组时才禁用——这无法解决版本差异。禁用操作可以撤销。",
+        "disable": "禁用",
+        "disabledLabel": "已禁用",
+        "breaks": "禁用此项还会导致以下内容失效：{names}——它们需要它。",
+        "reconnectHint": "禁用服务器缺少的模组，然后重新连接。",
+        "allResolved": "已完成——请重新连接服务器。",
+        "disabledToast": "已禁用 {name}",
+        "failedToast": "无法禁用 {name}：{error}",
+        "replaceVersion": "替换版本……",
+        "pickVersionLabel": "选择「Server has」下显示的版本：",
+        "installThisVersion": "安装此版本",
+        "replacing": "替换中……",
+        "replacedReconnect": "已替换——请重新连接以确认。",
+        "loadingVersions": "正在加载版本……",
+        "noVersionsFound": "未找到适用于此 Minecraft + 加载器的版本。",
+        "replacedToast": "已将 {name} 替换为 {version}",
+        "replaceFailedToast": "无法替换 {name}：{error}",
+        "queued": "已排队——关闭游戏后生效。"
+      }
+    },
+    "empty": {
+      "noFile": "在左侧选择一个文件以查看。",
+      "noLogs": "暂无日志文件。请先启动一次 Minecraft。",
+      "listError": "无法列出日志：{error}",
+      "reading": "正在读取日志……",
+      "truncated": "已截断——仅显示最后 {cap}。提高上限可查看更多。",
+      "foldMore": "以及另外 {count} 条"
+    },
+    "close": {
+      "scrimAriaLabel": "关闭日志",
+      "popoverAriaLabel": "关闭日志弹出窗口"
+    },
+    "openFolder": {
+      "errorToast": "无法打开日志文件夹"
+    },
+    "manage": {
+      "delete": "删除",
+      "deleteConfirm": "删除此日志？",
+      "confirmYes": "删除",
+      "confirmNo": "取消",
+      "clearOld": "清除旧日志",
+      "clearOldTitle": "清除旧日志",
+      "clearOldBody": "删除 {count, plural, one {# 个文件} other {# 个文件}}（释放约 {size}）？latest.log 和 debug.log 会保留。",
+      "cleared": "{count, plural, one {已清除 # 个日志文件} other {已清除 # 个日志文件}} · 已释放 {size}"
+    },
+    "compact": {
+      "repeatCount": "×{count}"
+    },
+    "journal": {
+      "viewSwitchLabel": "视图",
+      "viewLogs": "日志",
+      "viewJournal": "历史",
+      "title": "实例历史",
+      "empty": "此实例尚无记录。安装、更新和启动将显示在此处。",
+      "loadFailed": "无法读取历史记录：{error}",
+      "filterAll": "全部",
+      "filterContent": "内容",
+      "filterLaunches": "启动",
+      "clear": "清除历史记录",
+      "clearTitle": "清除实例历史记录？",
+      "clearBody": "这将删除此实例内容变更和启动的本地记录。您的模组、世界和设置不受影响。",
+      "clearConfirm": "清除",
+      "cleared": "历史记录已清除",
+      "openLog": "打开日志",
+      "affected": "{count, plural, one {# 个文件} other {# 个文件}}",
+      "exitCode": "退出码 {code}",
+      "contextTitle": "此日志前不久有变更",
+      "contextAgo": "{duration} 前",
+      "action": {
+        "modInstalled": "已安装模组",
+        "modUpdated": "已更新模组",
+        "modRemoved": "已移除模组",
+        "modRestored": "已恢复模组",
+        "modEnabled": "已启用模组",
+        "modDisabled": "已禁用模组",
+        "assetInstalled": "已安装附加组件",
+        "assetUpdated": "已更新附加组件",
+        "assetRemoved": "已移除附加组件",
+        "modpackImported": "已导入整合包",
+        "modpackUpdated": "已更新整合包",
+        "integrityRepaired": "已修复文件",
+        "dataCopied": "已复制数据"
+      },
+      "outcome": {
+        "ok": "正常关闭",
+        "crashed": "已崩溃",
+        "stopped": "由您停止"
+      }
+    }
+  },
+  "onboarding": {
+    "controls": {
+      "back": "返回",
+      "next": "下一步",
+      "skip": "跳过引导",
+      "finish": "完成",
+      "gotIt": "知道了",
+      "skipContextual": "跳过",
+      "stepOf": "第 {current} 步，共 {total} 步",
+      "completionNotSaved": "无法记住您已完成引导。下次启动时可能会再次打开。"
+    },
+    "tour": {
+      "welcome": {
+        "title": "欢迎使用 Lucerna",
+        "body": "Lucerna 将 Minecraft 按实例组织：每个实例都是自成一体的世界，拥有各自独立的版本、加载器、模组、配置与存档，以及各自隔离的 .minecraft 目录。切换实例就等于切换整套 Minecraft 安装，其他实例则保持原样。",
+        "titleBasic": "欢迎使用 Lucerna",
+        "bodyBasic": "Lucerna 把您的 Minecraft 配置分别放进称为“实例”的独立盒子中。每个盒子都有自己的游戏版本、模组和存档世界。切换到另一个盒子时，一切都会随之切换，其他盒子则保持您离开时的样子。"
+      },
+      "signIn": {
+        "title": "选择账户",
+        "body": "启动游戏需要一个账户。使用 Microsoft 登录，或添加离线账户用于单人游戏和局域网。Lucerna 将令牌存储在操作系统的钥匙串中。离线账户无法加入要求 Microsoft 登录的服务器。重新打开此菜单可切换账户，行上的垃圾桶图标可移除账户。",
+        "titleBasic": "选择账户",
+        "bodyBasic": "开始游戏需要一个账户。使用 Microsoft 登录以使用您真实的 Minecraft 账户，或添加离线账户，自己游玩或与同一网络中的朋友一起游玩。再次打开此菜单可切换账户；垃圾桶图标可移除账户。"
+      },
+      "pickInstance": {
+        "title": "选择实例",
+        "body": "实例是一套自成一体的 Minecraft 安装。Lucerna 初始提供一个名为“Default”的实例。此下拉菜单可切换当前实例，「开始游戏」、模组和日志都会指向您选中的实例。",
+        "titleBasic": "选择实例",
+        "bodyBasic": "实例是一套独立的 Minecraft 配置。Lucerna 初始会提供一个，名为“Default”。此菜单用于选择哪个实例处于活动状态，「开始游戏」按钮、模组和日志都会跟随您选择的实例。"
+      },
+      "installPlay": {
+        "title": "先安装，再开始游戏",
+        "body": "首次点击会下载 Minecraft 和您选择的加载器（每个版本仅一次），然后依据 Mojang 的哈希值校验每一项资源和库。此后按钮显示为「开始游戏」，游戏运行期间显示为「停止」。当实例已就绪并拥有存档世界时，将鼠标悬停在「开始游戏」上即可直接进入其中一个世界。",
+        "titleBasic": "先安装，再开始游戏",
+        "bodyBasic": "首次点击会下载 Minecraft 和您选择的模组系统。每个版本只需等待这一次。此后按钮会变为「开始游戏」，游戏打开期间则变为「停止」。当实例就绪后，将鼠标悬停在「开始游戏」上即可直接进入存档世界。"
+      },
+      "browseMods": {
+        "title": "浏览模组",
+        "body": "搜索 Modrinth 或 CurseForge，将模组安装到当前实例的 mods 文件夹。Lucerna 会解析模组的依赖项、对每个文件进行 SHA 校验，并在「已安装」子选项卡中列出。",
+        "titleBasic": "查找模组",
+        "bodyBasic": "搜索 Modrinth 或 CurseForge 这两个大型模组网站，把模组直接添加到您正在使用的实例中。Lucerna 会检查每个文件是否安全，您可以在「已安装」列表中看到它们。"
+      },
+      "importModpacks": {
+        "title": "导入整合包",
+        "body": "将 .mrpack 或 CurseForge .zip 拖放到此处，或从 Modrinth、CurseForge 和 FTB 浏览整合包。从 CurseForge 和 FTB 下载需要免费的 CurseForge API 密钥；请在「设置」的「集成」中添加。每次导入都会生成一个新的独立实例，不会影响现有实例。",
+        "titleBasic": "添加整合包",
+        "bodyBasic": "整合包是一组预先打包好的模组。将整合包文件拖放到此处，或从 Modrinth、CurseForge 和 FTB 浏览整合包。您添加的每个整合包都会成为一个新的独立实例，不会影响其他实例。"
+      },
+      "instanceSettings": {
+        "title": "实例设置",
+        "body": "「设置」选项卡包含此实例的 Minecraft 版本、加载器、内存和 Java。您的第一个实例可能还没有选择版本，请在开始游戏前于此处选择一个。新实例可通过侧边栏的「新建实例」创建。",
+        "titleBasic": "设置您的实例",
+        "bodyBasic": "在「设置」选项卡中，您可以选择此实例游玩的 Minecraft 版本、模组系统以及分配给它的内存。您的第一个实例可能还没有版本，请在此处选择一个。如需创建另一个实例，请使用侧边栏的「新建实例」。"
+      }
+    },
+    "contextual": {
+      "logs": {
+        "threeLogSources": {
+          "title": "三种日志来源",
+          "body": "游戏日志是 Minecraft 的输出。崩溃报告仅在游戏崩溃时出现。启动器日志是 Lucerna 自己的日志。",
+          "titleBasic": "三类日志",
+          "bodyBasic": "游戏日志是来自 Minecraft 的消息。崩溃报告仅在游戏崩溃时出现。启动器日志是 Lucerna 自己的消息。"
+        },
+        "displayOptions": {
+          "title": "显示选项",
+          "body": "「自动换行」会折行显示较长的类路径和堆栈跟踪输出。「折叠堆栈」将重复的 Java 帧收进一行可点击的内容中。「显示」复选框可隐藏整个严重级别，便于您在数千行 INFO 中查找单个 WARN。",
+          "titleBasic": "显示选项",
+          "bodyBasic": "「自动换行」可避免长行超出屏幕。「折叠堆栈」将重复的技术性行隐藏在一行可点击展开的内容后。「显示」复选框可隐藏整组消息，便于您在数千行中查找某条警告。"
+        },
+        "searchNavigation": {
+          "title": "带导航的搜索",
+          "body": "输入内容即可搜索当前打开的文件。计数器显示第 N 个匹配，共 M 个；Enter / Shift+Enter 可在匹配项之间切换，Esc 清除搜索。当前匹配项以蓝色高亮显示。",
+          "titleBasic": "搜索日志",
+          "bodyBasic": "输入内容即可搜索当前打开的文件。它会显示您当前位于第几个匹配（例如 12 个中的第 3 个）；按 Enter 和 Shift+Enter 可在匹配项之间跳转，按 Esc 清除搜索。当前匹配项以蓝色高亮显示。"
+        },
+        "shareMcloGs": {
+          "title": "分享到 mclo.gs",
+          "body": "将鼠标悬停在列表中的日志文件上即可显示其操作；右键点击某行会提供相同的菜单。「分享」会将该日志上传到 mclo.gs（Minecraft 社区事实上的粘贴服务），并给您一个可分享的链接。上传前会先移除用户路径、会话令牌和局域网 IP，因此您可以把链接发到 Discord 而不泄露个人信息。文件夹图标会在磁盘上打开该文件所在的文件夹。",
+          "titleBasic": "分享到 mclo.gs",
+          "bodyBasic": "将鼠标指向列表中的日志文件即可看到其按钮；右键点击文件会显示相同的操作。「分享」会将日志上传到 mclo.gs（一个专门分享 Minecraft 日志的网站），并给您一个链接。上传前会移除您的隐私信息，例如文件路径和网络地址，因此该链接可以安全分享（例如在 Discord 上）。文件夹按钮会在您的电脑上显示该文件。"
+        },
+        "crashStructuredView": {
+          "title": "崩溃报告提供结构化视图",
+          "body": "打开 crash-*.txt 文件时，Lucerna 会将其拆分为可折叠的区块（Head、Affected level、System Details、Mods）。如果您更想直接检索纯文本，可在工具栏中切换「原始视图」。",
+          "titleBasic": "更清晰的崩溃视图",
+          "bodyBasic": "打开崩溃报告时，Lucerna 会将其拆分为可展开和收起的区块（例如 Head、Affected level、System Details 和 Mods）。如果您更想阅读纯文本，请在工具栏中开启「原始视图」。"
+        },
+        "diagnosis": {
+          "title": "自动崩溃诊断",
+          "body": "当最新日志显示已知问题时，此横幅会指出可能的原因，并且对许多问题提供一键修复：安装缺失的模组、禁用冲突的模组、提高 heap 上限等。它始终反映最近一次运行，即使您在列表中打开了更早的文件。",
+          "titleBasic": "崩溃帮助",
+          "bodyBasic": "出现问题时，此横幅会告诉您可能的原因，并常常提供一键修复。它始终显示最近一次运行。"
+        },
+        "readCap": {
+          "title": "加载多少日志",
+          "body": "大型日志打开可能较慢，因此 Lucerna 只读取每个文件的最后一部分。此项决定读取多少：调大以查看更多历史，或保持较小以获得速度。当日志被截断时会显示截断提示。",
+          "titleBasic": "日志大小上限",
+          "bodyBasic": "大型日志可能较慢，因此 Lucerna 只加载最近的部分。用此项可加载更多或更少的内容。"
+        }
+      },
+      "modpacks": {
+        "browseVsImported": {
+          "title": "浏览与已导入",
+          "body": "「浏览」会搜索 Modrinth、CurseForge 和 FTB。「已导入」列出您已安装的整合包，每个都是独立实例。",
+          "titleBasic": "浏览与已导入",
+          "bodyBasic": "「浏览」会在 Modrinth、CurseForge 和 FTB 中搜索整合包。「已导入」显示您已添加的整合包，每个都是独立实例。"
+        },
+        "dragAndDrop": {
+          "title": "拖放",
+          "body": "将 .mrpack 或 CurseForge .zip 拖放到此视图的任意位置即可导入。每次导入都会生成一个新的独立实例，不会影响现有实例。",
+          "titleBasic": "拖放",
+          "bodyBasic": "将整合包文件拖到此窗口即可添加。您添加的每个整合包都会成为一个新的独立实例，不会影响其他实例。"
+        },
+        "searchSortFilter": {
+          "title": "搜索、排序与筛选",
+          "body": "搜索和排序位于此栏中，紧邻模组加载器和 Minecraft 版本的筛选器。设置筛选后，会出现「全部清除」按钮，可一次重置所有筛选。",
+          "titleBasic": "搜索、排序与筛选",
+          "bodyBasic": "在此栏中即可搜索、排序，并按模组系统或 Minecraft 版本缩小列表范围。缩小范围后，会出现「全部清除」按钮，可将所有内容恢复。"
+        }
+      },
+      "worlds": {
+        "worldsWithBackups": {
+          "title": "您的世界与备份",
+          "body": "每行是一个单人存档，徽章显示其备份数量。点击某行可打开该世界：「备份」选项卡可立即备份并恢复较早的备份，既可替换世界，也可作为副本恢复；「数据包」选项卡管理该世界的数据包。行上的垃圾桶按钮会删除该世界。",
+          "titleBasic": "您的世界与备份",
+          "bodyBasic": "每行是一个单人世界，数字显示它有多少个备份。点击某行可打开它：一个选项卡用于创建和恢复备份，另一个用于管理该世界的数据包。行上的垃圾桶按钮会删除该世界。"
+        },
+        "importWorlds": {
+          "title": "导入世界",
+          "body": "从 .zip 或文件夹导入世界：拖放到此处，或使用文件夹按钮。Lucerna 会将其复制到此实例的存档中，原文件保留在原位。",
+          "titleBasic": "添加世界",
+          "bodyBasic": "添加您已有的 .zip 或文件夹形式的世界。拖放到此处或使用按钮。它会被复制到此实例中，您的原文件保持原位。"
+        },
+        "openSavesFolder": {
+          "title": "打开存档文件夹",
+          "body": "在文件管理器中打开 saves/ 文件夹，以便您手动操作：将世界移动到另一个实例，或复制出来用于服务器上传。",
+          "titleBasic": "打开存档文件夹",
+          "bodyBasic": "在您的电脑上打开存档文件夹，便于您手动操作：将世界移动到另一个实例，或复制出来放到服务器上。"
+        }
+      },
+      "servers": {
+        "create": {
+          "title": "运行您自己的服务器",
+          "body": "快速创建一个 Minecraft 服务器：选择版本和加载器，从零开始，或基于现有实例构建。",
+          "titleBasic": "创建服务器",
+          "bodyBasic": "在此创建您自己的 Minecraft 服务器。选择版本和模组加载器，或基于您已有的实例构建。"
+        },
+        "modeSwitch": {
+          "title": "启动器的两种模式",
+          "titleBasic": "随时切回",
+          "body": "启动器现在有两种模式：「客户端」用于游玩，「服务器」用于托管。随时可在此切换；服务器运行时客户端仍可正常使用。",
+          "bodyBasic": "使用此开关可返回游玩。您的服务器会继续运行。"
+        }
+      },
+      "serverManage": {
+        "startStop": {
+          "title": "启动、停止与崩溃帮助",
+          "body": "此侧边栏按钮可启动服务器，运行期间会变为「停止」；「重启」位于面板标题栏。如果服务器因崩溃而停止，选项卡上方会出现横幅，指出可能的原因并提供一键修复：接受 EULA、释放端口、提高 heap 上限等。",
+          "titleBasic": "启动与停止",
+          "bodyBasic": "此按钮可启动服务器，运行后会变为「停止」。「重启」位于面板顶部。如果服务器崩溃，会出现帮助横幅，说明可能的原因并提供修复按钮。"
+        },
+        "overview": {
+          "title": "一目了然",
+          "titleBasic": "您的服务器主页",
+          "body": "「概览」汇集服务器信息、用于邀请朋友的连接详情，以及带命令输入的实时控制台。",
+          "bodyBasic": "此选项卡显示服务器的运行状况、朋友如何加入，以及它运行时输出的内容。"
+        },
+        "addons": {
+          "title": "模组、插件与数据包",
+          "titleBasic": "附加内容都在这里",
+          "body": "「附加组件」会随服务器核心而变：模组加载器使用模组，Paper 和 Purpur 使用插件，数据包在 Minecraft 1.13 或更新版本中可用。搜索目录或将文件拖放到区域中。",
+          "bodyBasic": "在此添加额外内容。该选项卡只提供您的服务器类型支持的内容。"
+        },
+        "hosting": {
+          "title": "「托管」选项卡",
+          "body": "「托管」会通过 SFTP 将您的服务器上传到租用的主机。首次连接时，请核对主机密钥指纹，确保连接到正确的机器。更想手动迁移？可将整个服务器导出为 ZIP。",
+          "titleBasic": "托管",
+          "bodyBasic": "「托管」可通过安全连接将您的服务器上传到付费主机，或将其导出为 ZIP 文件由您自行迁移。"
+        },
+        "toInstance": {
+          "title": "创建匹配的客户端",
+          "body": "创建一个与此服务器匹配的客户端实例，使用相同的版本、加载器和模组，以便您加入自己的模组服务器。Lucerna 还可以同时将其添加到您的多人游戏列表。",
+          "titleBasic": "创建客户端以加入",
+          "bodyBasic": "这会创建一个匹配的游戏实例，以便您加入自己的服务器，版本和模组都已为您配置好。它也可以添加到您的多人游戏列表。"
+        }
+      },
+      "addons": {
+        "kindSwitch": {
+          "title": "您要添加的内容",
+          "body": "此行用于切换您要添加的内容：模组、资源包、光影或数据包（Beta），后者在 Minecraft 1.13 或更新版本中出现。光影需要光影加载器才能运行；当您选择「光影」而未安装加载器时，Lucerna 会检查哪个加载器适合此实例并指向它，或说明没有可用的加载器。行末的 (i) 会说明您选择的类型以及何时需要它。",
+          "titleBasic": "选择要添加的内容",
+          "bodyBasic": "使用此行选择您要添加的内容：模组、资源包或光影。数据包在 Minecraft 1.13 及更新版本中加入此行。光影还需要光影加载器；如果缺失，Lucerna 会为您指向合适的加载器，或说明没有可用的加载器。行末的 (i) 会说明您选择的内容。"
+        },
+        "datapackLibrary": {
+          "title": "数据包位于世界中",
+          "body": "数据包在 Minecraft 1.13 或更新版本中加入此行。安装数据包时会先将其放入此实例的库中。您可以从库中将其放入任意世界，更新则会传达到所有使用该数据包的世界。选择「数据包」，行末的 (i) 有完整说明。",
+          "titleBasic": "数据包位于世界中",
+          "bodyBasic": "数据包会改变游戏的规则和内容，例如配方或战利品。它在 Minecraft 1.13 及更新版本中加入此行。安装后会放入此实例的库中；您可以从那里将其添加到您选择的世界。选择「数据包」，然后点击行末的 (i) 了解更多。"
+        },
+        "subtabs": {
+          "title": "浏览与已安装",
+          "body": "「浏览」会在 Modrinth 或 CurseForge 中搜索新内容；「已安装」列出此实例中已有的内容。在「浏览」中，右侧的选择器可切换来源。如果 CurseForge 要求 API 密钥，请在「设置」的「集成」中添加。",
+          "titleBasic": "查找与管理",
+          "bodyBasic": "「浏览」可在 Modrinth 或 CurseForge 上查找新内容。「已安装」显示您已有的内容。在「浏览」中，右侧的菜单可在两个网站之间切换。如果 CurseForge 要求密钥，您可以在「设置」的「集成」中添加。"
+        },
+        "dropzone": {
+          "title": "从文件安装",
+          "body": "已有 .jar 或 .zip？拖放到此处，或点击选择。安装前，Lucerna 会检查它是否匹配此实例的版本和加载器。",
+          "titleBasic": "拖入文件",
+          "bodyBasic": "有模组或资源包文件？拖放到此处，或点击选择。Lucerna 会先检查它是否与此实例兼容。"
+        }
+      },
+      "serverAddons": {
+        "kindSwitch": {
+          "title": "此服务器支持的内容",
+          "body": "此处的类型随服务器而定：模组加载器使用模组，Paper 和 Purpur 使用插件，数据包需要 Minecraft 1.13 或更新版本。服务器的数据包位于其世界中，更改它们需要先停止服务器。",
+          "titleBasic": "此处可添加的内容",
+          "bodyBasic": "此行显示您的服务器支持的内容：模组、插件或数据包。数据包位于服务器的世界内，需在服务器停止时更改。"
+        },
+        "dropzone": {
+          "title": "从文件安装",
+          "body": "将所选类型的文件拖放到此处，或点击选择。安装前，Lucerna 会检查它是否适合此服务器。请先停止服务器再进行更改。",
+          "titleBasic": "拖入文件",
+          "bodyBasic": "有文件？拖放到此处，或点击选择。Lucerna 会先检查它是否与此服务器兼容。更改前请停止服务器。"
+        }
+      },
+      "l10n": {
+        "coverage": {
+          "title": "各模组的翻译覆盖率",
+          "body": "每行是一个模组，以及其文本被翻译成所选语言的比例。点击某行可打开其字符串并编辑任意一项；您的编辑保存在启动器中，而不是模组中。",
+          "titleBasic": "各模组的翻译进度",
+          "bodyBasic": "每一行是一个模组，以及它的文本有多少已翻译成您的语言。点击一行即可查看并修改它的文本行。您的修改保存在启动器中，不会写入模组。"
+        },
+        "search": {
+          "title": "查找游戏中的文本行",
+          "body": "在游戏中看到未翻译的文本行，却不知道它属于哪个模组？在这里输入它。Lucerna 会搜索此实例中的每个模组，并按照游戏的格式匹配文本。",
+          "titleBasic": "查找您看到的文本行",
+          "bodyBasic": "在游戏中看到未翻译的文本行？在这里输入它，Lucerna 会找出它属于哪个模组。"
+        },
+        "actions": {
+          "title": "应用、翻译、分享",
+          "body": "「应用」会根据您的修改构建资源包，并为此实例启用它。「AI 翻译」会在您允许 AI 翻译并在「设置 → 集成」中保存自己的 API 密钥后填补空缺。「导出」与「导入」可将您的译文以文件形式分享。",
+          "titleBasic": "启用并分享",
+          "bodyBasic": "「应用」会打包您的译文，让游戏可以使用。「AI 翻译」可在您于「设置」中允许并添加自己的密钥后填补空缺。「导出」与「导入」让您能与朋友分享译文。"
+        }
+      },
+      "overview": {
+        "l10nRow": {
+          "title": "模组翻译",
+          "body": "此行显示此实例的模组文本有多少已翻译成您的语言。点击即可阅读、编辑或自动翻译模组文本，并将它们应用到游戏中。",
+          "titleBasic": "模组翻译",
+          "bodyBasic": "此行显示您的模组文本有多少已翻译成您的语言。点击即可查看并修改译文。"
+        }
+      },
+      "deps": {
+        "cell": {
+          "title": "模组的依赖项",
+          "body": "链条图标旁的数字统计此模组所需的模组，以及这些模组所需的内容。向上箭头旁的数字统计需要此模组的已安装模组。点击该单元格可打开其依赖项面板。",
+          "titleBasic": "模组需要什么",
+          "bodyBasic": "有些模组需要与其他模组配合才能工作。链条数字显示此模组需要多少个模组；箭头数字显示您有多少个模组需要它。点击数字即可查看列表。"
+        },
+        "requires": {
+          "title": "需要",
+          "body": "此模组需要的内容，以及每一项的状态。红色表示游戏无法启动：它需要的某个模组缺失或版本不正确。使用该行末尾的按钮安装缺失的模组。如果某行标注“此模组没有它也能启动”，则只有该模组的页面会列出这项要求。",
+          "titleBasic": "它需要什么",
+          "bodyBasic": "这些是此模组所需的模组，每一行显示它是否已安装。红色文字表示在修复之前游戏无法启动；缺失的模组可用该行末尾的按钮安装。当您从「浏览」安装时，Lucerna 会提议一并安装该模组所需的内容。"
+        },
+        "optional": {
+          "title": "可选",
+          "body": "模组没有这些也能运行。它们会增加功能或改善与其他模组的兼容性；如需某个模组，可用该行末尾的按钮添加。此处的红色表示已安装的版本会导致游戏无法运行。",
+          "titleBasic": "有则更好",
+          "bodyBasic": "模组没有这些也能工作；它们只提供额外内容。如需某个模组，可用该行末尾的按钮添加。"
+        },
+        "requiredBy": {
+          "title": "被依赖",
+          "body": "此行上的向上箭头统计需要此模组的已安装模组，其面板会在「被依赖」下列出它们。如果某个模组没有它就无法加载，当您禁用或移除此模组时，Lucerna 会指出该模组，并提议将其一并禁用。",
+          "titleBasic": "需要它的模组",
+          "bodyBasic": "箭头数字显示您有多少个模组需要它。如果您关闭或移除它，而另一个模组没有它就无法加载，Lucerna 会告诉您是哪个模组。"
+        }
+      },
+      "instanceSettings": {
+        "game": {
+          "title": "游戏与启动",
+          "body": "版本、加载器、内存、Java 与 JVM 参数。离开输入框时，每项修改会自动保存。",
+          "titleBasic": "游戏及其内存",
+          "bodyBasic": "在此选择 Minecraft 版本、模组系统与内存。继续操作时修改会自动保存。"
+        },
+        "actions": {
+          "title": "实例操作",
+          "body": "克隆、桌面快捷方式、模组翻译与实例文件夹。",
+          "titleBasic": "您可以对它做什么",
+          "bodyBasic": "制作副本、在桌面创建快捷方式、翻译模组或打开文件夹。"
+        },
+        "danger": {
+          "title": "删除实例",
+          "body": "确认后，「删除」会移除实例及其所有文件，包括世界。",
+          "titleBasic": "删除",
+          "bodyBasic": "「删除」会移除实例及其中的一切。它会先请您确认。"
+        },
+        "integrity": {
+          "title": "校验与修复",
+          "body": "「校验」会根据 Mojang 的哈希值检查此实例的文件（客户端 jar、库、资源、Java 运行时、配置文件）。如果有文件缺失或损坏，「修复」只会重新下载有问题的文件。",
+          "titleBasic": "检查文件",
+          "bodyBasic": "「校验」会检查此实例的文件是否齐全且完好。如果有文件缺失或损坏，「修复」只会下载需要修复的部分。"
+        }
+      }
+    },
+    "instanceConcept": {
+      "triggerAriaLabel": "什么是实例？",
+      "triggerTitle": "什么是实例？",
+      "closeAriaLabel": "关闭提示",
+      "body": "每个实例都是独立的世界：拥有自己的 Minecraft 版本、加载器、模组、配置与存档。切换实例即切换您的整个 Minecraft 安装，而其他实例保持不变。",
+      "bodyBasic": "实例是一套独立的 Minecraft 配置：拥有自己的游戏版本、模组与存档世界。切换到另一个实例时，一切都会随之切换，而其他实例保持原样。"
+    },
+    "modpackInstance": {
+      "triggerAriaLabel": "为什么安装整合包会创建新实例？",
+      "triggerTitle": "为什么要新建实例？",
+      "closeAriaLabel": "关闭提示",
+      "body": "安装整合包总会创建它自己的新实例：一个独立文件夹，包含该整合包确切的模组、配置与存档。Lucerna 无法将它合并到现有实例中，因为整合包锁定了特定的模组版本，会与已有内容冲突。将每个整合包隔离可保持其可复现性，并让您在移除它时不破坏其他配置。",
+      "bodyBasic": "添加整合包总会创建它自己的新实例：一套独立的配置，包含该整合包确切的模组与世界。它无法混入您已有的实例，因为整合包需要特定的模组版本，会与已有内容冲突。让每个整合包保持独立意味着它能持续正常工作，并且可以在不破坏其他配置的情况下移除它。"
+    },
+    "datapackConcept": {
+      "triggerAriaLabel": "什么是数据包？",
+      "triggerTitle": "什么是数据包？",
+      "closeAriaLabel": "关闭帮助",
+      "p1": "数据包会更改游戏数据：配方、战利品表、进度、世界生成与函数。它们使用游戏自带的格式，原版 Minecraft 1.13 及更高版本可原生读取。",
+      "p1Basic": "数据包会更改游戏本身的部分内容，例如配方、战利品与成就。从 Minecraft 1.13 起，游戏可自行读取它们。",
+      "p2": "与模组不同，数据包不是代码。它不需要模组加载器，并且位于世界中而非实例中：每个世界自行启用或禁用其数据包。",
+      "p2Basic": "数据包不是模组：它不需要模组系统，且属于某个世界，而非整个实例。每个世界选择自己的数据包。",
+      "choose": "当您希望在没有模组加载器的情况下更改规则、配方、战利品或世界生成时（例如在原版服务器上），请选择数据包。数据包无法添加真正全新的方块或生物；只有模组可以。",
+      "chooseBasic": "数据包是在没有模组的情况下更改游戏规则的方式。新方块与生物只能来自模组。",
+      "p3": "在实例中，安装数据包会将其放入该实例的库中。您可以从中将其放入世界；更新数据包会更新所有使用它的世界，移除它则可将其从所有世界中清除。在服务器上，数据包位于服务器的世界中，并在服务器停止时进行更改。数据包构建器 Vanilla Tweaks 就在库中可用。",
+      "p3Basic": "在实例中，您安装的数据包会先进入库中。您可以从那里将它添加到您选择的世界；更新会传到所有使用它的世界。在服务器上，数据包位于服务器的世界中，并在服务器关闭时进行更改。数据包构建器 Vanilla Tweaks 也位于库中。",
+      "p4": "数据包标记为 Beta：该功能已完整并有防护，但比启动器的其他部分更新，细节仍可能变化。",
+      "p4Basic": "Beta 标记表示启动器的这一部分比其他部分更新，因此其细节仍可能变化。"
+    },
+    "modConcept": {
+      "triggerAriaLabel": "什么是模组？",
+      "triggerTitle": "什么是模组？",
+      "closeAriaLabel": "关闭帮助",
+      "p1": "模组是更改游戏本身的代码：它们添加方块、物品、生物、维度与机制，或改善界面与性能。",
+      "p1Basic": "模组会更改游戏本身：它们添加新方块、物品、生物与机制。",
+      "p2": "模组需要模组加载器（Fabric、Forge、NeoForge 或 Quilt），并且必须针对与实例相同的加载器和 Minecraft 版本构建。不同加载器的模组无法混用，许多模组还需要其他模组作为依赖项。",
+      "p2Basic": "模组需要加载器（Fabric、Forge、NeoForge 或 Quilt）。模组必须与此实例的加载器和 Minecraft 版本相匹配。",
+      "p3": "模组安装到实例中，并可在其所有世界中生效。要在服务器上游戏，添加内容的模组通常必须同时位于服务器和每位玩家的游戏中；客户端模组（界面、小地图、性能）只需您自己安装。",
+      "p3Basic": "模组会放入实例，并可在其所有世界中生效。要在服务器上使用模组游戏，大多数模组也必须安装在那里。",
+      "p4": "当您想要的内容或机制在游戏中不存在时，请选择模组。如果您只想要不同的外观，资源包就足够了；配方、战利品与规则通常可以用数据包更改，无需加载器。",
+      "p4Basic": "当您想在游戏中加入新内容时，请选择模组。如果只想更改材质，请使用资源包；如果要更改配方或战利品，请使用数据包。"
+    },
+    "resourcePackConcept": {
+      "triggerAriaLabel": "什么是资源包？",
+      "triggerTitle": "什么是资源包？",
+      "closeAriaLabel": "关闭帮助",
+      "p1": "资源包会更改游戏的外观与声音：方块和物品的材质、模型、音效、音乐、字体与文本。它们不影响游戏的玩法。",
+      "p1Basic": "资源包会更改游戏的外观与声音：材质、音效、字体。游戏本身保持不变。",
+      "p2": "无需加载器：资源包可在纯 Minecraft 中以及与模组一起工作。游戏会将为其他版本制作的资源包标记为不兼容，但您仍可启用它；部分材质可能不会生效。",
+      "p2Basic": "无需加载器：资源包可在任何实例中工作。",
+      "p3": "安装的资源包会放入实例；您在游戏内「选项 → 资源包」中启用并调整其顺序。列表中位置靠上的资源包会覆盖下方的资源包。服务器不需要它们，服务器可能会在您加入时提供自己的资源包。",
+      "p3Basic": "安装后，请在游戏内启用资源包：「选项 → 资源包」。它不需要放到服务器上。",
+      "p4": "当您喜欢这款游戏但希望外观或声音有所不同时，请选择资源包。光照、阴影与反射需要光影，只有模组才能添加新物品。",
+      "p4Basic": "如需不同的外观，请选择资源包。更好的光照与阴影来自光影。"
+    },
+    "shaderConcept": {
+      "triggerAriaLabel": "什么是光影？",
+      "triggerTitle": "什么是光影？",
+      "closeAriaLabel": "关闭帮助",
+      "p1": "光影会更改光照与画面：柔和阴影、阳光、水面反射、云与天空。玩法保持不变。",
+      "p1Basic": "光影让画面更漂亮：光照、阴影、水面、天空。游戏本身保持不变。",
+      "p2": "光影需要光影加载器：Iris、Oculus 或 OptiFine。哪个合适取决于模组加载器与 Minecraft 版本；Lucerna 会在此选项卡上直接检查，并指出合适的选项，或说明没有合适的。",
+      "p2Basic": "光影需要一个单独的模组：Iris、Oculus 或 OptiFine。如果缺失，Lucerna 会建议一个合适的选项，或说明没有合适的。",
+      "p3": "光影包安装到实例中，并在游戏内选择：「选项 → 视频设置 → 光影包」（Iris、Oculus）或「光影」（OptiFine）。光影对显卡负担很重；在性能较弱的电脑上，帧率可能下降数倍。服务器不需要它们。",
+      "p3Basic": "您在游戏内的「选项 → 视频设置」中的光影部分选择光影。光影会给显卡带来很大负担。",
+      "p4": "如果您的电脑能承受，请选择光影以获得更好的视觉效果。如果您只想要不同的材质，资源包要轻量得多。",
+      "p4Basic": "如果您的电脑能承受，请选择光影以获得更漂亮的画面。"
+    },
+    "l10nConcept": {
+      "triggerAriaLabel": "模组翻译是如何工作的？",
+      "triggerTitle": "模组翻译是如何工作的？",
+      "closeAriaLabel": "关闭帮助",
+      "p1": "此界面显示每个模组的文本有多少已翻译成您的语言，并允许您覆盖任何字符串。您的修改属于您：它们保存在启动器中，不会写入模组。",
+      "p1Basic": "在这里，您可以查看模组文本有多少已翻译成您的语言，并自行修改任何文本行。您的修改保存在启动器中，模组保持原样。",
+      "p2": "点击「应用」时，Lucerna 会根据您的覆盖内容构建资源包，并在实例至少启动过一次后为其启用。未翻译的文本行会直接回退到模组自带的文本。",
+      "p2Basic": "「应用」会打包您的修改，让游戏可以使用。实例需要至少启动过一次。未翻译的内容会直接显示模组的原始文本。",
+      "p3": "应用后，正在运行的游戏需要重新加载资源（F3+T）或重新启动才能显示修改。应用功能适用于 Minecraft 1.13 及更高版本；覆盖率报告在任何版本都可用。",
+      "p3Basic": "应用后，在游戏中按 F3+T 或重新启动即可看到修改。启用翻译需要 Minecraft 1.13 或更高版本。",
+      "p4": "这涵盖模组资源文本：名称、提示与书籍。任务文件与配置文本无法通过资源包处理。AI 翻译需要主动开启：它需要您的许可，以及在「设置 → 集成」中您自己的密钥；在您启用之前，不会向任何地方发送内容。Beta 标记表示该功能比启动器的其他部分更新，仍可能变化。",
+      "p4Basic": "它涵盖名称与提示等模组文本；任务与配置文本无法通过这种方式更改。只有在您于「设置」中允许并添加自己的密钥后，AI 翻译才会工作。在此之前不会向任何地方发送内容。Beta 标记表示这一部分更新，仍可能变化。"
+    },
+    "chooser": {
+      "title": "您希望看到多少细节？",
+      "body": "以通俗语言或包含技术细节的方式显示引导与 (i) 说明。可随时在「设置 → 帮助」中更改。",
+      "basicLabel": "基础",
+      "basicHint": "简单明了",
+      "advancedLabel": "高级",
+      "advancedHint": "显示技术细节",
+      "current": "当前"
+    }
+  },
+  "errors": {
+    "networkFailure": {
+      "unreachable": "无法连接到 {host}——请检查您的网络连接、VPN 或代理。",
+      "unreachableLocal": "{host} 没有响应——请检查本地服务器是否正在运行。",
+      "timeout": "{host} 未及时响应——请重试。",
+      "tls": "无法与 {host} 建立安全连接。这通常发生在杀毒软件扫描 HTTPS 流量、使用代理，或电脑的日期与时间不正确时。",
+      "interrupted": "与 {host} 的连接中断了——请重试。",
+      "rateLimited": "{host} 正在限制请求——请等待一分钟后重试。",
+      "serverError": "{host} 出现问题（错误 {status}）——请稍后重试。",
+      "notFound": "{host} 上没有所请求的文件（错误 404）。",
+      "refused": "{host} 拒绝了请求（错误 {status}）。",
+      "unexpectedStatus": "{host} 返回了意外的响应（代码 {status}）。",
+      "badResponse": "{host} 发送了 Lucerna 无法读取的响应——请稍后重试。",
+      "other": "与 {host} 的连接失败（详情见「日志」）。"
+    },
+    "openUrlRefused": "只能从 Lucerna 打开 https:// 链接。",
+    "openUrlFailed": "无法在浏览器中打开该链接。",
+    "hostNotAllowed": "对 {url} 的网络请求不在允许的主机列表中",
+    "consentedChannelDisabled": "“{channel}”在「设置」中已关闭——请启用它以使用此功能。",
+    "consentedChannelGeneric": "此权限",
+    "hashMismatch": "{path} 的哈希不匹配",
+    "javaSpawn": "Java 启动失败",
+    "alreadyRunning": "Minecraft 已在运行",
+    "accountNotSet": "未设置账户——请先输入您的名称",
+    "instanceBusy": "已有操作正在进行，或游戏正在运行。",
+    "authCancelled": "Microsoft 登录已取消。",
+    "authFailed": "Microsoft 登录在 {stage} 阶段失败",
+    "microsoftSignInExpired": "此账户保存的 Microsoft 登录信息已无法使用。请重新登录。",
+    "noMinecraftProfile": "您未能登录：此 Microsoft 账户未拥有 Minecraft。请购买一份并重新登录，或使用已拥有 Minecraft 的账户。",
+    "authPendingApproval": "Microsoft 尚未批准 Lucerna 的应用注册。批准后此登录即可使用。在此之前请使用离线账户。",
+    "cosmeticImageInvalid": "该图像无法用作皮肤",
+    "skinLibrary": "皮肤库操作失败",
+    "unknownVersion": "在清单中找不到版本 {id}",
+    "unsupportedPlatform": "不支持的平台：{os}/{arch}",
+    "loaderUnavailable": "{loader} 不支持 Minecraft {mcVersion}",
+    "loaderBuildsNotOffered": "Lucerna 不会为 {mcVersion} 等 Minecraft 快照安装 {loader} 构建",
+    "loaderVersionsUnreadable": "Lucerna 无法读取 Minecraft {mcVersion} 的 {loader} 版本列表：其中包含 Lucerna 无法识别的版本号",
+    "lastInstance": "无法删除最后一个实例——必须至少保留一个",
+    "noVersionSelected": "请先选择 Minecraft 版本",
+    "instanceNotFound": "找不到实例 {id}",
+    "io": "{path} 处发生 IO 错误",
+    "ioTruncatedHint": "打开「日志」查看完整内容",
+    "forgePromotionsUnavailable": "{flavor} 的 Forge 推荐信息源不可用——版本将不会被标记为推荐",
+    "forgeMavenMetadataParseFailed": "无法解析 Forge maven-metadata.xml",
+    "forgeNoBuildFor": "Minecraft {mc} 没有可用的 Forge 构建——请选择其他 Minecraft 版本或加载器。",
+    "forgeInstallerCorrupted": "{mc}-{fv} 的 Forge 安装器已损坏",
+    "forgeInstallerUnverifiable": "Lucerna 无法校验 {mc}-{fv} 的 Forge 安装器：该站点未为其发布校验值，因此不会安装。",
+    "forgeUnsupportedProcessor": "此 Forge 版本使用了不受支持的处理器：{coord}",
+    "forgePatcherFailed": "Forge 修补器“{processor}”运行失败",
+    "forgeProcessorOutputMismatch": "Forge 安装步骤“{processor}”生成的文件校验值不正确，安装已停止",
+    "forgeMappingsMissing": "{mc} 的 Forge 映射不可用",
+    "instanceNameEmpty": "实例名称不能为空",
+    "instanceNameTooLong": "实例名称过长：{actual}/{max} 个字符",
+    "instanceDirNameEmpty": "该名称无法生成可用的文件夹名。",
+    "instanceDirNameTaken": "名为“{name}”的文件夹已存在。",
+    "instanceDirNameReserved": "“{name}”是 Windows 为设备保留的名称。",
+    "instanceDirLocked": "文件夹“{name}”正在其他程序中打开（例如资源管理器）。请关闭后重试。",
+    "pathNotLaunchableInstance": "此实例无法启动：其文件夹名包含 Java 在此系统上无法读取的字符。请在实例的「设置」选项卡中重命名该文件夹以修复。",
+    "pathNotLaunchableDataRoot": "此实例无法启动：数据文件夹路径包含 Java 在此系统上无法读取的字符。需要移动数据文件夹。",
+    "mcLogsUpload": "无法将日志上传到 mclo.gs",
+    "modsPlatformAuthInvalid": "CurseForge API 密钥无效——请在「设置」中输入新密钥",
+    "modsPlatformAuthMissing": "CurseForge 需要 API 密钥——请在「设置」中设置",
+    "modsPlatformUnreachable": "CurseForge 似乎在此网络或地区被屏蔽。请尝试使用 VPN，或在杀毒软件中关闭 HTTPS/SSL 扫描。",
+    "modsPlatformUnsupported": "{source} 不支持此操作。",
+    "changelogUnsupported": "此来源没有可用的更新日志。",
+    "modsDistributionDisabled": "此模组的作者已在 {source} 上禁用第三方启动器下载。",
+    "modsNotFound": "此模组在 {source} 上已不可用。",
+    "modVersionNotForInstance": "此构建适用于 Minecraft {versionMc}（{versionLoaders}）；此实例运行 {instanceMc}，加载器为 {instanceLoader}。",
+    "modsDecode": "来自 {source} 的意外响应",
+    "modsSha1Unavailable": "此模组未安装：作者未发布校验值，因此无法校验下载内容。",
+    "modsSha1Mismatch": "此模组未安装：下载内容与发布的校验值不符，可能已损坏或被篡改。",
+    "modsDependencyUnresolvable": "必需依赖项 {projectRef} 不适用于此 MC + 加载器",
+    "modsFilenameConflict": "此实例中已存在名为“{filename}”的其他文件——请先移除它",
+    "modsAlreadyInstalled": "“{name}”已安装",
+    "modsUnsafeFilename": "已拒绝安装“{filename}”：文件名不安全（包含路径分隔符或“..”）",
+    "modsCacheIo": "无法写入模组缓存",
+    "modsInstancePath": "无法写入位于 {path} 的实例",
+    "linkTargetMissing": "{path} 链接到文件夹 {target}，但该文件夹不存在。如果它位于可移动驱动器或网络驱动器上，请重新连接；如果该文件夹已不存在，请在文件管理器中删除该链接。",
+    "linkTargetMissingFile": "{path} 链接到文件 {target}，但该文件不存在。如果它位于可移动驱动器或网络驱动器上，请重新连接驱动器；如果该文件已不存在，请在文件管理器中删除该链接。",
+    "modpackInvalidArchive": "整合包压缩文件无效",
+    "modpackFormatUnknown": "此文件不是可识别的整合包（.mrpack 或 CurseForge .zip）。",
+    "importUrlInvalid": "无法导入该链接：{reason}",
+    "importUrlUnsupportedSource": "通过链接导入尚不支持 {platform}。Modrinth 和 CurseForge 的整合包页面可用；对于其他来源，请下载整合包并将文件拖到此处。",
+    "modpackManifestInvalid": "{format} 整合包清单无效",
+    "modpackUnsupportedManifestVersion": "{format} 整合包使用了不受支持的清单版本 {version}。",
+    "modpackUnsupportedLoader": "{format} 整合包声明了不受支持的加载器：{loaderId}",
+    "modpackDownloadHostNotAllowed": "整合包文件 {filePath} 引用了 {host}，该主机不在网络允许列表中。",
+    "modpackSha1Unavailable": "整合包文件 {modName} 在清单中没有 SHA-1——无法校验完整性。",
+    "modpackModDistributionDisabled": "{modName} 无法由第三方启动器自动安装。请从 {projectUrl} 手动下载。",
+    "modpackOverridesPathEscape": "Lucerna 未改动“{entry}”：该路径指向实例文件夹之外。这通常是因为整合包损坏或构建时出错。请重新下载整合包，或告知其作者。",
+    "modpackOverridesTooLarge": "整合包覆盖条目 {entry} 超出了安全上限（{size} 字节；上限为 {cap}）。",
+    "modpackNoFilesSelected": "导入前请至少选择一个模组。",
+    "modpackInstanceCreationFailed": "无法为整合包创建实例",
+    "modpackImportLeftover": "未能移除未完成的实例“{name}”：{path}。请自行删除该文件夹。",
+    "modpackPartialFailure": "{count, plural, one {整合包已导入，跳过了 # 个模组} other {整合包已导入，跳过了 # 个模组}}——详情请查看警告通知。",
+    "modpackBundledNoUrl": "“{modName}”随 .mrpack 一起打包，无法自动恢复。请重新导入整合包以恢复。",
+    "modpackCfDistributionDisabled": "“{packName}”无法由第三方启动器下载——其作者已禁用分发。请在 CurseForge 上打开它以手动下载整合包。",
+    "modpackExportFailed": "无法导出整合包",
+    "worldNotFound": "此实例中未找到世界“{folderName}”",
+    "worldInUse": "世界“{folderName}”正在使用中——请退出 Minecraft 后重试",
+    "worldLevelDatMissing": "“{folderName}”没有 level.dat，因此 Minecraft 不会将其视为世界。其数据包未被修改。",
+    "worldLevelDatOnlyOld": "世界“{folderName}”丢失了 level.dat——只剩下备份副本 level.dat_old。请在 Minecraft 中打开该世界，当它提示时从备份恢复（「尝试恢复」），然后重试。",
+    "worldPathInvalid": "名称“{name}”无效：{reason}",
+    "worldNameUnresolvable": "无法为“{folderName}”找到可用的名称——类似名称的副本过多",
+    "worldRestoreStranded": "恢复失败，无法自动将“{worldFolder}”移回。您的世界安全保存在 saves 内的“{recoveredAt}”文件夹中。原因请查看「日志」。",
+    "worldRecoverTargetOccupied": "名为“{worldFolder}”的世界已存在。请先重命名或移除它——否则恢复操作会覆盖它。",
+    "screenshotNotFound": "此实例中未找到截图“{filename}”",
+    "screenshotPathInvalid": "截图名称“{name}”无效：{reason}",
+    "backupNotFound": "未找到备份“{filename}”",
+    "backupCorrupt": "备份“{filename}”无法读取或已损坏",
+    "worldImportNotAWorld": "该 .zip 或文件夹不是 Minecraft 世界——其中未找到 level.dat。",
+    "worldImportUnsupportedSource": "请选择要导入的 .zip 文件或世界文件夹。",
+    "worldImportInvalidArchive": "无法读取该世界压缩文件",
+    "worldImportTooLarge": "该世界过大，无法安全导入。",
+    "worldImportPartialLeft": "导入失败，且未能移除不完整的副本。请删除 saves 内的“{folderName}”文件夹——它并不是完整的世界。原因请查看「日志」。",
+    "worldMigratePartialLeft": "迁移失败，且未能移除不完整的副本。您的原始世界在此实例中未受影响。请删除“{targetInstance}”的 saves 文件夹内的“{folderName}”文件夹——它并不是完整的世界。原因请查看「日志」。",
+    "worldMigrateOnlyCopyParked": "迁移失败，且世界也无法放回原处。您唯一的副本现在是“{targetInstance}”的 saves 文件夹内的“{folderName}”文件夹——请勿删除它。打开该实例的「世界」选项卡：该世界会以中断的移动操作列出，可以放回。原因请查看「日志」。",
+    "worldMigrateInstanceRunning": "请先停止“{name}”——它是此次迁移的{role}。",
+    "transferInstanceBusy": "“{name}”正忙：它是此次复制操作的{role}。",
+    "transferRoleSource": "源端",
+    "transferRoleTarget": "目标端",
+    "transferInvalidSelection": "“{name}”不是 Lucerna 会复制的内容。",
+    "transferFailed": "复制失败，未作任何更改：{cause}",
+    "transferRollbackIncomplete": "复制失败，且无法完全撤销。未能还原的内容保留在 {folder} 中。",
+    "playtimeIo": "无法读取或写入游玩时长统计",
+    "trayIo": "无法显示或隐藏托盘图标",
+    "windowIo": "无法调整启动器窗口大小",
+    "updateCheckFailed": "无法检查更新",
+    "updateVerificationFailed": "更新校验失败——下载内容可能已损坏或被篡改",
+    "updateInstallFailed": "无法安装更新",
+    "updateBlocked": {
+      "running": "更新前请关闭 Minecraft 并停止服务器：Lucerna 会关闭以安装更新，也会一并关闭它们。",
+      "busy": "更新前请等待正在进行的操作（安装、导入、备份、上传或翻译）完成：Lucerna 会关闭以安装更新。",
+      "unknown": "Lucerna 无法检查是否有游戏或服务器正在运行，因此暂不更新。如果有正在运行的，请关闭它们，或重启 Lucerna 后重试。"
+    },
+    "quickPlayAddressInvalid": "服务器地址“{address}”无效：{reason}",
+    "importInstanceUnreadable": "无法读取 {launcher} 实例",
+    "importUnsupportedLoader": "导入的实例中加载器“{loader}”不受支持",
+    "importSourceUnrecognized": "该文件夹不是可识别的启动器实例：{path}",
+    "importNoProvenance": "此实例不是从其他启动器导入的。",
+    "importSourceMissing": "原始来源文件夹已不存在：{path}",
+    "serversDatParse": "无法读取服务器列表（servers.dat）",
+    "levelDatParse": "无法读取世界数据（level.dat）",
+    "savedServerNameInvalid": "“{name}”不是有效的服务器名称：{reason}",
+    "offlineNameInvalid": "账户“{name}”无法使用：{reason} 请改用拉丁字母昵称。",
+    "savedServerListChanged": "已保存的服务器列表已更改——请重新打开对话框并重试。",
+    "serverInvalidProperty": "服务器设置 {key} = {value} 无效",
+    "serverEulaNotAccepted": "启动此服务器前必须先接受 Minecraft EULA",
+    "serverJarUnavailable": "未找到适用于 {loader} {mcVersion} 的服务器下载",
+    "serverInstallerFailed": "{loader} 服务器安装器失败",
+    "serverSpawnFailed": "无法启动服务器进程",
+    "serverLoaderAmbiguous": "此服务器文件夹中有多个 {loader} 安装，且无法确定使用的是哪一个：{candidates}。请移除不需要的，然后重新启动。",
+    "serverAlreadyRunning": "此服务器已在运行",
+    "serverNotRunning": "此服务器未在运行",
+    "serverModRequiredByOther": "无法移除 {filename}——{requiredBy} 需要它。请一并移除该模组，或保留此模组。",
+    "serverFileInvalid": "服务器文件 {filename} 被拒绝：{reason}",
+    "serverCoreUnsupported": "此服务器核心不支持：{reason}",
+    "serverContentStale": "已安装列表已更改——请刷新后重试",
+    "serverWorldNotCreated": "此服务器的世界尚不存在。请先启动一次服务器，让 Minecraft 创建世界，然后即可启用或禁用数据包。",
+    "serverWorldOnlyOld": "此服务器的世界丢失了 level.dat——只剩下备份副本 level.dat_old。请启动一次服务器以恢复它，然后停止服务器并重试。",
+    "serverNameInvalid": "该服务器名称无法使用——可能为空、过长或已被占用。",
+    "uploadNotConfigured": "请先设置托管连接",
+    "sftpConnectFailed": "无法连接到主机",
+    "sftpAuthFailed": "登录失败——请检查用户名和密码",
+    "sftpHostKeyMismatch": "主机的密钥已更改——出于安全考虑已阻止上传。仅在您信任它时才重新确认。",
+    "sftpTransferFailed": "上传失败",
+    "serverUploadInProgress": "此服务器已有上传正在进行——请等待其完成或先取消",
+    "serverMaintenanceInProgress": "此服务器仍有恢复或导入正在进行——请等待其完成",
+    "serverContentBusy": "此服务器仍在安装或更新附加组件——请等待完成后再试",
+    "serverTreeBusy": "此服务器的文件仍在复制中——备份、导出、上传或类似操作正在进行。请等待其完成后再试",
+    "uploadCancelled": "上传已取消",
+    "serverImportUnsupportedSource": "请选择要导入的 .zip 文件或服务器文件夹。",
+    "serverImportInvalidArchive": "无法读取该服务器压缩文件",
+    "serverImportTooLarge": "该服务器过大，无法导入。",
+    "serverImportNotAServer": "该文件夹不像是 Minecraft 服务器（没有服务器 jar、加载器文件或 server.properties）。",
+    "serverImportStagingExpired": "此导入会话已过期——请重新开始导入。",
+    "mcVersionRequired": "未指定 Minecraft 版本。",
+    "mcVersionUnlisted": "Minecraft {mcVersion} 不在 Mojang 的版本列表中。请检查版本号。",
+    "mcVersionUnchecked": "Lucerna 无法加载 Mojang 的版本列表，因此无法检查 Minecraft 版本。请稍后重试。",
+    "serverSavedMcVersionMissing": "此服务器未记录 Minecraft 版本。请在「托管」选项卡中将其导出为 .zip，以新名称导入该 .zip 并填写版本，然后删除此服务器。",
+    "serverSavedMcVersionUnknown": "此服务器记录的 Minecraft 版本为 {mcVersion}，该版本不在 Mojang 的版本列表中。请在「托管」选项卡中将其导出为 .zip，以新名称和正确的版本导入该 .zip，然后删除此服务器。",
+    "dataLocationBusy": "Lucerna 现在无法执行该操作：有游戏或服务器正在运行、另一项操作仍在进行，或无法检查。请停止游戏和服务器，等待正在进行的操作完成，然后重试。",
+    "dataLocationInvalid": "无法使用该文件夹：{reason}",
+    "dataLocationInvalidReason": {
+      "notAbsolute": "路径必须是绝对路径的文件夹",
+      "nested": "它位于当前数据文件夹内部",
+      "same": "它已经是当前的数据文件夹",
+      "notEmpty": "文件夹必须为空",
+      "notADataRoot": "它不包含 Lucerna 数据",
+      "notWritable": "无法写入",
+      "unknown": "它不是有效的位置"
+    },
+    "dataLocationMigrationFailed": "移动数据文件夹失败",
+    "dataLocationMigrationUnchanged": "您的数据仍在当前文件夹中，未发生变化。",
+    "dataLocationRestoreIncomplete": "Lucerna 无法完全撤销切换——重启前请检查两个文件夹。",
+    "dataLocationPartialCopyLeft": "数据的副本留在了“{path}”。请在重试前删除它。",
+    "dataLocationContainsLinks": "Lucerna 暂时无法移动此数据文件夹：其中包含符号链接（在 Linux 或 macOS 上安装的 Java 运行时使用它们）。请用文件管理器自行移动该文件夹，然后在此处选择它——Lucerna 将直接切换而不会复制。",
+    "dataRelocationInProgress": "数据文件夹正在移动。请等待移动完成。",
+    "dataRelocationRestartRequired": "数据文件夹已移动。请重启 Lucerna 以继续。",
+    "dataLocationUnavailable": "您的数据文件夹不可用，因此 Lucerna 现在无法执行该操作。「设置 → 存储」中有原因说明。",
+    "dataLocationFallbackAdoptOnly": "在数据文件夹不可用期间，您只能让 Lucerna 指向已包含 Lucerna 数据的文件夹。目前无法移动数据。",
+    "dataLocationRecoverySessionDir": "该文件夹属于 Lucerna 的临时会话，会在 Lucerna 关闭时删除。请选择存放您数据的文件夹。",
+    "datapackInvalid": "“{filename}”不是可用的数据包。{reason}",
+    "datapackInvalidReason": {
+      "notAZip": "Minecraft 只会加载世界 datapacks 文件夹中以小写 .zip 结尾的文件夹和文件。",
+      "isAResourcePack": "这看起来是资源包——它包含 assets 文件夹而不是 data 文件夹。",
+      "notAPack": "缺少 pack.mcmeta 或 data 文件夹。"
+    },
+    "datapackTooLarge": "“{filename}”为 {sizeMb} MB——超出了数据包 {limitMb} MB 的上限。",
+    "datapacksUnsupportedVersion": "数据包需要 Minecraft 1.13 或更高版本；此实例运行 {mcVersion}。",
+    "datapackLegacyCaseName": "“{legacy}”已安装。它的名称与“{filename}”仅大小写不同，而 Minecraft 只加载以小写 .zip 结尾的文件。请先移除“{legacy}”，然后重新安装。",
+    "vanillaTweaksUnavailable": "Vanilla Tweaks 尚无适用于 Minecraft {mcVersion} 的包。",
+    "vanillaTweaksBuildFailed": "Vanilla Tweaks 无法生成该选择。{message}",
+    "vanillaTweaksBundleTooLarge": "来自 Vanilla Tweaks 的下载为 {sizeMb} MB——超出了 {limitMb} MB 的上限。",
+    "l10nTranslationInvalid": "“{key}”不是有效的译文：{reason}",
+    "l10nTranslationInvalidReason": {
+      "unsupportedSpecifier": "Minecraft 仅支持 %s 和 %%（不支持 %{specifier}）。",
+      "danglingPercent": "有一个多余的 % 后面没有任何内容。",
+      "indexOutOfRange": "它引用了参数 {index}，但原文只提供了 {available}。"
+    },
+    "l10nFormatUnknown": "无法确认 Minecraft {mcVersion} 的资源包格式。请启动一次此实例，以便 Lucerna 读取其版本，然后再次尝试应用翻译。",
+    "l10nFormatTooOld": "Minecraft {mcVersion} 版本过旧，不支持此功能：1.13 之前的版本会先于资源包加载模组自带的翻译，因此在此处覆盖不会生效。覆盖率报告仍可使用。",
+    "l10nNamespaceInvalid": "“{namespace}”不是有效的模组命名空间。",
+    "l10nLangInvalid": "“{lang}”不是有效的目标语言。",
+    "l10nPrefillKeyMissing": "未为 {provider} 保存 API 密钥。请在「设置 → 集成」中添加。",
+    "l10nPrefillProvider": {
+      "requestTest": "测试请求",
+      "requestRun": "翻译请求",
+      "rejectedKey": "{name} 拒绝了该 API 密钥。请检查您保存的密钥。",
+      "unknownModel": "{name} 不认识该模型名称。请检查「模型」字段——留空则使用服务商的默认模型。",
+      "rateLimited": "{name} 正在限制{request}的速率，或您的配额已用完（HTTP 429）。请稍等片刻，或在服务商网站上检查您的套餐。",
+      "providerTrouble": "{name} 出现问题（HTTP {status}）。请稍后重试。",
+      "unreadable": "{name} 对{request}的响应无法被 Lucerna 读取。",
+      "other": "{name} 拒绝了{request}（HTTP {status}）。",
+      "logsTail": "完整响应见「日志」。"
+    },
+    "l10nPrefillBusy": "此实例已有翻译任务正在进行。",
+    "l10nShareBundleInvalid": "无法读取翻译文件：{reason}",
+    "l10nShareBundleReason": {
+      "notAZip": "它不是 zip 压缩包",
+      "noMetadata": "它不包含 Lucerna 翻译数据",
+      "metadataTooLarge": "其翻译数据过大",
+      "schemaInvalid": "其翻译数据已损坏",
+      "schemaTooNew": "它由较新版本的 Lucerna 生成（格式 {found}）",
+      "langInvalid": "它指定了无效的语言（{lang}）",
+      "tooManyNamespaces": "它包含的模组过多",
+      "tooManyEntries": "它包含的条目过多"
+    },
+    "l10nSharePrefillActive": "翻译预填充正在运行。请在完成后重试。",
+    "l10nShareDestReserved": "请选择其他文件名——以“lucerna-translation-”开头的名称会在应用翻译时被自动删除。",
+    "l10nShareNothingToExport": "此选择没有可导出的内容。",
+    "keyring": {
+      "read": "无法从系统密钥环读取",
+      "write": "无法保存到系统密钥环",
+      "delete": "无法从系统密钥环删除"
+    },
+    "dataRootUnreachable": {
+      "missing": "您的数据文件夹不存在：{path}。如果它位于可移动驱动器或网络驱动器上，请重新连接。",
+      "notAFolder": "{path} 不是文件夹。",
+      "notADataRoot": "{path} 不再包含您的数据——它所在的驱动器可能已断开连接。",
+      "unreadable": "Lucerna 无法检查您的数据文件夹（{path}）：{details}",
+      "timedOut": "您的数据文件夹（{path}）在 {seconds} 秒内没有响应——网络驱动器或休眠中的驱动器唤醒可能较慢。请稍后重试。"
+    },
+    "modpackUpdateRolledBack": "未作任何更改。整合包更新在 {file} 处停止",
+    "modpackUpdateRolledBackRecord": "未作任何更改。整合包更新无法写入整合包记录",
+    "contentUpdateRollbackIncomplete": "更新失败，且无法完全撤销。未能还原的内容保留在 {folder} 中",
+    "contentUpdateUnfinished": "此实例的先前更新尚未完成。请重启 Lucerna 以完成撤销，然后重试。",
+    "javaUnusable": "为此实例选择的 Java 无法使用（{path}）。{reason}",
+    "javaUnusableReason": {
+      "notFound": "该文件已不存在：可能已被移动或卸载。",
+      "unreadable": "Lucerna 无法读取它（{details}）。",
+      "notJava": "这不是 Java 可执行文件。请选择 java 或 javaw。",
+      "probeFailed": "它未能说明自身是哪个 Java（{details}）。",
+      "tooOld": "它是 Java {found}；此 Minecraft 版本需要 Java {required} 或更新版本。",
+      "wrongArch": "它是 {found} 构建；此计算机需要 {expected}。"
+    },
+    "javaUnusableDefault": "在「设置」中为 Java {major} 指定的 Java 无法使用（{path}）。{reason}",
+    "javaUnusableServer": "为此服务器选择的 Java 无法使用（{path}）。{reason}",
+    "javaSettingsUnreadable": "Lucerna 无法读取其设置，因此无法确定要运行哪个 Java。",
+    "managedJavaMissing": "Lucerna 为此版本准备的 Java 尚未下载。",
+    "clientJarMissing": "Minecraft {mc} 的游戏文件缺失。请在实例的「设置」选项卡中，使用「完整性」下的「校验」，然后使用「修复」。",
+    "clientJarDamaged": "Minecraft {mc} 的游戏文件已损坏。请在实例的「设置」选项卡中，使用「完整性」下的「校验」，然后使用「修复」。",
+    "jreUnavailable": "Lucerna 无法为此版本获取 Java {major}。{reason}",
+    "jreUnavailableInstaller": "Lucerna 无法获取 Java {major}，而 Forge 或 NeoForge 安装程序需要在其上运行。{reason}",
+    "jreUnavailableReason": {
+      "unsupportedPlatform": "Mojang 未发布适用于 {os} {arch} 的 Java。",
+      "unknownComponent": "Mojang 的列表中没有适用于此计算机的运行时“{id}”。"
+    },
+    "addonEntryIsLink": "“{name}”是一个链接，而非包。请在文件管理器中移除它。",
+    "settingsSyncFailed": "启动前无法同步{what}。{detail}",
+    "settingsSyncWhat": {
+      "servers": "服务器列表",
+      "history": "命令历史",
+      "hotbars": "快捷栏",
+      "settings": "同步设置",
+      "options": "游戏选项"
+    },
+    "settingsSyncDetail": "文件：{file}。原因：{reason}。",
+    "settingsSyncDetailNoFile": "原因：{reason}。",
+    "settingsSyncFile": {
+      "game": {
+        "servers": "此实例的 servers.dat",
+        "history": "此实例的 command_history.txt",
+        "hotbars": "此实例的 hotbar.nbt",
+        "options": "此实例的 options.txt"
+      },
+      "shared": {
+        "servers": "共享服务器列表",
+        "history": "共享命令历史",
+        "hotbars": "共享快捷栏",
+        "options": "共享游戏选项"
+      },
+      "settings": "此实例的同步设置",
+      "records": "此实例的同步记录"
+    },
+    "settingsSyncReason": {
+      "damaged": "文件已损坏或被截断",
+      "noAccess": "无法访问该文件（可能有其他程序正打开它）",
+      "notFound": "未找到该文件",
+      "other": "其他错误，详情见启动器日志"
+    },
+    "settingsSyncGameRunning": "Lucerna 重启前启动的游戏仍在此实例中运行。请关闭它，然后重试。",
+    "settingsSyncAskGameClosed": "Lucerna 无法确定重启前在此实例中启动的游戏是否仍在运行。",
+    "settingsSyncNext": {
+      "retry": "不会丢失任何内容：下次启动时会重试。",
+      "sharedDamaged": "共享副本已损坏：所有同步它的实例都会停在此处，直到用某个实例自己的副本替换它。损坏的副本会保存在备份中。",
+      "gameDamaged": "用共享副本替换此实例的文件时，损坏的文件会被放入回收站。",
+      "gameDamagedOptions": "替换后，损坏的文件会被放入回收站；共享选项将在下次启动后、游戏写入新的 options.txt 后生效。",
+      "recordsDamaged": "重新开始此实例的记录会使其再次加入，与启用时相同；其文件会保留。"
+    },
+    "manualDownloadsFolderUnreadable": "无法读取文件夹 {path}",
+    "manualDownloadsFolderUnknown": "无法找到您的下载文件夹"
+  },
+  "settings": {
+    "title": "设置",
+    "closeLabel": "关闭设置",
+    "fallbackNotice": "您的数据文件夹不可用。这是一次临时会话：在此更改的设置不会保存到您的数据文件夹。",
+    "sections": {
+      "appearance": "外观",
+      "game": "游戏",
+      "integrations": "集成",
+      "privacy": "隐私与网络",
+      "storage": "存储",
+      "updates": "更新",
+      "help": "帮助",
+      "about": "关于"
+    },
+    "search": {
+      "label": "搜索设置",
+      "placeholder": "搜索设置……",
+      "noResults": "未找到任何内容",
+      "jumpedTo": "已打开设置：",
+      "labels": {
+        "appearance": {
+          "theme": "主题",
+          "language": "语言",
+          "rainbowIcons": "彩虹图标动画",
+          "iconZoom": "图标悬停缩放",
+          "sidebarButtons": "侧边栏按钮"
+        },
+        "game": {
+          "tray": "游戏启动时",
+          "serverPing": "已保存的服务器状态",
+          "settingsSync": "新实例使用共享设置",
+          "gpu": "Minecraft 首选 GPU",
+          "java": "实例和服务器使用的 Java"
+        },
+        "integrations": {
+          "curseforgeKey": "CurseForge 密钥",
+          "aiTranslation": "AI 翻译"
+        },
+        "storage": {
+          "cache": "模组下载缓存",
+          "logRetention": "日志保留",
+          "modMetadataCache": "模组信息缓存",
+          "dataLocation": "数据位置",
+          "openDataFolder": "打开数据文件夹"
+        },
+        "updates": {
+          "startupCheck": "启动时检查更新",
+          "changelog": "更新内容"
+        },
+        "help": {
+          "tipsLevel": "说明详细程度",
+          "replayTours": "重玩引导",
+          "support": "报告问题",
+          "logFolder": "打开启动器日志文件夹"
+        },
+        "about": {
+          "repo": "在 GitHub 上查看",
+          "versionInfo": "复制版本信息",
+          "privacyPolicy": "隐私政策",
+          "license": "阅读许可证"
+        },
+        "privacy": {
+          "overview": "隐私与网络"
+        }
+      },
+      "keywords": {
+        "appearance": {
+          "theme": "主题 深色 浅色 跟随系统 外观 模式 夜间 配色 颜色方案",
+          "language": "语言 区域设置 英语 俄语 界面",
+          "rainbowIcons": "彩虹 图标 动画 颜色 效果 动效",
+          "iconZoom": "图标 缩放 悬停 放大 效果 动效 比例",
+          "sidebarButtons": "侧边栏 按钮 隐藏 导航 恢复 显示 已隐藏 取消隐藏"
+        },
+        "game": {
+          "tray": "托盘 最小化 隐藏 游戏运行 后台 启动器 窗口 关闭",
+          "serverPing": "服务器 状态 在线 玩家 多人游戏 IP 隐私",
+          "settingsSync": "同步 共享 设置 服务器列表 命令历史 快捷栏 游戏选项 按键绑定 新实例",
+          "gpu": "GPU 显卡 图形 视频 性能 独立显卡 nvidia amd intel 集成显卡",
+          "java": "Java JRE JDK 运行时 路径 默认 版本 openjdk adoptium temurin zulu oracle"
+        },
+        "integrations": {
+          "curseforgeKey": "CurseForge API 密钥 令牌",
+          "aiTranslation": "AI 翻译 服务商 模型 API 密钥 令牌 gemini anthropic groq claude ollama 本地 LLM 隐私 密钥环 本地化"
+        },
+        "storage": {
+          "cache": "缓存 清除 临时 存储 下载 jar 可用空间 删除",
+          "logRetention": "日志 保留 保留数量 大小 文件 删除 旧",
+          "modMetadataCache": "模组 元数据 缓存 TTL 刷新 信息 名称 图标 天数",
+          "dataLocation": "数据 位置 文件夹 路径 移动 磁盘 目录 迁移 便携 可用空间 安装",
+          "openDataFolder": "打开 文件夹 资源管理器 Finder 文件 显示 浏览"
+        },
+        "updates": {
+          "startupCheck": "更新 启动 检查 自动 跳过 已跳过 提醒",
+          "changelog": "更新日志 更新内容 版本 发布说明 补丁 历史"
+        },
+        "help": {
+          "tipsLevel": "提示 帮助 级别 基础 高级 详细 说明 工具提示 信息 教程",
+          "replayTours": "引导 首次使用引导 重玩 指南 逐步引导 教程 提示 重置 信息 欢迎",
+          "support": "问题 报告 议题 故障 崩溃 错误 GitHub 支持 反馈 安全 漏洞",
+          "logFolder": "日志 文件夹 启动器 诊断 崩溃 lucerna.log"
+        },
+        "about": {
+          "repo": "GitHub 仓库 源代码 代码库 关于",
+          "versionInfo": "版本 构建 复制 信息 提交 操作系统 平台",
+          "privacyPolicy": "隐私 政策 遥测 数据 服务器 跟踪",
+          "license": "许可证 授权 GPL 版权 法律 保证 开源"
+        },
+        "privacy": {
+          "overview": "隐私 网络 互联网 连接 IP 遥测 同意 跟踪 在线 联系人 发送"
+        }
+      }
+    },
+    "general": {
+      "appearance": {
+        "language": "语言",
+        "languageSystem": "跟随系统",
+        "languagePartial": "{name} · 已翻译 {percent}%",
+        "themeSystem": "跟随系统",
+        "themeLight": "浅色",
+        "themeDark": "深色",
+        "rainbowIcons": "彩虹图标动画",
+        "rainbowIconsDescription": "「浏览整合包」和「光影」图标在悬停或键盘聚焦时会泛起彩虹流光。会遵循系统的「减少动态效果」设置。",
+        "iconZoom": "图标悬停缩放",
+        "iconZoomDescription": "纯图标按钮在悬停或键盘聚焦时会略微放大。会遵循系统的「减少动态效果」设置。",
+        "sidebarButtons": {
+          "title": "侧边栏按钮",
+          "description": "隐藏您不使用的按钮。在普通和紧凑模式下均适用。",
+          "skin": "皮肤与披风",
+          "accountActions": "添加账户",
+          "mods": "模组文件夹",
+          "quickJoin": "服务器",
+          "browseModpacks": "浏览整合包",
+          "importLauncher": "从启动器导入",
+          "gallery": "画廊",
+          "logs": "日志",
+          "oneWayNote": "隐藏「服务器」、「皮肤与披风」或「从启动器导入」会移除访问这些功能的唯一入口。「画廊」仍保留每个实例的「截图」选项卡，但跨所有实例的视图仅在此处提供。",
+          "newInstance": "新建实例"
+        },
+        "theme": "主题",
+        "themeHint": "「跟随系统」会遵循操作系统的浅色或深色设置。",
+        "effectsTitle": "效果",
+        "systemResolved": "{system} —— 当前为 {value}",
+        "currentlyLight": "当前为浅色。",
+        "currentlyDark": "当前为深色。"
+      },
+      "playing": {
+        "title": "游戏运行时",
+        "trayDescription": "隐藏到托盘：系统托盘中会出现一个小图标。任何正在运行的游戏关闭后，启动器会立即恢复；单击托盘图标可以更快恢复。如果没有系统托盘，图标将无处显示，启动器会一直隐藏到游戏关闭。",
+        "startWindowLabel": "游戏启动时",
+        "keep": "保持打开",
+        "minimise": "最小化",
+        "hideToTray": "隐藏到托盘",
+        "keepHint": "启动器窗口保持原样。",
+        "minimiseHint": "第一个游戏启动时，启动器会最小化；游戏关闭后恢复。",
+        "linuxMinimise": "在某些 Linux 桌面上，启动器最小化后无法自行恢复——游戏关闭时请在任务栏中单击它。"
+      },
+      "serverPing": {
+        "title": "服务器状态",
+        "label": "显示已保存服务器的状态",
+        "description": "Lucerna 会向任何实例「服务器」列表中保存的服务器（包括整合包添加的服务器）查询玩家数量和版本，且仅当该列表在屏幕上打开时进行。",
+        "privacy": "这些服务器会看到您的 IP 地址——与您加入它们时相同。默认关闭，结果只保留在此计算机上。",
+        "revokeFailed": "状态检查仍处于开启状态——更改未保存：{error}"
+      },
+      "settingsSync": {
+        "title": "共享游戏设置",
+        "label": "新实例使用共享设置",
+        "description": "新实例、整合包导入以及由服务器创建的客户端会加入共享服务器列表、命令历史、快捷栏和游戏选项。从其他启动器导入的内容不会加入：它们会带来自己的设置。克隆会保留其来源实例的选择。"
+      },
+      "updates": {
+        "title": "更新",
+        "startupLabel": "启动时检查更新",
+        "startupDescription": "有新版本可用时会显示通知，并同时检查您导入的整合包是否有新版本。安装始终需要明确单击——Lucerna 永远不会静默更新自身。",
+        "checkBtn": "检查更新",
+        "checking": "正在检查……",
+        "uptodate": "您已是最新版本（{version}）。",
+        "error": "无法检查：{message}",
+        "available": "版本 {version} 可用。",
+        "updateNow": "立即更新",
+        "installing": "正在安装……",
+        "updating": "正在更新……",
+        "explain": "Lucerna 会下载安装程序、校验它，然后关闭并以新版本重新启动。请先关闭正在运行的游戏和服务器。",
+        "openReleasePage": "打开发布页面",
+        "manualHint": "此版本不支持应用内安装——请从发布页面下载最新版本。",
+        "blocked": {
+          "checking": "正在检查是否有程序在运行……",
+          "running": "请先关闭 Minecraft 并停止服务器：Lucerna 将关闭以安装更新。",
+          "busy": "请先等待正在进行的操作（安装、导入、备份、上传或翻译）完成：Lucerna 将关闭以安装更新。",
+          "unknown": "Lucerna 无法检查是否有游戏或服务器在运行。如有正在运行的，请关闭它们，或重启 Lucerna，然后重试。"
+        },
+        "youHave": "您当前为 {version}。",
+        "releaseNotes": "发布说明",
+        "skip": "不再提醒",
+        "skipped": "Lucerna 在启动时不会提醒您 {version}。",
+        "stopSkipping": "恢复提醒",
+        "skipFailed": "无法关闭提醒：{error}",
+        "stopSkippingFailed": "无法恢复提醒：{error}",
+        "verification": "安装程序运行前，会校验其校验值以及来自 Lucerna 发布流程的签名。任一项不匹配，则不会安装任何内容。",
+        "skipUnknown": "无法确定提醒是否已关闭：{error}"
+      },
+      "onboarding": {
+        "title": "引导",
+        "replayBtn": "重玩引导",
+        "replayDescription": "再次显示引导，包括您已关闭的各屏幕引导。"
+      },
+      "tips": {
+        "title": "说明",
+        "levelLabel": "详细程度",
+        "levelDescription": "控制引导和 (i) 说明的详细程度。应用中其他位置的悬停提示不受影响。",
+        "basic": "基础",
+        "advanced": "高级",
+        "hintBasic": "简单明了",
+        "hintAdvanced": "技术细节"
+      },
+      "gpu": {
+        "title": "图形",
+        "label": "Minecraft 首选 GPU",
+        "auto": "自动（由系统决定）",
+        "high": "高性能",
+        "power": "节能",
+        "appliedToast": "已为新 Java 运行时应用 GPU 偏好：{name}",
+        "noteWindows": "从下次启动起应用于所有实例；已在运行的游戏会保留其 GPU。选择「自动」以外的选项，会为 Lucerna 自带的 Java 设置 Windows 按应用图形首选项的 GpuPreference 字段（HKEY_CURRENT_USER\\Software\\Microsoft\\DirectX\\UserGpuPreferences——即「Windows 设置 → 系统 → 显示 → 图形」中显示的条目）；该条目的其他字段保持不变。「自动」不会写入任何内容；切换回「自动」会恢复 Lucerna 替换掉的值（如果该值仍属于 Lucerna）。",
+        "noteLinux": "从下次启动起应用于所有实例；已在运行的游戏会保留其 GPU。「高性能」仅为游戏进程设置 PRIME 卸载变量；「节能」在此与「自动」相同。不会向系统写入任何内容。",
+        "reason": {
+          "singleGpu": "仅找到一个图形适配器——没有可选项。",
+          "unsupported": "macOS 会自行选择 GPU；Lucerna 无法干预。",
+          "unknown": "Lucerna 无法检查图形适配器：{details}"
+        },
+        "stored": {
+          "windows": "已保存的选择——{label}——仍会在每次启动时写入 Windows 图形首选项。",
+          "linux": "已保存的选择——{label}——仍会在每次启动时设置 PRIME 变量。",
+          "inert": "已保存的选择——{label}——在此系统上不起作用。「重置」会清除它。",
+          "saved": "已保存的选择——{label}——仍被保留。「重置」会恢复为「自动」。"
+        },
+        "resetBtn": "重置为自动"
+      },
+      "logRetention": {
+        "title": "日志保留",
+        "enableLabel": "自动删除旧日志",
+        "enableDescription": "在游戏退出以及您打开「日志」时生效。每个实例的游戏日志、崩溃报告和控制台日志合并计数。latest.log 和 debug.log 永远不会被删除。服务器日志会在服务器启动时清理——开启此项时按这些限制清理，关闭时按 15 个文件 / 200 MB 清理。",
+        "keepLabel": "保留的最新日志数（文件）",
+        "keepHint": "至少为 1。每次游戏退出后会删除更旧的日志。",
+        "sizeLabel": "最大总大小（MB）"
+      },
+      "modMetadataCache": {
+        "title": "模组信息缓存",
+        "description": "已安装模组的名称和图标会缓存到磁盘，使已安装模组即时显示并可离线使用。",
+        "ttlLabel": "刷新间隔（天）",
+        "ttlHint": "缓存的模组信息在重新获取前保留多久。0 表示永不过期。"
+      },
+      "notSaved": "此设置未保存：{error}",
+      "saveUnconfirmed": "无法确认更改已保存：{error}",
+      "loadFailed": "无法读取您的设置：{error}",
+      "retryBtn": "重试",
+      "java": {
+        "title": "Java",
+        "intro": "供需要各 Java 版本的实例和服务器使用的 Java。在其设置中自行选择了 Java 的实例或服务器会保留自己的选择。",
+        "rowLabel": "Java {major}",
+        "empty": "尚无实例需要 Java。安装实例后，此处会显示相应行。",
+        "majorsFailed": "无法读取已安装实例需要哪些 Java 版本。",
+        "rowBundled": "需要 Java {major} 的实例和服务器会使用 Lucerna 的 Java，除非它们自行选择了 Java。",
+        "statusMatches": "Java {version}。需要 Java {major} 的实例和服务器会使用它，除非它们自行选择了 Java。",
+        "statusNewer": "Java {found} 比 Java {required} 更新。通常可以正常工作；如果游戏启动时崩溃，请将此行改回 Lucerna 的 Java。",
+        "statusNewerLegacy": "Java {found} 比 Java 8 更新。原版或许能在其上启动，但在需要 Java 8 且未自行选择的实例和服务器中，这些版本的 Forge 则无法启动。"
+      }
+    },
+    "storage": {
+      "cacheLabel": "大小：",
+      "cacheSizeUnknown": "无法测量",
+      "cacheTitle": "模组下载缓存",
+      "cacheDescription": "清除只会移除缓存的 jar。实例中已安装的模组不受影响。重新安装时会重新下载。",
+      "clearBtn": "清除缓存",
+      "cleared": "缓存已清除（释放 {freed}）",
+      "dataLocation": {
+        "heading": "数据位置",
+        "description": "Lucerna 存储的所有内容（实例、服务器、下载、账户）都位于此文件夹下。更改位置会将现有数据移动到新文件夹。",
+        "currentLabel": "当前文件夹：",
+        "sizeLabel": "总大小：",
+        "sizeUnknown": "无法测量",
+        "changeBtn": "更改位置……",
+        "resetBtn": "重置为默认",
+        "fallbackNotice": "要回到您的数据：请重新连接或修复该文件夹，然后重启 Lucerna；或者按「更改位置……」并选择存放 Lucerna 数据的文件夹；或者按「重置为默认」将其分离——其中的内容不会被删除。",
+        "fallbackDetails": "详情：{details}",
+        "temporarySession": "临时会话",
+        "openLogFolderBtn": "打开日志文件夹",
+        "alreadyCurrent": "该文件夹已经是您的当前数据文件夹。",
+        "moveCancelled": "移动已取消。未更改任何内容。",
+        "orphanEnded": "数据文件夹移动在切换前停止。您的数据仍在“{path}”中。",
+        "keepRedirectNote": "请保留那里的 data-location.json——它会告诉 Lucerna 您的数据在哪里。",
+        "blocked": {
+          "checking": "正在检查当前是否可以移动数据文件夹……",
+          "running": "有游戏或服务器正在运行。请先停止它，再移动数据文件夹。",
+          "busy": "Lucerna 仍在进行另一项操作——安装、备份、上传或翻译。请等待其完成后再移动数据文件夹。",
+          "unknown": "Lucerna 无法检查是否有游戏或服务器在运行，因此暂时无法移动数据文件夹。",
+          "recheckBtn": "再次检查"
+        },
+        "resetBlocked": {
+          "intro": "默认文件夹“{path}”中仍有先前移动遗留的 {count, plural, one {# 项} other {# 项}}。请自行删除它们，然后再次重置："
+        },
+        "confirm": {
+          "moveTitle": "移动数据文件夹？",
+          "resetTitle": "重置为默认位置？",
+          "resetPointerOnlyBody": "这将分离不可用的文件夹“{path}”。其中的内容不会被删除——如果它日后恢复，其数据仍会存在。Lucerna 将从“{landing}”启动。",
+          "resetPointerOnlyBodyNoPath": "这会移除无法读取的数据文件夹设置（其旁边会保留一份副本，名为 data-location.corrupt.json）。您的数据文件夹中的内容不会被删除。Lucerna 将从“{landing}”启动。",
+          "resetPointerOnlyConfirmBtn": "分离并重启",
+          "resetPointerOnlyRestartNote": "不会复制任何内容。应用会立即重启。",
+          "moveIntro": "Lucerna 会将您的数据复制到新文件夹，检查副本，然后才从当前文件夹中移除。",
+          "resetIntro": "Lucerna 会将您的数据复制回默认文件夹，检查副本，然后才从当前文件夹中移除。",
+          "fromLabel": "从：",
+          "toLabel": "到：",
+          "copySizeLabel": "待复制：",
+          "copySizeValue": "约 {size}",
+          "freeLabel": "该处可用空间：",
+          "freeUnknown": "Lucerna 无法检查目标驱动器有多少可用空间。",
+          "lowSpace": "目标驱动器可能空间不足：待复制约 {required}，可用 {free}。您仍可尝试——失败的复制会被清理。或者您也可以自行移动文件夹，然后在此处选择它以在不复制的情况下切换。",
+          "cancelNote": "复制文件期间可以取消。之后 Lucerna 会完成切换并重启。",
+          "lucernaDataNote": "您的数据会放入所选文件夹下的 LucernaData 子文件夹，因此永远不会与该处的其他文件混在一起。",
+          "adoptTitle": "使用现有数据文件夹？",
+          "adoptBody": "“{path}”已包含 Lucerna 数据。Lucerna 将在不复制、移动或删除任何内容的情况下切换到它。",
+          "adoptCurrentNote": "您的当前数据（位于“{current}”的 {size}）将保留在磁盘上，但不再使用。",
+          "adoptCurrentNoteNoSize": "您的当前数据（位于“{current}”）将保留在磁盘上，但不再使用。",
+          "adoptRestartNote": "应用将重启以切换到所选文件夹。",
+          "adoptConfirmBtn": "切换并重启",
+          "confirmBtn": "移动并重启"
+        },
+        "progress": {
+          "title": "正在移动数据文件夹……",
+          "cancelBtn": "取消移动",
+          "cancelTooLate": "复制已经完成，因此将完成移动，而不再取消。",
+          "cancelFailed": "无法取消移动：{error}",
+          "barLabel": "复制进度",
+          "preparing": "正在准备……",
+          "copying": "正在复制文件……",
+          "verifying": "正在校验副本……",
+          "switching": "正在切换到新文件夹……现在已无法取消。",
+          "deleting": "正在移除旧数据……"
+        },
+        "final": {
+          "title": "数据已移动——重启以完成",
+          "movedTo": "您的数据已移动到“{path}”。",
+          "leftoversIntro": "Lucerna 无法从旧文件夹“{path}”中移除 {count, plural, one {# 个项目} other {# 个项目}}：",
+          "ownLeftoversNote": "剩余内容属于正在运行的启动器本身，在其打开期间无法移除——Lucerna 会在重启后自行移除。",
+          "cleaned": "“{path}”中的剩余内容已移除。",
+          "intact": "“{path}”中的旧副本仍然完整。您可以删除整个文件夹。",
+          "intactDefaultDir": "“{path}”中的旧副本仍然完整。您可以删除该文件夹中除 data-location.json 之外的所有内容。",
+          "detailsUnknown": "您的数据已移动，但 Lucerna 无法加载移动详情。",
+          "restartHint": "重启 Lucerna 以开始使用新文件夹。",
+          "retryBtn": "重试",
+          "openFolderBtn": "打开旧文件夹",
+          "restartBtn": "重启",
+          "retryFailed": "无法移除剩余内容：{error}",
+          "openFolderFailed": "无法打开文件夹：{error}",
+          "restartFailed": "无法重启：{error} 请关闭 Lucerna 后重新打开。"
+        },
+        "openDataFolderBtn": "打开数据文件夹",
+        "openDataFolderRecovery": "临时会话中不可用——Lucerna 当前未使用您的数据文件夹。",
+        "openDataFolderMoving": "数据文件夹移动期间不可用。",
+        "openDataFolderFailed": "无法打开数据文件夹：{error}",
+        "freeLabel": "此驱动器可用空间：",
+        "openDataFolderRestart": "需等 Lucerna 在移动后重启才可用。",
+        "openDataFolderRevealed": "访达会将该文件夹显示为应用程序：右键点击它并选择「显示包内容」即可查看其中的内容。"
+      }
+    },
+    "about": {
+      "identityTitle": "Lucerna",
+      "dataTitle": "您的数据",
+      "legalTitle": "法律信息",
+      "disclaimer": "非 Minecraft 官方产品。未经 Mojang 或 Microsoft 批准，也与其无关联。",
+      "viewOnGitHub": "在 GitHub 上查看",
+      "license": "版权所有 © 2026 Anton Babchenko。Lucerna 是遵循 GPL-3.0-or-later 的自由软件，不提供任何担保。",
+      "trademark": "Minecraft 和 Mojang 是 Mojang AB 与 Microsoft Corporation 的商标。Lucerna 与二者均无关联。",
+      "keyring": "机密信息——Microsoft 登录令牌、个人 CurseForge 密钥、SFTP 密码、AI 密钥——存储在操作系统的密钥环中（Windows 凭据管理器、macOS 钥匙串或 Linux Secret Service），绝不会存入 Lucerna 自己的文件。",
+      "buildLocal": "本地构建",
+      "buildDevelopment": "开发构建",
+      "buildUnrecognised": "{raw}（无法识别）",
+      "buildFork": "派生自：{repo}",
+      "copyVersionInfo": "复制版本信息",
+      "versionInfoCopied": "版本信息已复制",
+      "versionInfoCopyFailed": "无法复制版本信息",
+      "noTelemetry": "Lucerna 不发送任何遥测数据，也没有自己的服务器。它会联系哪些服务、何时联系，均列在隐私政策中。",
+      "privacyPolicy": "隐私政策",
+      "readLicense": "阅读许可证",
+      "mojangFiles": "Java 运行时和 Minecraft 文件会在首次需要时从 Mojang 下载。Lucerna 从 Mojang 下载的文件绝不会被修改；您安装的模组加载器（例如 Forge）会在这些文件之外应用自己的更改。",
+      "privacyPointer": "查看您可控的连接"
+    },
+    "changelog": {
+      "title": "更新内容",
+      "empty": "暂无发布说明。",
+      "fallback": {
+        "noTranslation": "发布说明尚无您的语言版本，因此以英文显示。",
+        "loadFailed": "无法加载翻译后的发布说明，因此显示英文版本。",
+        "versionUntranslated": "尚未翻译；以英文显示。",
+        "versionPartial": "部分已翻译；其余以英文显示。"
+      },
+      "sections": {
+        "added": "新增",
+        "changed": "变更",
+        "fixed": "修复",
+        "deprecated": "弃用",
+        "removed": "移除",
+        "security": "安全"
+      },
+      "intro": "截至您当前版本（{version}）的更改。",
+      "compareLink": "GitHub 上的更改"
+    },
+    "aiTranslation": {
+      "label": "AI 翻译",
+      "title": "AI 翻译",
+      "aboutBody": "用您选择的 AI 模型补全模组缺失的翻译。Lucerna 会使用您提供的 API 密钥，将英文字符串发送给您选定的服务商，并且只保留通过其校验的结果——无法校验的内容将保持英文。",
+      "scopeNote": "这涵盖模组在自身语言文件中提供的文本：物品与方块名称、提示信息，以及 Patchouli 等游戏内指南书。它不涵盖 FTB Quests、任务书，或整合包保存在其配置文件中的任何文本——这些文本位于 Lucerna 所写资源包之外，将保持英文。",
+      "consentLabel": "允许 Lucerna 将模组文本发送给 AI 服务商",
+      "consentDescription": "默认关闭。关闭期间，任何翻译请求都不会离开本机——连连接测试也不会。",
+      "privacyNote": "已安装模组的英文字符串会发送给您选择的服务商，并受该服务商条款约束。本地模型则会将其保留在本机。",
+      "gatedNote": "请开启上方的权限，以选择服务商、指定模型或存储密钥。",
+      "providerLabel": "服务商",
+      "providerAnthropic": "Anthropic",
+      "providerGemini": "Google Gemini",
+      "providerGroq": "Groq",
+      "providerLocal": "本地模型（本机）",
+      "modelLabel": "模型",
+      "modelPlaceholderCloud": "服务商默认值",
+      "modelPlaceholderLocal": "您的服务器所需的名称",
+      "modelHintCloud": "留空则使用服务商的默认模型。",
+      "modelHintLocal": "本地模型必填：无法列出您服务器提供的模型，因此请手动输入其所需名称。",
+      "localPortLabel": "本地服务器端口",
+      "localPortHint": "Lucerna 只会连接 127.0.0.1 上的此端口。",
+      "localNote": "小型本地模型的翻译质量不如托管模型。更多字符串将无法通过 Lucerna 的校验并保持英文——这是安全的结果，而非故障。",
+      "keyStatusLabel": "API 密钥：",
+      "keyStatusStored": "已存储",
+      "keyStatusMissing": "未存储",
+      "keyStatusChecking": "正在检查……",
+      "keyLabel": "API 密钥",
+      "keyPlaceholder": "粘贴您的密钥",
+      "saveKey": "保存密钥",
+      "clearKey": "清除密钥",
+      "keyringNote": "存储在操作系统的安全密钥环中。Lucerna 能判断密钥是否存在，但绝不会将其读回此字段。",
+      "testButton": "测试连接",
+      "testHint": "使用您已保存的服务商、模型和密钥发送一个小请求。测试新密钥前请先保存。",
+      "testHintDisabled": "请先开启上方的权限——测试连接会向服务商发送真实请求。",
+      "testOk": "服务商已接受该请求。",
+      "revokeFailed": "权限仍处于开启状态——更改未保存：{error}",
+      "keyStatusUnknown": "无法检查系统密钥环",
+      "costNote": "托管服务商会按每次请求向您的账户计费。Lucerna 会在每次运行前显示预估，且绝不会自行启动。",
+      "modelPlaceholderCloudNamed": "服务商默认值：{model}",
+      "modelHintCloudNamed": "留空则使用 {model}。",
+      "getKey": "获取密钥",
+      "localExpects": "需要 127.0.0.1 上此端口的 OpenAI 兼容服务器——Ollama 默认监听 11434。",
+      "usedFrom": "使用位置：「概览 → 模组翻译」，以及实例的「设置」选项卡 →「翻译」。"
+    },
+    "curseforge": {
+      "statusLabel": "状态：",
+      "statusChecking": "正在检查……",
+      "step1Before": "打开",
+      "step1After": "并使用免费账户登录",
+      "step2Before": "登录后，打开",
+      "step2After": "选项卡",
+      "step3": "为 Lucerna 生成密钥",
+      "step4": "将其粘贴到下方",
+      "inputLabelNew": "密钥",
+      "inputLabelReplace": "新密钥（替换您自己的密钥）",
+      "saveKey": "保存密钥",
+      "updateKey": "更新密钥",
+      "clearKey": "清除密钥",
+      "keyringNote": "存储在操作系统的安全密钥环中。",
+      "aboutBody": "CurseForge 的每次下载都需要 API 密钥。Lucerna 的正式版内置了密钥，因此下载开箱即用。如果您添加自己的密钥，将优先使用它——例如在下载开始失败或触及共享限额时。Modrinth 无需密钥。",
+      "statusUnknown": "无法检查系统密钥环",
+      "retryBtn": "重新检查",
+      "title": "CurseForge",
+      "statusOwn": "已存储您自己的密钥",
+      "statusBuiltin": "正在使用 Lucerna 内置密钥",
+      "statusNone": "无密钥——此构建未内置密钥",
+      "statusUnknownBuiltin": "无法检查您自己的密钥——正在使用内置密钥",
+      "useOwnKey": "使用我自己的密钥",
+      "getOneAt": "可在此获取",
+      "clearCaption": "移除您自己的密钥。",
+      "resultSaved": "已保存——现已使用您自己的密钥。",
+      "resultRejected": "被 CurseForge 拒绝——未保存。",
+      "resultUnreachable": "无法连接 CurseForge——未保存。",
+      "resultNotSaved": "CurseForge 已接受，但未保存。"
+    },
+    "help": {
+      "support": {
+        "title": "报告问题",
+        "reportBug": "报告错误",
+        "reportBugHint": "打开 GitHub 的错误反馈表单。请附上「关于」中的版本信息。如需附加日志，请使用日志查看器中的「分享」——它会在将日志上传到 mclo.gs 之前移除您的用户名、令牌和本地网络地址。您自行附加的日志文件仍可能包含这些信息。",
+        "openLogFolder": "打开启动器日志文件夹",
+        "logFolderFailed": "无法打开日志文件夹：{error}",
+        "security": "发现安全问题？请私下报告，不要发布在公开议题中。",
+        "securityPolicy": "安全政策"
+      }
+    },
+    "privacy": {
+      "title": "您可控的连接",
+      "intro": "每一行说明发送什么、发往何处，以及您是否允许。「更改」会带您前往相应设置。",
+      "serverPing": {
+        "name": "已保存服务器状态",
+        "body": "仅在该列表打开时，向各实例「服务器」列表中的服务器查询玩家数量和版本。每个服务器都能看到您的 IP 地址。"
+      },
+      "ai": {
+        "name": "AI 翻译",
+        "bodyLocal": "仅将文本发送给本机的模型服务器。",
+        "bodyHosted": "将待翻译的文本发送给 {provider}。",
+        "bodyUnknown": "将待翻译的文本发送给您选择的模型——本机或托管服务。"
+      },
+      "updates": {
+        "name": "启动时检查更新",
+        "body": "Lucerna 启动时会询问 GitHub 是否有更新版本，并检查您导入的整合包是否有更新。无论此设置如何，「整合包」中的「已导入」选项卡每次打开时也会检查更新。",
+        "paused": "在此临时会话中已暂停。"
+      },
+      "state": {
+        "allowed": "已允许",
+        "notAllowed": "未允许",
+        "on": "开启",
+        "off": "关闭",
+        "checking": "正在检查……",
+        "unknown": "无法读取"
+      },
+      "change": "更改",
+      "footer": "Lucerna 联系的其他所有服务——包括 Mojang、Microsoft、Modrinth 和 CurseForge——以及联系时机，均在隐私政策中说明。"
+    }
+  },
+  "ops": {
+    "heading": "操作",
+    "inQueue": "{count, plural, one {# 个排队中} other {# 个排队中}}",
+    "openInstance": "打开",
+    "moveUp": "上移",
+    "moveDown": "下移",
+    "cancel": "取消",
+    "queueItemVerify": "校验“{name}”",
+    "queueItemRepair": "修复“{name}”",
+    "queueItemImport": "导入“{name}”",
+    "queueItemLauncherImport": "从启动器导入“{name}”",
+    "queueItemClone": "克隆为“{name}”"
+  },
+  "page": {
+    "update": {
+      "available": "Lucerna {version} 现已可用",
+      "actionLabel": "更新",
+      "currentVersion": "您当前使用 {version}。",
+      "downloading": "正在下载更新……",
+      "verifyFailed": "无法校验更新",
+      "installFailed": "无法安装更新",
+      "alreadyCurrent": "Lucerna 已是最新版本。",
+      "phase": {
+        "downloading": "正在下载……",
+        "verifying": "正在校验……",
+        "launching": "正在启动安装程序……"
+      },
+      "dismissFailed": "无法保存“不再提醒”——Lucerna 可能在下次启动时再次提醒"
+    },
+    "whatsNew": {
+      "toast": "Lucerna 已更新至 {version}",
+      "actionLabel": "新功能",
+      "title": "Lucerna {version} 新功能"
+    },
+    "startupSettings": {
+      "loadFailed": "无法读取您的设置",
+      "loadFailedDetail": "本次会话中，主题、语言及其他偏好均显示为默认值。磁盘上的内容未被更改。",
+      "retry": "重试"
+    },
+    "crash": {
+      "banner": "Minecraft 已崩溃。",
+      "viewReport": "查看崩溃报告",
+      "dismissAriaLabel": "关闭崩溃报告横幅"
+    },
+    "dataRootFallback": {
+      "reason": {
+        "rootMissing": "找不到您的数据文件夹“{path}”。如果它位于可移动驱动器上，请重新连接，然后重启 Lucerna。",
+        "rootNotWritable": "Lucerna 无法使用您的数据文件夹“{path}”：该文件夹不可写入。请检查该文件夹，然后重启 Lucerna。",
+        "rootUnknown": "Lucerna 无法检查您的数据文件夹“{path}”。请重启 Lucerna 重试。",
+        "pointerUnusable": "Lucerna 无法读取您的数据文件夹位置。请在「存储设置」中重新指定该文件夹。"
+      },
+      "temporary": "在此之前，这是一个临时会话——此处的任何内容都不会保存到您的数据文件夹。",
+      "storageBtn": "存储设置",
+      "createDisabledReason": "数据文件夹不可用期间，禁止创建和移动实例数据。",
+      "playDisabledReason": "数据文件夹不可用期间，禁止开始游戏。"
+    },
+    "modpackImport": {
+      "alreadyInProgress": "已有整合包正在导入",
+      "alreadyInProgressDetail": "请等待其完成后再开始另一个。",
+      "imported": "已导入 {name}",
+      "importedSkipped": "已导入 {name}——跳过了 {count, plural, one {# 个随附文件} other {# 个随附文件}}",
+      "skippedOverrideLine": "{name}（{mb} MB）——过大，无法作为可加载模组；已跳过",
+      "importedInertLoader": "已导入 {name}——{count, plural, one {# 个随附文件} other {# 个随附文件}}不会加载",
+      "inertLoaderLine": "{filename}——为 {loader} 构建，未加载",
+      "partialFailure": "{count, plural, one {整合包已导入——# 个模组失败} other {整合包已导入——# 个模组失败}}",
+      "failed": "整合包导入失败"
+    },
+    "accounts": {
+      "signedInMicrosoft": "已使用 Microsoft 登录",
+      "pendingApproval": "Microsoft 登录待批准",
+      "signInFailed": "Microsoft 登录失败",
+      "noMinecraftTitle": "此账户未拥有 Minecraft",
+      "buyMinecraft": "购买 Minecraft",
+      "notRenewedTitle": "无法续期“{name}”的 Microsoft 登录",
+      "notRenewedExpiredTitle": "“{name}”需要重新登录 Microsoft",
+      "notRenewedStarted": "游戏已使用保存的登录信息启动。单人游戏可用；在线服务器可能不允许您进入。",
+      "notRenewedRetry": "Lucerna 将在下次启动时重试。",
+      "signInAgain": "重新登录",
+      "removeTitle": "移除账户？",
+      "removeQuestion": "移除“{name}”？",
+      "removeDescription": "Lucerna 将退出此账户并将其遗忘。其 Microsoft 登录令牌将从系统密钥环中删除。您的实例、世界和游戏文件不受影响。如需再次使用，您需要重新添加它。",
+      "removeConfirm": "移除",
+      "addOfflineTitle": "添加离线账户",
+      "addOfflineDescription": "离线账户可让您在没有 Microsoft 登录的情况下玩单人游戏和局域网游戏。请输入您在游戏内使用的玩家名称。",
+      "addOfflineNameLabel": "玩家名称",
+      "addOfflineConfirm": "添加账户",
+      "offlineNameHelp": "拉丁字母、数字和 _——3 到 16 个字符。",
+      "offlineNameTooShort": "昵称至少需要 3 个字符。",
+      "offlineNameTooLong": "昵称最多 16 个字符。",
+      "offlineNameInvalidChars": "仅限拉丁字母、数字和 _——使用其他字符时 Minecraft 不会允许您进入世界。",
+      "switchFailed": "无法切换账户",
+      "removeKeyringFailed": "账户已移除，但其登录令牌无法从系统密钥环中删除。Lucerna 绝不会再使用它们；您可以在系统的凭据管理器中删除它们。"
+    },
+    "overview": {
+      "sectionConfiguration": "配置",
+      "labelMinecraft": "Minecraft",
+      "notSet": "（未设置）",
+      "labelLoader": "加载器",
+      "labelMemory": "内存",
+      "noModsHint": "尚未安装任何模组。打开模组浏览器添加一些吧。",
+      "statsTotal": "总计：",
+      "statsEnabled": "已启用：",
+      "statsDisabled": "已禁用：",
+      "statsProblems": "问题：",
+      "statsUpdates": "更新：",
+      "exportModpack": "导出整合包……",
+      "openManageAria": "打开此实例的设置",
+      "editFieldAria": "在实例设置中编辑 {field}——当前为 {value}",
+      "openInstalledAria": "打开已安装模组列表",
+      "openBrowseAria": "打开模组浏览器",
+      "sectionPlaytime": "游玩时长",
+      "notYetPlayed": "尚未游玩",
+      "playtimeTotal": "总计：",
+      "playtimeSession": "{count, plural, one {# 次游玩} other {# 次游玩}}",
+      "playtimeLastSession": "上次游玩：{duration}，{when}",
+      "statusExited": "已退出（代码 {code}）",
+      "statusStopped": "已停止",
+      "statusClean": "游戏已关闭",
+      "dismissError": "关闭错误提示",
+      "chooseJava": "选择其他 Java",
+      "errorRetry": "重新加载",
+      "versionListFailed": "无法加载 Minecraft 版本列表。",
+      "installFailed": "无法为“{name}”安装游戏。",
+      "noInstanceSelected": "未选择实例。请通过侧边栏创建一个。",
+      "attentionHeading": "需要关注",
+      "attnPickVersion": "未设置 Minecraft 版本",
+      "attnMissingMods": "{count, plural, one {# 个整合包模组未安装} other {# 个整合包模组未安装}}",
+      "attnModsBlocking": "{count, plural, one {# 个模组将导致游戏无法启动} other {# 个模组将导致游戏无法启动}}",
+      "attnIncompatible": "{count, plural, one {# 个模组可能无法正常工作} other {# 个模组可能无法正常工作}}",
+      "attnIntegrity": "{count, plural, one {# 个完整性问题} other {# 个完整性问题}}",
+      "attnLogIssue": "最近一次启动报告了问题",
+      "attnLogFixAvailable": "有可用修复",
+      "attnModpackUpdate": "有可用的整合包更新",
+      "attnServerLogFix": "有服务器需要一键修复",
+      "attnPreflightUnknown": "无法检查此实例的依赖项",
+      "attentionView": "查看",
+      "attentionDismissTooltip": "我知道自己在做什么",
+      "attentionDismissAria": "关闭警告",
+      "attentionShow": "显示警告",
+      "pillRunning": "运行中",
+      "pillReady": "可以开始游戏",
+      "pillNeedsInstall": "需要安装",
+      "pillPickVersion": "选择版本",
+      "pillInstalling": "正在安装……",
+      "pillModsUnknown": "已安装",
+      "pillModsBlocking": "游戏无法启动",
+      "sectionModpack": "整合包",
+      "modpackOpen": "打开整合包",
+      "modpackUpdateBtn": "更新",
+      "modpackCheckUpdate": "检查更新",
+      "modpackChecking": "正在检查……",
+      "modpackUpToDate": "已是最新",
+      "modpackUpdateAvailable": "更新：{version}",
+      "modpackNotCheckableNeedsKey": "检查更新需要 CurseForge API 密钥。",
+      "modpackNotCheckableNoProvenance": "此导入项不支持检查更新。",
+      "modpackCheckFailed": "无法检查更新。",
+      "sectionMods": "模组",
+      "localization": "翻译（{lang}）",
+      "localizationValue": "{percent}%",
+      "pillTooltip": {
+        "running": "此实例的 Minecraft 正在运行。",
+        "ready": "可以开始游戏——文件已安装且为最新。",
+        "needsInstall": "需要先安装文件，此实例才能启动。",
+        "pickVersion": "请选择 Minecraft 版本以完成此实例的设置。",
+        "installing": "正在为此实例安装文件……",
+        "modsUnknown": "文件已安装；尚未检查模组。",
+        "modsCheckFailed": "文件已安装；无法检查模组：{reason}"
+      }
+    },
+    "servers": {
+      "deletePasswordLeft": "服务器已删除，但无法从系统密钥环中删除其 SFTP 密码。您可以在系统的凭据管理器中删除它。"
+    }
+  },
+  "shortcut": {
+    "title": "创建桌面快捷方式",
+    "dialogAriaLabel": "创建桌面快捷方式",
+    "targetLegend": "要启动什么？",
+    "targetInstance": "实例",
+    "targetWorld": "直接进入世界",
+    "targetServer": "直接进入服务器",
+    "worldLabel": "世界",
+    "serverLabel": "服务器",
+    "noWorlds": "此实例尚无已保存的世界。",
+    "noServers": "此实例尚无已保存的服务器。",
+    "noQuickPlay": "直接进入世界或服务器需要 Minecraft 1.20 或更高版本。指向实例本身的快捷方式在所有版本上都可用。",
+    "nameLabel": "快捷方式名称",
+    "create": "创建快捷方式",
+    "creating": "正在创建……",
+    "created": "已创建快捷方式：{path}",
+    "openFolder": "打开文件夹",
+    "instanceMissing": "该快捷方式指向的实例已不存在。",
+    "unsupported": "此平台尚不支持桌面快捷方式。"
+  },
+  "quickJoin": {
+    "title": "服务器",
+    "savedHeading": "已保存的服务器",
+    "loading": "正在加载服务器……",
+    "loadError": "无法读取您已保存的服务器：{error}",
+    "empty": "尚无已保存的服务器。请在下方添加。",
+    "connect": "连接",
+    "copyAddress": "复制地址",
+    "copied": "已复制",
+    "delete": "删除服务器",
+    "deleteConfirm": "从列表中删除“{name}”？",
+    "deleteCancel": "取消",
+    "deleteConfirmAction": "删除",
+    "addSection": "添加服务器",
+    "nameLabel": "名称",
+    "namePlaceholder": "我的服务器",
+    "addressLabel": "地址",
+    "addressPlaceholder": "主机或 host:port",
+    "save": "保存",
+    "saveAndConnect": "保存并连接",
+    "cancel": "关闭",
+    "invalidName": "请输入服务器名称。",
+    "invalidAddress": "请输入有效的服务器地址（主机或 host:port）。",
+    "offlineHint": "在线服务器通常会拒绝离线账户。",
+    "ping": {
+      "checking": "正在检查……",
+      "noAnswer": "无响应",
+      "refresh": "刷新状态",
+      "enable": "在「设置」中启用",
+      "disabledNotice": "服务器状态已关闭——Lucerna 不会连接您的服务器。"
+    }
+  },
+  "format": {
+    "relativeTime": {
+      "never": "从未",
+      "secondsAgo": "{n} 秒前",
+      "minutesAgo": "{n} 分钟前",
+      "hoursAgo": "{n} 小时前",
+      "daysAgo": "{n} 天前"
+    },
+    "relativeDate": {
+      "today": "今天",
+      "yesterday": "昨天",
+      "daysAgo": "{n} 天前",
+      "monthsAgo": "{n} 个月前",
+      "yearsAgo": "{n} 年前"
+    },
+    "size": {
+      "bytes": "{n, number, ::group-off} B",
+      "kilobytes": "{n, number, ::.0 group-off} KB",
+      "megabytes": "{n, number, ::.0 group-off} MB",
+      "gigabytes": "{n, number, ::.00 group-off} GB",
+      "terabytes": "{n, number, ::.00 group-off} TB",
+      "perSecond": "{size}/s"
+    },
+    "duration": {
+      "lessThanMinute": "< 1 分钟",
+      "minutes": "{m} 分钟",
+      "hoursMinutes": "{h} 小时 {m} 分钟"
+    },
+    "unit": {
+      "megabyte": "MB"
+    },
+    "rate": {
+      "bytesPerSec": "{n, number, ::group-off} B/s",
+      "kbPerSec": "{n, number, ::.0 group-off} KB/s",
+      "mbPerSec": "{n, number, ::.0 group-off} MB/s"
+    },
+    "heap": {
+      "gigabytes": "{n, number, ::.0 group-off} GB",
+      "megabytes": "{n, number, ::group-off} MB"
+    }
+  },
+  "optimise": {
+    "button": "优化",
+    "vanillaTooltip": "添加模组加载器（Fabric、Forge 等）后即可使用「优化」",
+    "dialogTitle": "优化性能",
+    "intro": "为 {loader} 精选的一组性能模组。已安装的模组和版本不兼容的模组会被跳过。",
+    "sectionInstall": "将安装",
+    "sectionInstalled": "已安装",
+    "sectionSkipped": "未应用",
+    "statusUnavailable": "没有适用于 Minecraft {mc} 的构建",
+    "statusConflictOptifine": "与 OptiFine 冲突",
+    "statusUnknown": "暂时无法检查",
+    "noteSinglePlayerTick": "在单人游戏 / 局域网中收益最大",
+    "nothingToInstall": "此实例已完成优化。",
+    "install": "安装 {count} 个",
+    "cancel": "取消",
+    "toastDone": "优化完成——已安装 {installed}，已跳过 {skipped}",
+    "toastSomeFailed": "优化完成——已安装 {installed}，{failed} 项失败",
+    "resolving": "正在检查……"
+  },
+  "tasks": {
+    "kind": {
+      "gameInstall": "正在安装 Minecraft",
+      "modInstall": "正在安装模组",
+      "modUpdate": "正在更新模组",
+      "packImport": "正在导入整合包",
+      "launcherImport": "正在从启动器导入",
+      "packUpdate": "正在更新整合包",
+      "clone": "正在克隆实例",
+      "verify": "正在校验实例",
+      "repair": "正在修复实例",
+      "serverUpload": "正在上传服务器",
+      "appUpdate": "正在更新 Lucerna",
+      "dataMigration": "正在迁移数据文件夹",
+      "worldMigrate": "正在迁移世界",
+      "transfer": "正在复制数据"
+    },
+    "origin": {
+      "modrinth": "Modrinth",
+      "curseforge": "CurseForge",
+      "ftb": "FTB",
+      "atlauncher": "ATLauncher",
+      "archive": "整合包压缩包",
+      "local": "本地文件",
+      "game": "游戏文件"
+    },
+    "phase": {
+      "worldMigrate": {
+        "moving": "正在移动世界",
+        "copying": "正在复制文件",
+        "linking": "正在重新连接数据包",
+        "backups": "正在移动备份",
+        "finalising": "正在完成"
+      }
+    },
+    "strip": {
+      "count": "{count, plural, one {# 个操作} other {# 个操作}}",
+      "eta": "~{clock}",
+      "toggle": "显示操作详情",
+      "finishedSummary": "{count, plural, one {# 个操作已完成} other {# 个操作已完成}}"
+    },
+    "panel": {
+      "ariaLabel": "操作详情",
+      "runningHeading": "进行中",
+      "queuedHeading": "排队中",
+      "finishedHeading": "已完成",
+      "clearFinished": "清除",
+      "details": "详情",
+      "modalLock": "无法取消"
+    },
+    "report": {
+      "title": "安装报告",
+      "filesCount": "{count, plural, one {# 个文件} other {# 个文件}}",
+      "filterAriaLabel": "按结果筛选",
+      "filter": {
+        "installed": "已安装 {count} 个",
+        "unchanged": "未变更 {count} 个",
+        "skipped": "已跳过 {count} 个",
+        "failed": "失败 {count} 个"
+      },
+      "badge": {
+        "installed": "已安装",
+        "unchanged": "未变更",
+        "skipped": "已跳过",
+        "failed": "失败"
+      },
+      "outcome": {
+        "downloadedLinked": "已下载 · 已链接到共享文件",
+        "cachedLinked": "已缓存 · 已链接到共享文件",
+        "downloadedCopied": "已下载 · 已复制为独立文件",
+        "cachedCopied": "已缓存 · 已复制为独立文件",
+        "unchanged": "已是最新——未下载任何内容"
+      },
+      "reason": "原因：{reason}",
+      "detail": {
+        "host": "主机",
+        "sha1": "SHA-1",
+        "path": "安装路径"
+      },
+      "empty": "此任务未记录任何文件。",
+      "emptyFiltered": "没有符合此筛选条件的文件。",
+      "copyReport": "复制报告"
+    }
+  },
+  "ui": {
+    "selectAll": "全选",
+    "bulk": {
+      "selectedCount": "已选择 {count} 项",
+      "clear": "清除",
+      "selectRow": "选择 {name}",
+      "noneApplicable": "所选项目均无法执行此操作",
+      "updateNeedsCheck": "请先点击「检查更新」；只有存在待处理更新的项目才能更新",
+      "andMore": "以及另外 {count} 项",
+      "enabled": "已启用 {ok} / {total}",
+      "enabledFailed": "已启用 {ok} / {total}，失败 {failed} 个",
+      "disabled": "已禁用 {ok} / {total}",
+      "disabledFailed": "已禁用 {ok} / {total}，失败 {failed} 个",
+      "updated": "已更新 {ok} / {total}",
+      "updatedFailed": "已更新 {ok} / {total}，失败 {failed} 个",
+      "removed": "已移除 {ok} / {total}",
+      "removedFailed": "已移除 {ok} / {total}，失败 {failed} 个",
+      "running": "另一项更改仍在进行中",
+      "updateExternalOnly": "所选的更新只能从其页面下载"
+    }
+  },
+  "tray": {
+    "open": "打开 Lucerna",
+    "quit": "退出 Lucerna",
+    "tooltipRunning": "Lucerna——游戏正在运行",
+    "blocked": {
+      "running": "Minecraft 仍在运行。请先关闭游戏——退出 Lucerna 也会将其关闭。",
+      "busy": "仍有操作正在进行——安装、导入、备份、上传或翻译。请等待其完成。",
+      "unknown": "Lucerna 无法检查游戏或服务器是否正在运行，因此未退出。如有正在运行的项目，请先关闭，然后重试。"
+    }
+  },
+  "closeConfirm": {
+    "title": "关闭 Lucerna？",
+    "games": "Minecraft 仍在运行。关闭 Lucerna 会强制其关闭——未保存的进度可能丢失。",
+    "servers": "{count, plural, one {一个服务器} other {# 个服务器}}仍在运行。关闭 Lucerna 会强制{count, plural, one {它} other {它们}}停止——最近的世界改动可能丢失。请先{count, plural, one {停止该服务器} other {停止这些服务器}}以保留这些改动。",
+    "operation": "仍有操作正在进行，例如更新、备份、上传或翻译。关闭 Lucerna 会中断该操作。",
+    "unchecked": "Lucerna 无法检查上一个会话中的服务器是否仍在运行。如果仍在运行，它会在 Lucerna 关闭后继续运行。",
+    "closeEverything": "全部关闭",
+    "closeLucerna": "关闭 Lucerna",
+    "nativeServersOne": "一个服务器仍在运行。关闭 Lucerna 会强制其停止——最近的世界改动可能丢失。",
+    "nativeServersMany": "服务器仍在运行。关闭 Lucerna 会强制其停止——最近的世界改动可能丢失。"
   }
 }
