@@ -21,6 +21,14 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Security
+
+- Bumped `rusqlite` 0.32.1 → 0.41.1, which bundles SQLite 3.54.1, for
+  RUSTSEC-2026-0459. Modrinth App import reads that launcher's `app.db`, and a
+  crafted `app.db` and `-wal` pair, such as in a copied Modrinth App folder
+  picked for import, could make the older SQLite return stale bytes of the
+  launcher's memory as profile data.
+
 ## [0.29.0] — 2026-11-07
 
 ### Added

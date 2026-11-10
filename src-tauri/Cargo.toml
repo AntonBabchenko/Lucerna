@@ -128,8 +128,14 @@ sigstore-verify = "0.8.0"
 # SQLITE_OPEN_READ_ONLY by the Modrinth import reader. cargo-deny
 # justification: rusqlite is mature and widely used; `bundled` compiles
 # SQLite from vendored C source (CI runners have a C toolchain), so there is
-# no system-sqlite dependency. License MIT.
-rusqlite = { version = "0.32", features = ["bundled"] }
+# no system-sqlite dependency. License MIT. 0.41 is the first release whose
+# `libsqlite3-sys` (0.39) bundles SQLite 3.54, the fix for RUSTSEC-2026-0459
+# (a crafted `app.db` + `-wal` pair could make queries return uninitialized
+# memory); it needs Rust 1.89, and CI builds on stable. default-features=false
+# drops the two defaults we do not use: the prepared-statement cache (pulls in
+# `hashlink`; the reader calls `prepare`, never `prepare_cached`) and the
+# wasm32-unknown-unknown FFI crate (`sqlite-wasm-rs`).
+rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
 russh = { version = "0.61.2", default-features = false, features = ["aws-lc-rs", "flate2"] }
 russh-sftp = "2.3.0"
 # Screenshot viewer: decode PNG + downscale to cached JPEG thumbnails/previews
