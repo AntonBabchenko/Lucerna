@@ -42,7 +42,7 @@
   } from '$lib/modpacks/modpack-update-flow.svelte';
   import { displayLoaderTag } from '$lib/instances/loader-display';
   import { instancesChanged, modpacksNav } from '$lib/settings/state.svelte';
-  import { taskFor } from '$lib/tasks/registry.svelte';
+  import { isActiveTask, taskList } from '$lib/tasks/registry.svelte';
   import Banner from '$lib/ui/Banner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
@@ -318,7 +318,13 @@
   // A pack update for this instance already queued or running — possibly one
   // this dialog started before it was closed and reopened. The task registry
   // outlives the component, so a reopened dialog still holds its writes.
-  const packUpdateActive = $derived(taskFor({ instanceId })?.kind === 'pack-update');
+  // Every active task of this instance, not `taskFor`'s first one: a restore
+  // queued behind a game install is still a pack update holding the writes.
+  const packUpdateActive = $derived(
+    taskList().some(
+      (t) => isActiveTask(t) && t.kind === 'pack-update' && t.scope.instanceId === instanceId,
+    ),
+  );
   // Not `restoreFlow.running`: that leaves out `confirming`, and while the
   // restore's confirm is open the plan's own Apply must stay shut too.
   const restoreBusy = $derived(restoreStarting || restoreFlow.phase !== 'idle' || packUpdateActive);
@@ -330,8 +336,9 @@
 
   // When a pack update this dialog did NOT start ends, the plan it shows is
   // stale (the instance's platform just changed): load it again. A restore
-  // started here reloads in `confirmRestore` instead.
-  let startedRestoreHere = false;
+  // started here reloads in `confirmRestore` instead, so the end of ITS task
+  // consumes `ownRestore` rather than re-planning a second time.
+  let ownRestore = false;
   let sawPackUpdate = false;
   $effect(() => {
     if (packUpdateActive) {
@@ -340,7 +347,11 @@
     }
     if (sawPackUpdate) {
       sawPackUpdate = false;
-      if (!startedRestoreHere) void loadPlan();
+      if (ownRestore) {
+        ownRestore = false;
+        return;
+      }
+      void loadPlan();
     }
   });
 
@@ -373,6 +384,10 @@
       restoreInst = inst;
       await restoreFlow.prepare(inst, current);
       restoreError = restoreFlow.error;
+    } catch (e) {
+      // `typedError` rethrows a bridge failure instead of resolving to an
+      // error: without this the click would end in silence.
+      restoreError = e instanceof Error ? e.message : String(e);
     } finally {
       restoreStarting = false;
     }
@@ -383,10 +398,16 @@
     // Captured now: the write can outlive this dialog (closing never waits for
     // it), and the follow-up must reach the caller that started it.
     const notifyApplied = onApplied;
-    startedRestoreHere = true;
+    ownRestore = true;
     const ok = await restoreFlow.confirm(restoreInst, opts);
+    // The task has ended. When the effect never saw it (it started and ended
+    // between two flushes), nothing else will clear the flag, and a later
+    // outside pack update would end without the re-plan it needs.
+    if (!sawPackUpdate && !packUpdateActive) ownRestore = false;
     if (!ok) {
-      // `null` when the task was dropped from the queue — not an error.
+      // `null` when the user dropped the task from the queue — their own
+      // action, not an error: the block simply offers the restore again. A
+      // failed apply changed nothing (the update is all-or-nothing, #478).
       restoreError = restoreFlow.error;
       return;
     }

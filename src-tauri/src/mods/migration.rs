@@ -252,11 +252,19 @@ pub fn pack_verdict(
         .count();
     PackVerdict::Known {
         pack_name: pack_name.to_string(),
-        pack_version: pack_version.to_string(),
+        // The instance record names the installed version; when it does not,
+        // the list entry says the same thing (a blank would read "Pack ").
+        pack_version: if pack_version.is_empty() {
+            current.version_number.clone()
+        } else {
+            pack_version.to_string()
+        },
         current: current.clone(),
         instance_mc: instance_mc.to_string(),
         instance_loader: instance_loader_slug.to_string(),
-        minecraft_differs: !targets_instance_mc(current),
+        // Like the loader: an entry that names no Minecraft version cannot
+        // contradict the instance's.
+        minecraft_differs: !current.game_versions.is_empty() && !targets_instance_mc(current),
         loader_differs: excludes_instance_loader(current),
         // A pack's version list is a few hundred entries at most.
         other_versions_for_instance: u32::try_from(other_versions).unwrap_or(u32::MAX),
@@ -756,6 +764,39 @@ mod tests {
             instance_mc,
             loader,
         )
+    }
+
+    #[test]
+    fn an_entry_naming_no_minecraft_version_does_not_contradict_the_instance() {
+        // A source that tags no game version: missing data, not a mismatch.
+        let list = [pack_entry("cur", &[], &["fabric"])];
+        match verdict_for(Some(&list), "26.1.1", "fabric") {
+            PackVerdict::Known {
+                minecraft_differs,
+                loader_differs,
+                ..
+            } => {
+                assert!(!minecraft_differs);
+                assert!(!loader_differs);
+            }
+            other => panic!("expected Known, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unrecorded_pack_version_is_named_from_the_list() {
+        let list = [pack_entry("cur", &["26.2"], &["fabric"])];
+        match pack_verdict(
+            Some(&list),
+            "cur",
+            "Fabulously Optimized",
+            "",
+            "26.1.1",
+            "fabric",
+        ) {
+            PackVerdict::Known { pack_version, .. } => assert_eq!(pack_version, "cur"),
+            other => panic!("expected Known, got {other:?}"),
+        }
     }
 
     #[test]

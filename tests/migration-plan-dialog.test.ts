@@ -985,6 +985,97 @@ describe('MigrationPlanDialog — the modpack block', () => {
     expect(modsPlanMcMigration).toHaveBeenCalledTimes(1);
   });
 
+  it('after a restore the user dropped from the queue, an outside pack update still re-plans', async () => {
+    // The dialog's own restore marks the next pack-update end as its own; a
+    // restore that never reached the registry must not keep that mark, or the
+    // next update from the drawer would leave this plan describing the old
+    // platform.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    applyModpackUpdate.mockResolvedValue({ status: 'cancelled' });
+    const onApplied = vi.fn();
+    renderDialog(onApplied);
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    await waitFor(() => expect(screen.getByTestId('pack-restore-confirm')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('pack-restore-confirm'));
+    await waitFor(() => expect(applyModpackUpdate).toHaveBeenCalledTimes(1));
+    // Not an error, not applied: the block offers the restore again.
+    await waitFor(() =>
+      expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(screen.queryByTestId('migration-pack-error')).toBeNull();
+    expect(onApplied).not.toHaveBeenCalled();
+
+    void start({
+      id: 'pack-update-outside',
+      kind: 'pack-update',
+      scope: { instanceId: 'inst-1' },
+      title: 'Fabulously Optimized',
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+    await waitFor(() =>
+      expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(
+        true,
+      ),
+    );
+    finish('pack-update-outside', { state: 'ok' });
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+  });
+
+  it('holds its writes for a pack update queued behind another task of the instance', async () => {
+    // `taskFor` answers with the FIRST active task of a scope: a game install
+    // running ahead of the queued restore would hide it.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    void start({
+      id: 'install-1',
+      kind: 'game-install',
+      scope: { instanceId: 'inst-1' },
+      title: 'Install',
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+    void start({
+      id: 'pack-update-queued',
+      kind: 'pack-update',
+      scope: { instanceId: 'inst-1' },
+      title: 'Fabulously Optimized',
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(true);
+    finish('install-1', { state: 'ok' });
+    finish('pack-update-queued', { state: 'ok' });
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+  });
+
+  it('says why when reading the instance for a restore throws', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockRejectedValue(new Error('bridge down'));
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    expect((await screen.findByTestId('migration-pack-error')).textContent).toContain(
+      'bridge down',
+    );
+    expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
   it('shows why a restore could not start', async () => {
     modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
     listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });

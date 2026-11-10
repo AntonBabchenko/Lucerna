@@ -3502,7 +3502,9 @@ pub async fn mods_plan_mc_migration(
             plan.pack = Some(crate::mods::migration::pack_verdict(
                 versions.as_deref(),
                 version_id,
-                inst.mrpack_name.as_deref().unwrap_or(project_id),
+                // Never the platform's opaque project id: the profile's own name
+                // is the one the user knows.
+                inst.mrpack_name.as_deref().unwrap_or(&inst.name),
                 inst.mrpack_version.as_deref().unwrap_or_default(),
                 &mc,
                 loader.modrinth_slug(),
