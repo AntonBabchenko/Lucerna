@@ -21,6 +21,16 @@ behaviour is worth knowing, it is stated as a property of the feature under
 
 ## [Unreleased]
 
+### Fixed
+
+- **A modpack moved off its Minecraft version can be put back from the migration
+  plan.** If an instance was switched to another Minecraft version or loader with
+  its modpack kept, the plan sent the pack's mods to "the modpack update flow",
+  where the pack read as up to date. It now says what the pack is built for and
+  offers to restore that, with the same "Back up worlds first" choice as a pack
+  update, or to pick a pack version made for the instance's Minecraft when there
+  is one.
+
 ### Security
 
 - Bumped `rusqlite` 0.32.1 → 0.41.1, which bundles SQLite 3.54.1, for

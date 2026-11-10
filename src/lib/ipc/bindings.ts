@@ -6294,6 +6294,12 @@ export type McMigrationPlan_Deserialize = {
 	 *  `fits`. A check that did not run must not read as a check that passed.
 	 */
 	unjudged: UnjudgedRow[],
+	/**
+	 *  What the imported modpack is built for, next to what the instance runs.
+	 *  Filled by the command layer only when a pack-origin mod is stranded and
+	 *  the instance records which pack version it came from; see [`PackVerdict`].
+	 */
+	pack: PackVerdict | null,
 };
 
 export type McMigrationPlan_Serialize = {
@@ -6322,6 +6328,12 @@ export type McMigrationPlan_Serialize = {
 	 *  `fits`. A check that did not run must not read as a check that passed.
 	 */
 	unjudged: UnjudgedRow[],
+	/**
+	 *  What the imported modpack is built for, next to what the instance runs.
+	 *  Filled by the command layer only when a pack-origin mod is stranded and
+	 *  the instance records which pack version it came from; see [`PackVerdict`].
+	 */
+	pack: PackVerdict | null,
 };
 
 /**
@@ -7795,6 +7807,48 @@ export type PackState =
  *  succeed, under a message blaming a modpack update that never happened.
  */
 "present_awaiting_launch" | "enabled";
+
+/**
+ *  The pack-level half of the plan: whether the instance still runs the
+ *  platform its installed modpack version targets. The per-mod rows cannot say
+ *  this — a pack-owned mod is stranded, but the remedy is the pack's, not the
+ *  mod's.
+ */
+export type PackVerdict = { kind: "known"; pack_name: string; pack_version: string; 
+/**  The installed pack version's own entry — what a restore re-applies. */
+current: ModpackVersionEntry; instance_mc: string; 
+/**
+ *  The instance's loader as the pack sources name it (`fabric`,
+ *  `neoforge`, …).
+ */
+instance_loader: string; 
+/**
+ *  The instance runs a Minecraft version the installed pack version
+ *  does not target.
+ */
+minecraft_differs: boolean; 
+/**
+ *  The instance runs a loader the installed pack version does not
+ *  target. Only ever true when the source lists loaders at all.
+ */
+loader_differs: boolean; 
+/**
+ *  Other published versions of the pack an instance on this platform
+ *  could switch to: they target `instance_mc`, and the instance's
+ *  loader too wherever a version lists loaders.
+ */
+other_versions_for_instance: number; 
+/**
+ *  Some version in the list names its loaders, so the count above did
+ *  filter by loader for those — the UI names the loader with the count
+ *  exactly when this is true, never a loader match it did not check.
+ */
+alternatives_by_loader: boolean } | 
+/**
+ *  The version list could not be fetched, or does not contain the
+ *  installed version. Never read as "matches" or as "differs".
+ */
+{ kind: "unavailable"; pack_name: string };
 
 /**
  *  Whether this instance can be handed to the JVM at all, and if not, which

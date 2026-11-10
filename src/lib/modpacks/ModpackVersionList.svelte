@@ -10,6 +10,7 @@
   // guard, which is a plain text scan over src/.)
   import type { ModpackVersionEntry } from '$lib/ipc/bindings';
   import { locale, t } from '$lib/i18n';
+  import { displayLoaderTag } from '$lib/instances/loader-display';
   import { formatDate } from '$lib/format/date-time';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
@@ -20,15 +21,40 @@
     versions,
     installedVersionId,
     onSelect,
+    initialMcFilter,
+    initialLoaderFilter,
   }: {
     versions: ModpackVersionEntry[];
     installedVersionId: string | null;
     onSelect: (entry: ModpackVersionEntry) => void;
+    /** Start filtered to this Minecraft version — only if the pack ever
+     *  targeted it, since an empty list would not say why it is empty. */
+    initialMcFilter?: string;
+    /** Start filtered to this loader tag, under the same rule. */
+    initialLoaderFilter?: string;
   } = $props();
 
   const ALL = '';
 
-  let mcFilter = $state<string>(ALL);
+  // A seed, read once: the user owns the filter after mount.
+  function seedFilter(): string {
+    return initialMcFilter !== undefined &&
+      versions.some((v) => v.game_versions.includes(initialMcFilter))
+      ? initialMcFilter
+      : ALL;
+  }
+
+  let mcFilter = $state<string>(seedFilter());
+
+  // Loader tags vary in case across sources ("NeoForge" / "neoforge"), so the
+  // filter compares lowercase keys.
+  const loaderKey = (tag: string) => tag.trim().toLowerCase();
+  function seedLoaderFilter(): string {
+    if (initialLoaderFilter === undefined) return ALL;
+    const want = loaderKey(initialLoaderFilter);
+    return versions.some((v) => v.loaders.some((l) => loaderKey(l) === want)) ? want : ALL;
+  }
+  let loaderFilter = $state<string>(seedLoaderFilter());
 
   const sorted = $derived(sortVersionsNewestFirst(versions));
 
@@ -41,8 +67,23 @@
     })),
   ]);
 
+  const loaderOptions = $derived<SelectOption[]>([
+    { value: ALL, label: $t('modpacks.switch.filterMcAll') },
+    ...[...new Set(sorted.flatMap((v) => v.loaders.map(loaderKey)))].map((key) => ({
+      value: key,
+      label: displayLoaderTag(key),
+    })),
+  ]);
+
   const shown = $derived(
-    mcFilter === ALL ? sorted : sorted.filter((v) => v.game_versions.includes(mcFilter)),
+    sorted.filter(
+      (v) =>
+        (mcFilter === ALL || v.game_versions.includes(mcFilter)) &&
+        // A version that lists no loader cannot be ruled out.
+        (loaderFilter === ALL ||
+          v.loaders.length === 0 ||
+          v.loaders.some((l) => loaderKey(l) === loaderFilter)),
+    ),
   );
 
   const installedAt = $derived(sorted.findIndex((v) => v.id === installedVersionId));
@@ -70,16 +111,32 @@
 </script>
 
 <div class="flex flex-col gap-2 min-h-0 flex-1">
-  {#if mcOptions.length > 2}
-    <div class="flex items-center gap-2 text-sm">
-      <span class="text-secondary">{$t('modpacks.switch.filterMcLabel')}</span>
-      <Select
-        value={mcFilter}
-        options={mcOptions}
-        onChange={(v) => (mcFilter = String(v))}
-        ariaLabel={$t('modpacks.switch.filterMcLabel')}
-        dataTestid="version-mc-filter"
-      />
+  {#if mcOptions.length > 2 || loaderOptions.length > 2}
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+      {#if mcOptions.length > 2}
+        <div class="flex items-center gap-2">
+          <span class="text-secondary">{$t('modpacks.switch.filterMcLabel')}</span>
+          <Select
+            value={mcFilter}
+            options={mcOptions}
+            onChange={(v) => (mcFilter = String(v))}
+            ariaLabel={$t('modpacks.switch.filterMcLabel')}
+            dataTestid="version-mc-filter"
+          />
+        </div>
+      {/if}
+      {#if loaderOptions.length > 2}
+        <div class="flex items-center gap-2">
+          <span class="text-secondary">{$t('modpacks.switch.filterLoaderLabel')}</span>
+          <Select
+            value={loaderFilter}
+            options={loaderOptions}
+            onChange={(v) => (loaderFilter = String(v))}
+            ariaLabel={$t('modpacks.switch.filterLoaderLabel')}
+            dataTestid="version-loader-filter"
+          />
+        </div>
+      {/if}
     </div>
   {/if}
 

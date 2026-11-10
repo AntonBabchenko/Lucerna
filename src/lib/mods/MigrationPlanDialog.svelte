@@ -15,10 +15,11 @@
   // dialog's job (see `McMigrationSelections`'s doc comment in migration.rs).
   // `no_platform_build` rows are NOT proven incompatible — their section says
   // so — but they settle the same way: no default, undecided = keep.
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import {
     commands,
+    type InstanceWithStatus,
     type McMigrationPlan_Serialize,
     type McMigrationReport,
     type McMigrationRowOutcome,
@@ -34,6 +35,15 @@
   import { loadMigrationPlan } from '$lib/mods/migration-plan-runner';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import PackPlatformRestoreDialog from '$lib/modpacks/PackPlatformRestoreDialog.svelte';
+  import {
+    type ConfirmOptions,
+    createModpackUpdateFlow,
+  } from '$lib/modpacks/modpack-update-flow.svelte';
+  import { displayLoaderTag } from '$lib/instances/loader-display';
+  import { instancesChanged, modpacksNav } from '$lib/settings/state.svelte';
+  import { taskFor } from '$lib/tasks/registry.svelte';
+  import Banner from '$lib/ui/Banner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Icon from '$lib/ui/icons/Icon.svelte';
@@ -259,8 +269,167 @@
     report ? report.outcomes.filter((o) => o.kind !== 'failed').length : 0,
   );
 
+  // ── The modpack block (2026-09-15 pack-origin remedy spec) ─────────────
+  // A pack-owned mod cannot be fixed per mod: the pack decides its version.
+  // When the instance left the platform its installed pack version targets,
+  // the one-click remedy is to re-apply that same version, which writes the
+  // pack's Minecraft / loader back.
+  const packKnown = $derived(plan?.pack?.kind === 'known' ? plan.pack : null);
+  const packUnavailable = $derived(plan?.pack?.kind === 'unavailable' ? plan.pack : null);
+  const restoreOffered = $derived(
+    (packKnown?.minecraft_differs ?? false) || (packKnown?.loader_differs ?? false),
+  );
+  // What the restore puts back, named only as far as the version list can
+  // tell: exactly the differing axes, and only when the pack version lists a
+  // single value for each (the archive pins one; a list of several cannot say
+  // which). `null` → the generic "the modpack's platform" copy.
+  const restorePlatform = $derived.by(() => {
+    if (packKnown === null) return null;
+    const { game_versions: mcs, loaders } = packKnown.current;
+    const parts: string[] = [];
+    if (packKnown.minecraft_differs) {
+      if (mcs.length !== 1) return null;
+      parts.push(`Minecraft ${mcs[0]}`);
+    }
+    if (packKnown.loader_differs) {
+      if (loaders.length !== 1) return null;
+      parts.push(displayLoaderTag(loaders[0]));
+    }
+    return parts.length > 0 ? parts.join(' · ') : null;
+  });
+  // The count of other versions filtered by loader only for versions that list
+  // one (ATLauncher lists none), so the loader is named only then — never a
+  // loader match the count did not check.
+  const loadersListed = $derived(packKnown?.alternatives_by_loader ?? false);
+  const instancePlatform = $derived(
+    packKnown === null
+      ? ''
+      : loadersListed
+        ? `Minecraft ${packKnown.instance_mc} · ${displayLoaderTag(packKnown.instance_loader)}`
+        : `Minecraft ${packKnown.instance_mc}`,
+  );
+
+  const restoreFlow = createModpackUpdateFlow();
+  let restoreInst = $state<InstanceWithStatus | null>(null);
+  let restoreError = $state<string | null>(null);
+  // Covers the instance lookup before `prepare()` flips the flow to busy, so a
+  // double click cannot start two restores.
+  let restoreStarting = $state(false);
+  // A pack update for this instance already queued or running — possibly one
+  // this dialog started before it was closed and reopened. The task registry
+  // outlives the component, so a reopened dialog still holds its writes.
+  const packUpdateActive = $derived(taskFor({ instanceId })?.kind === 'pack-update');
+  // Not `restoreFlow.running`: that leaves out `confirming`, and while the
+  // restore's confirm is open the plan's own Apply must stay shut too.
+  const restoreBusy = $derived(restoreStarting || restoreFlow.phase !== 'idle' || packUpdateActive);
+  // The plan's own Apply and the restore both write to this instance: one at a
+  // time. Closing is never blocked by it — a restore can sit queued behind
+  // another long task, and the window must not be held hostage meanwhile; only
+  // the accidental dismissals (backdrop, Escape) are.
+  const writing = $derived(applying || restoreBusy);
+
+  // When a pack update this dialog did NOT start ends, the plan it shows is
+  // stale (the instance's platform just changed): load it again. A restore
+  // started here reloads in `confirmRestore` instead.
+  let startedRestoreHere = false;
+  let sawPackUpdate = false;
+  $effect(() => {
+    if (packUpdateActive) {
+      sawPackUpdate = true;
+      return;
+    }
+    if (sawPackUpdate) {
+      sawPackUpdate = false;
+      if (!startedRestoreHere) void loadPlan();
+    }
+  });
+
+  // A write outlives the dialog (closing never waits for it). Its follow-ups
+  // still report; re-planning into a destroyed dialog would only fire a burst
+  // of platform queries nobody sees.
+  let alive = true;
+  onDestroy(() => {
+    alive = false;
+  });
+
+  async function startRestore() {
+    if (packKnown === null || writing) return;
+    const current = packKnown.current;
+    restoreStarting = true;
+    restoreError = null;
+    try {
+      const listed = await commands.listInstances();
+      if (listed.status === 'error') {
+        restoreError = formatError(listed.error);
+        return;
+      }
+      const inst = listed.data.find((i) => i.id === instanceId);
+      if (!inst) {
+        // The instance disappeared under the dialog: re-planning surfaces the
+        // backend's own error for it instead of a guess here.
+        void loadPlan();
+        return;
+      }
+      restoreInst = inst;
+      await restoreFlow.prepare(inst, current);
+      restoreError = restoreFlow.error;
+    } finally {
+      restoreStarting = false;
+    }
+  }
+
+  async function confirmRestore(opts: ConfirmOptions) {
+    if (restoreInst === null) return;
+    // Captured now: the write can outlive this dialog (closing never waits for
+    // it), and the follow-up must reach the caller that started it.
+    const notifyApplied = onApplied;
+    startedRestoreHere = true;
+    const ok = await restoreFlow.confirm(restoreInst, opts);
+    if (!ok) {
+      // `null` when the task was dropped from the queue — not an error.
+      restoreError = restoreFlow.error;
+      return;
+    }
+    restoreInst = null;
+    // The instance record itself changed (Minecraft / loader): the page owns
+    // the instance list, so it refetches on this signal.
+    instancesChanged.value++;
+    notifyApplied?.();
+    if (alive) await loadPlan();
+  }
+
+  function cancelRestore() {
+    restoreFlow.cancel();
+    restoreInst = null;
+  }
+
+  function openPackVersionSwitch() {
+    if (packKnown === null || writing) return;
+    modpacksNav.value = {
+      openDrawerForInstance: instanceId,
+      openSwitch: loadersListed
+        ? { mcFilter: packKnown.instance_mc, loaderFilter: packKnown.instance_loader }
+        : { mcFilter: packKnown.instance_mc },
+    };
+    onClose();
+  }
+
+  function strandedReasonText(row: StrandedRow): string {
+    if (row.reason.kind === 'loader_too_old' && row.reason.built_for_mc) {
+      // A loader-version violation is almost always the jar being built for a
+      // different Minecraft version (the loader is bumped every MC version).
+      // Name the version it declares, instead of promising a loader update
+      // that does not exist.
+      return $t('mods.migration.reason.loaderTooOldFor', { mc: row.reason.built_for_mc });
+    }
+    if (row.reason.kind === 'pack_origin' && restoreOffered) {
+      return $t('mods.migration.reason.packOriginCovered');
+    }
+    return $t(reasonKey(row.reason));
+  }
+
   async function apply() {
-    if (!plan || !canApply || applying) return;
+    if (!plan || !canApply || writing) return;
     applying = true;
     applyError = null;
     // `target` values below are the EXACT ones the plan already resolved —
@@ -284,6 +453,8 @@
         disposition: dispositions.get(row.sha1) ?? 'keep',
       })),
     };
+    // Captured now, like the restore: closing does not wait for the write.
+    const notifyApplied = onApplied;
     const res = await commands.modsApplyMcMigration(instanceId, selections);
     applying = false;
     if (res.status === 'error') {
@@ -292,7 +463,7 @@
     }
     report = res.data;
     phase = 'result';
-    onApplied?.();
+    notifyApplied?.();
   }
 </script>
 
@@ -301,8 +472,8 @@
   {onClose}
   panelClass="w-full max-w-2xl max-h-[85vh] flex flex-col"
   dataTestid="migration-plan-dialog"
-  closeOnBackdrop={!applying}
-  closeOnEscape={!applying}
+  closeOnBackdrop={!writing}
+  closeOnEscape={!writing}
 >
   <header class="shrink-0 flex items-center justify-between border-b p-4">
     <h2 id="migration-plan-title" class="text-base font-semibold text-primary">
@@ -480,6 +651,97 @@
             <h3 class="mb-2 text-xs uppercase tracking-wide text-muted">
               {$t('mods.migration.strandedHeading', { count: plan.stranded.length })}
             </h3>
+            {#if packKnown}
+              <Banner
+                tone="warning"
+                icon="warning"
+                class="mb-3"
+                dataTestid="migration-pack-block"
+                title={!restoreOffered
+                  ? $t('mods.migration.pack.matchesTitle', {
+                      pack: packKnown.pack_name,
+                      version: packKnown.pack_version,
+                    })
+                  : restorePlatform === null
+                    ? $t('mods.migration.pack.restoreTitleGeneric', {
+                        pack: packKnown.pack_name,
+                        version: packKnown.pack_version,
+                      })
+                    : $t('mods.migration.pack.restoreTitle', {
+                        pack: packKnown.pack_name,
+                        version: packKnown.pack_version,
+                        platform: restorePlatform,
+                      })}
+              >
+                {#if restoreOffered}
+                  <p class="text-sm">
+                    {packKnown.minecraft_differs && packKnown.loader_differs
+                      ? $t('mods.migration.pack.restoreBodyBoth', {
+                          instanceMc: packKnown.instance_mc,
+                        })
+                      : packKnown.minecraft_differs
+                        ? $t('mods.migration.pack.restoreBodyMc', {
+                            instanceMc: packKnown.instance_mc,
+                          })
+                        : $t('mods.migration.pack.restoreBodyLoader')}
+                  </p>
+                {/if}
+                {#if packKnown.other_versions_for_instance === 0}
+                  <p class="text-sm">
+                    {$t('mods.migration.pack.noAlternatives', { instancePlatform })}
+                  </p>
+                {/if}
+                <div class="mt-2 flex flex-wrap gap-2">
+                  {#if restoreOffered}
+                    <BusyButton
+                      busy={restoreBusy}
+                      disabled={applying}
+                      class="btn-warning btn-sm"
+                      data-testid="migration-pack-restore"
+                      onclick={() => void startRestore()}
+                    >
+                      {restorePlatform === null
+                        ? $t('mods.migration.pack.restoreBtnGeneric')
+                        : $t('mods.migration.pack.restoreBtn', { platform: restorePlatform })}
+                    </BusyButton>
+                  {/if}
+                  {#if packKnown.other_versions_for_instance > 0}
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      disabled={writing}
+                      data-testid="migration-pack-switch"
+                      onclick={openPackVersionSwitch}
+                    >
+                      {$t('mods.migration.pack.switchBtn', {
+                        count: packKnown.other_versions_for_instance,
+                        instancePlatform,
+                      })}
+                    </button>
+                  {/if}
+                </div>
+                {#if restoreError}
+                  <p class="mt-2 text-sm text-danger" data-testid="migration-pack-error">
+                    {restoreError}
+                  </p>
+                {/if}
+              </Banner>
+            {:else if packUnavailable}
+              <Banner tone="warning" icon="warning" class="mb-3" dataTestid="migration-pack-block">
+                <p class="text-sm">
+                  {$t('mods.migration.pack.unavailable', { pack: packUnavailable.pack_name })}
+                </p>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm mt-2"
+                  disabled={writing}
+                  data-testid="migration-pack-retry"
+                  onclick={() => void loadPlan()}
+                >
+                  {$t('mods.migration.pack.retryBtn')}
+                </button>
+              </Banner>
+            {/if}
             <ul class="space-y-2">
               {#each plan.stranded as row (row.sha1)}
                 <li
@@ -487,19 +749,7 @@
                   data-testid={`migration-stranded-row-${row.sha1}`}
                 >
                   <div class="text-sm text-primary">{row.name}</div>
-                  <p class="mb-1.5 text-xs text-muted">
-                    {#if row.reason.kind === 'loader_too_old' && row.reason.built_for_mc}
-                      <!-- A loader-version violation is almost always the jar being
-                           built for a different Minecraft version (the loader is
-                           bumped every MC version). Name the version it declares,
-                           instead of promising a loader update that does not exist. -->
-                      {$t('mods.migration.reason.loaderTooOldFor', {
-                        mc: row.reason.built_for_mc,
-                      })}
-                    {:else}
-                      {$t(reasonKey(row.reason))}
-                    {/if}
-                  </p>
+                  <p class="mb-1.5 text-xs text-muted">{strandedReasonText(row)}</p>
                   <ToggleChipGroup
                     options={dispositionOptions(row)}
                     value={dispositions.get(row.sha1) ?? ''}
@@ -579,7 +829,7 @@
           >
             <BusyButton
               busy={applying}
-              disabled={!canApply}
+              disabled={!canApply || restoreBusy}
               class="btn-primary btn-sm"
               data-testid="migration-apply-btn"
               onclick={() => void apply()}
@@ -596,3 +846,16 @@
     </div>
   </footer>
 </Modal>
+
+<!-- Stacked above the plan, so rendered after it (DESIGN.md: a stacked modal
+     renders after the one it covers). -->
+{#if restoreFlow.diff && packKnown}
+  <PackPlatformRestoreDialog
+    diff={restoreFlow.diff}
+    packName={packKnown.pack_name}
+    busy={restoreFlow.phase === 'applying'}
+    worldCount={restoreFlow.worldCount}
+    onCancel={cancelRestore}
+    onConfirm={(opts) => void confirmRestore(opts)}
+  />
+{/if}

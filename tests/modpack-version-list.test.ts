@@ -44,6 +44,58 @@ describe('ModpackVersionList', () => {
     ]);
   });
 
+  it('starts filtered to the requested Minecraft version when the pack targets it', () => {
+    render(ModpackVersionList, {
+      versions: VERSIONS,
+      installedVersionId: 'v2',
+      onSelect: vi.fn(),
+      initialMcFilter: '1.19.2',
+    });
+    const rows = screen.getAllByTestId(/^version-row-/);
+    expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual(['version-row-v1']);
+  });
+
+  it('ignores a requested Minecraft version the pack never targeted', () => {
+    // Filtering to it would show an empty list with no way to tell why.
+    render(ModpackVersionList, {
+      versions: VERSIONS,
+      installedVersionId: 'v2',
+      onSelect: vi.fn(),
+      initialMcFilter: '26.1.1',
+    });
+    expect(screen.getAllByTestId(/^version-row-/)).toHaveLength(3);
+  });
+
+  it('starts filtered to the requested loader too, when the pack spans several', () => {
+    const mixed = [
+      { ...ver('fab', '2026-03-01T00:00:00Z'), loaders: ['fabric'] },
+      { ...ver('neo', '2026-02-01T00:00:00Z'), loaders: ['NeoForge'] },
+      { ...ver('any', '2026-01-01T00:00:00Z'), loaders: [] },
+    ];
+    render(ModpackVersionList, {
+      versions: mixed,
+      installedVersionId: null,
+      onSelect: vi.fn(),
+      initialLoaderFilter: 'neoforge',
+    });
+    expect(screen.getByTestId('version-loader-filter')).toBeTruthy();
+    // A version listing no loader cannot be ruled out.
+    expect(
+      screen.getAllByTestId(/^version-row-/).map((r) => r.getAttribute('data-testid')),
+    ).toEqual(['version-row-neo', 'version-row-any']);
+  });
+
+  it('shows no loader filter for a single-loader pack', () => {
+    render(ModpackVersionList, {
+      versions: VERSIONS,
+      installedVersionId: 'v2',
+      onSelect: vi.fn(),
+      initialLoaderFilter: 'fabric',
+    });
+    expect(screen.queryByTestId('version-loader-filter')).toBeNull();
+    expect(screen.getAllByTestId(/^version-row-/)).toHaveLength(3);
+  });
+
   it('marks the installed version', () => {
     render(ModpackVersionList, {
       versions: VERSIONS,

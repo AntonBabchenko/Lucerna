@@ -2,7 +2,7 @@
   import { type Snippet, untrack } from 'svelte';
   import { commands } from '$lib/ipc/bindings';
   import type { InstanceWithStatus, LoaderKind, ModpackStatus } from '$lib/ipc/bindings';
-  import { modpacksNav } from '$lib/settings/state.svelte';
+  import { modpacksNav, type ModpacksNavSwitch } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import ImportedCard from './ImportedCard.svelte';
   import ImportedDetailDrawer from './ImportedDetailDrawer.svelte';
@@ -59,12 +59,23 @@
     drawerInstId == null ? null : (instances.find((i) => i.id === drawerInstId) ?? null),
   );
 
+  // Set only by a nav that asked for the version switch; any other way of
+  // opening or closing the drawer clears it, so a later card click opens the
+  // plain drawer.
+  let drawerInitialSwitch = $state<ModpacksNavSwitch | null>(null);
+
+  function openDrawer(id: string | null) {
+    drawerInstId = id;
+    drawerInitialSwitch = null;
+  }
+
   // Final consumer of modpacksNav: open the drawer for the requested
   // instance and clear the rune so later in-tab clicks aren't hijacked.
   $effect(() => {
     const nav = modpacksNav.value;
     if (nav !== null) {
       drawerInstId = nav.openDrawerForInstance;
+      drawerInitialSwitch = nav.openSwitch ?? null;
       modpacksNav.value = null;
     }
   });
@@ -251,7 +262,7 @@
       {#each packs as inst (inst.id)}
         <ImportedCard
           {inst}
-          onClick={() => (drawerInstId = inst.id)}
+          onClick={() => openDrawer(inst.id)}
           isModified={statusMap.get(inst.id)?.is_modified ?? false}
         />
       {/each}
@@ -262,13 +273,14 @@
 {#if drawerInst}
   <ImportedDetailDrawer
     inst={drawerInst}
-    onClose={() => (drawerInstId = null)}
+    initialSwitch={drawerInitialSwitch}
+    onClose={() => openDrawer(null)}
     onOpenInstance={(id) => {
-      drawerInstId = null;
+      openDrawer(null);
       onPick(id);
     }}
     onDeleted={() => {
-      drawerInstId = null;
+      openDrawer(null);
       onListChanged?.();
     }}
     onUpdated={() => {

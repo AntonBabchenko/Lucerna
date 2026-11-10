@@ -21,6 +21,8 @@ vi.mock('$lib/ipc/bindings', () => ({
     // which calls this command once per pack-instance batch. Return an
     // empty rows array so the sweep resolves without touching badge state.
     modpacksCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // The version-switch dialog the nav can deep-link into lists versions.
+    modpackGetVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -318,6 +320,48 @@ describe('ImportedView', () => {
         },
       });
       expect(await screen.findByTestId('imported-detail-drawer')).toBeTruthy();
+    });
+
+    it('opens the version switch filtered to the requested Minecraft version', async () => {
+      // The migration dialog's "pick another modpack version": the user lands
+      // on the versions that fit the instance, not on the whole history.
+      const { modpacksNav } = await import('$lib/settings/state.svelte');
+      const entry = (id: string, mc: string, loader = 'fabric') => ({
+        id,
+        name: id,
+        version_number: id,
+        game_versions: [mc],
+        loaders: [loader],
+        date_published: '2026-01-01T00:00:00Z',
+      });
+      vi.mocked(commands.modpackGetVersions).mockResolvedValueOnce({
+        status: 'ok',
+        data: [
+          entry('for-26-2', '26.2'),
+          entry('for-26-1-1', '26.1.1'),
+          entry('neo-26-1-1', '26.1.1', 'neoforge'),
+        ],
+      });
+      modpacksNav.value = {
+        openDrawerForInstance: 'i1',
+        openSwitch: { mcFilter: '26.1.1', loaderFilter: 'fabric' },
+      };
+      render(ImportedView, {
+        props: {
+          instances: [
+            {
+              ...inst('i1', 'My Pack', 1000),
+              mrpack_project_id: 'proj',
+              mrpack_source: 'modrinth',
+              mrpack_version_id: 'for-26-2',
+            },
+          ],
+          onPick: () => {},
+        },
+      });
+      expect(await screen.findByTestId('version-row-for-26-1-1')).toBeTruthy();
+      expect(screen.queryByTestId('version-row-for-26-2')).toBeNull();
+      expect(screen.queryByTestId('version-row-neo-26-1-1')).toBeNull();
     });
   });
 });

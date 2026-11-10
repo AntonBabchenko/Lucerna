@@ -121,6 +121,7 @@
   import {
     addonsKind,
     clientActiveTab,
+    instancesChanged,
     modBrowserNav,
     modpacksActive,
     modpacksNav,
@@ -793,6 +794,19 @@
       void refreshInstances();
     } else {
       integritySettled = true;
+    }
+  });
+
+  // An action outside the page rewrote an instance record (the migration
+  // dialog's pack restore): refetch so the sidebar, Overview and the Install
+  // prompt show the platform the instance now has. Skip the mount run.
+  let instancesChangedSettled = false;
+  $effect(() => {
+    void instancesChanged.value;
+    if (instancesChangedSettled) {
+      void refreshInstances();
+    } else {
+      instancesChangedSettled = true;
     }
   });
 

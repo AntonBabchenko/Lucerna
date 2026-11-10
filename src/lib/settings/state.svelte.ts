@@ -112,7 +112,16 @@ export const modBrowseOpenProject = $state<{ value: ModBrowseOpenProject | null 
 // flips to the Modpacks tab, ModpacksTab flips to its Imported sub-tab,
 // and ImportedView opens the drawer for the named instance, then
 // resets the rune. Mirrors `modBrowserNav`.
-export type ModpacksNav = { openDrawerForInstance: string };
+//
+// `openSwitch` goes one step further and opens that drawer's version-switch
+// dialog, its Minecraft filter set to `mcFilter` (and its loader filter to
+// `loaderFilter`, when the source lists loaders) — the migration dialog's
+// "pick another modpack version" lands the user on the versions that fit.
+export type ModpacksNavSwitch = { mcFilter: string; loaderFilter?: string };
+export type ModpacksNav = {
+  openDrawerForInstance: string;
+  openSwitch?: ModpacksNavSwitch;
+};
 export const modpacksNav = $state<{ value: ModpacksNav | null }>({ value: null });
 
 // Files dropped onto the Mods tab, routed here by the app's single
@@ -209,6 +218,14 @@ export const assetsChanged = $state<{ value: number }>({ value: 0 });
 // shader lists (and vice versa). Same contract — bump only in action handlers,
 // read only inside fetch effects.
 export const datapacksChanged = $state<{ value: number }>({ value: 0 });
+
+// Bumped when an action rewrote an instance record (its Minecraft version or
+// loader) from a surface that does not own the instance list — today the MC
+// migration dialog's pack restore, reachable from both Manage and the Installed
+// view. The page reads it inside an $effect and refetches the list, so the
+// sidebar, Overview and the Install prompt stop showing the old platform. Same
+// contract as `assetsChanged`: bump only in action handlers.
+export const instancesChanged = $state<{ value: number }>({ value: 0 });
 
 // Mojang's Minecraft version list — fetched once at app startup
 // (+page.svelte onMount) and consumed by both the McVersionCombobox in

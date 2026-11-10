@@ -1286,10 +1286,25 @@
       "reason": {
         "noBuildForTarget": "No build has been published yet for this Minecraft version and loader.",
         "noProjectToAsk": "This jar isn't linked to a mod page, so it can't be re-fetched automatically.",
-        "packOrigin": "This mod comes from the modpack — change its version from the modpack update flow instead.",
+        "packOrigin": "The modpack itself installs this version of the mod. If the game won't start with it, disable it — only another modpack version can replace it.",
+        "packOriginCovered": "From the modpack — the button above fixes it.",
         "queryFailed": "Couldn't check for a replacement — try again later.",
         "loaderTooOld": "This mod is built for a different Minecraft version than this instance runs — its loader is already the newest one for your version. Reinstalling won't help; change the instance's Minecraft version to match, or remove the mod.",
         "loaderTooOldFor": "Built for Minecraft {mc}. This instance runs a different version, and its loader is already the newest one available for it — reinstalling won't help. Change the instance's Minecraft version to match, or remove the mod."
+      },
+      "pack": {
+        "restoreTitle": "Mods from \"{pack} {version}\" are built for {platform}",
+        "restoreTitleGeneric": "Mods from \"{pack} {version}\" are built for another platform",
+        "restoreBodyMc": "This instance now runs Minecraft {instanceMc}. Put back what the modpack is built for.",
+        "restoreBodyLoader": "This instance now runs a different mod loader. Put back what the modpack is built for.",
+        "restoreBodyBoth": "This instance now runs Minecraft {instanceMc} with a different mod loader. Put back what the modpack is built for.",
+        "restoreBtn": "Restore {platform}",
+        "restoreBtnGeneric": "Restore the modpack's platform",
+        "switchBtn": "Pick another modpack version ({count} for {instancePlatform})",
+        "noAlternatives": "The modpack has no other version for {instancePlatform}.",
+        "matchesTitle": "\"{pack} {version}\" itself ships these versions of the mods",
+        "unavailable": "Couldn't check which Minecraft version \"{pack}\" is built for.",
+        "retryBtn": "Try again"
       },
       "unjudgedReason": {
         "unreadable": "The file couldn't be read.",
@@ -1798,6 +1813,7 @@
       "versionsEmpty": "No versions match.",
       "filterMcLabel": "Minecraft version",
       "filterMcAll": "All",
+      "filterLoaderLabel": "Loader",
       "versionMeta": "{mc} · {loader} · {date}",
       "reviewTitle": "Switch to {version}?",
       "confirmBtn": "Switch to {version}",
@@ -1812,6 +1828,15 @@
       "riskCustomizationsUser": "{count} mod(s) you added yourself will be kept. They were chosen for the current version and may not work with this one.",
       "riskCustomizationsManual": "{count} manually-placed jar(s) will be kept and are not checked for compatibility.",
       "riskBundledOverrides": "The pack's bundled config files are not re-applied by a version change — your current configs stay as they are. Use \"Re-import pack files\" afterwards if the new version needs its own configs."
+    },
+    "restore": {
+      "title": "Restore Minecraft {packMc}?",
+      "titleLoader": "Restore the modpack's loader?",
+      "body": "\"{pack}\" is re-applied at the version already installed — no mod files change.",
+      "bodyWithChanges": "\"{pack}\" is re-applied at the version already installed, and these files change:",
+      "alreadyMatches": "This instance already runs the modpack's Minecraft and loader — restoring would change nothing.",
+      "confirmBtn": "Restore",
+      "cancelBtn": "Cancel"
     },
     "manual": {
       "title": "Finish installing {pack}",

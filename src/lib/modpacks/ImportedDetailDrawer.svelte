@@ -37,6 +37,7 @@
   import { packChangelogBase } from './switch-risks';
   import ChangelogModal from '$lib/mods/ChangelogModal.svelte';
   import { changelogSupported } from '$lib/mods/changelog-supported';
+  import type { ModpacksNavSwitch } from '$lib/settings/state.svelte';
 
   // Centered modal that surfaces the metadata captured at import time for a
   // pack-originated instance. Uses the shared Modal primitive (backdrop +
@@ -88,12 +89,16 @@
 
   let {
     inst,
+    initialSwitch = null,
     onClose,
     onOpenInstance,
     onDeleted,
     onUpdated,
   }: {
     inst: InstanceWithStatus;
+    /** Open the version switch on mount, pre-filtered (a deep link from the
+     *  migration dialog). */
+    initialSwitch?: ModpacksNavSwitch | null;
     onClose: () => void;
     onOpenInstance: (id: string) => void;
     onDeleted: () => void;
@@ -116,7 +121,14 @@
   let updateError = $state<string | null>(null);
   const updateFlow = createModpackUpdateFlow();
 
-  let switchOpen = $state(false);
+  // A deep link opens the switch once, pre-filtered; reopening it from the
+  // button later starts unfiltered like always. Same visibility rule as the
+  // button: no project id, no version list to switch within.
+  function switchSeed(): ModpacksNavSwitch | null {
+    return initialSwitch !== null && inst.mrpack_project_id ? initialSwitch : null;
+  }
+  let switchFilterSeed = $state<ModpacksNavSwitch | null>(switchSeed());
+  let switchOpen = $state(switchSeed() !== null);
 
   // Provenance counts for the switch dialog's customization warning. Derived
   // from the same `provenance()` classification the mod rows badge with, so the
@@ -1073,9 +1085,15 @@
     userAdded={provenanceCounts.userAdded}
     manual={provenanceCounts.manual}
     {hasBundledFiles}
-    onClose={() => (switchOpen = false)}
+    initialMcFilter={switchFilterSeed?.mcFilter}
+    initialLoaderFilter={switchFilterSeed?.loaderFilter}
+    onClose={() => {
+      switchOpen = false;
+      switchFilterSeed = null;
+    }}
     onSwitched={() => {
       switchOpen = false;
+      switchFilterSeed = null;
       updateAvailable = null;
       void load().then(() => onUpdated?.());
     }}

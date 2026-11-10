@@ -34,8 +34,14 @@
     hasBundledFiles,
     onClose,
     onSwitched,
+    initialMcFilter,
+    initialLoaderFilter,
   }: {
     inst: InstanceWithStatus;
+    /** Open the version list filtered to this Minecraft version. */
+    initialMcFilter?: string;
+    /** …and to this loader, where the pack spans several. */
+    initialLoaderFilter?: string;
     /** Mods added via the Mod browser after import (drawer `provenance`). */
     userAdded: number;
     /** Jars dropped into `mods/` by hand (drawer `provenance`). */
@@ -207,6 +213,8 @@
         {versions}
         installedVersionId={inst.mrpack_version_id}
         onSelect={(e) => void pick(e)}
+        {initialMcFilter}
+        {initialLoaderFilter}
       />
     {/if}
     <div class="flex justify-end">
