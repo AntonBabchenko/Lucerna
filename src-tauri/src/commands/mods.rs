@@ -3471,6 +3471,46 @@ pub async fn mods_plan_mc_migration(
         let already_installed = crate::mods::deps::installed_view(&installed, &aliases).keys;
         plan.new_dependencies = fold_new_dependencies(&requirements, &already_installed);
 
+        // 6. The pack-level verdict (2026-09-15 pack-origin remedy spec, D1). A
+        //    pack-owned stranded mod cannot be fixed per mod: the remedy is the
+        //    pack's. Asked only when such a row exists and the instance records
+        //    which pack version it came from — otherwise no request is made.
+        let has_pack_row = plan
+            .stranded
+            .iter()
+            .any(|r| matches!(r.reason, crate::mods::migration::StrandedReason::PackOrigin));
+        if let (true, Some(source), Some(project_id), Some(version_id)) = (
+            has_pack_row,
+            inst.mrpack_source,
+            inst.mrpack_project_id.as_deref(),
+            inst.mrpack_version_id.as_deref(),
+        ) {
+            let versions = match crate::mods::modpack::source::modpack_source_for(source)
+                .get_versions(project_id)
+                .await
+            {
+                Ok(v) => Some(v),
+                // Reported to the user as `PackVerdict::Unavailable`, never as a
+                // platform claim; the cause goes to the diagnostics log.
+                Err(e) => {
+                    crate::diag!(
+                        "[mods] migration plan: pack versions for {project_id} failed: {e}"
+                    );
+                    None
+                }
+            };
+            plan.pack = Some(crate::mods::migration::pack_verdict(
+                versions.as_deref(),
+                version_id,
+                // Never the platform's opaque project id: the profile's own name
+                // is the one the user knows.
+                inst.mrpack_name.as_deref().unwrap_or(&inst.name),
+                inst.mrpack_version.as_deref().unwrap_or_default(),
+                &mc,
+                loader.modrinth_slug(),
+            ));
+        }
+
         Ok(plan)
     })
     .await

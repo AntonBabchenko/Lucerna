@@ -5,11 +5,20 @@ import type { McMigrationPlan_Serialize, ModVersion_Serialize } from '$lib/ipc/b
 
 const modsPlanMcMigration = vi.fn();
 const modsApplyMcMigration = vi.fn();
+const listInstances = vi.fn();
+const modpackFetchToTemp = vi.fn();
+const modpackComputeUpdate = vi.fn();
+const applyModpackUpdate = vi.fn();
+const listWorldNames = vi.fn();
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsPlanMcMigration: (...a: unknown[]) => modsPlanMcMigration(...a),
     modsApplyMcMigration: (...a: unknown[]) => modsApplyMcMigration(...a),
+    listInstances: (...a: unknown[]) => listInstances(...a),
+    modpackFetchToTemp: (...a: unknown[]) => modpackFetchToTemp(...a),
+    modpackComputeUpdate: (...a: unknown[]) => modpackComputeUpdate(...a),
+    listWorldNames: (...a: unknown[]) => listWorldNames(...a),
   },
 }));
 
@@ -32,7 +41,15 @@ vi.mock('@tauri-apps/api/core', () => ({
   },
 }));
 
+// The restore applies through the task adapter; its registry and Tauri
+// channels are not what these tests are about.
+vi.mock('$lib/tasks/adapters/pack-update', () => ({
+  applyModpackUpdate: (...a: unknown[]) => applyModpackUpdate(...a),
+}));
+
 import MigrationPlanDialog from '$lib/mods/MigrationPlanDialog.svelte';
+import { instancesChanged, modpacksNav } from '$lib/settings/state.svelte';
+import { __resetTasksForTest, finish, start } from '$lib/tasks/registry.svelte';
 
 function modVersion(projectId: string, versionId: string): ModVersion_Serialize {
   return {
@@ -88,6 +105,7 @@ const PLAN: McMigrationPlan_Serialize = {
     { sha1: 'u1', name: 'Kiwi', reason: 'file_not_listed' },
     { sha1: 'u2', name: 'Hand Dropped', reason: 'no_mod_page' },
   ],
+  pack: null,
 };
 
 function renderDialog(onApplied = vi.fn(), onClose = vi.fn()) {
@@ -466,5 +484,610 @@ describe('MigrationPlanDialog — while the plan loads', () => {
     expect(
       await screen.findByRole('status', { name: 'Checking what the replacements need…' }),
     ).toBeTruthy();
+  });
+});
+
+// The real case this block exists for: Fabulously Optimized 14.0.0-beta.4 is
+// built for Minecraft 26.2, the instance was re-versioned to 26.1.1 with the
+// pack left attached, and the pack's own mods are stranded.
+describe('MigrationPlanDialog — the modpack block', () => {
+  beforeAll(() => locale.set('en'));
+  afterEach(() => {
+    vi.clearAllMocks();
+    modpacksNav.value = null;
+    __resetTasksForTest();
+  });
+
+  const CURRENT = {
+    id: 'cur',
+    name: '14.0.0-beta.4',
+    version_number: '14.0.0-beta.4',
+    game_versions: ['26.2'],
+    loaders: ['fabric'],
+    date_published: '2026-08-02T12:20:00Z',
+  };
+
+  function packPlan(pack: McMigrationPlan_Serialize['pack']): McMigrationPlan_Serialize {
+    return {
+      fits: [],
+      replaceable: [],
+      new_dependencies: [],
+      stranded: [
+        { sha1: 'p1', name: 'Sodium Extra', reason: { kind: 'pack_origin' } },
+        { sha1: 'p2', name: 'Zoomify', reason: { kind: 'pack_origin' } },
+      ],
+      no_platform_build: [],
+      unjudged: [],
+      pack,
+    };
+  }
+
+  const DIFFERS: McMigrationPlan_Serialize['pack'] = {
+    kind: 'known',
+    pack_name: 'Fabulously Optimized',
+    pack_version: '14.0.0-beta.4',
+    current: CURRENT,
+    instance_mc: '26.1.1',
+    instance_loader: 'fabric',
+    minecraft_differs: true,
+    loader_differs: false,
+    other_versions_for_instance: 0,
+    alternatives_by_loader: true,
+  };
+
+  const INSTANCE = {
+    id: 'inst-1',
+    name: 'Fabulously Optimized',
+    mrpack_source: 'modrinth',
+    mrpack_project_id: '1KVo5zza',
+    mrpack_version_id: 'cur',
+  };
+
+  const RESTORE_DIFF = {
+    added: [],
+    removed: [],
+    updated: [],
+    version_bump: {
+      old_game_version: '26.1.1',
+      new_game_version: '26.2',
+      old_loader_version: '0.19.3',
+      new_loader_version: '0.19.3',
+    },
+    new_version_number: '14.0.0-beta.4',
+  };
+
+  it('names what the pack is built for and offers to restore it', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    const block = screen.getByTestId('migration-pack-block').textContent ?? '';
+    expect(block).toContain('Fabulously Optimized 14.0.0-beta.4');
+    expect(block).toContain('Minecraft 26.2');
+    expect(block).toContain('26.1.1');
+    expect(screen.getByTestId('migration-pack-restore').textContent).toContain(
+      'Restore Minecraft 26.2',
+    );
+    // The dead-end sentence is gone from the rows the block covers.
+    const section = screen.getByTestId('migration-stranded-section').textContent ?? '';
+    expect(section).toContain('the button above fixes it');
+    expect(section).not.toContain('modpack update flow');
+  });
+
+  it('says plainly when the pack has no other version for this Minecraft', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    expect(screen.queryByTestId('migration-pack-switch')).toBeNull();
+    // The count is per Minecraft AND loader, so the sentence names both.
+    expect(screen.getByTestId('migration-pack-block').textContent).toContain(
+      'no other version for Minecraft 26.1.1 · Fabric',
+    );
+  });
+
+  it('opens the version switch pre-filtered to this Minecraft when alternatives exist', async () => {
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({ ...DIFFERS, other_versions_for_instance: 2 }),
+    });
+    const onClose = vi.fn();
+    renderDialog(vi.fn(), onClose);
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-switch')).toBeTruthy());
+    expect(screen.getByTestId('migration-pack-switch').textContent).toContain(
+      '2 for Minecraft 26.1.1 · Fabric',
+    );
+    await fireEvent.click(screen.getByTestId('migration-pack-switch'));
+
+    expect(modpacksNav.value).toEqual({
+      openDrawerForInstance: 'inst-1',
+      openSwitch: { mcFilter: '26.1.1', loaderFilter: 'fabric' },
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed pack check honestly and retries the plan', async () => {
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({ kind: 'unavailable', pack_name: 'Fabulously Optimized' }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    expect(screen.getByTestId('migration-pack-block').textContent).toContain("Couldn't check");
+    expect(screen.queryByTestId('migration-pack-restore')).toBeNull();
+    await fireEvent.click(screen.getByTestId('migration-pack-retry'));
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+  });
+
+  it('without a pack verdict the rows say what the pack does, not where to go', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(null) });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-stranded-section')).toBeTruthy());
+    expect(screen.queryByTestId('migration-pack-block')).toBeNull();
+    const section = screen.getByTestId('migration-stranded-section').textContent ?? '';
+    expect(section).toContain('The modpack itself installs this version of the mod');
+  });
+
+  it('a pack already on its own platform gets no restore button', async () => {
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({ ...DIFFERS, minecraft_differs: false, instance_mc: '26.2' }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    expect(screen.queryByTestId('migration-pack-restore')).toBeNull();
+    expect(screen.getByTestId('migration-pack-block').textContent).toContain(
+      'itself ships these versions',
+    );
+  });
+
+  it('restores through the confirm dialog, then reports and re-plans', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    applyModpackUpdate.mockResolvedValue({ status: 'ok' });
+    listWorldNames.mockResolvedValue({ status: 'ok', data: ['World', 'Creative'] });
+    const onApplied = vi.fn();
+    const changedBefore = instancesChanged.value;
+    renderDialog(onApplied);
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+
+    // The installed version — not the newest — is what gets re-applied.
+    await waitFor(() => expect(screen.getByTestId('pack-restore-dialog')).toBeTruthy());
+    expect(modpackFetchToTemp).toHaveBeenCalledWith('modrinth', '1KVo5zza', 'cur');
+    expect(modpackComputeUpdate).toHaveBeenCalledWith('inst-1', 'C:/tmp/fo.mrpack');
+
+    await fireEvent.click(screen.getByTestId('pack-restore-confirm'));
+    await waitFor(() => expect(applyModpackUpdate).toHaveBeenCalledTimes(1));
+    expect(applyModpackUpdate.mock.calls[0]?.slice(0, 4)).toEqual([
+      'Fabulously Optimized',
+      'inst-1',
+      'C:/tmp/fo.mrpack',
+      'cur',
+    ]);
+    // The worlds move to another Minecraft version: backed up unless the user
+    // unticks it, as on every other pack update.
+    expect(applyModpackUpdate.mock.calls[0]?.[4]).toBe(true);
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+    // The instance record changed (Minecraft / loader): the page must refetch
+    // the instance list, or the sidebar keeps the old version.
+    expect(instancesChanged.value).toBe(changedBefore + 1);
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('pack-restore-dialog')).toBeNull();
+  });
+
+  it('restores without the world backup once the user unticks it', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    applyModpackUpdate.mockResolvedValue({ status: 'ok' });
+    listWorldNames.mockResolvedValue({ status: 'ok', data: ['World'] });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    const box = (await screen.findByTestId('restore-backup-worlds')) as HTMLInputElement;
+    await fireEvent.click(box);
+    await fireEvent.click(screen.getByTestId('pack-restore-confirm'));
+    await waitFor(() => expect(applyModpackUpdate).toHaveBeenCalledTimes(1));
+    expect(applyModpackUpdate.mock.calls[0]?.[4]).toBe(false);
+  });
+
+  it('names the loader, not Minecraft, when only the loader differs', async () => {
+    // A NeoForge pack on 1.21.1 whose instance was switched to Fabric with the
+    // pack left attached: Minecraft still matches.
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({
+        ...DIFFERS,
+        current: { ...CURRENT, game_versions: ['1.21.1'], loaders: ['neoforge'] },
+        instance_mc: '1.21.1',
+        minecraft_differs: false,
+        loader_differs: true,
+      }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    const block = screen.getByTestId('migration-pack-block').textContent ?? '';
+    expect(block).toContain('built for NeoForge');
+    expect(block).not.toContain('built for Minecraft');
+    expect(block).toContain('different mod loader');
+    expect(screen.getByTestId('migration-pack-restore').textContent).toContain('Restore NeoForge');
+  });
+
+  it('offers only the version switch when the platform matches but other versions exist', async () => {
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({
+        ...DIFFERS,
+        minecraft_differs: false,
+        instance_mc: '26.2',
+        other_versions_for_instance: 3,
+      }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    expect(screen.queryByTestId('migration-pack-restore')).toBeNull();
+    expect(screen.getByTestId('migration-pack-switch').textContent).toContain(
+      '3 for Minecraft 26.2',
+    );
+    expect(screen.getByTestId('migration-pack-block').textContent).not.toContain(
+      'no other version',
+    );
+  });
+
+  it('a cancelled restore confirm closes and applies nothing', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    await waitFor(() => expect(screen.getByTestId('pack-restore-dialog')).toBeTruthy());
+    const restoreDialog = screen.getByTestId('pack-restore-dialog');
+    const cancel = Array.from(restoreDialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Cancel',
+    ) as HTMLButtonElement;
+    await fireEvent.click(cancel);
+
+    await waitFor(() => expect(screen.queryByTestId('pack-restore-dialog')).toBeNull());
+    expect(applyModpackUpdate).not.toHaveBeenCalled();
+    expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('a double click starts one restore, not two', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    let resolveList: (v: unknown) => void = () => {};
+    listInstances.mockReturnValue(
+      new Promise((r) => {
+        resolveList = r;
+      }),
+    );
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    resolveList({ status: 'ok', data: [INSTANCE] });
+
+    await waitFor(() => expect(screen.getByTestId('pack-restore-dialog')).toBeTruthy());
+    expect(listInstances).toHaveBeenCalledTimes(1);
+    expect(modpackFetchToTemp).toHaveBeenCalledTimes(1);
+  });
+
+  it('while a restore writes, Apply is held back but the dialog still closes', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    let finishApply: (v: unknown) => void = () => {};
+    applyModpackUpdate.mockReturnValue(
+      new Promise((r) => {
+        finishApply = r;
+      }),
+    );
+    const onClose = vi.fn();
+    renderDialog(vi.fn(), onClose);
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    // A stranded choice makes the dialog's own Apply available…
+    await fireEvent.click(screen.getByTestId('migration-disposition-disable-p1'));
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    await waitFor(() => expect(screen.getByTestId('pack-restore-confirm')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('pack-restore-confirm'));
+    await waitFor(() => expect(applyModpackUpdate).toHaveBeenCalledTimes(1));
+
+    // …but not while the pack is being re-applied to the same instance.
+    expect((screen.getByTestId('migration-apply-btn') as HTMLButtonElement).disabled).toBe(true);
+    // Closing is never held hostage: a restore queued behind another long task
+    // could otherwise lock the window until that task ends.
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    finishApply({ status: 'ok' });
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+  });
+
+  it('while the migration applies, the restore cannot start', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    modsApplyMcMigration.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-disposition-disable-p1'));
+    await fireEvent.click(screen.getByTestId('migration-apply-btn'));
+    await waitFor(() => expect(modsApplyMcMigration).toHaveBeenCalledTimes(1));
+
+    expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(true);
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    expect(listInstances).not.toHaveBeenCalled();
+  });
+
+  it('names both Minecraft and the loader when both differ', async () => {
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({ ...DIFFERS, instance_loader: 'quilt', loader_differs: true }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    const block = screen.getByTestId('migration-pack-block').textContent ?? '';
+    expect(block).toContain('built for Minecraft 26.2 · Fabric');
+    expect(block).toContain('Minecraft 26.1.1 with a different mod loader');
+    expect(screen.getByTestId('migration-pack-restore').textContent).toContain(
+      'Restore Minecraft 26.2 · Fabric',
+    );
+  });
+
+  it('does not name one loader when the pack version lists several', async () => {
+    // The archive pins one of them; which, the list cannot say.
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({
+        ...DIFFERS,
+        current: { ...CURRENT, game_versions: ['1.21.1'], loaders: ['fabric', 'quilt'] },
+        instance_mc: '1.21.1',
+        instance_loader: 'neoforge',
+        minecraft_differs: false,
+        loader_differs: true,
+      }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    expect(screen.getByTestId('migration-pack-restore').textContent).toContain(
+      "Restore the modpack's platform",
+    );
+    expect(screen.getByTestId('migration-pack-block').textContent).not.toContain('Fabric, Quilt');
+  });
+
+  it('claims no loader match for a source that lists no loaders', async () => {
+    // ATLauncher: versions carry no loader, so the count is per Minecraft only.
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({
+        ...DIFFERS,
+        current: { ...CURRENT, loaders: [] },
+        alternatives_by_loader: false,
+      }),
+    });
+    const onClose = vi.fn();
+    renderDialog(vi.fn(), onClose);
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    const block = screen.getByTestId('migration-pack-block').textContent ?? '';
+    expect(block).toContain('no other version for Minecraft 26.1.1.');
+    expect(block).not.toContain('·');
+  });
+
+  it('deep-links without a loader filter when the source lists no loaders', async () => {
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({
+        ...DIFFERS,
+        current: { ...CURRENT, loaders: [] },
+        other_versions_for_instance: 1,
+        alternatives_by_loader: false,
+      }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-switch')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-switch'));
+    expect(modpacksNav.value).toEqual({
+      openDrawerForInstance: 'inst-1',
+      openSwitch: { mcFilter: '26.1.1' },
+    });
+  });
+
+  it('names the loader in the count whenever any pack version lists one', async () => {
+    // A CurseForge pack whose installed file is untagged but whose newer files
+    // carry loader tags: the backend counted per loader, so the copy says so.
+    modsPlanMcMigration.mockResolvedValue({
+      status: 'ok',
+      data: packPlan({ ...DIFFERS, current: { ...CURRENT, loaders: [] } }),
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-block')).toBeTruthy());
+    expect(screen.getByTestId('migration-pack-block').textContent).toContain(
+      'no other version for Minecraft 26.1.1 · Fabric',
+    );
+  });
+
+  it('a dialog opened while the pack update still runs holds its writes and re-plans after', async () => {
+    // Closing never waits for a restore, so the dialog can be reopened while
+    // that task is queued or running: the registry, not the component, knows.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    void start({
+      id: 'pack-update-1',
+      kind: 'pack-update',
+      scope: { instanceId: 'inst-1' },
+      title: 'Fabulously Optimized',
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-disposition-disable-p1'));
+    expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('migration-apply-btn') as HTMLButtonElement).disabled).toBe(true);
+
+    finish('pack-update-1', { state: 'ok' });
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+  });
+
+  it('a restore that ends after the dialog closed still reports, but does not re-plan', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    let finishApply: (v: unknown) => void = () => {};
+    applyModpackUpdate.mockReturnValue(
+      new Promise((r) => {
+        finishApply = r;
+      }),
+    );
+    const onApplied = vi.fn();
+    const changedBefore = instancesChanged.value;
+    const { unmount } = renderDialog(onApplied);
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    await waitFor(() => expect(screen.getByTestId('pack-restore-confirm')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('pack-restore-confirm'));
+    await waitFor(() => expect(applyModpackUpdate).toHaveBeenCalledTimes(1));
+
+    unmount();
+    finishApply({ status: 'ok' });
+
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+    expect(instancesChanged.value).toBe(changedBefore + 1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(modsPlanMcMigration).toHaveBeenCalledTimes(1);
+  });
+
+  it('after a restore the user dropped from the queue, an outside pack update still re-plans', async () => {
+    // The dialog's own restore marks the next pack-update end as its own; a
+    // restore that never reached the registry must not keep that mark, or the
+    // next update from the drawer would leave this plan describing the old
+    // platform.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({ status: 'ok', data: 'C:/tmp/fo.mrpack' });
+    modpackComputeUpdate.mockResolvedValue({ status: 'ok', data: RESTORE_DIFF });
+    applyModpackUpdate.mockResolvedValue({ status: 'cancelled' });
+    const onApplied = vi.fn();
+    renderDialog(onApplied);
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    await waitFor(() => expect(screen.getByTestId('pack-restore-confirm')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('pack-restore-confirm'));
+    await waitFor(() => expect(applyModpackUpdate).toHaveBeenCalledTimes(1));
+    // Not an error, not applied: the block offers the restore again.
+    await waitFor(() =>
+      expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(screen.queryByTestId('migration-pack-error')).toBeNull();
+    expect(onApplied).not.toHaveBeenCalled();
+
+    void start({
+      id: 'pack-update-outside',
+      kind: 'pack-update',
+      scope: { instanceId: 'inst-1' },
+      title: 'Fabulously Optimized',
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+    await waitFor(() =>
+      expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(
+        true,
+      ),
+    );
+    finish('pack-update-outside', { state: 'ok' });
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+  });
+
+  it('holds its writes for a pack update queued behind another task of the instance', async () => {
+    // `taskFor` answers with the FIRST active task of a scope: a game install
+    // running ahead of the queued restore would hide it.
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    void start({
+      id: 'install-1',
+      kind: 'game-install',
+      scope: { instanceId: 'inst-1' },
+      title: 'Install',
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+    void start({
+      id: 'pack-update-queued',
+      kind: 'pack-update',
+      scope: { instanceId: 'inst-1' },
+      title: 'Fabulously Optimized',
+      phase: null,
+      progress: null,
+      lane: 'serial',
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(true);
+    finish('install-1', { state: 'ok' });
+    finish('pack-update-queued', { state: 'ok' });
+    await waitFor(() => expect(modsPlanMcMigration).toHaveBeenCalledTimes(2));
+  });
+
+  it('says why when reading the instance for a restore throws', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockRejectedValue(new Error('bridge down'));
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    expect((await screen.findByTestId('migration-pack-error')).textContent).toContain(
+      'bridge down',
+    );
+    expect((screen.getByTestId('migration-pack-restore') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('shows why a restore could not start', async () => {
+    modsPlanMcMigration.mockResolvedValue({ status: 'ok', data: packPlan(DIFFERS) });
+    listInstances.mockResolvedValue({ status: 'ok', data: [INSTANCE] });
+    modpackFetchToTemp.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'network', url: 'https://cdn.modrinth.com', details: 'offline' },
+    });
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId('migration-pack-restore')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('migration-pack-restore'));
+    await waitFor(() => expect(screen.getByTestId('migration-pack-error')).toBeTruthy());
+    expect(screen.queryByTestId('pack-restore-dialog')).toBeNull();
   });
 });

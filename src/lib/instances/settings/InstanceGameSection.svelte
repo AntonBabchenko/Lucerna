@@ -171,6 +171,30 @@
     }
   }
 
+  // After the migration dialog changed something. A mod apply leaves the
+  // instance record as it was, but the dialog's pack restore rewrites its
+  // Minecraft / loader, and `instance` catches up only through the page's own
+  // async refetch: read the record fresh, as the MC / loader changes pass their
+  // new values explicitly.
+  async function refreshAfterMigration(id: string) {
+    try {
+      const listed = await commands.listInstances();
+      if (isStale(id)) return;
+      const fresh = listed.status === 'ok' ? listed.data.find((i) => i.id === id) : undefined;
+      if (!fresh) {
+        // Not knowing the platform is not a pass: the quiet "couldn't check".
+        compatChecked = false;
+        compatCheckFailed = true;
+        return;
+      }
+      await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
+    } catch {
+      if (isStale(id)) return;
+      compatChecked = false;
+      compatCheckFailed = true;
+    }
+  }
+
   // Pending pack-detach question. `instanceId` is fixed when the question is
   // ASKED: the answer must land on the instance it was asked about.
   type PendingChange =
@@ -560,7 +584,7 @@
     onApplied={() => {
       // Refresh the summary so it reflects what the migration just fixed — only
       // while that instance is still the one shown (see applyMcChange).
-      if (!isStale(target)) void runModCompatCheck(target, instance.mc_version, instance.loader);
+      if (!isStale(target)) void refreshAfterMigration(target);
     }}
   />
 {/if}

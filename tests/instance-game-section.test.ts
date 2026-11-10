@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { __resetCfgQueueForTest } from '$lib/instances/settings/cfg-queue.svelte';
 import InstanceGameSection from '$lib/instances/settings/InstanceGameSection.svelte';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
-import { invalidateCompatScan } from '$lib/mods/compat-scan.svelte';
+import { ensureCompatScan, invalidateCompatScan } from '$lib/mods/compat-scan.svelte';
 import * as toasts from '$lib/toasts/toasts.svelte';
 
 const m = vi.hoisted(() => ({
@@ -37,6 +37,9 @@ const m = vi.hoisted(() => ({
   changeInstanceMc: vi.fn(),
   detachInstancePack: vi.fn(),
   scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+  // Read by the migration dialog's follow-up; each test that reaches it says
+  // what the record holds.
+  listInstances: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   checkInstanceModCompat: vi
     .fn()
     .mockResolvedValue({ status: 'ok', data: { rows: [], loader_outcome: null } }),
@@ -684,6 +687,7 @@ describe('the Game section', () => {
 
     beforeEach(() => {
       migration.props = null;
+      m.listInstances.mockResolvedValue({ status: 'ok', data: [forgeInstance] });
     });
 
     it('is opened for the instance shown, and its Apply rescans that instance', async () => {
@@ -704,6 +708,32 @@ describe('the Game section', () => {
       const before = m.scanInstanceModCompat.mock.calls.length;
       applied?.();
       await flush();
+      expect(m.scanInstanceModCompat.mock.calls.length).toBe(before);
+    });
+
+    it('after a pack restore, keys the rescan by the platform the record now has', async () => {
+      // The dialog's pack restore rewrites Minecraft / loader; the `instance`
+      // prop catches up only after the page refetches. A rescan keyed by the
+      // old prop would leave the shared scan claiming the old platform, and the
+      // next surface to ask for the new one would scan all over again.
+      await openPlan();
+      m.listInstances.mockResolvedValue({
+        status: 'ok',
+        data: [{ ...forgeInstance, mc_version: '1.21.1' }],
+      });
+      const before = m.scanInstanceModCompat.mock.calls.length;
+      migration.props?.onApplied?.();
+      await waitFor(() => expect(m.scanInstanceModCompat.mock.calls.length).toBe(before + 1));
+      await ensureCompatScan('inst-forge', '1.21.1', 'forge');
+      expect(m.scanInstanceModCompat.mock.calls.length).toBe(before + 1);
+    });
+
+    it('says it could not check when the record cannot be read after an apply', async () => {
+      await openPlan();
+      m.listInstances.mockResolvedValue({ status: 'error', error: { kind: 'io', details: 'x' } });
+      const before = m.scanInstanceModCompat.mock.calls.length;
+      migration.props?.onApplied?.();
+      expect(await screen.findByText(/couldn't check mod compatibility/i)).toBeTruthy();
       expect(m.scanInstanceModCompat.mock.calls.length).toBe(before);
     });
   });

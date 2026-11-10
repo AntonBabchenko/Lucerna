@@ -26,6 +26,7 @@ use crate::mods::compat::{
 };
 use crate::mods::deps::ProjectKey;
 use crate::mods::mc_compat::{PlatformAxis, PlatformVerdict};
+use crate::mods::modpack::schema::ModpackVersionEntry;
 use crate::mods::platform::{ModSource, ModVersion};
 
 // =========================================================================
@@ -150,6 +151,10 @@ pub struct McMigrationPlan {
     /// Verdict was `Unknown` — surfaced in the summary, never folded into
     /// `fits`. A check that did not run must not read as a check that passed.
     pub unjudged: Vec<UnjudgedRow>,
+    /// What the imported modpack is built for, next to what the instance runs.
+    /// Filled by the command layer only when a pack-origin mod is stranded and
+    /// the instance records which pack version it came from; see [`PackVerdict`].
+    pub pack: Option<PackVerdict>,
 }
 
 /// Which part of planning is running — the dialog's loading label.
@@ -168,6 +173,103 @@ pub struct MigrationPlanProgress {
     pub phase: MigrationPlanPhase,
     pub done: u32,
     pub total: u32,
+}
+
+/// The pack-level half of the plan: whether the instance still runs the
+/// platform its installed modpack version targets. The per-mod rows cannot say
+/// this — a pack-owned mod is stranded, but the remedy is the pack's, not the
+/// mod's.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PackVerdict {
+    Known {
+        pack_name: String,
+        pack_version: String,
+        /// The installed pack version's own entry — what a restore re-applies.
+        current: ModpackVersionEntry,
+        instance_mc: String,
+        /// The instance's loader as the pack sources name it (`fabric`,
+        /// `neoforge`, …).
+        instance_loader: String,
+        /// The instance runs a Minecraft version the installed pack version
+        /// does not target.
+        minecraft_differs: bool,
+        /// The instance runs a loader the installed pack version does not
+        /// target. Only ever true when the source lists loaders at all.
+        loader_differs: bool,
+        /// Other published versions of the pack an instance on this platform
+        /// could switch to: they target `instance_mc`, and the instance's
+        /// loader too wherever a version lists loaders.
+        other_versions_for_instance: u32,
+        /// Some version in the list names its loaders, so the count above did
+        /// filter by loader for those — the UI names the loader with the count
+        /// exactly when this is true, never a loader match it did not check.
+        alternatives_by_loader: bool,
+    },
+    /// The version list could not be fetched, or does not contain the
+    /// installed version. Never read as "matches" or as "differs".
+    Unavailable { pack_name: String },
+}
+
+/// Judge the instance's platform against the installed pack version. Pure.
+///
+/// `versions` is the pack's published version list, `None` when fetching it
+/// failed. Minecraft decides first; a loader is compared only when the source
+/// lists loaders at all (ATLauncher lists none), because an empty list cannot
+/// contradict anything.
+pub fn pack_verdict(
+    versions: Option<&[ModpackVersionEntry]>,
+    current_version_id: &str,
+    pack_name: &str,
+    pack_version: &str,
+    instance_mc: &str,
+    instance_loader_slug: &str,
+) -> PackVerdict {
+    let unavailable = || PackVerdict::Unavailable {
+        pack_name: pack_name.to_string(),
+    };
+    let Some(versions) = versions else {
+        return unavailable();
+    };
+    let Some(current) = versions.iter().find(|v| v.id == current_version_id) else {
+        return unavailable();
+    };
+    let targets_instance_mc =
+        |v: &ModpackVersionEntry| v.game_versions.iter().any(|g| g == instance_mc);
+    // An empty loader list cannot contradict the instance's loader.
+    let excludes_instance_loader = |v: &ModpackVersionEntry| {
+        !v.loaders.is_empty()
+            && !v
+                .loaders
+                .iter()
+                .any(|l| l.eq_ignore_ascii_case(instance_loader_slug))
+    };
+    let other_versions = versions
+        .iter()
+        .filter(|v| {
+            v.id != current_version_id && targets_instance_mc(v) && !excludes_instance_loader(v)
+        })
+        .count();
+    PackVerdict::Known {
+        pack_name: pack_name.to_string(),
+        // The instance record names the installed version; when it does not,
+        // the list entry says the same thing (a blank would read "Pack ").
+        pack_version: if pack_version.is_empty() {
+            current.version_number.clone()
+        } else {
+            pack_version.to_string()
+        },
+        current: current.clone(),
+        instance_mc: instance_mc.to_string(),
+        instance_loader: instance_loader_slug.to_string(),
+        // Like the loader: an entry that names no Minecraft version cannot
+        // contradict the instance's.
+        minecraft_differs: !current.game_versions.is_empty() && !targets_instance_mc(current),
+        loader_differs: excludes_instance_loader(current),
+        // A pack's version list is a few hundred entries at most.
+        other_versions_for_instance: u32::try_from(other_versions).unwrap_or(u32::MAX),
+        alternatives_by_loader: versions.iter().any(|v| !v.loaders.is_empty()),
+    }
 }
 
 // =========================================================================
@@ -636,6 +738,219 @@ mod tests {
     use super::*;
     use crate::mods::mc_compat::PlatformAxis;
     use crate::mods::platform::{LoaderKind, ModFile};
+
+    // ── the pack-level verdict ─────────────────────────────────────────────
+    fn pack_entry(id: &str, mc: &[&str], loaders: &[&str]) -> ModpackVersionEntry {
+        ModpackVersionEntry {
+            id: id.into(),
+            name: id.into(),
+            version_number: id.into(),
+            game_versions: mc.iter().map(|s| (*s).into()).collect(),
+            loaders: loaders.iter().map(|s| (*s).into()).collect(),
+            date_published: "2026-08-02T00:00:00Z".into(),
+        }
+    }
+
+    fn verdict_for(
+        versions: Option<&[ModpackVersionEntry]>,
+        instance_mc: &str,
+        loader: &str,
+    ) -> PackVerdict {
+        pack_verdict(
+            versions,
+            "cur",
+            "Fabulously Optimized",
+            "14.0.0-beta.4",
+            instance_mc,
+            loader,
+        )
+    }
+
+    #[test]
+    fn an_entry_naming_no_minecraft_version_does_not_contradict_the_instance() {
+        // A source that tags no game version: missing data, not a mismatch.
+        let list = [pack_entry("cur", &[], &["fabric"])];
+        match verdict_for(Some(&list), "26.1.1", "fabric") {
+            PackVerdict::Known {
+                minecraft_differs,
+                loader_differs,
+                ..
+            } => {
+                assert!(!minecraft_differs);
+                assert!(!loader_differs);
+            }
+            other => panic!("expected Known, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unrecorded_pack_version_is_named_from_the_list() {
+        let list = [pack_entry("cur", &["26.2"], &["fabric"])];
+        match pack_verdict(
+            Some(&list),
+            "cur",
+            "Fabulously Optimized",
+            "",
+            "26.1.1",
+            "fabric",
+        ) {
+            PackVerdict::Known { pack_version, .. } => assert_eq!(pack_version, "cur"),
+            other => panic!("expected Known, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_failed_version_request_is_unavailable_never_a_platform_claim() {
+        assert!(matches!(
+            verdict_for(None, "26.1.1", "fabric"),
+            PackVerdict::Unavailable { .. }
+        ));
+    }
+
+    #[test]
+    fn an_installed_version_missing_from_the_list_is_unavailable() {
+        let list = [pack_entry("other", &["26.2"], &["fabric"])];
+        assert!(matches!(
+            verdict_for(Some(&list), "26.1.1", "fabric"),
+            PackVerdict::Unavailable { .. }
+        ));
+    }
+
+    #[test]
+    fn a_minecraft_version_outside_the_packs_is_a_platform_difference() {
+        // Fabulously Optimized 14.0.0-beta.4 targets 26.2; the instance was
+        // re-versioned to 26.1.1 with the pack left attached.
+        let list = [pack_entry("cur", &["26.2"], &["fabric"])];
+        match verdict_for(Some(&list), "26.1.1", "fabric") {
+            PackVerdict::Known {
+                minecraft_differs,
+                loader_differs,
+                current,
+                instance_mc,
+                instance_loader,
+                pack_name,
+                pack_version,
+                ..
+            } => {
+                assert!(minecraft_differs);
+                assert!(!loader_differs);
+                assert_eq!(instance_loader, "fabric");
+                assert_eq!(current.id, "cur");
+                assert_eq!(instance_mc, "26.1.1");
+                assert_eq!(pack_name, "Fabulously Optimized");
+                assert_eq!(pack_version, "14.0.0-beta.4");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_listed_loader_that_differs_is_a_loader_difference_only() {
+        // The Minecraft version still matches — the UI must not call this a
+        // Minecraft mismatch.
+        let list = [pack_entry("cur", &["1.21.1"], &["neoforge"])];
+        assert!(matches!(
+            verdict_for(Some(&list), "1.21.1", "fabric"),
+            PackVerdict::Known {
+                minecraft_differs: false,
+                loader_differs: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn an_unlisted_loader_cannot_contradict_a_matching_minecraft() {
+        // ATLauncher lists no loaders at all.
+        let list = [pack_entry("cur", &["1.21.1"], &[])];
+        assert!(matches!(
+            verdict_for(Some(&list), "1.21.1", "neoforge"),
+            PackVerdict::Known {
+                minecraft_differs: false,
+                loader_differs: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn loader_comparison_ignores_case() {
+        let list = [pack_entry("cur", &["1.21.1"], &["NeoForge"])];
+        assert!(matches!(
+            verdict_for(Some(&list), "1.21.1", "neoforge"),
+            PackVerdict::Known {
+                loader_differs: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn other_versions_count_only_versions_for_the_instances_loader_too() {
+        // An instance moved from NeoForge to Fabric: another NeoForge build of
+        // the pack for the same Minecraft is no alternative. A source that
+        // lists no loaders cannot rule a version out.
+        let list = [
+            pack_entry("cur", &["1.21.1"], &["neoforge"]),
+            pack_entry("neo", &["1.21.1"], &["neoforge"]),
+            pack_entry("fab", &["1.21.1"], &["Fabric"]),
+            pack_entry("unlisted", &["1.21.1"], &[]),
+        ];
+        assert!(matches!(
+            verdict_for(Some(&list), "1.21.1", "fabric"),
+            PackVerdict::Known {
+                other_versions_for_instance: 2,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn alternatives_are_by_loader_as_soon_as_any_version_lists_one() {
+        // CurseForge: an untagged installed file next to loader-tagged ones —
+        // the count did filter by loader, so the UI must say so.
+        let mixed = [
+            pack_entry("cur", &["1.20.1"], &[]),
+            pack_entry("neo", &["1.20.1"], &["neoforge"]),
+        ];
+        assert!(matches!(
+            verdict_for(Some(&mixed), "1.20.1", "forge"),
+            PackVerdict::Known {
+                alternatives_by_loader: true,
+                other_versions_for_instance: 0,
+                ..
+            }
+        ));
+        let untagged = [
+            pack_entry("cur", &["1.20.1"], &[]),
+            pack_entry("old", &["1.20.1"], &[]),
+        ];
+        assert!(matches!(
+            verdict_for(Some(&untagged), "1.20.1", "forge"),
+            PackVerdict::Known {
+                alternatives_by_loader: false,
+                other_versions_for_instance: 1,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn other_versions_count_only_other_ids_for_the_instances_minecraft() {
+        let list = [
+            pack_entry("cur", &["26.2"], &["fabric"]),
+            pack_entry("a", &["26.1.1"], &["fabric"]),
+            pack_entry("b", &["26.1.1", "26.1.2"], &["fabric"]),
+            pack_entry("c", &["26.1.2"], &["fabric"]),
+        ];
+        assert!(matches!(
+            verdict_for(Some(&list), "26.1.1", "fabric"),
+            PackVerdict::Known {
+                other_versions_for_instance: 2,
+                ..
+            }
+        ));
+    }
 
     fn version(source: ModSource, project_id: &str, version_id: &str) -> ModVersion {
         ModVersion {
